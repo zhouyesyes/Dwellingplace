@@ -37,7 +37,7 @@ export const enabledTools = s => (s.tools || []).filter(t => !(s.disabledTools |
 
 const relayBase = () => (store.tools.relay?.url || "").trim().replace(/\/+$/, "");
 // 空的请求头不发（比如没填 token 的 Authorization）
-const headerObj = server => Object.fromEntries((server.headers || []).filter(h => h.key?.trim() && String(h.value ?? "").trim()).map(h => [h.key.trim(), h.value.trim()]));
+export const headerObj = server => Object.fromEntries((server.headers || []).filter(h => h.key?.trim() && String(h.value ?? "").trim()).map(h => [h.key.trim(), h.value.trim()]));
 
 // 发送一条 JSON-RPC 消息，返回 { status, sessionId, contentType, body }
 async function post(server, message, session) {

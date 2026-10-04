@@ -27,6 +27,7 @@ function defaults() {
     memories: [], // 记忆卡片：{ id, roleId, title, content, img, date, author: "me" | roleId, ts }
     tools: defaultTools(),
     mcpServers: [], // 见 lib/mcp.js
+    wake: { enabled: false, synced: false }, // 唤醒，见 lib/wake.js
     roles: [
       newRole({
         name: "小机",
@@ -78,9 +79,17 @@ export function newRole(over = {}) {
     lastThreadId: null,
     // 在这个角色面前的「我」
     me: { name: "", avatar: null, about: "" },
+    wake: newWake(),
+    wakeAlarms: [], // TA 自己定的闹钟（中转上的副本）
+    wakeLog: [], // 最近醒来的记录
     createdAt: Date.now(),
     ...over,
   };
+}
+
+// 唤醒设置：every 是分钟；unit 只是显示用（小时 / 分钟）
+export function newWake() {
+  return { enabled: false, intervalOn: true, every: 120, unit: "hour", jitter: 20, times: [], quiet: { enabled: true, from: "03:00", to: "10:00" } };
 }
 
 export const store = reactive(defaults());
@@ -153,11 +162,15 @@ function migrate() {
   store.events ??= [];
   store.memories ??= [];
   store.mcpServers ??= [];
+  store.wake ??= { enabled: false, synced: false };
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
   for (const s of store.mcpServers || []) s.disabledTools ??= [];
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.calPerDay ??= 3;
+    r.wake = { ...newWake(), ...(r.wake || {}) };
+    r.wakeAlarms ??= [];
+    r.wakeLog ??= [];
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
   }
   for (const a of store.apis) {

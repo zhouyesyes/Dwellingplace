@@ -14,7 +14,7 @@ const base = () => (store.tools.relay?.url || "").trim().replace(/\/+$/, "");
 
 export const searchEnabled = () => !!(store.tools.search?.enabled && base() && store.tools.relay?.token);
 
-async function call(path, body) {
+export async function relayCall(path, body, timeout = 25_000) {
   if (!base()) throw new Error("还没有填中转地址");
   let res;
   try {
@@ -26,7 +26,7 @@ async function call(path, body) {
         ...(store.tools.search?.key ? { "X-Search-Key": store.tools.search.key } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout?.(25_000),
+      signal: AbortSignal.timeout?.(timeout),
     });
   } catch {
     throw new Error("连不上中转（检查地址；workers.dev 在国内可能需要开 VPN）");
@@ -37,15 +37,15 @@ async function call(path, body) {
   return data;
 }
 
-export const relayPing = () => call("/ping");
+export const relayPing = () => relayCall("/ping");
 
 // 读一个网页的正文
 export function relayFetch(url, maxLength = 8000) {
-  return call("/fetch", { url, maxLength });
+  return relayCall("/fetch", { url, maxLength });
 }
 
 export function relaySearch(query) {
-  return call("/search", { provider: store.tools.search.provider, query, count: 5 });
+  return relayCall("/search", { provider: store.tools.search.provider, query, count: 5 });
 }
 
 // 给 AI 看的搜索结果

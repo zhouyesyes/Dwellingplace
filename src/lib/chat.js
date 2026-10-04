@@ -10,6 +10,7 @@ import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
+import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -25,10 +26,12 @@ export function visibleText(text) {
     .replace(SIG_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
+    .replace(ALARM_RE, "")
+    .replace(/\[不发消息\]/g, "")
     .replace(new RegExp(SEARCH_RE.source, "g"), "")
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -46,8 +49,10 @@ function canChangeSignature(role) {
   return Date.now() - (role.sigUpdatedAt || 0) >= (Number(role.sigCooldownHours) || 0) * 3600_000;
 }
 
-function buildSystem(role, messages) {
+// wake：给唤醒用（同步到中转）。时间、今天的日期、闹钟列表留成占位符，醒来时由中转填上
+export function buildSystem(role, messages, { wake = false } = {}) {
   const me = meOf(role);
+  const who = me.name ? `「${me.name}」` : "对方";
   const lastOther = [...messages].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
@@ -55,8 +60,8 @@ function buildSystem(role, messages) {
     me.about ? `\n# 关于${me.name || "对方"}\n${me.about}` : "",
     store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
     `\n# 现在`,
-    `现在是 ${nowForAI()}。`,
-    lastOther && Date.now() - lastOther.ts > 30 * 60_000
+    wake ? "{{NOW}}" : `现在是 ${nowForAI()}。`,
+    !wake && lastOther && Date.now() - lastOther.ts > 30 * 60_000
       ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
@@ -65,8 +70,9 @@ function buildSystem(role, messages) {
     canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
-    memoryForAI(role, me.name ? `「${me.name}」` : "对方"),
-    calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
+    memoryForAI(role, who),
+    calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
+    alarmForAI(role, who, wake),
     toolsForAI(serversFor(role.id)),
     searchEnabled()
       ? [
@@ -117,7 +123,7 @@ async function buildMessages(list) {
 // 当前显示的那条对话路径
 export const pathOf = (thread, all) => activePath(all, thread.sel || {});
 
-function touchThread(thread, all) {
+export function touchThread(thread, all) {
   const last = [...pathOf(thread, all)].reverse().find(m => !m.pending);
   thread.updatedAt = Date.now();
   if (last) {
@@ -233,25 +239,9 @@ export async function generate(thread, parentId) {
     }
     msg.text = text;
 
-    // 先处理记忆、日历标记，再处理签名
-    const mem = applyMemoryTags(role, msg.text);
-    const cal = applyCalendarTags(role, mem.text);
-    msg.text = cal.text;
-    const notes = [...mem.notes, ...cal.notes];
-    const sigs = [...msg.text.matchAll(SIG_RE)];
-    if (sigs.length) {
-      const newSig = sigs.at(-1)[1].trim();
-      msg.text = msg.text.replace(SIG_RE, "").replace(/\n{3,}/g, "\n\n").trim();
-      if (canChangeSignature(role) && newSig && newSig !== role.signature) {
-        role.signature = newSig;
-        role.sigUpdatedAt = Date.now();
-        notes.push(`${role.name} 把签名改成了「${role.signature}」`);
-      }
-    }
-    for (const n of notes) {
-      const note = typeof n === "string" ? { text: n } : n;
-      msg.notes.push({ text: note.text, ...(note.pending ? { calAction: { ...note.pending, roleId: role.id } } : {}) });
-    }
+    const alarm = await applyAlarmTags(role, msg.text);
+    msg.text = alarm.text;
+    msg.notes.push(...applyReplyTags(role, msg), ...alarm.notes.map(text => ({ text })));
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
       msg.text = visibleText(msg.text);
@@ -271,6 +261,28 @@ export async function generate(thread, parentId) {
     touchThread(thread, all);
     saveMessages(thread.id);
   }
+}
+
+// 回复里的记忆、日历、签名标记：执行，并从文字里去掉。返回要显示的提示
+export function applyReplyTags(role, msg) {
+  const mem = applyMemoryTags(role, msg.text);
+  const cal = applyCalendarTags(role, mem.text);
+  msg.text = cal.text;
+  const notes = [...mem.notes, ...cal.notes];
+  const sigs = [...msg.text.matchAll(SIG_RE)];
+  if (sigs.length) {
+    const newSig = sigs.at(-1)[1].trim();
+    msg.text = msg.text.replace(SIG_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+    if (canChangeSignature(role) && newSig && newSig !== role.signature) {
+      role.signature = newSig;
+      role.sigUpdatedAt = Date.now();
+      notes.push(`${role.name} 把签名改成了「${role.signature}」`);
+    }
+  }
+  return notes.map(n => {
+    const note = typeof n === "string" ? { text: n } : n;
+    return { text: note.text, ...(note.pending ? { calAction: { ...note.pending, roleId: role.id } } : {}) };
+  });
 }
 
 function describeError(err) {
