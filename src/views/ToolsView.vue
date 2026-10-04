@@ -1,35 +1,129 @@
 <script setup>
+import { ref } from "vue";
 import { store } from "../store/index.js";
+import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
+
+const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/cloudflare-relay.md";
+
+const pingState = ref(null); // { ok, text }
+const searchState = ref(null); // { ok, text, results }
+const testQuery = ref("今天的新闻");
+const busy = ref("");
+
+async function testRelay() {
+  busy.value = "ping";
+  pingState.value = null;
+  try {
+    const r = await relayPing();
+    const ready = r.ready?.length ? `Worker 里已经配好 Key 的：${r.ready.map(k => SEARCH_PROVIDERS[k]?.label || k).join("、")}` : "Worker 里还没有配搜索服务的 Key（可以在下面填）";
+    pingState.value = { ok: true, text: `连上了！${ready}` };
+  } catch (e) {
+    pingState.value = { ok: false, text: e.message };
+  } finally {
+    busy.value = "";
+  }
+}
+
+async function testSearch() {
+  busy.value = "search";
+  searchState.value = null;
+  try {
+    const r = await relaySearch(testQuery.value.trim() || "今天的新闻");
+    searchState.value = { ok: true, text: `搜到 ${r.results.length} 条结果`, results: r.results.slice(0, 3) };
+  } catch (e) {
+    searchState.value = { ok: false, text: e.message };
+  } finally {
+    busy.value = "";
+  }
+}
 </script>
 
 <template>
   <div class="page">
     <SubHeader title="工具" />
 
+    <!-- 中转 -->
+    <div class="section-label">中转（Cloudflare Worker）</div>
+    <div class="card body">
+      <p class="desc">
+        浏览器不能直接访问搜索服务，需要一个中转替它去请求。中转是你自己免费部署的，
+        <a :href="GUIDE" target="_blank">看部署步骤</a>。
+      </p>
+      <label class="field"><span>中转地址</span><input v-model.trim="store.tools.relay.url" class="input" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://qisuo-relay.xxx.workers.dev" /></label>
+      <label class="field"><span>中转密码</span><input v-model.trim="store.tools.relay.token" class="input" type="password" autocomplete="off" placeholder="和 Worker 里的 RELAY_TOKEN 一样" /></label>
+      <button class="btn soft wide" :disabled="!!busy || !store.tools.relay.url" @click="testRelay">{{ busy === "ping" ? "测试中…" : "测试连接" }}</button>
+      <p v-if="pingState" class="result" :class="{ bad: !pingState.ok }">{{ pingState.text }}</p>
+    </div>
+
+    <!-- 搜索 -->
+    <div class="section-label">联网搜索（通过中转，所有模型都能用）</div>
     <div class="list-card">
       <label class="list-row">
         <Icon name="globe" :size="20" />
-        <span class="grow">联网搜索<span class="sub">TA 需要时会自己上网查</span></span>
+        <span class="grow">开启联网搜索<span class="sub">TA 需要时会自己搜</span></span>
+        <input v-model="store.tools.search.enabled" type="checkbox" class="sw" />
+      </label>
+    </div>
+    <div class="card body" style="margin-top: 12px">
+      <div class="field">
+        <span>搜索服务</span>
+        <div class="providers">
+          <button v-for="(p, k) in SEARCH_PROVIDERS" :key="k" :class="{ on: store.tools.search.provider === k }" @click="store.tools.search.provider = k">
+            <b>{{ p.label }}</b><small>{{ p.note }}</small>
+          </button>
+        </div>
+      </div>
+      <label class="field">
+        <span>搜索服务的 Key</span>
+        <input v-model.trim="store.tools.search.key" class="input" type="password" autocomplete="off" placeholder="已在 Worker 里配好就留空" />
+      </label>
+      <div class="test-row">
+        <input v-model="testQuery" class="input" placeholder="测试搜点什么" />
+        <button class="btn soft" :disabled="!!busy || !store.tools.relay.url" @click="testSearch">{{ busy === "search" ? "搜索中…" : "测试搜索" }}</button>
+      </div>
+      <div v-if="searchState" class="result" :class="{ bad: !searchState.ok }">
+        {{ searchState.text }}
+        <ul v-if="searchState.results?.length">
+          <li v-for="r in searchState.results" :key="r.url"><a :href="r.url" target="_blank">{{ r.title }}</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 官方自带 -->
+    <div class="section-label">官方 Claude 自带搜索</div>
+    <div class="list-card">
+      <label class="list-row">
+        <Icon name="search" :size="20" />
+        <span class="grow">官方自带搜索<span class="sub">不需要中转；只对官方 API 有效</span></span>
         <input v-model="store.tools.webSearch" type="checkbox" class="sw" />
       </label>
     </div>
-    <p class="note">
-      只在 <b>Anthropic 格式</b>的 API 上生效，搜索由 Anthropic 那边完成，不需要自己的服务器；会额外产生搜索费用。
-      反代平台不一定支持，如果打开后聊天报错，就先关掉。
-    </p>
+    <p class="note">开了上面的「通过中转搜索」时，会优先用中转，这个开关就不起作用。</p>
 
     <div class="section-label">MCP</div>
     <div class="card body">
-      <p class="soon">接入 MCP 服务器（让 TA 能用更多外部工具）的入口先留在这里，之后再一个个接。</p>
+      <p class="desc" style="margin: 0">MCP 工具之后也会通过同一个中转接入，入口先留在这里。</p>
     </div>
   </div>
 </template>
 
 <style scoped>
-.sw { width: 20px; height: 20px; accent-color: var(--ink); }
-.note { font-size: 0.8rem; color: var(--text-3); line-height: 1.7; margin: 10px 8px 0; }
 .body { padding: 16px 18px; }
-.soon { margin: 0; font-size: 0.93rem; color: var(--text-2); line-height: 1.7; }
+.desc { margin: 0 0 12px; font-size: 0.87rem; color: var(--text-2); line-height: 1.7; }
+.desc a, .result a { color: var(--accent); }
+.wide { width: 100%; }
+.sw { width: 20px; height: 20px; accent-color: var(--ink); }
+.result { margin: 10px 2px 0; font-size: 0.87rem; color: #3f8f63; line-height: 1.6; word-break: break-all; }
+.result.bad { color: var(--danger); }
+.result ul { margin: 6px 0 0; padding-left: 18px; }
+.providers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.providers button { border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 1px; }
+.providers button b { font-size: 0.9rem; }
+.providers button small { font-size: 0.73rem; color: var(--text-3); line-height: 1.4; }
+.providers button.on { border-color: var(--ink); background: var(--card-2); }
+.test-row { display: flex; gap: 8px; }
+.test-row .btn { flex: none; }
+.note { font-size: 0.8rem; color: var(--text-3); line-height: 1.7; margin: 10px 8px 0; }
 </style>

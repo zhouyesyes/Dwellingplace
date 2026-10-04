@@ -24,7 +24,7 @@ function defaults() {
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
     events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
     memories: [], // 记忆卡片：{ id, roleId, title, content, img, date, author: "me" | roleId, ts }
-    tools: { webSearch: false },
+    tools: defaultTools(),
     roles: [
       newRole({
         name: "小机",
@@ -38,6 +38,14 @@ function defaults() {
     apis: [],
     defaultApiId: null,
     usage: {}, // { "2026-10-04": { [apiId]: { input, output, calls } } }
+  };
+}
+
+function defaultTools() {
+  return {
+    webSearch: false, // 官方 Claude 自带的搜索
+    relay: { url: "", token: "" }, // Cloudflare Worker 中转
+    search: { enabled: false, provider: "tavily", key: "" }, // 通过中转搜索（所有模型都能用）
   };
 }
 
@@ -119,7 +127,7 @@ function migrate() {
   store.anniversaries ??= [];
   store.events ??= [];
   store.memories ??= [];
-  store.tools ??= { webSearch: false };
+  store.tools = { ...defaultTools(), ...(store.tools || {}) };
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };

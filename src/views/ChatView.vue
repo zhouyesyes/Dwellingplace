@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from "vue";
+import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS } from "../store/index.js";
 import { generating, sendMessage, regenerate, editAndResend, deleteMessage, splitBubbles, fileToAttachment } from "../lib/chat.js";
@@ -197,6 +197,8 @@ const theirBubble = computed(() => {
   return { "--their": c, "--their-text": lum < 0.55 ? "#ffffff" : "var(--text)" };
 });
 
+const openSources = reactive({});
+
 // ---------- 消息操作 ----------
 const actionMsg = ref(null);
 const editing = ref(null); // { msg, text }
@@ -269,7 +271,14 @@ const back = () => goBack(router, "/chats");
         </div>
 
         <template v-for="it in items" :key="it.type === 'event' ? it.m.id : it.key">
-          <div v-if="it.type === 'event'" class="event"><span>{{ it.m.text }}</span></div>
+          <div v-if="it.type === 'event'" class="event">
+            <span :class="{ link: it.m.sources?.length }" @click="it.m.sources?.length && (openSources[it.m.id] = !openSources[it.m.id])">
+              {{ it.m.text }}<template v-if="it.m.sources?.length"> {{ openSources[it.m.id] ? "▴" : "▾" }}</template>
+            </span>
+            <div v-if="openSources[it.m.id]" class="sources">
+              <a v-for="s in it.m.sources" :key="s.url" :href="s.url" target="_blank" rel="noopener">{{ s.title || s.url }}</a>
+            </div>
+          </div>
 
           <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'">
             <div class="ava">
@@ -443,6 +452,9 @@ const back = () => goBack(router, "/chats");
 .warn { color: var(--danger); font-size: 0.867rem; }
 
 .event { text-align: center; }
+.event span.link { cursor: pointer; }
+.sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }
+.sources a { font-size: 0.75rem; color: var(--accent); background: rgba(255, 255, 255, .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .event span { font-size: 0.8rem; color: var(--text-2); background: rgba(255, 255, 255, .75); padding: 3px 12px; border-radius: 999px; }
 
 .group { display: flex; gap: 10px; align-items: flex-start; }

@@ -7,12 +7,15 @@ import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
+import { searchEnabled, relaySearch, formatResults } from "./search.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
 
 const HISTORY_LIMIT = 80;
 const SIG_RE = /\n?\s*\[签名[:：]\s*([^\]\n]{1,40})\]\s*$/;
+const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
+const MAX_SEARCHES = 2;
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
@@ -20,7 +23,8 @@ export function visibleText(text) {
     .replace(SIG_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
-    .replace(/\n?\s*\[(签|记|改|删)[^\]]*$/, "")
+    .replace(new RegExp(SEARCH_RE.source, "g"), "")
+    .replace(/\n?\s*\[(签|记|改|删|搜)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -58,6 +62,13 @@ function buildSystem(role, messages) {
       : `现在不能更改签名。`,
     memoryForAI(role, me.name ? `「${me.name}」` : "对方"),
     calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
+    searchEnabled()
+      ? [
+          `\n# 联网搜索`,
+          `你可以上网搜索。需要最新信息、事实核对或你不确定的事情时，只回复一行：[搜索:关键词]（不要写别的内容），系统会把搜索结果发给你，你再根据结果回复。`,
+          `一次只搜一个关键词；普通聊天不需要搜索。`,
+        ].join("\n")
+      : "",
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -118,13 +129,43 @@ export async function generate(thread) {
     const system = buildSystem(role, list);
     const messages = await buildMessages(list);
     list.push(msg);
-    const { text, usage } = await streamChat({
-      api, model, system, messages, signal: ctrl.signal,
-      webSearch: !!store.tools?.webSearch && api?.type === "anthropic",
-      onText: d => { msg.text += d; },
-    });
-    msg.text = text || msg.text;
-    if (api) recordUsage(api.id, model, usage.input, usage.output);
+    const useRelaySearch = searchEnabled();
+    let convo = messages;
+    let text = "";
+    for (let round = 0; ; round++) {
+      const res = await streamChat({
+        api, model, system, messages: convo, signal: ctrl.signal,
+        // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
+        webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
+        onText: d => { msg.text += d; },
+      });
+      text = res.text || msg.text;
+      if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);
+
+      // AI 要搜索：网页通过中转去搜，再把结果交回给 AI
+      const q = useRelaySearch && round < MAX_SEARCHES && text.match(SEARCH_RE)?.[1]?.trim();
+      if (!q) break;
+      const ev = reactive({ id: uid(), from: "event", text: `${role.name} 正在搜索「${q}」…`, ts: Date.now() });
+      list.splice(list.indexOf(msg), 0, ev);
+      msg.text = "";
+      let found;
+      try {
+        const r = await relaySearch(q);
+        ev.text = `${role.name} 搜索了「${q}」· ${r.results.length} 条结果`;
+        ev.sources = r.results.map(x => ({ title: x.title, url: x.url }));
+        found = formatResults(r.results);
+      } catch (e) {
+        ev.text = `搜索「${q}」失败：${e.message}`;
+        found = `（搜索失败：${e.message}。请告诉对方没能搜到，凭已知的回答。）`;
+      }
+      if (ctrl.signal.aborted) break;
+      convo = [
+        ...convo,
+        { role: "assistant", parts: [{ type: "text", text: `[搜索:${q}]` }] },
+        { role: "user", parts: [{ type: "text", text: `【搜索结果：${q}】\n${found}\n\n（以上是系统给你的搜索结果，不是对方说的话。请根据结果自然地回复对方，需要时可以提到来源。）` }] },
+      ];
+    }
+    msg.text = text;
 
     // 先处理日历标记，签名标记要在最末尾才认
     const mem = applyMemoryTags(role, msg.text);
