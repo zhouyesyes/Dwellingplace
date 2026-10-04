@@ -6,6 +6,8 @@ import { API_TYPES, newApi, fetchModels } from "../lib/providers.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
+import Sheet from "../components/Sheet.vue";
+import Icon from "../components/Icon.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -58,6 +60,23 @@ const usageWeek = computed(() => {
   return out;
 });
 const weekMax = computed(() => Math.max(1, ...usageWeek.value.map(d => d.total)));
+
+// ---------- 选择默认模型 ----------
+const pickerOpen = ref(false);
+const query = ref("");
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  return q ? form.models.filter(m => m.toLowerCase().includes(q)) : form.models;
+});
+async function openPicker() {
+  query.value = "";
+  if (!form.models.length) await pullModels();
+  if (form.models.length) pickerOpen.value = true;
+}
+function pickDefault(m) {
+  form.model = m;
+  pickerOpen.value = false;
+}
 
 async function pullModels() {
   loading.value = true;
@@ -125,10 +144,10 @@ function remove() {
       <div class="field">
         <span>默认模型</span>
         <div class="key-row">
-          <input v-model="form.model" class="input" list="model-list" autocapitalize="off" placeholder="手动填写或拉取" />
-          <button class="btn soft small" :disabled="loading" @click="pullModels">{{ loading ? "拉取中…" : "拉取模型" }}</button>
+          <input v-model="form.model" class="input" autocapitalize="off" autocorrect="off" placeholder="手动填写或从列表选择" />
+          <button class="btn soft small" :disabled="loading" @click="openPicker">{{ loading ? "拉取中…" : "选择" }}</button>
         </div>
-        <datalist id="model-list"><option v-for="m in form.models" :key="m" :value="m" /></datalist>
+        <small>点「选择」会拉取这个接口的模型列表。</small>
       </div>
 
       <div class="field">
@@ -184,6 +203,21 @@ function remove() {
       </label>
     </div>
 
+    <Sheet :open="pickerOpen" title="选择默认模型" @close="pickerOpen = false">
+      <div class="picker-top">
+        <input v-model="query" class="input" placeholder="搜索模型" autocapitalize="off" autocorrect="off" />
+        <button class="btn soft small" :disabled="loading" @click="pullModels">{{ loading ? "…" : "重新拉取" }}</button>
+      </div>
+      <div class="list-card flat picker-list">
+        <button v-for="m in filtered" :key="m" class="list-row" :class="{ cur: form.model === m }" @click="pickDefault(m)">
+          <span class="grow">{{ m }}</span>
+          <span v-if="form.favModels.includes(m)" class="star">★</span>
+          <Icon v-if="form.model === m" name="check" :size="18" />
+        </button>
+      </div>
+      <p v-if="!filtered.length" class="empty-hint">没有匹配的模型</p>
+    </Sheet>
+
     <p class="note">密钥只保存在这台设备的浏览器里，由浏览器直接发给接口。</p>
 
     <div v-if="!isNew" class="danger-zone"><button class="btn danger" @click="remove">删除这个 API</button></div>
@@ -212,6 +246,13 @@ function remove() {
 .u-track { flex: 1; height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
 .u-track i { display: block; height: 100%; border-radius: 4px; background: var(--accent); opacity: .55; }
 .u-val { width: 52px; text-align: right; color: var(--text-2); }
+.picker-top { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.picker-top .btn { flex: none; }
+.list-card.flat { box-shadow: none; border: 1px solid var(--line); }
+.picker-list .list-row { min-height: 46px; padding: 10px 14px; font-size: 0.93rem; }
+.picker-list .list-row .grow { white-space: normal; word-break: break-all; }
+.picker-list .cur { background: var(--card-2); font-weight: 600; }
+.star { color: #e0b43c; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 0.933rem; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--ink); }
 .note { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 18px 0; }

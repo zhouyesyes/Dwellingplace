@@ -50,7 +50,15 @@ function toAnthropicContent(parts) {
   });
 }
 
-async function anthropicStream({ api, model, system, messages, signal, onText }) {
+// 较新的模型用带动态过滤的搜索工具，老模型用基础版
+const NEW_SEARCH_MODELS = /^claude-(fable-5|mythos-5|opus-5|opus-4-[6-9]|sonnet-5|sonnet-4-6)/;
+const searchTool = model => ({
+  type: NEW_SEARCH_MODELS.test(model) ? "web_search_20260209" : "web_search_20250305",
+  name: "web_search",
+  max_uses: 3,
+});
+
+async function anthropicStream({ api, model, system, messages, signal, onText, webSearch }) {
   const client = anthropicClient(api);
   const params = {
     model,
@@ -59,23 +67,31 @@ async function anthropicStream({ api, model, system, messages, signal, onText })
     messages: messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) })),
   };
   if (api.effort) params.output_config = { effort: api.effort };
+  if (webSearch) params.tools = [searchTool(model)];
 
-  let stream;
-  if (isOfficialAnthropic(api) && FALLBACK_MODELS.test(model)) {
-    stream = client.beta.messages.stream(
-      { ...params, fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] },
-      { signal },
-    );
-  } else {
-    stream = client.messages.stream(params, { signal });
+  let text = "";
+  const usage = { input: 0, output: 0 };
+  // 联网搜索时服务端可能会暂停（pause_turn），把已有内容带上继续
+  for (let round = 0; round < 4; round++) {
+    let stream;
+    if (isOfficialAnthropic(api) && FALLBACK_MODELS.test(model)) {
+      stream = client.beta.messages.stream(
+        { ...params, fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] },
+        { signal },
+      );
+    } else {
+      stream = client.messages.stream(params, { signal });
+    }
+    stream.on("text", d => onText(d));
+    const msg = await stream.finalMessage();
+    if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
+    text += msg.content.filter(b => b.type === "text").map(b => b.text).join("");
+    usage.input += msg.usage?.input_tokens ?? 0;
+    usage.output += msg.usage?.output_tokens ?? 0;
+    if (msg.stop_reason !== "pause_turn") break;
+    params.messages = [...params.messages, { role: "assistant", content: msg.content }];
   }
-  stream.on("text", d => onText(d));
-  const msg = await stream.finalMessage();
-  if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
-  return {
-    text: msg.content.filter(b => b.type === "text").map(b => b.text).join(""),
-    usage: { input: msg.usage?.input_tokens ?? 0, output: msg.usage?.output_tokens ?? 0 },
-  };
+  return { text, usage };
 }
 
 // ---------------- OpenAI 兼容 ----------------

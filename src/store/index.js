@@ -23,6 +23,8 @@ function defaults() {
     chick: { state: "idle" },
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
     events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
+    memories: [], // 记忆卡片：{ id, roleId, title, content, img, date, author: "me" | roleId, ts }
+    tools: { webSearch: false },
     roles: [
       newRole({
         name: "小机",
@@ -116,6 +118,8 @@ function migrate() {
   store.chick ??= { state: "idle" };
   store.anniversaries ??= [];
   store.events ??= [];
+  store.memories ??= [];
+  store.tools ??= { webSearch: false };
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };

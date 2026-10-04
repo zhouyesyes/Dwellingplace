@@ -14,6 +14,8 @@ export const router = createRouter({
     { path: "/settings", component: SettingsView, meta: { tab: "settings" } },
     { path: "/settings/role/:id", component: () => import("./views/RoleEditView.vue") },
     { path: "/settings/api/:id", component: () => import("./views/ApiEditView.vue") },
+    { path: "/settings/backup", component: () => import("./views/BackupView.vue") },
+    { path: "/settings/tools", component: () => import("./views/ToolsView.vue") },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });
