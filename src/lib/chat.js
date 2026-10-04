@@ -12,7 +12,8 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
 
-const SIG_RE = /\n?\s*\[签名[:：]\s*([^\]\n]{1,40})\]\s*$/;
+// 签名标记写在哪里都认（取最后一个）
+const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const MAX_SEARCHES = 2;
 
@@ -57,7 +58,7 @@ function buildSystem(role, messages) {
     `\n# 你的签名`,
     role.signature ? `你现在的签名是：「${role.signature}」。` : `你现在还没有签名。`,
     canChangeSignature(role)
-      ? `签名会显示在聊天界面你的名字下面。如果你此刻真的想换一个签名（不要频繁换），在回复的最末尾另起一行写：[签名:新签名]，不超过 20 个字。不想换就什么都不写。`
+      ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
     memoryForAI(role, me.name ? `「${me.name}」` : "对方"),
     calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
@@ -174,16 +175,17 @@ export async function generate(thread) {
     }
     msg.text = text;
 
-    // 先处理日历标记，签名标记要在最末尾才认
+    // 先处理记忆、日历标记，再处理签名
     const mem = applyMemoryTags(role, msg.text);
     const cal = applyCalendarTags(role, mem.text);
     msg.text = cal.text;
     const notes = [...mem.notes, ...cal.notes];
-    const sig = msg.text.match(SIG_RE);
-    if (sig) {
-      msg.text = msg.text.replace(SIG_RE, "").trimEnd();
-      if (canChangeSignature(role) && sig[1].trim() !== role.signature) {
-        role.signature = sig[1].trim();
+    const sigs = [...msg.text.matchAll(SIG_RE)];
+    if (sigs.length) {
+      const newSig = sigs.at(-1)[1].trim();
+      msg.text = msg.text.replace(SIG_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+      if (canChangeSignature(role) && newSig && newSig !== role.signature) {
+        role.signature = newSig;
         role.sigUpdatedAt = Date.now();
         notes.push(`${role.name} 把签名改成了「${role.signature}」`);
       }

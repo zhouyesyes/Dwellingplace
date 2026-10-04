@@ -15,7 +15,7 @@ export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
 function defaults() {
   return {
-    version: 3,
+    version: 4,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard", historyLimit: 80 },
@@ -67,7 +67,8 @@ export function newRole(over = {}) {
     persona: "",
     signature: "",
     sigUpdatedAt: 0,
-    sigCooldownHours: 24,
+    sigCooldownHours: 12,
+    calPerDay: 3, // 每天最多自己记几条日历
     sigLocked: false,
     apiId: null,
     lastThreadId: null,
@@ -119,6 +120,11 @@ function migrate() {
     store.widgets = defaultWidgets();
     store.version = 3;
   }
+  if (store.version < 4) {
+    // 签名冷却从 24 小时改成 12 小时（自己改过的不动）
+    for (const r of store.roles) if (r.sigCooldownHours === 24) r.sigCooldownHours = 12;
+    store.version = 4;
+  }
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
   store.profile.userName ??= "";
@@ -131,6 +137,7 @@ function migrate() {
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
+    r.calPerDay ??= 3;
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
   }
   for (const a of store.apis) {
