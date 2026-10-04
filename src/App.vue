@@ -3,6 +3,7 @@ import { computed, watchEffect } from "vue";
 import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
 import Cropper from "./components/Cropper.vue";
+import FullEditor from "./components/FullEditor.vue";
 import { store } from "./store/index.js";
 import { toastText } from "./lib/toast.js";
 
@@ -20,5 +21,6 @@ watchEffect(() => {
   <RouterView />
   <TabBar v-if="tab" :active="tab" />
   <Cropper />
+  <FullEditor />
   <Transition name="fade"><div v-if="toastText" class="toast">{{ toastText }}</div></Transition>
 </template>

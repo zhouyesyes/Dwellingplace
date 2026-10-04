@@ -7,6 +7,7 @@ import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
 import Avatar from "../components/Avatar.vue";
+import BigTextarea from "../components/BigTextarea.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 
 const route = useRoute();
@@ -84,7 +85,7 @@ async function remove() {
 
       <label class="field">
         <span>设定</span>
-        <textarea v-model="form.persona" class="input" rows="6" placeholder="TA 是谁？说话是什么风格？和你是什么关系？"></textarea>
+        <BigTextarea v-model="form.persona" rows="6" title="设定" placeholder="TA 是谁？说话是什么风格？和你是什么关系？" />
       </label>
 
       <label class="field">
@@ -110,7 +111,7 @@ async function remove() {
       </div>
       <label class="field">
         <span>关于我<small>（想让 TA 知道的事，可以不填）</small></span>
-        <textarea v-model="form.me.about" class="input" rows="3" placeholder="比如：喜欢下雨天，怕黑，最近在学画画"></textarea>
+        <BigTextarea v-model="form.me.about" rows="3" title="关于我" placeholder="比如：喜欢下雨天，怕黑，最近在学画画" />
       </label>
       <button v-if="form.me.avatar" class="btn soft small" @click="form.me.avatar = null">头像改回主页的</button>
     </div>

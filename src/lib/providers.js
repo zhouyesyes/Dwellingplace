@@ -21,6 +21,7 @@ export function newApi(type = "anthropic") {
     favModels: [],
     maxTokens: 32000,
     effort: "",
+    showThinking: false,
   };
 }
 
@@ -58,7 +59,7 @@ const searchTool = model => ({
   max_uses: 3,
 });
 
-async function anthropicStream({ api, model, system, messages, signal, onText, webSearch }) {
+async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch }) {
   const client = anthropicClient(api);
   const params = {
     model,
@@ -68,8 +69,11 @@ async function anthropicStream({ api, model, system, messages, signal, onText, w
   };
   if (api.effort) params.output_config = { effort: api.effort };
   if (webSearch) params.tools = [searchTool(model)];
+  // 让模型把思考过程（摘要）返回来
+  if (api.showThinking) params.thinking = { type: "adaptive", display: "summarized" };
 
   let text = "";
+  let thinking = "";
   const usage = { input: 0, output: 0 };
   // 联网搜索时服务端可能会暂停（pause_turn），把已有内容带上继续
   for (let round = 0; round < 4; round++) {
@@ -83,6 +87,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, w
       stream = client.messages.stream(params, { signal });
     }
     stream.on("text", d => onText(d));
+    stream.on("thinking", d => { thinking += d; onThinking?.(d); });
     const msg = await stream.finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
     text += msg.content.filter(b => b.type === "text").map(b => b.text).join("");
@@ -91,7 +96,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, w
     if (msg.stop_reason !== "pause_turn") break;
     params.messages = [...params.messages, { role: "assistant", content: msg.content }];
   }
-  return { text, usage };
+  return { text, thinking, usage };
 }
 
 // ---------------- OpenAI 兼容 ----------------
@@ -109,7 +114,20 @@ function openaiHeaders(api) {
   return { "Content-Type": "application/json", ...(api.key ? { Authorization: `Bearer ${api.key}` } : {}) };
 }
 
-async function openaiStream({ api, model, system, messages, signal, onText }) {
+// 有些接口把思考过程写在正文的 <think>…</think> 里，拆出来
+function splitThink(raw) {
+  let thinking = "";
+  const text = raw
+    .replace(/<(think|thought|thinking)>([\s\S]*?)(<\/\1>|$)/g, (_, _t, inner, close) => {
+      thinking += close ? inner : inner.replace(/<\/?[a-z]*$/i, ""); // 没收完的结束标签不算
+      return "";
+    })
+    .replace(/<\/?[a-z]*$/i, "") // 还没收完的标签先藏起来
+    .replace(/^\s+/, "");
+  return { text, thinking };
+}
+
+async function openaiStream({ api, model, system, messages, signal, onText, onThinking }) {
   const res = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
     signal,
@@ -126,7 +144,16 @@ async function openaiStream({ api, model, system, messages, signal, onText }) {
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = "", text = "", usage = { input: 0, output: 0 };
+  let buf = "", content = "", text = "", thinking = "", reasoning = "", usage = { input: 0, output: 0 };
+  // 把新的正文 / 思考按增量交出去
+  const emit = () => {
+    const parts = splitThink(content);
+    const fullThinking = reasoning + parts.thinking;
+    if (parts.text.startsWith(text) && parts.text.length > text.length) onText(parts.text.slice(text.length));
+    if (fullThinking.startsWith(thinking) && fullThinking.length > thinking.length) onThinking?.(fullThinking.slice(thinking.length));
+    text = parts.text;
+    thinking = fullThinking;
+  };
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -140,13 +167,16 @@ async function openaiStream({ api, model, system, messages, signal, onText }) {
       if (data === "[DONE]") continue;
       try {
         const j = JSON.parse(data);
-        const d = j.choices?.[0]?.delta?.content;
-        if (d) { text += d; onText(d); }
+        const delta = j.choices?.[0]?.delta || {};
+        const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text;
+        if (typeof r === "string" && r) reasoning += r;
+        if (delta.content) content += delta.content;
+        if (r || delta.content) emit();
         if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0 };
       } catch { /* 不完整的行，忽略 */ }
     }
   }
-  return { text, usage };
+  return { text, thinking, usage };
 }
 
 // ---------------- 对外接口 ----------------

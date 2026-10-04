@@ -8,6 +8,7 @@ import { imageURL, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import Sheet from "../components/Sheet.vue";
 import Icon from "../components/Icon.vue";
 import Avatar from "../components/Avatar.vue";
+import BigTextarea from "../components/BigTextarea.vue";
 
 const tab = ref(store.roles[0]?.id ?? null);
 watch(() => store.roles.length, () => { if (!roleById(tab.value)) tab.value = store.roles[0]?.id ?? null; });
@@ -131,7 +132,7 @@ function remove() {
           </select>
         </label>
         <label class="field"><span>标题</span><input v-model="draft.title" class="input" placeholder="例如：第一次给小鸡起名字" /></label>
-        <label class="field"><span>内容</span><textarea v-model="draft.content" class="input" rows="5" placeholder="想让 TA 一直记得的事" /></label>
+        <label class="field"><span>内容</span><BigTextarea v-model="draft.content" rows="5" title="记忆内容" placeholder="想让 TA 一直记得的事" /></label>
         <label class="field"><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
         <div class="field">
           <span>图片（可选）</span>

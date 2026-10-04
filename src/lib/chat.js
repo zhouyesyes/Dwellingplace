@@ -124,7 +124,7 @@ export async function generate(thread) {
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), from: "ai", text: "", ts: Date.now(), pending: true, apiId: api?.id ?? null, model });
+  const msg = reactive({ id: uid(), from: "ai", text: "", thinking: "", ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
   try {
     const system = buildSystem(role, list);
     const messages = await buildMessages(list);
@@ -133,13 +133,18 @@ export async function generate(thread) {
     let convo = messages;
     let text = "";
     for (let round = 0; ; round++) {
+      const thinkingBefore = msg.thinking;
       const res = await streamChat({
         api, model, system, messages: convo, signal: ctrl.signal,
         // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
         webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
         onText: d => { msg.text += d; },
+        onThinking: d => { msg.thinking += d; },
       });
       text = res.text || msg.text;
+      if (res.thinking) msg.thinking = thinkingBefore + res.thinking;
+      msg.usage.input += res.usage.input;
+      msg.usage.output += res.usage.output;
       if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);
 
       // AI 要搜索：网页通过中转去搜，再把结果交回给 AI
