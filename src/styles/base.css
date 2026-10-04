@@ -1,0 +1,153 @@
+:root {
+  --bg: #f8f3ea;
+  --bg-deep: #f1e9dc;
+  --card: #fffdf8;
+  --card-2: #fbf6ee;
+  --line: #ece3d4;
+  --text: #4a3f36;
+  --text-2: #8c7f72;
+  --text-3: #b7aa9b;
+  --ink: #6b5a4c;
+  --pink: #f3d9d2;
+  --pink-deep: #e8a3a3;
+  --green: #dfead3;
+  --yellow: #f6e7bf;
+  --blue: #dce6f0;
+  --danger: #c7756b;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --shadow: 0 1px 2px rgba(120, 90, 60, .05), 0 8px 24px rgba(120, 90, 60, .07);
+  --shadow-soft: 0 4px 16px rgba(120, 90, 60, .06);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tabbar-h: 76px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#app { height: 100%; }
+
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+/* iOS 输入框小于 16px 会自动放大页面 */
+input, textarea, select { font-size: 16px; }
+
+.page {
+  min-height: 100%;
+  padding: calc(var(--safe-top) + 18px) 18px calc(var(--tabbar-h) + var(--safe-bottom) + 28px);
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.page-title {
+  font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  margin: 6px 4px 18px;
+  color: var(--text);
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.section-label {
+  font-size: 12px;
+  color: var(--text-3);
+  letter-spacing: .12em;
+  margin: 22px 8px 8px;
+}
+
+.list-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  min-height: 56px;
+  border: 0;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+.list-row + .list-row { border-top: 1px solid var(--line); }
+.list-row:active { background: var(--card-2); }
+.list-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row .sub { display: block; font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chev { color: var(--text-3); }
+
+.btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 20px;
+  background: var(--ink);
+  color: #fffdf8;
+  font-weight: 600;
+}
+.btn:disabled { opacity: .45; }
+.btn.soft { background: var(--bg-deep); color: var(--text); font-weight: 500; }
+.btn.danger { background: transparent; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); font-weight: 500; }
+.btn.small { padding: 6px 14px; font-size: 13px; }
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 0;
+  background: color-mix(in srgb, var(--card) 85%, transparent);
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+}
+.icon-btn.plain { background: none; box-shadow: none; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field > span { font-size: 13px; color: var(--text-2); padding-left: 4px; }
+.field small { font-size: 12px; color: var(--text-3); padding-left: 4px; }
+.input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  outline: none;
+}
+.input:focus { border-color: var(--text-3); }
+textarea.input { resize: vertical; min-height: 110px; line-height: 1.6; }
+
+.empty-hint { text-align: center; color: var(--text-3); padding: 40px 20px; font-size: 14px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 110px);
+  transform: translateX(-50%);
+  background: rgba(74, 63, 54, .9);
+  color: #fffdf8;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  z-index: 100;
+  pointer-events: none;
+  max-width: calc(100vw - 48px);
+  text-align: center;
+}
+
+.fade-enter-active, .fade-leave-active { transition: opacity .2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
