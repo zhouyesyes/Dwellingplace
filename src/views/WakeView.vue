@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { store } from "../store/index.js";
 import { relayPing } from "../lib/search.js";
@@ -16,21 +16,31 @@ const relaySet = computed(() => !!(store.tools.relay?.url && store.tools.relay?.
 
 // 中转的情况：版本、有没有 KV、定时任务有没有在跑
 const relay = ref(null); // { ok, text }
+const checking = ref(false);
 async function checkRelay() {
-  if (!relaySet.value) return;
-  relay.value = { ok: true, text: "检查中…" };
+  if (!relaySet.value || checking.value) return;
+  checking.value = true;
+  relay.value ??= { ok: true, text: "检查中…" };
   try {
     const r = await relayPing();
     if ((r.version || 1) < 4) relay.value = { ok: false, text: "中转是旧版本：请按说明把 Worker 的代码换成最新的" };
     else if (!r.kv) relay.value = { ok: false, text: "中转还没有绑定 KV：请按说明添加（变量名 KV）" };
     else if (!r.tick) relay.value = { ok: false, text: "还没检测到定时任务：请按说明添加 Cron 触发器（*/5 * * * *）。刚添加的话，过 5 分钟再来看" };
     else if (Date.now() - r.tick > 2 * 3600_000) relay.value = { ok: false, text: `定时任务好像停了：最后一次是 ${stamp(r.tick)}` };
-    else relay.value = { ok: true, text: "中转和定时任务都正常" };
+    else relay.value = { ok: true, text: `中转和定时任务都正常（定时任务 ${stamp(r.tick)} 检查过）` };
   } catch (e) {
     relay.value = { ok: false, text: e.message };
+  } finally {
+    checking.value = false;
   }
 }
-onMounted(checkRelay);
+// 页面开着的时候，还没正常就每 30 秒再看一次
+let timer = null;
+onMounted(() => {
+  checkRelay();
+  timer = setInterval(() => { if (relay.value && !relay.value.ok) checkRelay(); }, 30_000);
+});
+onUnmounted(() => clearInterval(timer));
 
 const busy = ref("");
 async function turnOnPush() {
@@ -77,7 +87,10 @@ const iosHint = computed(() => isIOS() && !isStandalone());
         <a :href="GUIDE" target="_blank">看设置步骤</a>
       </p>
       <p v-if="!relaySet" class="result bad">还没有设置中转：先去「设置 → 工具」填好中转地址和密码</p>
-      <p v-else-if="relay" class="result" :class="{ bad: !relay.ok }">{{ relay.text }}</p>
+      <div v-else-if="relay" class="status">
+        <p class="result" :class="{ bad: !relay.ok }">{{ relay.text }}</p>
+        <button class="btn soft small" :disabled="checking" @click="checkRelay">{{ checking ? "检查中…" : "重新检查" }}</button>
+      </div>
     </div>
 
     <div class="list-card" style="margin-top: 12px">
@@ -132,6 +145,9 @@ const iosHint = computed(() => isIOS() && !isStandalone());
 .desc a { color: var(--accent); }
 .result { margin: 4px 2px 0; font-size: 0.87rem; color: #3f8f63; line-height: 1.6; }
 .result.bad, .sub.bad { color: var(--danger); }
+.status { display: flex; align-items: flex-start; gap: 10px; }
+.status .result { flex: 1; }
+.status .btn { flex: none; margin-top: 2px; }
 .sw { width: 20px; height: 20px; accent-color: var(--ink); }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .btns .btn { flex: 1; }
