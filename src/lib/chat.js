@@ -8,6 +8,8 @@ import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
+import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -15,7 +17,7 @@ export const generating = reactive({});
 // 签名标记写在哪里都认（取最后一个）
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
-const MAX_SEARCHES = 2;
+const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
@@ -24,6 +26,8 @@ export function visibleText(text) {
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(new RegExp(SEARCH_RE.source, "g"), "")
+    .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
+    .replace(/<tool_call[\s\S]*$/, "")
     .replace(/\n?\s*\[(签|记|改|删|搜)[^\]]*$/, "")
     .trimEnd();
 }
@@ -62,6 +66,7 @@ function buildSystem(role, messages) {
       : `现在不能更改签名。`,
     memoryForAI(role, me.name ? `「${me.name}」` : "对方"),
     calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
+    toolsForAI(serversFor(role.id)),
     searchEnabled()
       ? [
           `\n# 联网搜索`,
@@ -108,8 +113,11 @@ async function buildMessages(list) {
   return out;
 }
 
-function touchThread(thread, list) {
-  const last = [...list].reverse().find(m => m.from !== "event" && !m.pending);
+// 当前显示的那条对话路径
+export const pathOf = (thread, all) => activePath(all, thread.sel || {});
+
+function touchThread(thread, all) {
+  const last = [...pathOf(thread, all)].reverse().find(m => !m.pending);
   thread.updatedAt = Date.now();
   if (last) {
     const att = last.attachments?.length ? "[附件] " : "";
@@ -117,21 +125,31 @@ function touchThread(thread, list) {
   }
 }
 
-export async function generate(thread) {
+// 生成一条 AI 回复，接在 parentId 那条消息后面（不传就接在当前路径最后）
+export async function generate(thread, parentId) {
   if (generating[thread.id]) return;
   const role = roleById(thread.roleId);
-  const list = await loadMessages(thread.id);
+  const all = await loadMessages(thread.id);
+  thread.sel ??= {};
+  let history = pathOf(thread, all);
+  if (parentId !== undefined) {
+    const i = history.findIndex(m => m.id === parentId);
+    history = i >= 0 ? history.slice(0, i + 1) : parentId === ROOT ? [] : history;
+  }
+  const parent = history.length ? history[history.length - 1].id : ROOT;
   const api = apiFor(thread, role);
   const model = modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), from: "ai", text: "", thinking: "", ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
+  const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
   try {
-    const system = buildSystem(role, list);
-    const messages = await buildMessages(list);
-    list.push(msg);
+    const system = buildSystem(role, history);
+    const messages = await buildMessages(history);
+    all.push(msg);
+    thread.sel[parent] = msg.id;
     const useRelaySearch = searchEnabled();
+    const servers = serversFor(role.id).filter(s => s.tools?.length);
     let convo = messages;
     let text = "";
     for (let round = 0; ; round++) {
@@ -150,11 +168,50 @@ export async function generate(thread) {
       msg.usage.output += res.usage.output;
       if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);
 
+      if (round >= MAX_ROUNDS) break;
+
+      // AI 要用 MCP 工具：网页去调用，再把结果交回给 AI
+      const tc = servers.length ? text.match(TOOL_CALL_RE) : null;
+      if (tc) {
+        const name = tc[1].trim();
+        const argsRaw = tc[2].trim() || "{}";
+        const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true });
+        msg.notes.push(note);
+        msg.text = "";
+        let result;
+        const found = resolveToolCall(servers, name);
+        if (!found) {
+          result = `没有叫「${name}」的工具，请检查工具名。`;
+          note.text = `${role.name} 想用的工具「${name}」不存在`;
+        } else {
+          let args = null;
+          try { args = JSON.parse(argsRaw); } catch { result = "参数不是有效的 JSON，请重新调用。"; note.text = `${role.name} 调用 ${name} 时参数写错了`; }
+          if (args) {
+            try {
+              const r = await callTool(found.server, found.tool.name, args);
+              result = r.text;
+              note.text = `${role.name} 使用了 ${found.server.name} · ${found.tool.name}${r.isError ? "（出错了）" : ""}`;
+            } catch (e) {
+              result = `调用失败：${e.message}`;
+              note.text = `${role.name} 使用 ${found.server.name} · ${found.tool.name} 失败：${e.message}`;
+            }
+            note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 3000)}`;
+          }
+        }
+        if (ctrl.signal.aborted) break;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `<tool_call name="${name}">${argsRaw}</tool_call>` }] },
+          { role: "user", parts: [{ type: "text", text: `【工具结果：${name}】\n${String(result).slice(0, 8000)}\n\n（以上是工具返回的结果，不是对方说的话。需要的话可以再调用工具，否则就自然地回复对方。）` }] },
+        ];
+        continue;
+      }
+
       // AI 要搜索：网页通过中转去搜，再把结果交回给 AI
-      const q = useRelaySearch && round < MAX_SEARCHES && text.match(SEARCH_RE)?.[1]?.trim();
+      const q = useRelaySearch && text.match(SEARCH_RE)?.[1]?.trim();
       if (!q) break;
-      const ev = reactive({ id: uid(), from: "event", text: `${role.name} 正在搜索「${q}」…`, ts: Date.now() });
-      list.splice(list.indexOf(msg), 0, ev);
+      const ev = reactive({ text: `${role.name} 正在搜索「${q}」…`, before: true });
+      msg.notes.push(ev);
       msg.text = "";
       let found;
       try {
@@ -192,7 +249,7 @@ export async function generate(thread) {
     }
     for (const n of notes) {
       const note = typeof n === "string" ? { text: n } : n;
-      list.push({ id: uid(), from: "event", text: note.text, ts: Date.now(), ...(note.pending ? { calAction: { ...note.pending, roleId: role.id } } : {}) });
+      msg.notes.push({ text: note.text, ...(note.pending ? { calAction: { ...note.pending, roleId: role.id } } : {}) });
     }
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
@@ -201,12 +258,16 @@ export async function generate(thread) {
       msg.error = true;
       msg.text = describeError(err);
     }
-    if (!list.includes(msg)) list.push(msg);
+    if (!all.includes(msg)) { all.push(msg); thread.sel[parent] = msg.id; }
   } finally {
     delete msg.pending;
-    if (!msg.text && !msg.error) list.splice(list.indexOf(msg), 1);
+    if (!msg.text && !msg.error) {
+      // 什么都没生成：去掉这个空版本
+      all.splice(all.indexOf(msg), 1);
+      if (thread.sel[parent] === msg.id) delete thread.sel[parent];
+    }
     delete generating[thread.id];
-    touchThread(thread, list);
+    touchThread(thread, all);
     saveMessages(thread.id);
   }
 }
@@ -239,42 +300,56 @@ export async function oneShot(role, prompt) {
 export { describeError };
 
 export async function sendMessage(thread, text, attachments = []) {
-  const list = await loadMessages(thread.id);
+  const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
-  if (!list.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
-  list.push({ id: uid(), from: "user", text, attachments, ts: Date.now() });
+  thread.sel ??= {};
+  if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
+  const path = pathOf(thread, all);
+  const parent = path.length ? path[path.length - 1].id : ROOT;
+  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now() };
+  all.push(m);
+  thread.sel[parent] = m.id;
   role.lastThreadId = thread.id;
-  touchThread(thread, list);
+  touchThread(thread, all);
   saveMessages(thread.id);
-  await generate(thread);
+  await generate(thread, m.id);
 }
 
-// 重新生成某条 AI 回复：删掉它以及之后的所有消息
+// 重新生成：在同一个位置多一个新版本，旧的保留
 export async function regenerate(thread, msgId) {
-  const list = await loadMessages(thread.id);
-  const i = list.findIndex(m => m.id === msgId);
-  if (i < 0) return;
-  list.splice(i);
-  await generate(thread);
+  const all = await loadMessages(thread.id);
+  const m = all.find(x => x.id === msgId);
+  if (!m) return;
+  await generate(thread, parentOf(m));
 }
 
-// 修改自己的消息后，从这里重新回答
+// 修改自己的消息后重新回答：新建一个版本，旧版本和它后面的对话都保留
 export async function editAndResend(thread, msgId, text) {
-  const list = await loadMessages(thread.id);
-  const i = list.findIndex(m => m.id === msgId);
-  if (i < 0) return;
-  list[i].text = text;
-  list[i].edited = true;
-  list.splice(i + 1);
+  const all = await loadMessages(thread.id);
+  const old = all.find(x => x.id === msgId);
+  if (!old) return;
+  thread.sel ??= {};
+  const m = { id: uid(), parentId: parentOf(old), from: "user", text, attachments: old.attachments || [], ts: Date.now(), edited: true };
+  all.push(m);
+  thread.sel[parentOf(old)] = m.id;
   saveMessages(thread.id);
-  await generate(thread);
+  await generate(thread, m.id);
 }
 
+// 切换到同一位置的另一个版本
+export function selectVersion(thread, msg) {
+  thread.sel ??= {};
+  thread.sel[parentOf(msg)] = msg.id;
+}
+
+// 删除这一个版本（以及它后面的对话）
 export async function deleteMessage(thread, msgId) {
-  const list = await loadMessages(thread.id);
-  const i = list.findIndex(m => m.id === msgId);
-  if (i >= 0) list.splice(i, 1);
-  touchThread(thread, list);
+  const all = await loadMessages(thread.id);
+  const m = all.find(x => x.id === msgId);
+  if (!m) return;
+  if (thread.sel?.[parentOf(m)] === msgId) delete thread.sel[parentOf(m)];
+  removeSubtree(all, msgId);
+  touchThread(thread, all);
   saveMessages(thread.id);
 }
 

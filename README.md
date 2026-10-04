@@ -31,7 +31,7 @@
   - 用量（本机统计）：按 API 汇总，点进某个 API 可以看到每个模型的用量和最近 7 天
   - 字号：小 / 标准 / 大
   - 聊天：TA 每次能看到最近多少条消息（默认 80）；聊天页底部显示上下文用了多少，点开有这个对话的累计用量
-  - 工具：联网搜索。通过自己部署的免费中转（Cloudflare Worker），所有模型和反代都能用，部署步骤见 [docs/cloudflare-relay.md](docs/cloudflare-relay.md)；官方 Claude 也可以用自带搜索。MCP 入口先占位
+  - 工具：联网搜索。通过自己部署的免费中转（Cloudflare Worker），所有模型和反代都能用，部署步骤见 [docs/cloudflare-relay.md](docs/cloudflare-relay.md)；官方 Claude 也可以用自带搜索。MCP：粘贴平台给的 JSON 就能接入，每个 MCP 可以选择哪些角色能用（每个 AI 的账号分开），见 [docs/mcp.md](docs/mcp.md)
   - 备份：导出全部数据（含聊天记录和图片）成一个文件，可以再导入恢复
 
 

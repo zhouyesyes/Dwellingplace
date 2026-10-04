@@ -1,7 +1,9 @@
 // 栖所的中转（Cloudflare Worker）
 //
-// 作用：替网页去请求搜索服务（浏览器不能直接访问它们），把结果统一成一个格式带回来。
-// 只转发到下面列出的几家搜索服务，其他请求一律拒绝。
+// 作用：
+//   1. 替网页去请求搜索服务（浏览器不能直接访问它们），把结果统一成一个格式带回来
+//   2. 替网页转发 MCP 请求（/mcp），这样任何 MCP 服务器都能在栖所里用
+// 所有请求都需要中转密码。
 //
 // 在 Worker 的「设置 → 变量和机密」里可以添加：
 //   RELAY_TOKEN   必填。中转密码，栖所里填同一个
@@ -12,6 +14,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Relay-Token, X-Search-Key",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -114,7 +117,7 @@ export default {
     // 测试连接：返回哪些搜索服务已经在 Worker 里配好了 Key
     if (path === "/ping") {
       const ready = Object.entries(PROVIDERS).filter(([, p]) => env[p.env]).map(([k]) => k);
-      return json({ ok: true, version: 1, providers: Object.keys(PROVIDERS), ready });
+      return json({ ok: true, version: 2, features: ["search", "mcp"], providers: Object.keys(PROVIDERS), ready });
     }
 
     if (path === "/search" && req.method === "POST") {
@@ -135,6 +138,36 @@ export default {
         return json({ query: q, provider: body.provider, results });
       } catch (e) {
         return json({ error: e.message || String(e) }, 502);
+      }
+    }
+
+    // MCP：把一条 JSON-RPC 消息转发给 MCP 服务器（Streamable HTTP），原样带回结果
+    if (path === "/mcp" && req.method === "POST") {
+      let body;
+      try { body = await req.json(); } catch { return json({ error: "请求格式不对" }, 400); }
+      const target = String(body.url || "");
+      const allowHttp = env.ALLOW_HTTP === "1"; // 只在本地测试时打开
+      if (!/^https:\/\//i.test(target) && !(allowHttp && /^http:\/\//i.test(target))) {
+        return json({ error: "MCP 地址必须以 https:// 开头" }, 400);
+      }
+      const headers = {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(body.headers && typeof body.headers === "object" ? body.headers : {}),
+      };
+      if (body.sessionId) headers["Mcp-Session-Id"] = body.sessionId;
+      if (body.protocolVersion) headers["MCP-Protocol-Version"] = body.protocolVersion;
+      try {
+        const r = await fetch(target, { method: "POST", headers, body: JSON.stringify(body.message) });
+        const text = await r.text();
+        return json({
+          status: r.status,
+          sessionId: r.headers.get("mcp-session-id"),
+          contentType: r.headers.get("content-type") || "",
+          body: text.slice(0, 2_000_000),
+        });
+      } catch (e) {
+        return json({ error: "连不上 MCP 服务器：" + (e.message || e) }, 502);
       }
     }
 

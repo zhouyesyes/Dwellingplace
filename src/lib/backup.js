@@ -25,7 +25,12 @@ export async function exportAll({ includeKeys = true } = {}) {
   }
   // 用内存里最新的数据（磁盘上的可能还没来得及写）
   const meta = JSON.parse(JSON.stringify(store));
-  if (!includeKeys) for (const a of meta.apis) a.key = "";
+  if (!includeKeys) {
+    for (const a of meta.apis) a.key = "";
+    for (const s of meta.mcpServers || []) for (const h of s.headers || []) h.value = "";
+    if (meta.tools?.relay) meta.tools.relay.token = "";
+    if (meta.tools?.search) meta.tools.search.key = "";
+  }
   data.meta = meta;
   const json = JSON.stringify({ app: APP, version: 1, exportedAt: new Date().toISOString(), data });
   return new Blob([json], { type: "application/json" });

@@ -9,6 +9,7 @@ import RoleEditView from "./views/RoleEditView.vue";
 import ApiEditView from "./views/ApiEditView.vue";
 import BackupView from "./views/BackupView.vue";
 import ToolsView from "./views/ToolsView.vue";
+import McpEditView from "./views/McpEditView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -22,6 +23,7 @@ export const router = createRouter({
     { path: "/settings/api/:id", component: ApiEditView },
     { path: "/settings/backup", component: BackupView },
     { path: "/settings/tools", component: ToolsView },
+    { path: "/settings/mcp/:id", component: McpEditView },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });
