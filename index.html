@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dwellingplace</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <header class="brand">
+        <span class="brand-mark">⌂</span>
+        <span>Dwellingplace</span>
+      </header>
+
+      <section class="side-section">
+        <div class="side-title">
+          <span>房间</span>
+          <button class="icon-btn" id="newRoomBtn" title="新建房间">＋</button>
+        </div>
+        <ul class="list" id="roomList"></ul>
+      </section>
+
+      <section class="side-section">
+        <div class="side-title">
+          <span>伙伴</span>
+          <button class="icon-btn" id="newCompanionBtn" title="新建 AI 伙伴">＋</button>
+        </div>
+        <ul class="list" id="companionList"></ul>
+      </section>
+
+      <footer class="side-footer">
+        <button class="ghost-btn" id="settingsBtn">⚙ 设置</button>
+      </footer>
+    </aside>
+
+    <main class="main">
+      <header class="room-header">
+        <button class="icon-btn only-mobile" id="menuBtn" title="菜单">☰</button>
+        <div class="room-info">
+          <h1 id="roomTitle">—</h1>
+          <div class="members" id="roomMembers"></div>
+        </div>
+        <button class="icon-btn" id="editRoomBtn" title="房间设置">✎</button>
+      </header>
+
+      <div class="messages" id="messages"></div>
+
+      <footer class="composer">
+        <div class="composer-row">
+          <textarea id="input" rows="1" placeholder="说点什么… 用 @名字 指定谁来回答"></textarea>
+          <button class="primary-btn" id="sendBtn">发送</button>
+        </div>
+        <div class="composer-tools">
+          <button class="ghost-btn small" id="continueBtn" title="不说话，让 AI 们自己继续聊一轮">让他们继续聊</button>
+          <button class="ghost-btn small hidden" id="stopBtn">停止</button>
+          <span class="hint" id="hint"></span>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <dialog id="dialog">
+    <form method="dialog" id="dialogForm"></form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
