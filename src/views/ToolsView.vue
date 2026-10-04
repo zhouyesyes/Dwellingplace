@@ -21,7 +21,7 @@ async function testRelay() {
   try {
     const r = await relayPing();
     const ready = r.ready?.length ? `Worker 里已经配好 Key 的：${r.ready.map(k => SEARCH_PROVIDERS[k]?.label || k).join("、")}` : "Worker 里还没有配搜索服务的 Key（可以在下面填）";
-    const old = (r.version || 1) < 2 ? "。注意：中转是旧版本，还不能用 MCP，请按说明更新 Worker 代码" : "";
+    const old = (r.version || 1) < 3 ? "。注意：中转是旧版本，MCP / 网页读取可能用不了，请按说明更新 Worker 代码" : "";
     pingState.value = { ok: !old, text: `连上了！${ready}${old}` };
   } catch (e) {
     pingState.value = { ok: false, text: e.message };
@@ -95,6 +95,17 @@ async function testSearch() {
       </div>
     </div>
 
+    <!-- 网页读取 -->
+    <div class="section-label">网页读取（fetch）</div>
+    <div class="list-card">
+      <label class="list-row">
+        <Icon name="file" :size="20" />
+        <span class="grow">开启网页读取<span class="sub">发链接给 TA，TA 能打开读全文；所有角色都能用</span></span>
+        <input v-model="store.tools.fetch.enabled" type="checkbox" class="sw" />
+      </label>
+    </div>
+    <p class="note">和搜索不一样：搜索是找网页，网页读取是打开一个具体的链接读正文。通过上面的中转（需要第 3 版）。</p>
+
     <!-- 官方自带 -->
     <div class="section-label">官方 Claude 自带搜索</div>
     <div class="list-card">
@@ -112,7 +123,7 @@ async function testSearch() {
         <Icon name="tool" :size="20" />
         <span class="grow">
           {{ s.name }}<span v-if="!s.enabled" class="off">（已停用）</span>
-          <span class="sub">{{ rolesText(s) }} · {{ s.tools?.length ? `${s.tools.length} 个工具` : "还没读取工具" }}</span>
+          <span class="sub">{{ rolesText(s) }} · {{ s.tools?.length ? `工具 ${s.tools.length - (s.disabledTools?.length || 0)}/${s.tools.length}` : "还没读取工具" }}</span>
         </span>
         <input v-model="s.enabled" type="checkbox" class="sw" @click.stop />
       </button>

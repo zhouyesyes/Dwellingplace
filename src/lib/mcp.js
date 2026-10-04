@@ -3,16 +3,37 @@
 // 服务器配置（存在 store.mcpServers 里）：
 //   { id, name, url, headers: [{ key, value }], viaRelay, roleIds: [], tools: [], toolsAt, enabled }
 import { store, uid } from "../store/index.js";
+import { relayFetch } from "./search.js";
 
 const PROTOCOL = "2025-06-18";
 const sessions = new Map(); // serverId -> { sessionId, protocolVersion }
 let rpcId = 1;
 
 export function newServer(over = {}) {
-  return { id: uid(), name: "", url: "", headers: [{ key: "Authorization", value: "" }], viaRelay: true, roleIds: [], tools: [], toolsAt: 0, enabled: true, ...over };
+  return { id: uid(), name: "", url: "", headers: [{ key: "Authorization", value: "" }], viaRelay: true, roleIds: [], tools: [], toolsAt: 0, enabled: true, disabledTools: [], ...over };
 }
 
-export const serversFor = roleId => (store.mcpServers || []).filter(s => s.enabled && s.roleIds?.includes(roleId) && s.url);
+// 内置工具：网页读取（通过中转）
+export const BUILTIN_FETCH = {
+  id: "builtin-fetch",
+  name: "网页",
+  builtin: true,
+  disabledTools: [],
+  tools: [{
+    name: "fetch",
+    description: "打开一个网址，读取网页的正文内容。对方发来链接、或者需要看某个具体网页时用。",
+    inputSchema: { type: "object", properties: { url: { type: "string" }, max_length: { type: "number" } }, required: ["url"] },
+  }],
+};
+
+export const serversFor = roleId => {
+  const list = (store.mcpServers || []).filter(s => s.enabled && s.roleIds?.includes(roleId) && s.url);
+  if (store.tools.fetch?.enabled && store.tools.relay?.url) list.push(BUILTIN_FETCH);
+  return list;
+};
+
+// 这个服务器里开着的工具
+export const enabledTools = s => (s.tools || []).filter(t => !(s.disabledTools || []).includes(t.name));
 
 const relayBase = () => (store.tools.relay?.url || "").trim().replace(/\/+$/, "");
 const headerObj = server => Object.fromEntries((server.headers || []).filter(h => h.key?.trim()).map(h => [h.key.trim(), h.value]));
@@ -133,6 +154,13 @@ export async function refreshTools(server) {
 
 // 调用一个工具，返回给 AI 看的文字
 export async function callTool(server, name, args) {
+  if (server.builtin) {
+    const url = String(args?.url || "").trim();
+    if (!url) return { text: "没有给网址", isError: true };
+    const r = await relayFetch(url, Number(args?.max_length) || 8000);
+    const head = [r.title && `标题：${r.title}`, `网址：${r.url}`, r.truncated && `（内容太长，只读了前 ${r.text.length} 字，全文约 ${r.length} 字）`].filter(Boolean).join("\n");
+    return { text: `${head}\n\n${r.text || "（网页里没有读到文字）"}`, isError: false };
+  }
   return withSession(server, async session => {
     const { result } = await rpc(server, "tools/call", { name, arguments: args || {} }, session);
     const parts = (result?.content || []).map(c => {
@@ -183,9 +211,10 @@ function signature(tool) {
 export function toolsForAI(servers) {
   const lines = [];
   for (const s of servers) {
-    if (!s.tools?.length) continue;
+    const tools = enabledTools(s);
+    if (!tools.length) continue;
     lines.push(`\n## ${s.name}`);
-    for (const t of s.tools) {
+    for (const t of tools) {
       const desc = (t.description || "").replace(/\s+/g, " ").slice(0, 160);
       lines.push(`- ${s.name}.${signature(t)}${desc ? " — " + desc : ""}`);
     }
@@ -206,13 +235,13 @@ export function resolveToolCall(servers, fullName) {
   for (const s of servers) {
     const prefix = s.name + ".";
     if (fullName.startsWith(prefix)) {
-      const tool = s.tools.find(t => t.name === fullName.slice(prefix.length));
+      const tool = enabledTools(s).find(t => t.name === fullName.slice(prefix.length));
       if (tool) return { server: s, tool };
     }
   }
   // 没写服务名：在所有服务里找同名工具
   for (const s of servers) {
-    const tool = s.tools.find(t => t.name === fullName || fullName.endsWith("." + t.name));
+    const tool = enabledTools(s).find(t => t.name === fullName || fullName.endsWith("." + t.name));
     if (tool) return { server: s, tool };
   }
   return null;

@@ -17,6 +17,16 @@ const original = isNew ? null : store.mcpServers.find(s => s.id === route.params
 if (!isNew && !original) router.replace("/settings/tools");
 
 const form = reactive(JSON.parse(JSON.stringify(original || newServer())));
+form.disabledTools ??= [];
+const onCount = computed(() => form.tools.length - form.disabledTools.filter(n => form.tools.some(t => t.name === n)).length);
+function toggleTool(name) {
+  const i = form.disabledTools.indexOf(name);
+  if (i >= 0) form.disabledTools.splice(i, 1);
+  else form.disabledTools.push(name);
+}
+function setAll(on) {
+  form.disabledTools = on ? [] : form.tools.map(t => t.name);
+}
 const testing = ref(false);
 const testMsg = ref(null); // { ok, text }
 const showSecrets = ref(false);
@@ -117,12 +127,20 @@ function remove() {
     <div class="card body">
       <button class="btn wide" :disabled="testing || !valid" @click="test">{{ testing ? "连接中…" : "测试并读取工具" }}</button>
       <p v-if="testMsg" class="result" :class="{ bad: !testMsg.ok }">{{ testMsg.text }}</p>
-      <div v-if="form.tools.length" class="tools">
-        <div v-for="t in form.tools" :key="t.name" class="tool">
-          <b>{{ t.name }}</b>
-          <span>{{ t.description }}</span>
+      <template v-if="form.tools.length">
+        <div class="tools-head">
+          <span>工具：{{ onCount }}/{{ form.tools.length }} 已开启</span>
+          <button class="link-btn" @click="setAll(true)">全开</button>
+          <button class="link-btn" @click="setAll(false)">全关</button>
         </div>
-      </div>
+        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。</p>
+        <div class="tools">
+          <label v-for="t in form.tools" :key="t.name" class="tool" :class="{ off: form.disabledTools.includes(t.name) }">
+            <span class="tinfo"><b>{{ t.name }}</b><span>{{ t.description }}</span></span>
+            <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
+          </label>
+        </div>
+      </template>
     </div>
 
     <div v-if="!isNew" class="danger-zone"><button class="btn danger" @click="remove">删除这个 MCP</button></div>
@@ -148,7 +166,13 @@ function remove() {
 .result { margin: 10px 2px 0; font-size: 0.87rem; color: #3f8f63; line-height: 1.6; word-break: break-all; }
 .result.bad { color: var(--danger); }
 .tools { margin-top: 10px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-.tool { background: var(--bg); border-radius: 12px; padding: 8px 10px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 2px; }
-.tool span { color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tools-head { display: flex; align-items: center; gap: 10px; margin: 12px 2px 4px; font-size: 0.87rem; }
+.tools-head span { flex: 1; }
+.tools-head .link-btn { padding: 0; }
+.tool { background: var(--bg); border-radius: 12px; padding: 8px 10px; font-size: 0.8rem; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.tool.off { opacity: .5; }
+.tool input { width: 20px; height: 20px; accent-color: var(--ink); flex: none; }
+.tinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tinfo span { color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .danger-zone { display: flex; justify-content: center; margin-top: 24px; }
 </style>
