@@ -15,7 +15,7 @@ export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
 function defaults() {
   return {
-    version: 4,
+    version: 5,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard", historyLimit: 80 },
@@ -68,7 +68,8 @@ export function newRole(over = {}) {
     signature: "",
     sigUpdatedAt: 0,
     sigCooldownHours: 12,
-    calPerDay: 3, // 每天最多自己记几条日历
+    calPerDay: 3, // 每天能整理几次日历
+    calUses: null, // { day, count } 今天整理了几次
     sigLocked: false,
     apiId: null,
     lastThreadId: null,
@@ -124,6 +125,11 @@ function migrate() {
     // 签名冷却从 24 小时改成 12 小时（自己改过的不动）
     for (const r of store.roles) if (r.sigCooldownHours === 24) r.sigCooldownHours = 12;
     store.version = 4;
+  }
+  if (store.version < 5) {
+    // 签名冷却统一改成 12 小时
+    for (const r of store.roles) r.sigCooldownHours = 12;
+    store.version = 5;
   }
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
@@ -234,4 +240,9 @@ export function recordUsage(apiId, model, input = 0, output = 0) {
   }
 }
 
-export const fmtTokens = n => (n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+const trim0 = s => s.replace(/\.0+$/, "");
+export const fmtTokens = n =>
+  n >= 1e6 ? trim0((n / 1e6).toFixed(2)) + "M"
+  : n >= 1e5 ? Math.round(n / 1e3) + "k"
+  : n >= 1e3 ? trim0((n / 1e3).toFixed(1)) + "k"
+  : String(n);

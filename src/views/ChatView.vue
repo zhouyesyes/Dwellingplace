@@ -14,6 +14,7 @@ import ImgThumb from "../components/ImgThumb.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import { openEditor } from "../lib/editor.js";
+import { runCalendarOp, opButton } from "../lib/calendarTags.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -212,6 +213,13 @@ const theirBubble = computed(() => {
 const openSources = reactive({});
 const openThink = reactive({});
 
+// 超出整理次数的日历操作：你点了才执行
+function confirmCal(ev) {
+  ev.text = runCalendarOp(role.value, ev.calAction) + "（你帮 TA 记的）";
+  ev.calAction.done = true;
+  saveMessages(thread.value.id);
+}
+
 // ---------- 上下文 / 累计用量 ----------
 const ctxOpen = ref(false);
 const ctxInfo = computed(() => {
@@ -318,6 +326,7 @@ const back = () => goBack(router, "/chats");
             <span :class="{ link: it.m.sources?.length }" @click="it.m.sources?.length && (openSources[it.m.id] = !openSources[it.m.id])">
               {{ it.m.text }}<template v-if="it.m.sources?.length"> {{ openSources[it.m.id] ? "▴" : "▾" }}</template>
             </span>
+            <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
             <div v-if="openSources[it.m.id]" class="sources">
               <a v-for="s in it.m.sources" :key="s.url" :href="s.url" target="_blank" rel="noopener">{{ s.title || s.url }}</a>
             </div>
@@ -527,6 +536,7 @@ const back = () => goBack(router, "/chats");
 
 .event { text-align: center; }
 .event span.link { cursor: pointer; }
+.cal-btn { display: block; margin: 4px auto 0; border: 0; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 0.73rem; }
 .sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }
 .sources a { font-size: 0.75rem; color: var(--accent); background: rgba(255, 255, 255, .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .think {

@@ -190,7 +190,10 @@ export async function generate(thread) {
         notes.push(`${role.name} 把签名改成了「${role.signature}」`);
       }
     }
-    for (const n of notes) list.push({ id: uid(), from: "event", text: n, ts: Date.now() });
+    for (const n of notes) {
+      const note = typeof n === "string" ? { text: n } : n;
+      list.push({ id: uid(), from: "event", text: note.text, ts: Date.now(), ...(note.pending ? { calAction: { ...note.pending, roleId: role.id } } : {}) });
+    }
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
       msg.text = visibleText(msg.text);
