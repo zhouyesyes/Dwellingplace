@@ -21,15 +21,6 @@ const soon = () => toast("这一项会在后面的步骤里做好～");
   <div class="page">
     <h1 class="page-title">设置</h1>
 
-    <div class="section-label">我</div>
-    <div class="list-card">
-      <label class="list-row">
-        <Icon name="user" :size="20" />
-        <span class="grow">TA 们怎么称呼你</span>
-        <input v-model.trim="store.profile.userName" class="inline-input" placeholder="例如：妹妹" />
-      </label>
-    </div>
-
     <div class="section-label">角色</div>
     <div class="list-card">
       <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/role/${r.id}`)">

@@ -18,6 +18,15 @@ if (!isNew && !original) router.replace("/settings");
 const form = reactive(JSON.parse(JSON.stringify(original || newRole({ color: PALETTE[store.roles.length % PALETTE.length] }))));
 const valid = computed(() => form.name.trim().length > 0);
 
+form.me ??= { name: "", avatar: null, about: "" };
+
+async function changeMyAvatar() {
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "我在 TA 面前的头像", maxSize: 500 });
+  if (!id) return;
+  if (form.me.avatar && form.me.avatar !== original?.me?.avatar) deleteImage(form.me.avatar);
+  form.me.avatar = id;
+}
+
 async function changeAvatar() {
   const id = await pickAndCrop({ aspect: 1, round: true, title: "调整头像", maxSize: 500 });
   if (!id) return;
@@ -30,6 +39,7 @@ function save() {
   form.name = form.name.trim();
   if (original) {
     if (original.avatar && original.avatar !== form.avatar) deleteImage(original.avatar);
+    if (original.me?.avatar && original.me.avatar !== form.me.avatar) deleteImage(original.me.avatar);
     Object.assign(original, form);
   } else {
     store.roles.push(form);
@@ -59,7 +69,7 @@ async function remove() {
         </button>
       </div>
 
-      <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：哥哥" /></label>
+      <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：小机" /></label>
 
       <div class="field">
         <span>代表色<small>（日历小圆点、头像底色）</small></span>
@@ -84,6 +94,25 @@ async function remove() {
           <option v-for="a in store.apis" :key="a.id" :value="a.id">{{ a.name }}（{{ a.model }}）</option>
         </select>
       </label>
+    </div>
+
+    <div class="section-label">在 TA 面前的我</div>
+    <div class="card body">
+      <div class="me-row">
+        <button class="ava-btn" @click="changeMyAvatar">
+          <Avatar :img="form.me.avatar || store.profile.avatar" :name="form.me.name || store.profile.name" :color="store.profile.color" :size="56" />
+          <span>我的头像</span>
+        </button>
+        <label class="field grow">
+          <span>TA 怎么称呼我</span>
+          <input v-model.trim="form.me.name" class="input" placeholder="例如：小满" />
+        </label>
+      </div>
+      <label class="field">
+        <span>关于我<small>（想让 TA 知道的事，可以不填）</small></span>
+        <textarea v-model="form.me.about" class="input" rows="3" placeholder="比如：喜欢下雨天，怕黑，最近在学画画"></textarea>
+      </label>
+      <button v-if="form.me.avatar" class="btn soft small" @click="form.me.avatar = null">头像改回主页的</button>
     </div>
 
     <div class="section-label">签名</div>
@@ -113,6 +142,8 @@ async function remove() {
 .ava-row { display: flex; justify-content: center; margin-bottom: 14px; }
 .ava-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .bubble-preview { align-self: flex-start; margin: 6px 4px 0; padding: 8px 14px; border-radius: 8px 18px 18px 18px; font-size: 0.93rem; color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+.me-row { display: flex; gap: 14px; align-items: flex-start; }
+.me-row .grow { flex: 1; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 0.933rem; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--ink); }
 .danger-zone { display: flex; justify-content: center; margin-top: 28px; }

@@ -114,7 +114,7 @@ const colorsOpen = ref(false);
   <Sheet :open="!!draft" :title="draft?._isNew ? '记一笔' : '编辑记录'" @close="draft = null">
     <template v-if="draft">
       <label class="field"><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
-      <label class="field"><span>发生了什么</span><input v-model="draft.text" class="input" placeholder="例如：一起吃了烤肉（云吃）" @keydown.enter="saveEvent" /></label>
+      <label class="field"><span>发生了什么</span><input v-model="draft.text" class="input" placeholder="例如：给小鸡起了名字" @keydown.enter="saveEvent" /></label>
       <label class="field">
         <span>谁记的</span>
         <select v-model="draft.author" class="input">
