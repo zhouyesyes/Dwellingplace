@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, today, fmtTokens } from "../store/index.js";
-import { toast } from "../lib/toast.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 
@@ -14,7 +13,6 @@ function usageLine(api) {
   if (!u) return "今天还没用过";
   return `今天 ${u.calls} 次 · 输入 ${fmtTokens(u.input)} · 输出 ${fmtTokens(u.output)} tokens`;
 }
-const soon = () => toast("这一项会在后面的步骤里做好～");
 </script>
 
 <template>
@@ -51,14 +49,14 @@ const soon = () => toast("这一项会在后面的步骤里做好～");
 
     <div class="section-label">更多</div>
     <div class="list-card">
-      <button class="list-row" @click="soon"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.webSearch ? "（已开启）" : "" }}、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
         <div class="seg">
           <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
         </div>
       </div>
-      <button class="list-row" @click="soon"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button class="list-row" @click="router.push('/settings/backup')"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
     </div>
   </div>
 </template>

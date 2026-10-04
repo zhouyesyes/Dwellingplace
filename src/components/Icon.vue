@@ -27,6 +27,10 @@ const P = {
   tool: '<path d="M14.5 5.5a4 4 0 0 0 4.9 4.9l-8.9 8.9a2 2 0 0 1-2.8-2.8l8.9-8.9a4 4 0 0 0-2.1-2.1Z"/>',
   palette: '<path d="M12 4.5a7.5 7.5 0 1 0 0 15c1.2 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2h1.6a3.5 3.5 0 0 0 3.5-3.5c0-4.1-3.4-7.5-7.5-7.5Z"/><circle cx="8.5" cy="11" r=".9" fill="currentColor"/><circle cx="11" cy="8" r=".9" fill="currentColor"/><circle cx="15" cy="8.5" r=".9" fill="currentColor"/>',
   box: '<path d="M4.5 8.5 12 5l7.5 3.5v8L12 20l-7.5-3.5Z"/><path d="M4.5 8.5 12 12l7.5-3.5M12 12v8"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
+  download: '<path d="M12 4.5v11M7.5 11 12 15.5l4.5-4.5"/><path d="M5 19.5h14"/>',
+  upload: '<path d="M12 15.5v-11M7.5 9 12 4.5 16.5 9"/><path d="M5 19.5h14"/>',
+  globe: '<circle cx="12" cy="12" r="7.5"/><path d="M4.5 12h15M12 4.5c2.2 2.3 3.2 4.8 3.2 7.5s-1 5.2-3.2 7.5c-2.2-2.3-3.2-4.8-3.2-7.5s1-5.2 3.2-7.5Z"/>',
   more: '<path d="M6.5 12h.01M12 12h.01M17.5 12h.01" stroke-width="2.6"/>',
 };
 </script>

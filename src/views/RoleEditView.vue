@@ -105,7 +105,7 @@ async function remove() {
         </button>
         <label class="field grow">
           <span>TA 怎么称呼我</span>
-          <input v-model.trim="form.me.name" class="input" placeholder="例如：小满" />
+          <input v-model.trim="form.me.name" class="input" placeholder="例如：存在" />
         </label>
       </div>
       <label class="field">

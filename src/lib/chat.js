@@ -6,6 +6,7 @@ import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
+import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -18,6 +19,7 @@ export function visibleText(text) {
   return text
     .replace(SIG_RE, "")
     .replace(CAL_TAG_RE, "")
+    .replace(MEM_TAG_RE, "")
     .replace(/\n?\s*\[(签|记|改|删)[^\]]*$/, "")
     .trimEnd();
 }
@@ -54,6 +56,7 @@ function buildSystem(role, messages) {
     canChangeSignature(role)
       ? `签名会显示在聊天界面你的名字下面。如果你此刻真的想换一个签名（不要频繁换），在回复的最末尾另起一行写：[签名:新签名]，不超过 20 个字。不想换就什么都不写。`
       : `现在不能更改签名。`,
+    memoryForAI(role, me.name ? `「${me.name}」` : "对方"),
     calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
   ];
   return lines.filter(Boolean).join("\n");
@@ -117,15 +120,17 @@ export async function generate(thread) {
     list.push(msg);
     const { text, usage } = await streamChat({
       api, model, system, messages, signal: ctrl.signal,
+      webSearch: !!store.tools?.webSearch && api?.type === "anthropic",
       onText: d => { msg.text += d; },
     });
     msg.text = text || msg.text;
     if (api) recordUsage(api.id, model, usage.input, usage.output);
 
     // 先处理日历标记，签名标记要在最末尾才认
-    const cal = applyCalendarTags(role, msg.text);
+    const mem = applyMemoryTags(role, msg.text);
+    const cal = applyCalendarTags(role, mem.text);
     msg.text = cal.text;
-    const notes = cal.notes;
+    const notes = [...mem.notes, ...cal.notes];
     const sig = msg.text.match(SIG_RE);
     if (sig) {
       msg.text = msg.text.replace(SIG_RE, "").trimEnd();
