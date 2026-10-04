@@ -47,6 +47,15 @@ function usageLine(api) {
       </button>
     </div>
 
+    <div class="section-label">聊天</div>
+    <div class="list-card">
+      <label class="list-row">
+        <Icon name="chat" :size="20" />
+        <span class="grow">TA 每次能看到最近多少条消息<span class="sub">越多记得越久，也越费 tokens</span></span>
+        <input v-model.number="store.settings.historyLimit" class="num-input" type="number" min="2" max="1000" step="10" inputmode="numeric" />
+      </label>
+    </div>
+
     <div class="section-label">更多</div>
     <div class="list-card">
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
@@ -67,6 +76,7 @@ function usageLine(api) {
 .api-dot.def { background: var(--yellow); color: var(--ink); }
 .tag { font-size: 0.733rem; background: var(--yellow); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
 .usage { color: var(--text-3); }
+.num-input { width: 70px; border: 0; background: var(--bg); border-radius: 10px; padding: 6px 8px; text-align: center; outline: none; }
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 9px; padding: 4px 12px; font-size: 0.87rem; color: var(--text-2); }

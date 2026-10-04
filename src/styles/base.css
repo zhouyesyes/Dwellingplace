@@ -43,6 +43,11 @@ html, body {
 
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
+/* 点击马上有反馈，去掉双击缩放的等待 */
+button, a, label, .list-row, [role="button"] { touch-action: manipulation; }
+button { transition: transform .08s, opacity .08s, background-color .15s; }
+button:active:not(:disabled) { transform: scale(.96); opacity: .75; }
+.list-row:active { transform: none; opacity: 1; background: var(--bg) !important; }
 /* 字号跟着「设置 → 外观」走：html 的 font-size 是基准（标准 = 14px） */
 html { font-size: 0.933rem; }
 

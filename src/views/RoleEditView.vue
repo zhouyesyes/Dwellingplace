@@ -126,6 +126,10 @@ async function remove() {
         <span>最快多久能改一次（小时）</span>
         <input v-model.number="form.sigCooldownHours" class="input" type="number" min="0" step="1" />
       </label>
+      <label class="field">
+        <span>TA 每天能整理几次日历<small>（记、改、删都算；一次最多 5 条；每天早上 5 点重置）</small></span>
+        <input v-model.number="form.calPerDay" class="input" type="number" min="0" max="20" step="1" inputmode="numeric" />
+      </label>
       <label class="switch-row">
         <span>锁定签名，不让 TA 改</span>
         <input v-model="form.sigLocked" type="checkbox" />
