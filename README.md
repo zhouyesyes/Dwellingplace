@@ -30,7 +30,7 @@
   - API：Anthropic 格式（官方或反代）/ OpenAI 兼容格式；可拉取模型、给常用模型点星标；可设全局默认
   - 用量（本机统计）：按 API 汇总，点进某个 API 可以看到每个模型的用量和最近 7 天
   - 字号：小 / 标准 / 大
-  - 工具：联网搜索（Anthropic 格式的 API）；MCP 入口先占位
+  - 工具：联网搜索。通过自己部署的免费中转（Cloudflare Worker），所有模型和反代都能用，部署步骤见 [docs/cloudflare-relay.md](docs/cloudflare-relay.md)；官方 Claude 也可以用自带搜索。MCP 入口先占位
   - 备份：导出全部数据（含聊天记录和图片）成一个文件，可以再导入恢复
 
 
