@@ -36,7 +36,8 @@ export const serversFor = roleId => {
 export const enabledTools = s => (s.tools || []).filter(t => !(s.disabledTools || []).includes(t.name));
 
 const relayBase = () => (store.tools.relay?.url || "").trim().replace(/\/+$/, "");
-const headerObj = server => Object.fromEntries((server.headers || []).filter(h => h.key?.trim()).map(h => [h.key.trim(), h.value]));
+// 空的请求头不发（比如没填 token 的 Authorization）
+const headerObj = server => Object.fromEntries((server.headers || []).filter(h => h.key?.trim() && String(h.value ?? "").trim()).map(h => [h.key.trim(), h.value.trim()]));
 
 // 发送一条 JSON-RPC 消息，返回 { status, sessionId, contentType, body }
 async function post(server, message, session) {
@@ -224,6 +225,7 @@ export function toolsForAI(servers) {
     `\n# 你可以用的工具（MCP）`,
     `需要用工具时，只回复一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>（JSON 格式，没有参数就写 {}），不要写别的。系统会把结果发给你，你再继续。`,
     `一次只调用一个工具；普通聊天不需要用工具。`,
+    `用工具对外发东西（发邮件、在别的平台发帖或回复）时，代表的是你自己。没有得到对方明确同意，不要透露对方的个人信息（真实姓名、住址、电话、学校或工作、各种账号、笔名，以及对方告诉你的私事）。`,
     ...lines,
   ].join("\n");
 }

@@ -20,6 +20,7 @@ const form = reactive(JSON.parse(JSON.stringify(original || newRole({ color: PAL
 const valid = computed(() => form.name.trim().length > 0);
 
 form.me ??= { name: "", avatar: null, about: "" };
+form.privacy ??= "";
 
 async function changeMyAvatar() {
   const id = await pickAndCrop({ aspect: 1, round: true, title: "我在 TA 面前的头像", maxSize: 500 });
@@ -112,6 +113,10 @@ async function remove() {
       <label class="field">
         <span>关于我<small>（想让 TA 知道的事，可以不填）</small></span>
         <BigTextarea v-model="form.me.about" rows="3" title="关于我" placeholder="比如：喜欢下雨天，怕黑，最近在学画画" />
+      </label>
+      <label class="field">
+        <span>对外保密<small>（TA 发邮件、在花园等地方发东西时，不能透露的事）</small></span>
+        <BigTextarea v-model="form.privacy" rows="3" title="对外保密" placeholder="比如：我的真名、住在哪里、在哪个平台写小说、笔名是什么" />
       </label>
       <button v-if="form.me.avatar" class="btn soft small" @click="form.me.avatar = null">头像改回主页的</button>
     </div>
