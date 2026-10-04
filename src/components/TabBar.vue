@@ -29,9 +29,7 @@ const tabs = [
   display: flex;
   justify-content: space-around;
   align-items: center;
-  background: rgba(255, 255, 255, .9);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, .97);
   border-radius: 999px;
   box-shadow: 0 6px 22px rgba(40, 40, 60, .1), 0 0 0 1px rgba(235, 235, 239, .8);
   z-index: 20;

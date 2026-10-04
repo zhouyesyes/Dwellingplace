@@ -18,7 +18,7 @@ function defaults() {
     version: 3,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
-    settings: { fontSize: "standard" },
+    settings: { fontSize: "standard", historyLimit: 80 },
     widgets: defaultWidgets(),
     chick: { state: "idle" },
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
@@ -120,6 +120,7 @@ function migrate() {
     store.version = 3;
   }
   store.settings ??= { fontSize: "standard" };
+  store.settings.historyLimit ??= 80;
   store.profile.userName ??= "";
   store.profile.bioSelf ??= "";
   store.profile.bios ??= {};
@@ -135,6 +136,7 @@ function migrate() {
   for (const a of store.apis) {
     a.favModels ??= [];
     a.showThinking ??= false;
+    a.contextLimit ??= 200000;
   }
   for (const t of store.threads) t.model ??= null;
 }

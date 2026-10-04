@@ -18,6 +18,7 @@ if (!isNew && !original) router.replace("/settings");
 const form = reactive(JSON.parse(JSON.stringify(original || newApi("anthropic"))));
 form.favModels ??= [];
 form.showThinking ??= false;
+form.contextLimit ??= 200000;
 const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === original?.id);
 const loading = ref(false);
 const showKey = ref(false);
@@ -197,6 +198,11 @@ function remove() {
           <option value="high">high · 想得更多</option>
         </select>
         <small>较老的模型不支持这个参数，报错的话选「不设置」。</small>
+      </label>
+      <label class="field">
+        <span>上下文上限（tokens）</span>
+        <input v-model.number="form.contextLimit" class="input" type="number" min="1000" step="1000" inputmode="numeric" />
+        <small>模型一次最多能看多少内容，用来在聊天页显示「上下文」用了多少。不确定就填 200000。</small>
       </label>
       <label v-if="form.type === 'anthropic'" class="switch-row">
         <span>显示思考过程<small class="sub-note">Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开</small></span>

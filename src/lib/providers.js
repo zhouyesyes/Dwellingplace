@@ -22,6 +22,7 @@ export function newApi(type = "anthropic") {
     maxTokens: 32000,
     effort: "",
     showThinking: false,
+    contextLimit: 200000,
   };
 }
 

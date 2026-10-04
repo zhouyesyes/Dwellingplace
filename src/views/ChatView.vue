@@ -212,6 +212,28 @@ const theirBubble = computed(() => {
 const openSources = reactive({});
 const openThink = reactive({});
 
+// ---------- 上下文 / 累计用量 ----------
+const ctxOpen = ref(false);
+const ctxInfo = computed(() => {
+  const last = [...messages.value].reverse().find(m => m.from === "ai" && !m.error && (m.ctx || m.usage?.input));
+  if (!last) return null;
+  const ctx = last.ctx || last.usage.input;
+  const limit = Number(currentApi.value?.contextLimit) || 200000;
+  const pct = Math.min(100, Math.round((ctx / limit) * 100));
+  return { ctx, limit, pct, level: pct >= 85 ? "high" : pct >= 60 ? "mid" : "" };
+});
+const threadTotals = computed(() => {
+  let input = 0, output = 0, replies = 0;
+  for (const m of messages.value) {
+    if (m.from !== "ai" || !m.usage) continue;
+    input += m.usage.input || 0;
+    output += m.usage.output || 0;
+    replies++;
+  }
+  return { input, output, replies };
+});
+const shownCount = computed(() => Math.min(messages.value.filter(m => m.from !== "event").length, Number(store.settings.historyLimit) || 80));
+
 // 一组 AI 消息用了多少 tokens
 function tokensOf(group) {
   if (group.from !== "ai") return "";
@@ -344,6 +366,10 @@ const back = () => goBack(router, "/chats");
       </div>
       <div class="pill-row">
         <button class="model-pill" @click="modelOpen = true">{{ currentModel || "选择模型" }}</button>
+        <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
+          <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
+          <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
+        </button>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div class="row">
@@ -393,6 +419,26 @@ const back = () => goBack(router, "/chats");
       <div class="list-card flat bubble-pick">
         <ColorSwatches v-model="role.bubbleColor" :colors="BUBBLE_COLORS" />
       </div>
+    </Sheet>
+
+    <!-- 上下文 -->
+    <Sheet :open="ctxOpen" title="这个对话的用量" @close="ctxOpen = false">
+      <template v-if="ctxInfo">
+        <div class="ctx-big">
+          <div class="ctx-num">{{ fmtTokens(ctxInfo.ctx) }}<small> / {{ fmtTokens(ctxInfo.limit) }} tokens</small></div>
+          <i class="bar big" :class="ctxInfo.level"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
+          <p>上一次回复时，{{ role.name }} 一共看了这么多内容：最近 {{ shownCount }} 条消息，加上设定、记忆卡片和日历。</p>
+        </div>
+        <div class="list-card flat">
+          <div class="list-row"><span class="grow">这个对话累计</span><span class="val">{{ threadTotals.replies }} 次回复</span></div>
+          <div class="list-row"><span class="grow">累计输入</span><span class="val">{{ fmtTokens(threadTotals.input) }}</span></div>
+          <div class="list-row"><span class="grow">累计输出</span><span class="val">{{ fmtTokens(threadTotals.output) }}</span></div>
+        </div>
+        <p class="tip">
+          对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息 TA 就不再看到（记忆卡片里的事 TA 一直记得）。
+          想让 TA 记得更久、或者想省一点，可以在「设置 → 聊天」里改这个数字；模型的上限在「设置 → API」里改。
+        </p>
+      </template>
     </Sheet>
 
     <!-- 模型切换 -->
@@ -488,17 +534,17 @@ const back = () => goBack(router, "/chats");
   align-items: center;
   gap: 5px;
   align-self: flex-start;
-  font-size: 0.8rem;
+  font-size: 0.73rem;
   color: var(--text-2);
   background: rgba(255, 255, 255, .78);
-  padding: 4px 11px;
+  padding: 3px 10px;
   border-radius: 999px;
   cursor: pointer;
 }
 .think .arrow { font-size: 0.7rem; }
 .think-body {
   max-width: 100%;
-  font-size: 0.83rem;
+  font-size: 0.78rem;
   line-height: 1.7;
   color: var(--text-2);
   background: rgba(255, 255, 255, .72);
@@ -510,16 +556,29 @@ const back = () => goBack(router, "/chats");
   max-height: 45vh;
   overflow-y: auto;
 }
+.ctx { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; font-size: 0.7rem; color: var(--text-3); }
+.bar { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.bar b { display: block; height: 100%; background: #9cc5a1; border-radius: 2px; }
+.ctx.mid .bar b, .bar.mid b { background: #f0c36a; }
+.ctx.high .bar b, .bar.high b { background: var(--danger); }
+.ctx.high { color: var(--danger); }
+.ctx-big { text-align: center; padding: 4px 0 14px; }
+.ctx-num { font-size: 1.6rem; font-weight: 700; }
+.ctx-num small { font-size: 0.8rem; font-weight: 400; color: var(--text-3); }
+.bar.big { width: 70%; height: 8px; border-radius: 4px; margin: 8px 0; }
+.ctx-big p { margin: 6px 0 0; font-size: 0.83rem; color: var(--text-2); line-height: 1.7; }
+.val { color: var(--text-2); font-size: 0.9rem; }
 .expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
+/* 细细的一条；换行后每一行各自是一条两端圆角的细条 */
+.event { padding: 0 6%; line-height: 2.1; }
 .event span {
-  display: inline-block;
-  max-width: 88%;
-  font-size: 0.8rem;
-  line-height: 1.6;
+  font-size: 0.73rem;
   color: var(--text-2);
   background: rgba(255, 255, 255, .75);
-  padding: 4px 12px;
-  border-radius: 14px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .group { display: flex; gap: 10px; align-items: flex-start; }
@@ -549,7 +608,7 @@ const back = () => goBack(router, "/chats");
 .typing i:nth-child(3) { animation-delay: .3s; }
 @keyframes hop { 0%, 60%, 100% { transform: none; opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-.stamp { font-size: 0.733rem; color: var(--text-3); padding: 0 6px; }
+.stamp { font-size: 0.68rem; color: var(--text-3); padding: 0 6px; }
 .has-bg .stamp { color: var(--text-2); }
 .att { cursor: pointer; }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

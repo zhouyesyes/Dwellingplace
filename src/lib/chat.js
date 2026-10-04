@@ -12,7 +12,6 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
 
-const HISTORY_LIMIT = 80;
 const SIG_RE = /\n?\s*\[签名[:：]\s*([^\]\n]{1,40})\]\s*$/;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const MAX_SEARCHES = 2;
@@ -92,8 +91,10 @@ async function partsOf(m) {
 
 async function buildMessages(list) {
   const out = [];
-  for (const m of list.slice(-HISTORY_LIMIT)) {
-    if (m.from === "event" || m.pending || m.error) continue;
+  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
+  // 提示条、生成中、出错的消息不算数
+  const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
+  for (const m of real.slice(-limit)) {
     const role = m.from === "user" ? "user" : "assistant";
     const parts = role === "user" ? await partsOf(m) : [{ type: "text", text: m.text }];
     if (!parts.length) continue;
@@ -143,6 +144,7 @@ export async function generate(thread) {
       });
       text = res.text || msg.text;
       if (res.thinking) msg.thinking = thinkingBefore + res.thinking;
+      msg.ctx = res.usage.input; // 这一次 TA 看到的内容有多大
       msg.usage.input += res.usage.input;
       msg.usage.output += res.usage.output;
       if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);

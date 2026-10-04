@@ -30,6 +30,7 @@
   - API：Anthropic 格式（官方或反代）/ OpenAI 兼容格式；可拉取模型、给常用模型点星标；可设全局默认
   - 用量（本机统计）：按 API 汇总，点进某个 API 可以看到每个模型的用量和最近 7 天
   - 字号：小 / 标准 / 大
+  - 聊天：TA 每次能看到最近多少条消息（默认 80）；聊天页底部显示上下文用了多少，点开有这个对话的累计用量
   - 工具：联网搜索。通过自己部署的免费中转（Cloudflare Worker），所有模型和反代都能用，部署步骤见 [docs/cloudflare-relay.md](docs/cloudflare-relay.md)；官方 Claude 也可以用自带搜索。MCP 入口先占位
   - 备份：导出全部数据（含聊天记录和图片）成一个文件，可以再导入恢复
 
@@ -48,6 +49,10 @@ npm run build    # 生成静态文件到 dist/
 1. 在 GitHub 仓库 **Settings → Pages → Build and deployment → Source** 里选 **GitHub Actions**
 2. 把代码合并到 `main` 分支，会自动构建并发布
 3. 发布后的网址形如 `https://<用户名>.github.io/<仓库名>/`。用 iPhone Safari 打开 → 分享 → **添加到主屏幕**
+
+## 离线与速度
+
+所有页面打包在一起，并且用离线缓存存在手机里：打开过一次以后，GitHub Pages 慢或者没网也能打开栖所（聊天本身当然还需要网络）。发布新版本后，下次打开会自动更新。
 
 ## 数据说明
 
