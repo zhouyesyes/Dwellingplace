@@ -16,10 +16,10 @@ export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
 function defaults() {
   return {
-    version: 5,
+    version: 6,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
-    settings: { fontSize: "standard", historyLimit: 80 },
+    settings: { fontSize: "standard", historyLimit: 80, privacy: "" }, // privacy：对外保密，所有 AI 通用
     widgets: defaultWidgets(),
     chick: { state: "idle" },
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
@@ -78,7 +78,6 @@ export function newRole(over = {}) {
     lastThreadId: null,
     // 在这个角色面前的「我」
     me: { name: "", avatar: null, about: "" },
-    privacy: "", // 对外保密：TA 对外发东西时不能透露的事
     createdAt: Date.now(),
     ...over,
   };
@@ -135,8 +134,17 @@ function migrate() {
     for (const r of store.roles) r.sigCooldownHours = 12;
     store.version = 5;
   }
+  if (store.version < 6) {
+    // 对外保密从每个角色挪到设置里，所有 AI 通用：把各角色写过的合在一起
+    store.settings ??= { fontSize: "standard" };
+    const parts = [...new Set(store.roles.map(r => r.privacy?.trim()).filter(Boolean))];
+    if (parts.length) store.settings.privacy = [store.settings.privacy?.trim(), ...parts].filter(Boolean).join("\n");
+    for (const r of store.roles) delete r.privacy;
+    store.version = 6;
+  }
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
+  store.settings.privacy ??= "";
   store.profile.userName ??= "";
   store.profile.bioSelf ??= "";
   store.profile.bios ??= {};
@@ -150,7 +158,6 @@ function migrate() {
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.calPerDay ??= 3;
-    r.privacy ??= "";
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
   }
   for (const a of store.apis) {
