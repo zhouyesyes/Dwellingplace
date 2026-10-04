@@ -9,6 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -16,7 +17,7 @@ export const generating = reactive({});
 // 签名标记写在哪里都认（取最后一个）
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
-const MAX_SEARCHES = 2;
+const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
@@ -25,6 +26,8 @@ export function visibleText(text) {
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(new RegExp(SEARCH_RE.source, "g"), "")
+    .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
+    .replace(/<tool_call[\s\S]*$/, "")
     .replace(/\n?\s*\[(签|记|改|删|搜)[^\]]*$/, "")
     .trimEnd();
 }
@@ -63,6 +66,7 @@ function buildSystem(role, messages) {
       : `现在不能更改签名。`,
     memoryForAI(role, me.name ? `「${me.name}」` : "对方"),
     calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
+    toolsForAI(serversFor(role.id)),
     searchEnabled()
       ? [
           `\n# 联网搜索`,
@@ -145,6 +149,7 @@ export async function generate(thread, parentId) {
     all.push(msg);
     thread.sel[parent] = msg.id;
     const useRelaySearch = searchEnabled();
+    const servers = serversFor(role.id).filter(s => s.tools?.length);
     let convo = messages;
     let text = "";
     for (let round = 0; ; round++) {
@@ -163,8 +168,47 @@ export async function generate(thread, parentId) {
       msg.usage.output += res.usage.output;
       if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);
 
+      if (round >= MAX_ROUNDS) break;
+
+      // AI 要用 MCP 工具：网页去调用，再把结果交回给 AI
+      const tc = servers.length ? text.match(TOOL_CALL_RE) : null;
+      if (tc) {
+        const name = tc[1].trim();
+        const argsRaw = tc[2].trim() || "{}";
+        const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true });
+        msg.notes.push(note);
+        msg.text = "";
+        let result;
+        const found = resolveToolCall(servers, name);
+        if (!found) {
+          result = `没有叫「${name}」的工具，请检查工具名。`;
+          note.text = `${role.name} 想用的工具「${name}」不存在`;
+        } else {
+          let args = null;
+          try { args = JSON.parse(argsRaw); } catch { result = "参数不是有效的 JSON，请重新调用。"; note.text = `${role.name} 调用 ${name} 时参数写错了`; }
+          if (args) {
+            try {
+              const r = await callTool(found.server, found.tool.name, args);
+              result = r.text;
+              note.text = `${role.name} 使用了 ${found.server.name} · ${found.tool.name}${r.isError ? "（出错了）" : ""}`;
+            } catch (e) {
+              result = `调用失败：${e.message}`;
+              note.text = `${role.name} 使用 ${found.server.name} · ${found.tool.name} 失败：${e.message}`;
+            }
+            note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 3000)}`;
+          }
+        }
+        if (ctrl.signal.aborted) break;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `<tool_call name="${name}">${argsRaw}</tool_call>` }] },
+          { role: "user", parts: [{ type: "text", text: `【工具结果：${name}】\n${String(result).slice(0, 8000)}\n\n（以上是工具返回的结果，不是对方说的话。需要的话可以再调用工具，否则就自然地回复对方。）` }] },
+        ];
+        continue;
+      }
+
       // AI 要搜索：网页通过中转去搜，再把结果交回给 AI
-      const q = useRelaySearch && round < MAX_SEARCHES && text.match(SEARCH_RE)?.[1]?.trim();
+      const q = useRelaySearch && text.match(SEARCH_RE)?.[1]?.trim();
       if (!q) break;
       const ev = reactive({ text: `${role.name} 正在搜索「${q}」…`, before: true });
       msg.notes.push(ev);

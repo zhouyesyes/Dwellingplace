@@ -338,11 +338,12 @@ const back = () => goBack(router, "/chats");
 
         <template v-for="it in items" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
-            <span :class="{ link: it.m.sources?.length }" @click="it.m.sources?.length && (openSources[it.key] = !openSources[it.key])">
-              {{ it.m.text }}<template v-if="it.m.sources?.length"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
+            <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
+              {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
-            <div v-if="openSources[it.key]" class="sources">
+            <pre v-if="openSources[it.key] && it.m.detail" class="detail">{{ it.m.detail }}</pre>
+            <div v-if="openSources[it.key] && it.m.sources?.length" class="sources">
               <a v-for="s in it.m.sources" :key="s.url" :href="s.url" target="_blank" rel="noopener">{{ s.title || s.url }}</a>
             </div>
           </div>
@@ -565,6 +566,7 @@ const back = () => goBack(router, "/chats");
 .ver button { border: 0; background: none; color: var(--text-2); font-size: 1rem; line-height: 1; width: 24px; height: 22px; padding: 0; }
 .ver button:disabled { opacity: .25; }
 .cal-btn { display: block; margin: 4px auto 0; border: 0; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 0.73rem; }
+.detail { text-align: left; white-space: pre-wrap; word-break: break-all; font-size: 0.72rem; line-height: 1.6; color: var(--text-2); background: rgba(255, 255, 255, .85); border-radius: 12px; padding: 8px 10px; margin: 6px auto 0; max-width: 92%; max-height: 40vh; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; }
 .sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }
 .sources a { font-size: 0.75rem; color: var(--accent); background: rgba(255, 255, 255, .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .think {

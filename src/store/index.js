@@ -26,6 +26,7 @@ function defaults() {
     events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
     memories: [], // 记忆卡片：{ id, roleId, title, content, img, date, author: "me" | roleId, ts }
     tools: defaultTools(),
+    mcpServers: [], // 见 lib/mcp.js
     roles: [
       newRole({
         name: "小机",
@@ -141,6 +142,7 @@ function migrate() {
   store.anniversaries ??= [];
   store.events ??= [];
   store.memories ??= [];
+  store.mcpServers ??= [];
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
