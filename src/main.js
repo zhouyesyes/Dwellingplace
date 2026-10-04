@@ -2,6 +2,7 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import { router } from "./router.js";
 import { loadStore } from "./store/index.js";
+import { startWake } from "./lib/wake.js";
 import "./styles/base.css";
 
 // 离线缓存（只在正式版里）
@@ -13,4 +14,5 @@ addEventListener("vite:preloadError", () => location.reload());
 
 loadStore().then(() => {
   createApp(App).use(router).mount("#app");
+  startWake(router);
 });

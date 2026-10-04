@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { store, today, fmtTokens } from "../store/index.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
+import BigTextarea from "../components/BigTextarea.vue";
 
 const router = useRouter();
 
@@ -56,8 +57,15 @@ function usageLine(api) {
       </label>
     </div>
 
+    <div class="section-label">对外保密</div>
+    <div class="card body privacy">
+      <p class="hint">所有 AI 通用。TA 们发邮件、在花园等地方发东西时，都不会说出这里写的事。</p>
+      <BigTextarea v-model="store.settings.privacy" rows="3" title="对外保密" placeholder="比如：我的真名、住在哪里、在哪个平台写小说、笔名是什么" />
+    </div>
+
     <div class="section-label">更多</div>
     <div class="list-card">
+      <button class="list-row" @click="router.push('/settings/wake')"><Icon name="bell" :size="20" /><span class="grow">唤醒<span class="sub">{{ store.wake?.enabled ? "已开启：TA 们会自己醒来" : "让 TA 们按时间自己醒来，给你发消息" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
@@ -72,6 +80,8 @@ function usageLine(api) {
 
 <style scoped>
 .add { color: var(--text-2); }
+.privacy { padding: 14px 16px; }
+.privacy .hint { margin: 0 0 8px; font-size: 0.8rem; color: var(--text-3); }
 .api-dot { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--bg-deep); color: var(--text-2); }
 .api-dot.def { background: var(--yellow); color: var(--ink); }
 .tag { font-size: 0.733rem; background: var(--yellow); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }

@@ -27,14 +27,14 @@ function usesToday(role) {
 const leftToday = role => Math.max(0, limitOf(role) - usesToday(role));
 
 // 给 AI 看的最近记录（带短 id，方便它修改）
-export function calendarForAI(role, meName) {
+export function calendarForAI(role, meName, today = todayYmd()) {
   const list = [...store.events].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
   const who = e => (e.author === "me" ? meName : e.author === role.id ? "你" : "别人");
   const lines = list.map(e => `- #${shortId(e)} ${e.date} ${e.text}（${who(e)}记的）`);
   const left = leftToday(role);
   return [
     `\n# 共同的日历`,
-    `你和${meName}有一个共用的日历，记着你们之间值得纪念的小事。今天是 ${todayYmd()}。`,
+    `你和${meName}有一个共用的日历，记着你们之间值得纪念的小事。今天是 ${today}。`,
     lines.length ? `最近的记录：\n${lines.join("\n")}` : "日历上还没有记录。",
     `新增：[记日历:YYYY-MM-DD|发生了什么]　修改：[改日历:#编号|新的内容]（改日期写 [改日历:#编号|YYYY-MM-DD|新的内容]）　删除：[删日历:#编号]，写在回复末尾。`,
     `日历每天只能整理 ${limitOf(role)} 次（每天早上 5 点重新开始）。一条回复里不管记、改、删几条，都算一次整理，一次最多 ${PER_TIME} 条。`,

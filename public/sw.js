@@ -39,3 +39,33 @@ self.addEventListener("fetch", e => {
     }),
   );
 });
+
+// ---------- 推送通知（TA 醒来给你发消息时） ----------
+self.addEventListener("push", e => {
+  let d = {};
+  try { d = e.data?.json() || {}; } catch { d = { body: e.data?.text() || "" }; }
+  e.waitUntil(
+    self.registration.showNotification(d.title || "栖所", {
+      body: d.body || "",
+      icon: "icon-192.png",
+      badge: "icon-192.png",
+      tag: d.tag,
+      data: { url: d.url || "./" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || "./", self.registration.scope);
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+      const open = list.find(c => c.url.startsWith(self.registration.scope));
+      if (open) {
+        open.postMessage({ type: "open", hash: url.hash });
+        return open.focus();
+      }
+      return self.clients.openWindow(url.href);
+    }),
+  );
+});

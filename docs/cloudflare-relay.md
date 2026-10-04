@@ -70,7 +70,7 @@
 
 栖所加新功能时（比如 MCP），中转代码偶尔也需要更新：Worker 页面 → **编辑代码** → 全部换成最新的 [`relay/worker.js`](../relay/worker.js) → **部署**。密码和 Key 都不用重新设。
 
-接入 MCP 的步骤见 [mcp.md](mcp.md)。
+接入 MCP 的步骤见 [mcp.md](mcp.md)。让 TA 们自己醒来见 [wake.md](wake.md)。
 
 ---
 

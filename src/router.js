@@ -10,6 +10,8 @@ import ApiEditView from "./views/ApiEditView.vue";
 import BackupView from "./views/BackupView.vue";
 import ToolsView from "./views/ToolsView.vue";
 import McpEditView from "./views/McpEditView.vue";
+import WakeView from "./views/WakeView.vue";
+import WakeRoleView from "./views/WakeRoleView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -24,6 +26,8 @@ export const router = createRouter({
     { path: "/settings/backup", component: BackupView },
     { path: "/settings/tools", component: ToolsView },
     { path: "/settings/mcp/:id", component: McpEditView },
+    { path: "/settings/wake", component: WakeView },
+    { path: "/settings/wake/:id", component: WakeRoleView },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });
