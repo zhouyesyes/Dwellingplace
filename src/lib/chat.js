@@ -53,6 +53,7 @@ function buildSystem(role, messages) {
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
     role.persona ? `\n# 你的设定\n${role.persona}` : "",
     me.about ? `\n# 关于${me.name || "对方"}\n${me.about}` : "",
+    role.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${role.privacy.trim()}` : "",
     `\n# 现在`,
     `现在是 ${nowForAI()}。`,
     lastOther && Date.now() - lastOther.ts > 30 * 60_000

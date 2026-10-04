@@ -78,6 +78,7 @@ export function newRole(over = {}) {
     lastThreadId: null,
     // 在这个角色面前的「我」
     me: { name: "", avatar: null, about: "" },
+    privacy: "", // 对外保密：TA 对外发东西时不能透露的事
     createdAt: Date.now(),
     ...over,
   };
@@ -149,6 +150,7 @@ function migrate() {
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.calPerDay ??= 3;
+    r.privacy ??= "";
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
   }
   for (const a of store.apis) {
