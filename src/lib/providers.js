@@ -7,7 +7,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 export const API_TYPES = {
-  anthropic: { label: "Anthropic 格式（Claude）", baseUrl: "https://api.anthropic.com", model: "claude-opus-5-5" },
+  anthropic: { label: "Anthropic 格式", baseUrl: "https://api.anthropic.com", model: "claude-opus-5-5" },
   openai: { label: "OpenAI 兼容格式", baseUrl: "https://api.openai.com/v1", model: "" },
 };
 
@@ -18,6 +18,7 @@ export function newApi(type = "anthropic") {
     key: "",
     model: API_TYPES[type].model,
     models: [],
+    favModels: [],
     maxTokens: 32000,
     effort: "",
   };

@@ -1,7 +1,7 @@
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "idb-keyval";
-import { store, uid, roleById, apiFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
+import { store, uid, roleById, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -95,20 +95,21 @@ export async function generate(thread) {
   const role = roleById(thread.roleId);
   const list = await loadMessages(thread.id);
   const api = apiFor(thread, role);
+  const model = modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), from: "ai", text: "", ts: Date.now(), pending: true, apiId: api?.id ?? null });
+  const msg = reactive({ id: uid(), from: "ai", text: "", ts: Date.now(), pending: true, apiId: api?.id ?? null, model });
   try {
     const system = buildSystem(role, list);
     const messages = await buildMessages(list);
     list.push(msg);
     const { text, usage } = await streamChat({
-      api, system, messages, signal: ctrl.signal,
+      api, model, system, messages, signal: ctrl.signal,
       onText: d => { msg.text += d; },
     });
     msg.text = text || msg.text;
-    if (api) recordUsage(api.id, usage.input, usage.output);
+    if (api) recordUsage(api.id, model, usage.input, usage.output);
 
     const sig = msg.text.match(SIG_RE);
     if (sig) {

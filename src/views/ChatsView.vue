@@ -60,8 +60,8 @@ function open(role) {
 .head .page-title { margin-bottom: 14px; }
 .list-row { padding: 14px 16px; }
 .name-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.name-line b { font-weight: 600; font-size: 15.5px; }
-.time { font-size: 12px; color: var(--text-3); flex: none; }
+.name-line b { font-weight: 600; font-size: 1.03rem; }
+.time { font-size: 0.8rem; color: var(--text-3); flex: none; }
 .sub { display: block; margin-top: 1px; }
 .group { opacity: .7; }
 .group-ava {

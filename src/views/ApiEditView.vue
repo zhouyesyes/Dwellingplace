@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, ref, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, uid, apiById } from "../store/index.js";
+import { store, uid, apiById, today, fmtTokens } from "../store/index.js";
 import { API_TYPES, newApi, fetchModels } from "../lib/providers.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -14,6 +14,7 @@ const original = isNew ? null : apiById(route.params.id);
 if (!isNew && !original) router.replace("/settings");
 
 const form = reactive(JSON.parse(JSON.stringify(original || newApi("anthropic"))));
+form.favModels ??= [];
 const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === original?.id);
 const loading = ref(false);
 const showKey = ref(false);
@@ -25,7 +26,38 @@ function switchType(type) {
   form.baseUrl = API_TYPES[type].baseUrl;
   form.model = API_TYPES[type].model;
   form.models = [];
+  form.favModels = [];
 }
+
+function toggleFav(m) {
+  const i = form.favModels.indexOf(m);
+  if (i >= 0) form.favModels.splice(i, 1);
+  else form.favModels.push(m);
+}
+function addFavManually() {
+  const m = prompt("模型名")?.trim();
+  if (m && !form.favModels.includes(m)) form.favModels.push(m);
+}
+// 星标列表里也显示手动加的、但不在拉取结果里的模型
+const modelChips = computed(() => [...new Set([...form.favModels, ...form.models])]);
+
+// ---------- 用量 ----------
+const usageToday = computed(() => (original ? store.usage[today()]?.[original.id] : null));
+const usageModels = computed(() =>
+  Object.entries(usageToday.value?.models || {}).sort((a, b) => b[1].input + b[1].output - a[1].input - a[1].output),
+);
+const usageWeek = computed(() => {
+  if (!original) return [];
+  const out = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(Date.now() - i * 86400000);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const u = store.usage[key]?.[original.id];
+    out.push({ label: i === 0 ? "今天" : i === 1 ? "昨天" : `${d.getMonth() + 1}/${d.getDate()}`, total: u ? u.input + u.output : 0, calls: u?.calls || 0 });
+  }
+  return out;
+});
+const weekMax = computed(() => Math.max(1, ...usageWeek.value.map(d => d.total)));
 
 async function pullModels() {
   loading.value = true;
@@ -91,17 +123,43 @@ function remove() {
       </label>
 
       <div class="field">
-        <span>模型</span>
+        <span>默认模型</span>
         <div class="key-row">
           <input v-model="form.model" class="input" list="model-list" autocapitalize="off" placeholder="手动填写或拉取" />
           <button class="btn soft small" :disabled="loading" @click="pullModels">{{ loading ? "拉取中…" : "拉取模型" }}</button>
         </div>
         <datalist id="model-list"><option v-for="m in form.models" :key="m" :value="m" /></datalist>
-        <div v-if="form.models.length" class="chips">
-          <button v-for="m in form.models" :key="m" :class="{ on: form.model === m }" @click="form.model = m">{{ m }}</button>
+      </div>
+
+      <div class="field">
+        <span>常用模型 ★</span>
+        <small>点亮星标的模型，会出现在聊天页的模型切换里。</small>
+        <div class="chips">
+          <button v-for="m in modelChips" :key="m" :class="{ on: form.favModels.includes(m) }" @click="toggleFav(m)">
+            {{ form.favModels.includes(m) ? "★" : "☆" }} {{ m }}
+          </button>
+          <button class="add-chip" @click="addFavManually">＋ 手动添加</button>
         </div>
       </div>
     </div>
+
+    <template v-if="original">
+      <div class="section-label">用量（本机统计）</div>
+      <div class="card body usage">
+        <div class="u-title">今天</div>
+        <p v-if="!usageModels.length" class="u-empty">今天还没用过</p>
+        <div v-for="[m, u] in usageModels" :key="m" class="u-row">
+          <span class="u-model">{{ m }}</span>
+          <span class="u-num">{{ u.calls }} 次 · 入 {{ fmtTokens(u.input) }} · 出 {{ fmtTokens(u.output) }}</span>
+        </div>
+        <div class="u-title" style="margin-top: 14px">最近 7 天（tokens）</div>
+        <div v-for="d in usageWeek" :key="d.label" class="u-bar">
+          <span class="u-day">{{ d.label }}</span>
+          <span class="u-track"><i :style="{ width: (d.total / weekMax) * 100 + '%' }" /></span>
+          <span class="u-val">{{ fmtTokens(d.total) }}</span>
+        </div>
+      </div>
+    </template>
 
     <div class="section-label">高级</div>
     <div class="card body">
@@ -135,15 +193,27 @@ function remove() {
 <style scoped>
 .body { padding: 18px; }
 .seg { display: flex; background: var(--bg-deep); border-radius: 14px; padding: 4px; gap: 4px; }
-.seg button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; font-size: 13px; color: var(--text-2); }
+.seg button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; font-size: 0.867rem; color: var(--text-2); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
 .key-row { display: flex; gap: 8px; align-items: center; }
 .key-row .btn { flex: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto; padding: 4px 2px; }
-.chips button { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--text-2); }
-.chips button.on { background: var(--ink); color: #fffdf8; border-color: var(--ink); }
-.switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 14px; }
+.chips button { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 3px 10px; font-size: 0.833rem; color: var(--text-2); }
+.chips button.on { background: var(--yellow); color: var(--text); border-color: transparent; }
+.chips .add-chip { border-style: dashed; }
+.u-title { font-size: 0.8rem; color: var(--text-3); margin-bottom: 6px; }
+.u-empty { margin: 0; font-size: 0.87rem; color: var(--text-2); }
+.u-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 0.87rem; border-bottom: 1px solid var(--line); }
+.u-row:last-of-type { border-bottom: 0; }
+.u-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.u-num { color: var(--text-2); flex: none; }
+.u-bar { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; padding: 3px 0; }
+.u-day { width: 36px; color: var(--text-2); }
+.u-track { flex: 1; height: 8px; border-radius: 4px; background: var(--bg); overflow: hidden; }
+.u-track i { display: block; height: 100%; border-radius: 4px; background: var(--accent); opacity: .55; }
+.u-val { width: 52px; text-align: right; color: var(--text-2); }
+.switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 0.933rem; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--ink); }
-.note { font-size: 12px; color: var(--text-3); text-align: center; margin: 18px 0; }
+.note { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 18px 0; }
 .danger-zone { display: flex; justify-content: center; margin-top: 10px; }
 </style>
