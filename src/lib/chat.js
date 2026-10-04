@@ -5,6 +5,7 @@ import { store, uid, roleById, apiFor, modelFor, loadMessages, saveMessages, rec
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
+import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -12,10 +13,18 @@ export const generating = reactive({});
 const HISTORY_LIMIT = 80;
 const SIG_RE = /\n?\s*\[签名[:：]\s*([^\]\n]{1,40})\]\s*$/;
 
-// 显示时去掉签名标记（流式输出中途也要藏起来）
+// 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
-  return text.replace(SIG_RE, "").replace(/\n?\s*\[签名[^\]]*$/, "").trimEnd();
+  return text
+    .replace(SIG_RE, "")
+    .replace(CAL_TAG_RE, "")
+    .replace(/\n?\s*\[(签|记|改|删)[^\]]*$/, "")
+    .trimEnd();
 }
+
+// 在这个角色面前的「我」：称呼、头像、关于我
+export const meOf = role => role?.me || {};
+export const meName = role => meOf(role).name || "对方";
 
 // AI 的一条回复按空行拆成几个气泡
 export function splitBubbles(text) {
@@ -28,11 +37,12 @@ function canChangeSignature(role) {
 }
 
 function buildSystem(role, messages) {
-  const me = store.profile.userName;
+  const me = meOf(role);
   const lastOther = [...messages].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
   const lines = [
-    `你是「${role.name}」，正在用手机和${me ? `「${me}」` : "对方"}聊天。`,
+    `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
     role.persona ? `\n# 你的设定\n${role.persona}` : "",
+    me.about ? `\n# 关于${me.name || "对方"}\n${me.about}` : "",
     `\n# 现在`,
     `现在是 ${nowForAI()}。`,
     lastOther && Date.now() - lastOther.ts > 30 * 60_000
@@ -44,6 +54,7 @@ function buildSystem(role, messages) {
     canChangeSignature(role)
       ? `签名会显示在聊天界面你的名字下面。如果你此刻真的想换一个签名（不要频繁换），在回复的最末尾另起一行写：[签名:新签名]，不超过 20 个字。不想换就什么都不写。`
       : `现在不能更改签名。`,
+    calendarForAI(role, me.name ? `「${me.name}」` : "对方"),
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -111,15 +122,20 @@ export async function generate(thread) {
     msg.text = text || msg.text;
     if (api) recordUsage(api.id, model, usage.input, usage.output);
 
+    // 先处理日历标记，签名标记要在最末尾才认
+    const cal = applyCalendarTags(role, msg.text);
+    msg.text = cal.text;
+    const notes = cal.notes;
     const sig = msg.text.match(SIG_RE);
     if (sig) {
       msg.text = msg.text.replace(SIG_RE, "").trimEnd();
       if (canChangeSignature(role) && sig[1].trim() !== role.signature) {
         role.signature = sig[1].trim();
         role.sigUpdatedAt = Date.now();
-        list.push({ id: uid(), from: "event", text: `${role.name} 把签名改成了「${role.signature}」`, ts: Date.now() });
+        notes.push(`${role.name} 把签名改成了「${role.signature}」`);
       }
     }
+    for (const n of notes) list.push({ id: uid(), from: "event", text: n, ts: Date.now() });
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
       msg.text = visibleText(msg.text);

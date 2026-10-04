@@ -273,7 +273,7 @@ const back = () => goBack(router, "/chats");
 
           <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'">
             <div class="ava">
-              <Avatar v-if="it.from === 'user'" :img="store.profile.avatar" :name="store.profile.name" :color="store.profile.color" :size="42" />
+              <Avatar v-if="it.from === 'user'" :img="role.me?.avatar || store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" />
               <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" />
             </div>
             <div class="col">

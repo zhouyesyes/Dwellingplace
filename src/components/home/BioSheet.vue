@@ -16,7 +16,7 @@ const editingId = ref(null);
 const editText = ref("");
 
 function promptFor(role) {
-  const who = store.profile.userName ? `「${store.profile.userName}」` : "对方";
+  const who = role.me?.name ? `「${role.me.name}」` : "对方";
   return [
     `${who}有一个叫「${store.profile.name}」的个人主页，需要一段简介。`,
     `请你以「${role.name}」的身份和口吻，写一段你眼中的${who}，作为主页简介。`,
