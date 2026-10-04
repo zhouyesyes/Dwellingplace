@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS } from "../store/index.js";
+import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, sendMessage, regenerate, editAndResend, deleteMessage, splitBubbles, fileToAttachment } from "../lib/chat.js";
 import { saveImage, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
 import { stamp, shortTime } from "../lib/time.js";
@@ -12,6 +12,8 @@ import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
+import BigTextarea from "../components/BigTextarea.vue";
+import { openEditor } from "../lib/editor.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -86,6 +88,16 @@ function autoGrow() {
   if (!el) return;
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 140) + "px";
+}
+
+// 字多的时候出现「展开」按钮
+const draftLong = computed(() => draft.value.length > 40 || draft.value.includes("\n"));
+async function expandDraft() {
+  const t = await openEditor(draft.value, { title: `写给 ${role.value.name}`, placeholder: "What do you want to share?" });
+  if (t !== null) {
+    draft.value = t;
+    nextTick(autoGrow);
+  }
 }
 
 function onKeydown(e) {
@@ -198,6 +210,15 @@ const theirBubble = computed(() => {
 });
 
 const openSources = reactive({});
+const openThink = reactive({});
+
+// 一组 AI 消息用了多少 tokens
+function tokensOf(group) {
+  if (group.from !== "ai") return "";
+  let i = 0, o = 0;
+  for (const m of group.msgs) { i += m.usage?.input || 0; o += m.usage?.output || 0; }
+  return i || o ? `输入 ${fmtTokens(i)} · 输出 ${fmtTokens(o)} tokens` : "";
+}
 
 // ---------- 消息操作 ----------
 const actionMsg = ref(null);
@@ -295,12 +316,18 @@ const back = () => goBack(router, "/chats");
                   <div v-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
                 </template>
                 <template v-else>
+                  <div v-if="m.thinking" class="think" @click="openThink[m.id] = !openThink[m.id]">
+                    <Icon name="bulb" :size="14" />
+                    {{ m.pending && !splitBubbles(m.text).length ? "思考中…" : "思考过程" }}
+                    <span class="arrow">{{ openThink[m.id] ? "▴" : "▾" }}</span>
+                  </div>
+                  <div v-if="m.thinking && openThink[m.id]" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                   <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="openActions(m)">{{ b }}</div>
                 </template>
               </template>
-              <div class="stamp">{{ stamp(it.lastTs) }}</div>
+              <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
             </div>
           </div>
         </template>
@@ -317,6 +344,7 @@ const back = () => goBack(router, "/chats");
       </div>
       <div class="pill-row">
         <button class="model-pill" @click="modelOpen = true">{{ currentModel || "选择模型" }}</button>
+        <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div class="row">
         <button class="tool" aria-label="添加图片或文件" @click="plusOpen = true"><Icon name="plus" :size="26" /></button>
@@ -401,7 +429,7 @@ const back = () => goBack(router, "/chats");
     <!-- 修改 -->
     <Sheet :open="!!editing" title="修改消息" @close="editing = null">
       <template v-if="editing">
-        <textarea v-model="editing.text" class="input" rows="7" />
+        <BigTextarea v-model="editing.text" rows="7" title="修改消息" />
         <div class="edit-actions">
           <button class="btn soft" @click="saveEdit(false)">仅保存</button>
           <button v-if="editing.msg.from === 'user'" class="btn" :disabled="busy" @click="saveEdit(true)">保存并重新回答</button>
@@ -455,7 +483,44 @@ const back = () => goBack(router, "/chats");
 .event span.link { cursor: pointer; }
 .sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }
 .sources a { font-size: 0.75rem; color: var(--accent); background: rgba(255, 255, 255, .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
-.event span { font-size: 0.8rem; color: var(--text-2); background: rgba(255, 255, 255, .75); padding: 3px 12px; border-radius: 999px; }
+.think {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  font-size: 0.8rem;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, .78);
+  padding: 4px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.think .arrow { font-size: 0.7rem; }
+.think-body {
+  max-width: 100%;
+  font-size: 0.83rem;
+  line-height: 1.7;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, .72);
+  border-left: 3px solid var(--line);
+  border-radius: 6px 14px 14px 6px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+.expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
+.event span {
+  display: inline-block;
+  max-width: 88%;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, .75);
+  padding: 4px 12px;
+  border-radius: 14px;
+}
 
 .group { display: flex; gap: 10px; align-items: flex-start; }
 .group.mine { flex-direction: row-reverse; }
@@ -543,7 +608,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .t-time { font-size: 0.8rem; color: var(--text-3); }
 .mini-btn { border: 0; background: none; color: var(--text-3); width: 30px; height: 30px; display: grid; place-items: center; padding: 0; }
 .new-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 10px; }
-.pill-row { max-width: 760px; margin: 0 auto 4px; padding-left: 8px; }
+.pill-row { max-width: 760px; margin: 0 auto 4px; padding: 0 8px; display: flex; align-items: center; gap: 8px; }
 .model-pill {
   border: 0; border-radius: 999px; padding: 2px 10px;
   background: var(--blue); color: #4b74a8; font-size: 0.75rem;

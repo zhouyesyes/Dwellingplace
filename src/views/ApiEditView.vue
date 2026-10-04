@@ -17,6 +17,7 @@ if (!isNew && !original) router.replace("/settings");
 
 const form = reactive(JSON.parse(JSON.stringify(original || newApi("anthropic"))));
 form.favModels ??= [];
+form.showThinking ??= false;
 const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === original?.id);
 const loading = ref(false);
 const showKey = ref(false);
@@ -197,6 +198,10 @@ function remove() {
         </select>
         <small>较老的模型不支持这个参数，报错的话选「不设置」。</small>
       </label>
+      <label v-if="form.type === 'anthropic'" class="switch-row">
+        <span>显示思考过程<small class="sub-note">Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开</small></span>
+        <input v-model="form.showThinking" type="checkbox" />
+      </label>
       <label class="switch-row">
         <span>设为全局默认</span>
         <input v-model="makeDefault" type="checkbox" />
@@ -253,6 +258,7 @@ function remove() {
 .picker-list .list-row .grow { white-space: normal; word-break: break-all; }
 .picker-list .cur { background: var(--card-2); font-weight: 600; }
 .star { color: #e0b43c; }
+.sub-note { display: block; font-size: 0.75rem; color: var(--text-3); margin-top: 2px; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 0.933rem; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--ink); }
 .note { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 18px 0; }

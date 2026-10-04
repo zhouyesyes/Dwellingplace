@@ -132,7 +132,10 @@ function migrate() {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
   }
-  for (const a of store.apis) a.favModels ??= [];
+  for (const a of store.apis) {
+    a.favModels ??= [];
+    a.showThinking ??= false;
+  }
   for (const t of store.threads) t.model ??= null;
 }
 

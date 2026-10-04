@@ -6,6 +6,7 @@ import { oneShot, describeError } from "../../lib/chat.js";
 import { toast } from "../../lib/toast.js";
 import Sheet from "../Sheet.vue";
 import Avatar from "../Avatar.vue";
+import BigTextarea from "../BigTextarea.vue";
 import Icon from "../Icon.vue";
 
 defineProps({ open: Boolean });
@@ -67,7 +68,7 @@ function removeBio(id) {
     <div class="item">
       <div class="who"><Avatar :img="store.profile.avatar" :name="store.profile.name" :color="store.profile.color" :size="28" /><b>我自己写的</b></div>
       <template v-if="editingId === 'me'">
-        <textarea v-model="editText" class="input" rows="3" placeholder="写点什么介绍自己" />
+        <BigTextarea v-model="editText" rows="3" title="我的简介" placeholder="写点什么介绍自己" />
         <div class="ops"><button class="btn soft small" @click="editingId = null">取消</button><button class="btn small" @click="saveEdit">保存</button></div>
       </template>
       <template v-else>
@@ -79,7 +80,7 @@ function removeBio(id) {
     <div v-for="r in store.roles" :key="r.id" class="item" :style="{ '--c': r.color }">
       <div class="who"><Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="28" /><b>{{ r.name }} 写的</b></div>
       <template v-if="editingId === r.id">
-        <textarea v-model="editText" class="input" rows="3" />
+        <BigTextarea v-model="editText" rows="3" :title="`${r.name} 写的简介`" />
         <div class="ops"><button class="btn soft small" @click="editingId = null">取消</button><button class="btn small" @click="saveEdit">保存</button></div>
       </template>
       <template v-else>
