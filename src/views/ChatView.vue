@@ -2,7 +2,8 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, sendMessage, regenerate, editAndResend, deleteMessage, splitBubbles, fileToAttachment } from "../lib/chat.js";
+import { generating, sendMessage, regenerate, editAndResend, deleteMessage, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
+import { versionsOf } from "../lib/tree.js";
 import { saveImage, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
 import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
@@ -23,7 +24,19 @@ const role = computed(() => roleById(route.params.roleId));
 // ---------- 当前对话 ----------
 const threadId = ref(null);
 const thread = computed(() => store.threads.find(t => t.id === threadId.value));
-const messages = computed(() => messageCache[threadId.value] || []);
+// 这个对话的所有消息（包括其他版本），以及当前显示的这一条路径
+const allMessages = computed(() => messageCache[threadId.value] || []);
+const messages = computed(() => (thread.value ? pathOf(thread.value, allMessages.value) : []));
+
+// 同一位置有几个版本
+function vers(m) {
+  return versionsOf(allMessages.value, m);
+}
+function switchVersion(m, step) {
+  const { list, index } = vers(m);
+  const next = list[index + step];
+  if (next && !busy.value) selectVersion(thread.value, next);
+}
 const busy = computed(() => !!generating[threadId.value]);
 const bgUrl = useImage(() => thread.value?.bg);
 
@@ -50,8 +63,10 @@ onMounted(async () => {
 const items = computed(() => {
   const out = [];
   let group = null;
+  const notes = (m, before) =>
+    (m.notes || []).forEach((n, i) => { if (!!n.before === before) { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; } });
   for (const m of messages.value) {
-    if (m.from === "event") { out.push({ type: "event", m }); group = null; continue; }
+    notes(m, true);
     if (group && group.from === m.from && m.ts - group.lastTs < 5 * 60_000) {
       group.msgs.push(m);
       group.lastTs = m.ts;
@@ -59,6 +74,7 @@ const items = computed(() => {
       group = { type: "group", from: m.from, msgs: [m], lastTs: m.ts, key: m.id };
       out.push(group);
     }
+    notes(m, false);
   }
   return out;
 });
@@ -232,7 +248,8 @@ const ctxInfo = computed(() => {
 });
 const threadTotals = computed(() => {
   let input = 0, output = 0, replies = 0;
-  for (const m of messages.value) {
+  // 所有版本都算（重新生成也花了 tokens）
+  for (const m of allMessages.value) {
     if (m.from !== "ai" || !m.usage) continue;
     input += m.usage.input || 0;
     output += m.usage.output || 0;
@@ -285,14 +302,12 @@ async function regen() {
   const m = actionMsg.value;
   actionMsg.value = null;
   if (busy.value) return;
-  const isLast = messages.value.filter(x => x.from !== "event").at(-1)?.id === m.id;
-  if (!isLast && !confirm("重新生成会删掉这条之后的所有消息，确定吗？")) return;
   await regenerate(thread.value, m.id);
 }
 async function removeMsg() {
   const m = actionMsg.value;
   actionMsg.value = null;
-  if (!confirm("删除这条消息？")) return;
+  if (!confirm(vers(m).list.length > 1 ? "删除这个版本（以及它后面的对话）？其他版本会保留。" : "删除这条消息（以及它后面的对话）？")) return;
   await deleteMessage(thread.value, m.id);
 }
 
@@ -321,13 +336,13 @@ const back = () => goBack(router, "/chats");
           <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
         </div>
 
-        <template v-for="it in items" :key="it.type === 'event' ? it.m.id : it.key">
+        <template v-for="it in items" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
-            <span :class="{ link: it.m.sources?.length }" @click="it.m.sources?.length && (openSources[it.m.id] = !openSources[it.m.id])">
-              {{ it.m.text }}<template v-if="it.m.sources?.length"> {{ openSources[it.m.id] ? "▴" : "▾" }}</template>
+            <span :class="{ link: it.m.sources?.length }" @click="it.m.sources?.length && (openSources[it.key] = !openSources[it.key])">
+              {{ it.m.text }}<template v-if="it.m.sources?.length"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
-            <div v-if="openSources[it.m.id]" class="sources">
+            <div v-if="openSources[it.key]" class="sources">
               <a v-for="s in it.m.sources" :key="s.url" :href="s.url" target="_blank" rel="noopener">{{ s.title || s.url }}</a>
             </div>
           </div>
@@ -345,6 +360,11 @@ const back = () => goBack(router, "/chats");
                     <div v-else class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
                   <div v-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
+                  <div v-if="vers(m).list.length > 1" class="ver">
+                    <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
+                    {{ vers(m).index + 1 }} / {{ vers(m).list.length }}
+                    <button :disabled="vers(m).index === vers(m).list.length - 1" aria-label="下一个版本" @click="switchVersion(m, 1)">›</button>
+                  </div>
                 </template>
                 <template v-else>
                   <div v-if="m.thinking" class="think" @click="openThink[m.id] = !openThink[m.id]">
@@ -356,6 +376,11 @@ const back = () => goBack(router, "/chats");
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                   <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="openActions(m)">{{ b }}</div>
+                  <div v-if="vers(m).list.length > 1" class="ver">
+                    <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
+                    {{ vers(m).index + 1 }} / {{ vers(m).list.length }}
+                    <button :disabled="vers(m).index === vers(m).list.length - 1" aria-label="下一个版本" @click="switchVersion(m, 1)">›</button>
+                  </div>
                 </template>
               </template>
               <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
@@ -536,6 +561,9 @@ const back = () => goBack(router, "/chats");
 
 .event { text-align: center; }
 .event span.link { cursor: pointer; }
+.ver { display: inline-flex; align-items: center; gap: 2px; font-size: 0.73rem; color: var(--text-3); background: rgba(255, 255, 255, .7); border-radius: 999px; padding: 0 2px; }
+.ver button { border: 0; background: none; color: var(--text-2); font-size: 1rem; line-height: 1; width: 24px; height: 22px; padding: 0; }
+.ver button:disabled { opacity: .25; }
 .cal-btn { display: block; margin: 4px auto 0; border: 0; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 0.73rem; }
 .sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }
 .sources a { font-size: 0.75rem; color: var(--accent); background: rgba(255, 255, 255, .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }

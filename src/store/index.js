@@ -4,6 +4,7 @@
 //   img:<id>      压缩后的图片（Blob）
 import { reactive, watch } from "vue";
 import { get, set, del } from "idb-keyval";
+import { migrateFlat } from "../lib/tree.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -180,7 +181,7 @@ export function modelFor(thread, role) {
 
 // ---------- 对话 ----------
 export function createThread(roleId) {
-  const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "" };
+  const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "", sel: {} };
   store.threads.push(t);
   messageCache[t.id] = [];
   return t;
@@ -201,7 +202,11 @@ export async function deleteRole(id) {
 export const messageCache = reactive({});
 
 export async function loadMessages(threadId) {
-  if (!messageCache[threadId]) messageCache[threadId] = (await get("msgs:" + threadId)) || [];
+  if (!messageCache[threadId]) {
+    const list = (await get("msgs:" + threadId)) || [];
+    messageCache[threadId] = list;
+    if (migrateFlat(messageCache[threadId])) saveMessages(threadId);
+  }
   return messageCache[threadId];
 }
 
