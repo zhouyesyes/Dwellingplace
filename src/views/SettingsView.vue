@@ -21,6 +21,15 @@ const soon = () => toast("这一项会在后面的步骤里做好～");
   <div class="page">
     <h1 class="page-title">设置</h1>
 
+    <div class="section-label">我</div>
+    <div class="list-card">
+      <label class="list-row">
+        <Icon name="user" :size="20" />
+        <span class="grow">TA 们怎么称呼你</span>
+        <input v-model.trim="store.profile.userName" class="inline-input" placeholder="例如：妹妹" />
+      </label>
+    </div>
+
     <div class="section-label">角色</div>
     <div class="list-card">
       <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/role/${r.id}`)">
@@ -69,6 +78,7 @@ const soon = () => toast("这一项会在后面的步骤里做好～");
 .api-dot.def { background: var(--yellow); color: var(--ink); }
 .tag { font-size: 0.733rem; background: var(--yellow); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
 .usage { color: var(--text-3); }
+.inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 9px; padding: 4px 12px; font-size: 0.87rem; color: var(--text-2); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }

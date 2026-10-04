@@ -15,9 +15,14 @@ export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
 function defaults() {
   return {
-    version: 2,
-    profile: { name: "栖所", color: PALETTE[0], avatar: null, cover: null },
+    version: 3,
+    // name 是主页的名字；userName 是 AI 们怎么称呼你
+    profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard" },
+    widgets: defaultWidgets(),
+    chick: { state: "idle" },
+    anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
+    events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
     roles: [
       newRole({ name: "哥哥", color: PALETTE[2], bubbleColor: BUBBLE_COLORS[3] }),
       newRole({ name: "脆脆", color: PALETTE[3], bubbleColor: BUBBLE_COLORS[1] }),
@@ -27,6 +32,14 @@ function defaults() {
     defaultApiId: null,
     usage: {}, // { "2026-10-04": { [apiId]: { input, output, calls } } }
   };
+}
+
+function defaultWidgets() {
+  return [
+    { id: uid(), type: "chick", size: "small" },
+    { id: uid(), type: "anniv", size: "small" },
+    { id: uid(), type: "calendar", size: "large" },
+  ];
 }
 
 export function newRole(over = {}) {
@@ -85,7 +98,17 @@ function migrate() {
     if (store.profile.name === "我") store.profile.name = "栖所";
     store.version = 2;
   }
+  if (store.version < 3) {
+    store.widgets = defaultWidgets();
+    store.version = 3;
+  }
   store.settings ??= { fontSize: "standard" };
+  store.profile.userName ??= "";
+  store.profile.bioSelf ??= "";
+  store.profile.bios ??= {};
+  store.chick ??= { state: "idle" };
+  store.anniversaries ??= [];
+  store.events ??= [];
   for (const r of store.roles) r.bubbleColor ??= DEFAULT_BUBBLE;
   for (const a of store.apis) a.favModels ??= [];
   for (const t of store.threads) t.model ??= null;
@@ -93,6 +116,12 @@ function migrate() {
 
 // ---------- 查询 ----------
 export const roleById = id => store.roles.find(r => r.id === id);
+// 日历等处的「作者」：me 或某个角色
+export function authorInfo(id) {
+  if (id === "me") return { name: store.profile.userName || "我", color: store.profile.color };
+  const r = roleById(id);
+  return r ? { name: r.name, color: r.color } : { name: "（已删除）", color: "#c8c8d0" };
+}
 export const apiById = id => store.apis.find(a => a.id === id);
 export const threadsOf = roleId =>
   store.threads.filter(t => t.roleId === roleId).sort((a, b) => b.updatedAt - a.updatedAt);

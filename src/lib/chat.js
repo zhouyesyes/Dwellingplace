@@ -28,10 +28,10 @@ function canChangeSignature(role) {
 }
 
 function buildSystem(role, messages) {
-  const me = store.profile.name || "我";
+  const me = store.profile.userName;
   const lastOther = [...messages].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
   const lines = [
-    `你是「${role.name}」，正在用手机和「${me}」聊天。`,
+    `你是「${role.name}」，正在用手机和${me ? `「${me}」` : "对方"}聊天。`,
     role.persona ? `\n# 你的设定\n${role.persona}` : "",
     `\n# 现在`,
     `现在是 ${nowForAI()}。`,
@@ -147,6 +147,22 @@ function describeError(err) {
   if (err instanceof TypeError && /fetch/i.test(err.message)) return "连不上接口：网络问题，或者这个平台不允许浏览器直接访问";
   return "出错了：" + (err?.message || String(err));
 }
+
+// 一次性的小请求（比如写简介），不进聊天记录
+export async function oneShot(role, prompt) {
+  const api = apiFor(null, role);
+  const model = modelFor(null, role);
+  const system = [`你是「${role.name}」。`, role.persona ? `\n# 你的设定\n${role.persona}` : ""].join("\n");
+  const { text, usage } = await streamChat({
+    api, model, system,
+    messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
+    onText: () => {},
+  });
+  if (api) recordUsage(api.id, model, usage.input, usage.output);
+  return visibleText(text).trim();
+}
+
+export { describeError };
 
 export async function sendMessage(thread, text, attachments = []) {
   const list = await loadMessages(thread.id);
