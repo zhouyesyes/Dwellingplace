@@ -562,9 +562,9 @@ const back = () => goBack(router, "/chats");
 
 .event { text-align: center; }
 .event span.link { cursor: pointer; }
-.ver { display: inline-flex; align-items: center; gap: 2px; font-size: 0.73rem; color: var(--text-3); background: rgba(255, 255, 255, .7); border-radius: 999px; padding: 0 2px; }
-.ver button { border: 0; background: none; color: var(--text-2); font-size: 1rem; line-height: 1; width: 24px; height: 22px; padding: 0; }
-.ver button:disabled { opacity: .25; }
+.ver { display: inline-flex; align-items: center; gap: 2px; font-size: 0.8rem; color: var(--text-2); background: rgba(255, 255, 255, .85); border-radius: 999px; padding: 0 2px; box-shadow: 0 1px 3px rgba(40, 40, 60, .08); }
+.ver button { border: 0; background: none; color: var(--ink); font-size: 1.4rem; font-weight: 600; line-height: 1; min-width: 44px; height: 38px; padding: 0 0 3px; }
+.ver button:disabled { opacity: .2; }
 .cal-btn { display: block; margin: 4px auto 0; border: 0; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 0.73rem; }
 .detail { text-align: left; white-space: pre-wrap; word-break: break-all; font-size: 0.72rem; line-height: 1.6; color: var(--text-2); background: rgba(255, 255, 255, .85); border-radius: 12px; padding: 8px 10px; margin: 6px auto 0; max-width: 92%; max-height: 40vh; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; }
 .sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }

@@ -48,6 +48,7 @@ function defaultTools() {
     webSearch: false, // 官方 Claude 自带的搜索
     relay: { url: "", token: "" }, // Cloudflare Worker 中转
     search: { enabled: false, provider: "tavily", key: "" }, // 通过中转搜索（所有模型都能用）
+    fetch: { enabled: false }, // 内置的「网页读取」工具
   };
 }
 
@@ -144,6 +145,7 @@ function migrate() {
   store.memories ??= [];
   store.mcpServers ??= [];
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
+  for (const s of store.mcpServers || []) s.disabledTools ??= [];
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     r.calPerDay ??= 3;

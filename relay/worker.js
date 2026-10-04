@@ -3,6 +3,7 @@
 // 作用：
 //   1. 替网页去请求搜索服务（浏览器不能直接访问它们），把结果统一成一个格式带回来
 //   2. 替网页转发 MCP 请求（/mcp），这样任何 MCP 服务器都能在栖所里用
+//   3. 读取一个网页的正文（/fetch），给 AI 看
 // 所有请求都需要中转密码。
 //
 // 在 Worker 的「设置 → 变量和机密」里可以添加：
@@ -105,6 +106,36 @@ async function check(r) {
   try { return JSON.parse(text); } catch { throw new Error("搜索服务返回的不是 JSON：" + text.slice(0, 120)); }
 }
 
+// 把 HTML 变成干净的文字
+function htmlToText(html) {
+  const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").trim();
+  let s = html
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<(script|style|noscript|svg|template|iframe|head)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(nav|footer|aside)[\s\S]*?<\/\1>/gi, "") // 导航、页脚、侧栏一般不是正文
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|article|li|tr|h[1-6]|blockquote|pre)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "· ")
+    .replace(/<[^>]+>/g, "");
+  s = decodeEntities(s)
+    .replace(/[ \t\f\v\u00a0]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { title: decodeEntities(title), text: s };
+}
+
+function decodeEntities(s) {
+  const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", hellip: "…", mdash: "—", ndash: "–", ldquo: "“", rdquo: "”", lsquo: "‘", rsquo: "’", middot: "·" };
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+    if (e[0] === "#") {
+      const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+    }
+    return named[e.toLowerCase()] ?? m;
+  });
+}
+
 export default {
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -117,7 +148,7 @@ export default {
     // 测试连接：返回哪些搜索服务已经在 Worker 里配好了 Key
     if (path === "/ping") {
       const ready = Object.entries(PROVIDERS).filter(([, p]) => env[p.env]).map(([k]) => k);
-      return json({ ok: true, version: 2, features: ["search", "mcp"], providers: Object.keys(PROVIDERS), ready });
+      return json({ ok: true, version: 3, features: ["search", "mcp", "fetch"], providers: Object.keys(PROVIDERS), ready });
     }
 
     if (path === "/search" && req.method === "POST") {
@@ -168,6 +199,29 @@ export default {
         });
       } catch (e) {
         return json({ error: "连不上 MCP 服务器：" + (e.message || e) }, 502);
+      }
+    }
+
+    // 读网页：返回标题和正文文字
+    if (path === "/fetch" && req.method === "POST") {
+      let body;
+      try { body = await req.json(); } catch { return json({ error: "请求格式不对" }, 400); }
+      const target = String(body.url || "").trim();
+      if (!/^https?:\/\//i.test(target)) return json({ error: "网址要以 http:// 或 https:// 开头" }, 400);
+      const max = Math.min(Math.max(Number(body.maxLength) || 8000, 500), 40000);
+      try {
+        const r = await fetch(target, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; DwellingplaceReader/1.0)", Accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(15000),
+        });
+        const type = r.headers.get("content-type") || "";
+        if (!/text|json|xml|javascript/i.test(type)) return json({ error: `这个链接不是网页（${type || "未知类型"}），读不了` }, 415);
+        const raw = (await r.text()).slice(0, 3_000_000);
+        const { title, text } = /html/i.test(type) ? htmlToText(raw) : { title: "", text: raw };
+        return json({ status: r.status, url: r.url, title, text: text.slice(0, max), truncated: text.length > max, length: text.length });
+      } catch (e) {
+        return json({ error: "打不开这个网页：" + (e.message || e) }, 502);
       }
     }
 

@@ -39,6 +39,11 @@ async function call(path, body) {
 
 export const relayPing = () => call("/ping");
 
+// 读一个网页的正文
+export function relayFetch(url, maxLength = 8000) {
+  return call("/fetch", { url, maxLength });
+}
+
 export function relaySearch(query) {
   return call("/search", { provider: store.tools.search.provider, query, count: 5 });
 }
