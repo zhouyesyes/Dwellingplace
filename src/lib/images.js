@@ -2,6 +2,7 @@
 import { ref, watchEffect } from "vue";
 import { get, set, del } from "idb-keyval";
 import { uid } from "../store/index.js";
+import { cropImage } from "./crop.js";
 
 const urlCache = new Map();
 
@@ -70,4 +71,13 @@ export function pickFile(accept = "image/*", multiple = false) {
     input.onchange = () => resolve([...input.files]);
     input.click();
   });
+}
+
+// 选一张图 → 裁剪 → 压缩保存，返回图片 id（取消则返回 null）
+export async function pickAndCrop({ aspect = 1, round = false, title, maxSize = 1600 } = {}) {
+  const [file] = await pickFile("image/*");
+  if (!file) return null;
+  const blob = await cropImage(file, { aspect, round, title });
+  if (!blob) return null;
+  return saveImage(blob, { maxSize });
 }

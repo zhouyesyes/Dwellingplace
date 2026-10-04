@@ -1,12 +1,13 @@
 <script setup>
 import { reactive, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, newRole, roleById, deleteRole, PALETTE } from "../store/index.js";
-import { saveImage, deleteImage, pickFile } from "../lib/images.js";
+import { store, newRole, roleById, deleteRole, PALETTE, BUBBLE_COLORS } from "../store/index.js";
+import { deleteImage, pickAndCrop } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
 import Avatar from "../components/Avatar.vue";
+import ColorSwatches from "../components/ColorSwatches.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -18,9 +19,10 @@ const form = reactive(JSON.parse(JSON.stringify(original || newRole({ color: PAL
 const valid = computed(() => form.name.trim().length > 0);
 
 async function changeAvatar() {
-  const [file] = await pickFile("image/*");
-  if (!file) return;
-  form.avatar = await saveImage(file, { maxSize: 400, square: true });
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "调整头像", maxSize: 500 });
+  if (!id) return;
+  if (form.avatar && form.avatar !== original?.avatar) deleteImage(form.avatar);
+  form.avatar = id;
 }
 
 function save() {
@@ -60,11 +62,14 @@ async function remove() {
       <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：哥哥" /></label>
 
       <div class="field">
-        <span>代表色</span>
-        <div class="swatches">
-          <button v-for="c in PALETTE" :key="c" class="sw" :class="{ on: form.color === c }" :style="{ background: c }" @click="form.color = c" />
-          <label class="sw custom" :style="{ background: form.color }"><input v-model="form.color" type="color" /></label>
-        </div>
+        <span>代表色<small>（日历小圆点、头像底色）</small></span>
+        <ColorSwatches v-model="form.color" :colors="PALETTE" />
+      </div>
+
+      <div class="field">
+        <span>TA 的气泡颜色</span>
+        <ColorSwatches v-model="form.bubbleColor" :colors="BUBBLE_COLORS" />
+        <div class="bubble-preview" :style="{ background: form.bubbleColor }">聊天时 TA 的消息是这个颜色</div>
       </div>
 
       <label class="field">
@@ -106,13 +111,9 @@ async function remove() {
 <style scoped>
 .body { padding: 18px; }
 .ava-row { display: flex; justify-content: center; margin-bottom: 14px; }
-.ava-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; font-size: 13px; color: var(--text-2); }
-.swatches { display: flex; gap: 10px; flex-wrap: wrap; padding: 2px 4px; }
-.sw { width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px var(--line); padding: 0; }
-.sw.on { border-color: var(--card); box-shadow: 0 0 0 2px var(--ink); }
-.sw.custom { position: relative; overflow: hidden; background-image: conic-gradient(#e8a3a3, #f0cf7a, #9cc5a1, #9db8dc, #c7a6d8, #e8a3a3) !important; }
-.sw.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 14px; }
+.ava-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
+.bubble-preview { align-self: flex-start; margin: 6px 4px 0; padding: 8px 14px; border-radius: 8px 18px 18px 18px; font-size: 0.93rem; color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+.switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 0.933rem; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--ink); }
 .danger-zone { display: flex; justify-content: center; margin-top: 28px; }
 </style>

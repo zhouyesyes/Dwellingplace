@@ -1,9 +1,9 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor } from "../store/index.js";
+import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS } from "../store/index.js";
 import { generating, sendMessage, regenerate, editAndResend, deleteMessage, splitBubbles, fileToAttachment } from "../lib/chat.js";
-import { saveImage, deleteImage, pickFile, useImage } from "../lib/images.js";
+import { saveImage, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
 import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -11,6 +11,7 @@ import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
+import ColorSwatches from "../components/ColorSwatches.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -160,10 +161,11 @@ async function removeThread(t) {
   }
 }
 async function changeBg() {
-  const [f] = await pickFile("image/*");
-  if (!f) return;
+  threadsOpen.value = false;
+  const id = await pickAndCrop({ aspect: innerWidth / innerHeight, title: "调整背景", maxSize: 1800 });
+  if (!id) return;
   const old = thread.value.bg;
-  thread.value.bg = await saveImage(f, { maxSize: 1800, quality: 0.82 });
+  thread.value.bg = id;
   if (old) deleteImage(old);
 }
 function clearBg() {
@@ -171,6 +173,29 @@ function clearBg() {
   thread.value.bg = null;
 }
 const currentApi = computed(() => apiFor(thread.value, role.value));
+const currentModel = computed(() => modelFor(thread.value, role.value));
+
+// ---------- 模型切换（只列出每个 API 的默认模型 + 星标模型） ----------
+const modelOpen = ref(false);
+const modelGroups = computed(() =>
+  store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })),
+);
+function pickModel(api, model) {
+  modelOpen.value = false;
+  if (!api) { thread.value.apiId = null; thread.value.model = null; return; }
+  thread.value.apiId = api.id;
+  thread.value.model = model;
+}
+const isPicked = (api, m) => currentApi.value?.id === api.id && currentModel.value === m;
+
+// 对方气泡：颜色深的话文字用白色
+const theirBubble = computed(() => {
+  const c = role.value?.bubbleColor || BUBBLE_COLORS[0];
+  const hex = c.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return { "--their": c, "--their-text": lum < 0.55 ? "#ffffff" : "var(--text)" };
+});
 
 // ---------- 消息操作 ----------
 const actionMsg = ref(null);
@@ -223,17 +248,17 @@ const back = () => goBack(router, "/chats");
 </script>
 
 <template>
-  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }">
+  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="theirBubble">
     <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
 
-    <div class="top-wrap"><header class="top">
+    <header class="top">
       <button class="icon-btn" aria-label="返回" @click="back"><Icon name="back" /></button>
       <div class="who">
         <div class="name">{{ role.name }}</div>
         <div v-if="role.signature" class="sig">{{ role.signature }}</div>
       </div>
       <button class="icon-btn" aria-label="小世界" @click="smallWorld"><Icon name="house" /></button>
-    </header></div>
+    </header>
 
     <main ref="scroller" class="scroll">
       <div class="inner">
@@ -281,10 +306,13 @@ const back = () => goBack(router, "/chats");
           <button class="x" @click="removeAttachment(i)"><Icon name="close" :size="14" /></button>
         </div>
       </div>
+      <div class="pill-row">
+        <button class="model-pill" @click="modelOpen = true">{{ currentModel || "选择模型" }}</button>
+      </div>
       <div class="row">
         <button class="tool" aria-label="添加图片或文件" @click="plusOpen = true"><Icon name="plus" :size="26" /></button>
         <button class="tool" aria-label="切换对话" @click="threadsOpen = true"><Icon name="threads" :size="22" /></button>
-        <textarea ref="inputEl" v-model="draft" rows="1" placeholder="The world is your origami……"
+        <textarea ref="inputEl" v-model="draft" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <button v-if="busy" class="send on" aria-label="停止" @click="stop"><Icon name="stop" :size="22" /></button>
         <button v-else class="send" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send"><Icon name="send" :size="24" /></button>
@@ -322,15 +350,33 @@ const back = () => goBack(router, "/chats");
           <button v-if="thread?.bg" class="btn soft small" @click="clearBg">恢复默认</button>
           <button class="btn soft small" @click="changeBg">换背景</button>
         </div>
-        <label class="list-row">
-          <Icon name="key" :size="20" />
-          <span class="grow">API<span class="sub">现在用：{{ currentApi ? `${currentApi.name} · ${currentApi.model}` : "无" }}</span></span>
-          <select v-if="thread" v-model="thread.apiId" class="api-select">
-            <option :value="null">跟随角色 / 默认</option>
-            <option v-for="a in store.apis" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
-        </label>
       </div>
+
+      <div class="section-label">{{ role.name }} 的气泡颜色</div>
+      <div class="list-card flat bubble-pick">
+        <ColorSwatches v-model="role.bubbleColor" :colors="BUBBLE_COLORS" />
+      </div>
+    </Sheet>
+
+    <!-- 模型切换 -->
+    <Sheet :open="modelOpen" title="切换模型" @close="modelOpen = false">
+      <div class="list-card flat">
+        <button class="list-row" :class="{ cur: !thread?.apiId }" @click="pickModel(null)">
+          <span class="grow">跟随默认<span class="sub">角色设置或全局默认的 API</span></span>
+          <Icon v-if="!thread?.apiId" name="check" :size="18" />
+        </button>
+      </div>
+      <template v-for="g in modelGroups" :key="g.api.id">
+        <div class="section-label">{{ g.api.name }}</div>
+        <div class="list-card flat">
+          <button v-for="m in g.models" :key="m" class="list-row" :class="{ cur: thread?.apiId && isPicked(g.api, m) }" @click="pickModel(g.api, m)">
+            <span class="grow">{{ m }}</span>
+            <Icon v-if="thread?.apiId && isPicked(g.api, m)" name="check" :size="18" />
+          </button>
+        </div>
+      </template>
+      <p v-if="!store.apis.length" class="empty-hint">还没有 API，先去「设置 → API」添加</p>
+      <p v-else class="tip">在「设置 → API」里给模型点星标，就会出现在这里</p>
     </Sheet>
 
     <!-- 消息操作 -->
@@ -368,7 +414,7 @@ const back = () => goBack(router, "/chats");
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(180deg, #f6f1e8 0%, #efe8dd 100%);
+  background: var(--bg);
   background-size: cover;
   background-position: center;
 }
@@ -383,11 +429,10 @@ const back = () => goBack(router, "/chats");
   gap: 12px;
   padding: calc(var(--safe-top) + 10px) 16px 10px;
 }
-.top-wrap { background: linear-gradient(180deg, rgba(248, 243, 234, .92) 40%, rgba(248, 243, 234, 0)); }
-.has-bg .top-wrap { background: linear-gradient(180deg, rgba(248, 243, 234, .75) 30%, rgba(248, 243, 234, 0)); }
 .who { flex: 1; text-align: center; min-width: 0; }
-.name { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
-.sig { font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.name { font-size: 1.13rem; font-weight: 700; letter-spacing: 1px; }
+.has-bg .name, .has-bg .sig { text-shadow: 0 0 10px rgba(255, 255, 255, .9), 0 0 2px rgba(255, 255, 255, .8); }
+.sig { font-size: 0.833rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 消息区 */
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -395,10 +440,10 @@ const back = () => goBack(router, "/chats");
 
 .hello { text-align: center; color: var(--text-2); margin-top: 18vh; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .hello p { margin: 8px 0 0; }
-.warn { color: var(--danger); font-size: 13px; }
+.warn { color: var(--danger); font-size: 0.867rem; }
 
 .event { text-align: center; }
-.event span { font-size: 12px; color: var(--text-2); background: rgba(255, 253, 248, .7); padding: 3px 12px; border-radius: 999px; }
+.event span { font-size: 0.8rem; color: var(--text-2); background: rgba(255, 255, 255, .75); padding: 3px 12px; border-radius: 999px; }
 
 .group { display: flex; gap: 10px; align-items: flex-start; }
 .group.mine { flex-direction: row-reverse; }
@@ -413,14 +458,13 @@ const back = () => goBack(router, "/chats");
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.65;
-  font-size: 15px;
+  font-size: 1rem;
   cursor: pointer;
   user-select: text;
 }
-.theirs .bubble { background: rgba(255, 253, 248, .96); border-top-left-radius: 8px; box-shadow: 0 1px 2px rgba(120, 90, 60, .05); }
-.mine .bubble { background: #ebe3d6; border-top-right-radius: 8px; }
-.has-bg .mine .bubble { background: rgba(235, 227, 214, .95); }
-.bubble.error { background: #fbeeea; color: var(--danger); font-size: 13.5px; }
+.theirs .bubble { background: var(--their); color: var(--their-text); border-top-left-radius: 8px; }
+.mine .bubble { background: #fff; border-top-right-radius: 8px; box-shadow: 0 1px 3px rgba(40, 40, 60, .06); }
+.theirs .bubble.error { background: #fdecee; color: var(--danger); font-size: 0.9rem; }
 
 .typing { display: flex; gap: 5px; padding: 15px 16px; }
 .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); animation: hop 1.2s infinite; }
@@ -428,16 +472,16 @@ const back = () => goBack(router, "/chats");
 .typing i:nth-child(3) { animation-delay: .3s; }
 @keyframes hop { 0%, 60%, 100% { transform: none; opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-.stamp { font-size: 11px; color: var(--text-3); padding: 0 6px; }
+.stamp { font-size: 0.733rem; color: var(--text-3); padding: 0 6px; }
 .has-bg .stamp { color: var(--text-2); }
 .att { cursor: pointer; }
-.file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 13px; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 输入面板 */
 .composer {
-  background: rgba(253, 251, 247, .97);
+  background: rgba(255, 255, 255, .97);
   border-radius: 30px 30px 0 0;
-  box-shadow: 0 -6px 30px rgba(120, 90, 60, .08);
+  box-shadow: 0 -6px 30px rgba(40, 40, 60, .08);
   padding: 14px 14px calc(var(--safe-bottom) + 14px);
 }
 .row { display: flex; align-items: flex-end; gap: 4px; max-width: 760px; margin: 0 auto; }
@@ -454,7 +498,7 @@ textarea {
   max-height: 140px;
   color: var(--text);
 }
-textarea::placeholder { color: #a99d91; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .send {
   flex: none;
   width: 44px; height: 44px;
@@ -462,7 +506,7 @@ textarea::placeholder { color: #a99d91; font-weight: 500; white-space: nowrap; o
   border: 0;
   display: grid; place-items: center;
   background: var(--bg-deep);
-  color: #fffdf8;
+  color: #ffffff;
   transition: background .2s;
 }
 .send.on { background: var(--ink); }
@@ -475,7 +519,7 @@ textarea::placeholder { color: #a99d91; font-weight: 500; white-space: nowrap; o
 
 /* 弹出面板 */
 .grid-actions { display: flex; justify-content: space-around; padding: 6px 0 4px; }
-.grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 13px; color: var(--text-2); }
+.grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .grid-actions button:disabled { opacity: .4; }
 .grid-actions span { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 20px; background: var(--bg-deep); color: var(--ink); }
 
@@ -484,9 +528,18 @@ textarea::placeholder { color: #a99d91; font-weight: 500; white-space: nowrap; o
 .thread.cur { background: var(--card-2); }
 .thread.cur .grow { font-weight: 600; }
 .thread.cur .sub { font-weight: 400; }
-.t-time { font-size: 12px; color: var(--text-3); }
+.t-time { font-size: 0.8rem; color: var(--text-3); }
 .mini-btn { border: 0; background: none; color: var(--text-3); width: 30px; height: 30px; display: grid; place-items: center; padding: 0; }
 .new-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 10px; }
-.api-select { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 6px 8px; max-width: 46%; font-size: 14px; }
+.pill-row { max-width: 760px; margin: 0 auto 4px; padding-left: 8px; }
+.model-pill {
+  border: 0; border-radius: 999px; padding: 2px 10px;
+  background: var(--blue); color: #4b74a8; font-size: 0.75rem;
+  max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.list-row.cur { background: var(--card-2); font-weight: 600; }
+.list-row.cur .sub, .t-time { font-weight: 400; }
+.bubble-pick { padding: 12px; }
+.tip { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 14px 0 0; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 </style>

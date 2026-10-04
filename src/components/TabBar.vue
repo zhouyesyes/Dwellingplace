@@ -11,9 +11,9 @@ const tabs = [
 
 <template>
   <nav class="tabbar">
-    <RouterLink v-for="t in tabs" :key="t.key" :to="t.to" replace class="tab" :class="{ on: active === t.key }" :style="{ '--tint': t.tint }">
-      <span class="ico"><Icon :name="t.icon" :size="24" /></span>
-      <span class="lbl">{{ t.label }}</span>
+    <RouterLink v-for="t in tabs" :key="t.key" :to="t.to" replace class="tab" :class="{ on: active === t.key }"
+      :style="{ '--tint': t.tint }" :aria-label="t.label">
+      <Icon :name="t.icon" :size="23" />
     </RouterLink>
   </nav>
 </template>
@@ -22,42 +22,28 @@ const tabs = [
 .tabbar {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--safe-bottom) + 12px);
+  bottom: calc(var(--safe-bottom) + 10px);
   transform: translateX(-50%);
-  width: min(420px, calc(100vw - 32px));
-  height: 64px;
+  width: min(360px, calc(100vw - 48px));
+  height: 52px;
   display: flex;
   justify-content: space-around;
   align-items: center;
-  background: rgba(255, 253, 248, .92);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, .9);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   border-radius: 999px;
-  box-shadow: 0 6px 24px rgba(120, 90, 60, .12), 0 0 0 1px rgba(236, 227, 212, .7);
+  box-shadow: 0 6px 22px rgba(40, 40, 60, .1), 0 0 0 1px rgba(235, 235, 239, .8);
   z-index: 20;
 }
 .tab {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  text-decoration: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 36px;
+  border-radius: 14px;
   color: var(--text-3);
-  font-size: 11px;
-  width: 64px;
+  transition: background .2s, color .2s;
 }
-.ico { position: relative; display: grid; place-items: center; width: 40px; height: 30px; }
-.ico::before {
-  content: "";
-  position: absolute;
-  inset: 3px 6px;
-  border-radius: 12px;
-  background: var(--tint);
-  transform: scale(0);
-  transition: transform .2s;
-  z-index: -1;
-}
-.ico svg { position: relative; }
-.tab.on { color: var(--ink); font-weight: 600; }
-.tab.on .ico::before { transform: scale(1); }
+.tab.on { color: var(--ink); background: var(--tint); }
 </style>

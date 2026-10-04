@@ -7,15 +7,25 @@ import { get, set, del } from "idb-keyval";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-export const PALETTE = ["#e8a3a3", "#9cc5a1", "#f0cf7a", "#9db8dc", "#c7a6d8", "#f2b48c", "#8fc9c6"];
+// 代表色（日历小圆点、头像底色等）
+export const PALETTE = ["#f5a3b5", "#86d1b0", "#8cc1f2", "#f5d36e", "#b9a2ef", "#f7b386", "#7fd0d6"];
+// 对方气泡颜色的预设（很淡）
+export const BUBBLE_COLORS = ["#eeeff3", "#fde7ec", "#e3f5ec", "#e3effd", "#fdf5d6", "#efe8fd", "#fdeadf", "#ffffff"];
+export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
 function defaults() {
   return {
-    version: 1,
-    profile: { name: "我", color: "#e8a3a3", avatar: null, cover: null },
+    version: 3,
+    // name 是主页的名字；userName 是 AI 们怎么称呼你
+    profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
+    settings: { fontSize: "standard" },
+    widgets: defaultWidgets(),
+    chick: { state: "idle" },
+    anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
+    events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
     roles: [
-      newRole({ name: "哥哥", color: "#9db8dc" }),
-      newRole({ name: "脆脆", color: "#f0cf7a" }),
+      newRole({ name: "哥哥", color: PALETTE[2], bubbleColor: BUBBLE_COLORS[3] }),
+      newRole({ name: "脆脆", color: PALETTE[3], bubbleColor: BUBBLE_COLORS[1] }),
     ],
     threads: [],
     apis: [],
@@ -24,11 +34,20 @@ function defaults() {
   };
 }
 
+function defaultWidgets() {
+  return [
+    { id: uid(), type: "chick", size: "small" },
+    { id: uid(), type: "anniv", size: "small" },
+    { id: uid(), type: "calendar", size: "large" },
+  ];
+}
+
 export function newRole(over = {}) {
   return {
     id: uid(),
     name: "",
     color: PALETTE[0],
+    bubbleColor: DEFAULT_BUBBLE,
     avatar: null,
     persona: "",
     signature: "",
@@ -48,6 +67,7 @@ export async function loadStore() {
   try {
     const saved = await get("meta");
     if (saved) Object.assign(store, defaults(), saved);
+    migrate();
   } catch (e) {
     console.warn("读取本地数据失败", e);
   }
@@ -72,8 +92,36 @@ export async function loadStore() {
   });
 }
 
+// 旧版本数据补上新字段
+function migrate() {
+  if (store.version < 2) {
+    if (store.profile.name === "我") store.profile.name = "栖所";
+    store.version = 2;
+  }
+  if (store.version < 3) {
+    store.widgets = defaultWidgets();
+    store.version = 3;
+  }
+  store.settings ??= { fontSize: "standard" };
+  store.profile.userName ??= "";
+  store.profile.bioSelf ??= "";
+  store.profile.bios ??= {};
+  store.chick ??= { state: "idle" };
+  store.anniversaries ??= [];
+  store.events ??= [];
+  for (const r of store.roles) r.bubbleColor ??= DEFAULT_BUBBLE;
+  for (const a of store.apis) a.favModels ??= [];
+  for (const t of store.threads) t.model ??= null;
+}
+
 // ---------- 查询 ----------
 export const roleById = id => store.roles.find(r => r.id === id);
+// 日历等处的「作者」：me 或某个角色
+export function authorInfo(id) {
+  if (id === "me") return { name: store.profile.userName || "我", color: store.profile.color };
+  const r = roleById(id);
+  return r ? { name: r.name, color: r.color } : { name: "（已删除）", color: "#c8c8d0" };
+}
 export const apiById = id => store.apis.find(a => a.id === id);
 export const threadsOf = roleId =>
   store.threads.filter(t => t.roleId === roleId).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -83,9 +131,16 @@ export function apiFor(thread, role) {
   return apiById(thread?.apiId) || apiById(role?.apiId) || apiById(store.defaultApiId) || store.apis[0] || null;
 }
 
+// 对话使用的模型：对话里单独选过的模型 > 这个 API 的默认模型
+export function modelFor(thread, role) {
+  const api = apiFor(thread, role);
+  if (!api) return "";
+  return (thread?.apiId === api.id && thread.model) || api.model;
+}
+
 // ---------- 对话 ----------
 export function createThread(roleId) {
-  const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, preview: "" };
+  const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "" };
   store.threads.push(t);
   messageCache[t.id] = [];
   return t;
@@ -133,10 +188,16 @@ export function today() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function recordUsage(apiId, input = 0, output = 0) {
+// usage[日期][apiId] = { input, output, calls, models: { 模型名: { input, output, calls } } }
+export function recordUsage(apiId, model, input = 0, output = 0) {
   const day = (store.usage[today()] ??= {});
   const u = (day[apiId] ??= { input: 0, output: 0, calls: 0 });
-  u.input += input;
-  u.output += output;
-  u.calls += 1;
+  const m = ((u.models ??= {})[model] ??= { input: 0, output: 0, calls: 0 });
+  for (const x of [u, m]) {
+    x.input += input;
+    x.output += output;
+    x.calls += 1;
+  }
 }
+
+export const fmtTokens = n => (n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));

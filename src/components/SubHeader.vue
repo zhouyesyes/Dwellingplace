@@ -17,6 +17,6 @@ const back = () => goBack(router, "/settings");
 
 <style scoped>
 .sub-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-h1 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; }
+h1 { flex: 1; margin: 0; font-size: 1.2rem; font-weight: 600; }
 .right { display: flex; gap: 8px; }
 </style>
