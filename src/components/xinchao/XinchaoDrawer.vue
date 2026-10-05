@@ -187,16 +187,18 @@ async function archive() {
   }
 }
 function startEdit() {
-  editing.value = { name: viewing.value.title, content: preview.value?.truncated ? "" : preview.value?.preview || "" };
+  editing.value = { name: viewing.value.title, importance: Number(viewing.value.importance) || 5, content: preview.value?.truncated ? "" : preview.value?.preview || "" };
 }
 async function saveEdit() {
   const f = {};
   if (editing.value.name.trim() && editing.value.name.trim() !== viewing.value.title) f.name = editing.value.name.trim();
   const c = editing.value.content.trim();
   if (c && c !== (preview.value?.preview || "").trim()) f.content = c;
+  if (editing.value.importance !== (Number(viewing.value.importance) || 5)) f.importance = editing.value.importance;
   if (!Object.keys(f).length) return (editing.value = null);
   if (await doTrace(f, "改好了")) {
     if (f.name) viewing.value.title = f.name;
+    if (f.importance) viewing.value.importance = f.importance;
     if (f.content) preview.value = { ...preview.value, preview: f.content };
     editing.value = null;
   }
@@ -474,6 +476,7 @@ async function loadBoard() {
         </template>
         <template v-else>
           <label class="field"><span>标题</span><input v-model="editing.name" class="input" /></label>
+          <label class="field"><span>重要度 {{ editing.importance }}<small>（1–10，越重要越容易想起）</small></span><input v-model.number="editing.importance" type="range" min="1" max="10" /></label>
           <label class="field"><span>内容<small>{{ preview?.truncated ? "（原文太长只读到一部分，留空就不改内容）" : "（留空就不改）" }}</small></span>
             <BigTextarea v-model="editing.content" rows="6" title="记忆内容" />
           </label>
