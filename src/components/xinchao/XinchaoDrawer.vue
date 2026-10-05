@@ -7,10 +7,14 @@ import { stamp } from "../../lib/time.js";
 import { toast } from "../../lib/toast.js";
 import {
   dashToken, testDash, fetchSnapshot, fetchMemoryMap, fetchBucket, holdMemory, traceMemory, breath,
-  boardReady, readBoard, starDate, driveColor,
+  boardReady, readBoard, starDate, fetchTimeline, driveStory, driveAction, sendInteraction,
 } from "../../lib/xinchao.js";
-import MindFlower from "./MindFlower.vue";
-import TideBand from "./TideBand.vue";
+import { faceGrid } from "../../lib/pixel.js";
+import PixelArt from "../PixelArt.vue";
+import CandyShelf from "./CandyShelf.vue";
+import MoodStrip from "./MoodStrip.vue";
+import TensionScales from "./TensionScales.vue";
+import StarMap from "./StarMap.vue";
 import Sheet from "../Sheet.vue";
 import Icon from "../Icon.vue";
 import BigTextarea from "../BigTextarea.vue";
@@ -49,6 +53,7 @@ function forgetToken() {
 // ---------- 数据 ----------
 const snap = ref(null);
 const map = ref(null);
+const timeline = ref([]);
 const err = ref("");
 const loading = ref(false);
 async function load(force = false) {
@@ -56,9 +61,14 @@ async function load(force = false) {
   loading.value = true;
   err.value = "";
   try {
-    const [s, m] = await Promise.all([fetchSnapshot(role.value), fetchMemoryMap(role.value).catch(() => null)]);
+    const [s, m, t] = await Promise.all([
+      fetchSnapshot(role.value),
+      fetchMemoryMap(role.value).catch(() => null),
+      fetchTimeline(role.value, 200).catch(() => null),
+    ]);
     snap.value = s;
     map.value = m;
+    timeline.value = t?.items || [];
     if (m && !m.available && m.reason === "building") setTimeout(() => reloadMap(), 4000);
   } catch (e) {
     err.value = e.message;
@@ -74,7 +84,28 @@ watch(sub, v => { if (v === "board" && boardOn.value && !board.value) loadBoard(
 
 const drives = computed(() => snap.value?.drives || []);
 const emotion = computed(() => snap.value?.emotion || {});
-const pickedDrive = ref(null);
+const pickedKey = ref(null);
+const pickedDrive = computed(() => drives.value.find(d => d.key === pickedKey.value) || null);
+const story = computed(() => (pickedDrive.value ? driveStory(pickedDrive.value, timeline.value) : null));
+const action = computed(() => (pickedDrive.value ? driveAction(pickedDrive.value, role.value.name) : null));
+const acting = ref(false);
+async function respond() {
+  const d = pickedDrive.value;
+  if (!action.value || acting.value) return;
+  acting.value = true;
+  try {
+    const r = await sendInteraction(role.value, action.value.type);
+    const moved = r?.interaction?.applied === false ? "这次没有落到心里" : "收到了";
+    toast(`${role.value.name} ${moved}`, 2500);
+    await load(true);
+    pickedKey.value = d.key;
+  } catch (e) {
+    toast(e.message, 4000);
+  } finally {
+    acting.value = false;
+  }
+}
+
 const presence = computed(() => {
   const m = snap.value?.runtime?.idleMinutes;
   if (m == null) return "";
@@ -85,10 +116,33 @@ const presence = computed(() => {
 });
 const ASLEEP = /sleep|asleep|dream|睡/i;
 const asleep = computed(() => ASLEEP.test(snap.value?.runtime?.consciousness || ""));
+const headFace = computed(() => faceGrid(asleep.value ? "睡着" : emotion.value.shown || emotion.value.label, emotion.value.valence));
+// 节律：上一次靠近、最近 7 天每天的动静
+const lastNear = computed(() => {
+  const t = Date.parse(snap.value?.runtime?.lastConversationAt || "");
+  if (!Number.isFinite(t)) return "还没有靠近过";
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  if (m < 48 * 60) return `${Math.round(m / 60)} 小时前`;
+  return `${Math.round(m / 1440)} 天前`;
+});
+const week = computed(() => {
+  const days = emotion.value.days || {};
+  const out = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400_000);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    out.push({ key, label: i === 0 ? "今天" : "日一二三四五六"[d.getDay()], n: days[key]?.samples || 0 });
+  }
+  const max = Math.max(1, ...out.map(x => x.n));
+  return out.map(x => ({ ...x, h: x.n ? 18 + (x.n / max) * 82 : 6 }));
+});
 const signals = computed(() => (snap.value?.signals?.recent || []).filter(x => x.text).slice(0, 5));
 
 // ---------- 记忆 ----------
 const query = ref("");
+const memView = ref("map"); // map | list
 const stars = computed(() => {
   const list = [...(map.value?.stars || [])].sort((a, b) => (starDate(b)?.getTime() || 0) - (starDate(a)?.getTime() || 0) || (b.weight || 0) - (a.weight || 0));
   const q = query.value.trim().toLowerCase();
@@ -271,24 +325,42 @@ async function loadBoard() {
       <section v-if="sub === 'now' && snap">
         <div class="card now">
           <div class="now-head">
-            <div>
+            <PixelArt :grid="headFace" :size="52" />
+            <div class="grow">
               <div class="eyebrow">{{ asleep ? "睡着了" : "此刻" }} · {{ presence }}</div>
               <h3>{{ emotion.shown || emotion.label || "平静" }}</h3>
             </div>
             <button class="icon-btn small-btn" :disabled="loading" @click="load(true)"><Icon name="refresh" :size="17" /></button>
           </div>
-          <MindFlower :drives="drives" :stamen="snap.stamen" :word="emotion.shown || emotion.label" @pick="pickedDrive = $event" />
-          <p v-if="pickedDrive" class="picked">
-            <span class="dot" :style="{ background: driveColor(pickedDrive.key) }"></span>
-            <b>{{ pickedDrive.short || pickedDrive.label }} {{ pickedDrive.percent }}%</b>
-            <small v-if="pickedDrive.short && pickedDrive.short !== pickedDrive.label">{{ pickedDrive.label }}</small>
-          </p>
-          <p v-else class="hint center">点一片花瓣看看它是什么。花蕊外圈是安全感，里圈是自信。</p>
+          <CandyShelf :drives="drives" :selected="pickedKey" :asleep="asleep" @select="pickedKey = $event.key" />
+          <div v-if="pickedDrive" class="story">
+            <div class="eyebrow">这罐糖最近的动静 · {{ pickedDrive.label }}</div>
+            <p class="story-head">{{ story.head }}</p>
+            <div class="story-foot">
+              <span class="story-tail">{{ story.tail }}</span>
+              <button v-if="action" class="btn small respond" :disabled="acting" @click="respond">{{ acting ? "送过去…" : action.label }}</button>
+            </div>
+          </div>
+          <p v-else class="hint center">点一个罐子，看看它最近发生了什么。粉色的罐子装得满，淡紫色的装得少。</p>
         </div>
 
         <div class="card">
-          <h4>潮汐 <small>最近 24 小时的情绪起伏</small></h4>
-          <TideBand :journal="emotion.journal || []" :marks="emotion.marks || []" />
+          <h4>心情天气 <small>最近 24 小时</small></h4>
+          <MoodStrip :journal="emotion.journal || []" :marks="emotion.marks || []" />
+        </div>
+
+        <div class="card">
+          <h4>内在张力 <small>两股潮水都是真的，所以先让它们同时存在</small></h4>
+          <TensionScales :drives="drives" />
+        </div>
+
+        <div class="card">
+          <h4>节律</h4>
+          <p class="near">上一次靠近是 <b>{{ lastNear }}</b></p>
+          <div class="week">
+            <div v-for="d in week" :key="d.key" class="day"><i :style="{ height: d.h + '%' }" :class="{ empty: !d.n }"></i><small>{{ d.label }}</small></div>
+          </div>
+          <p class="hint">柱子是这一天心里有多少动静。</p>
         </div>
 
         <div v-if="signals.length" class="card">
@@ -314,11 +386,17 @@ async function loadBoard() {
           <div class="deep-head"><b>记忆库找到的</b><button class="link" @click="deepResult = ''">收起</button></div>
           <pre>{{ deepResult }}</pre>
         </div>
+        <div class="seg-switch">
+          <button :class="{ on: memView === 'map' }" @click="memView = 'map'">星图</button>
+          <button :class="{ on: memView === 'list' }" @click="memView = 'list'">列表</button>
+        </div>
         <p v-if="map && !map.available" class="hint">
           {{ map.reason === "building" ? "记忆星表正在生成，过一两分钟再来看。" : "记忆库暂时读不到，等一会儿再试试。" }}
           <button class="link" @click="load(true)">刷新</button>
         </p>
         <p v-else-if="map" class="hint">共 {{ map.total }} 条记忆 · 核心 {{ pinnedCount }} 条</p>
+        <StarMap v-if="memView === 'map' && map?.available" :stars="map.stars" :edges="map.edges || []" :query="query" @pick="openStar" />
+        <template v-if="memView === 'list'">
         <article v-for="s in stars" :key="s.id" class="star" @click="openStar(s)">
           <div class="star-meta">
             <span>{{ fmtDay(starDate(s)) }}</span>
@@ -330,6 +408,7 @@ async function loadBoard() {
             <span v-for="t in [...(s.domains || []), ...(s.tags || [])].slice(0, 5)" :key="t">{{ t }}</span>
           </div>
         </article>
+        </template>
         <button class="fab" aria-label="写一条记忆" @click="newMemory"><Icon name="plus" :size="26" /></button>
       </section>
 
@@ -460,12 +539,24 @@ async function loadBoard() {
 .err { font-size: 0.85rem; color: var(--danger); margin: 4px 4px 10px; }
 .note { font-size: 0.78rem; color: var(--text-3); line-height: 1.7; margin: 6px 6px; }
 .link { border: 0; background: none; color: var(--accent); font-size: 0.85rem; padding: 0 4px; }
-.now-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.now-head { display: flex; align-items: center; gap: 12px; }
+.now-head .grow { flex: 1; min-width: 0; }
+.story { background: #fbf7f9; border-radius: 18px; padding: 12px 14px; margin-top: 2px; }
+.story-head { margin: 6px 0 8px; font-size: 1rem; font-weight: 600; line-height: 1.6; }
+.story-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.story-tail { font-size: 0.8rem; color: var(--text-3); }
+.respond { flex: none; background: #e9a3b9; color: #fff; }
+.near { margin: 4px 0 12px; font-size: 0.95rem; }
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; height: 90px; align-items: end; }
+.day { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+.day i { display: block; width: 100%; max-width: 26px; border-radius: 6px 6px 3px 3px; background: linear-gradient(#f4b9cb, #c7cff0); }
+.day i.empty { background: var(--bg); }
+.day small { font-size: 0.7rem; color: var(--text-3); }
+.seg-switch { display: inline-flex; background: var(--card); border-radius: 12px; padding: 3px; gap: 2px; margin: 0 0 10px; box-shadow: var(--shadow-soft); }
+.seg-switch button { border: 0; background: none; border-radius: 9px; padding: 4px 14px; font-size: 0.85rem; color: var(--text-2); }
+.seg-switch button.on { background: var(--ink); color: #fff; }
 .now-head h3 { font-size: 1.25rem; margin-top: 2px; }
 .small-btn { width: 34px; height: 34px; }
-.picked { text-align: center; font-size: 0.9rem; margin: 6px 0 0; }
-.picked small { display: block; color: var(--text-3); font-size: 0.78rem; margin-top: 2px; }
-.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
 .signals { list-style: none; margin: 0; padding: 0; }
 .signals li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
 .signals li:first-child { border-top: 0; }
