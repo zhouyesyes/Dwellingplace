@@ -11,6 +11,7 @@ import { relayCall, searchEnabled } from "./search.js";
 import { serversFor, enabledTools, headerObj } from "./mcp.js";
 import { ROOT } from "./tree.js";
 import { buildSystem, pathOf, touchThread, applyReplyTags, meName } from "./chat.js";
+import { applyXinchaoMemoryTags } from "./xinchao.js";
 
 export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
 export const MAX_ALARMS = 5;
@@ -224,13 +225,17 @@ async function ingest(item) {
       notes: [{ text: `${role.name} 醒来了 · ${item.reasons.join("；")}`, before: true, wakeId: item.id }, ...before],
       apiId: item.apiId, model: item.model, usage: item.usage, wakeId: item.id,
     };
-    const tagNotes = applyReplyTags(role, msg);
+    const xm = await applyXinchaoMemoryTags(role, msg.text);
+    msg.text = xm.text;
+    const tagNotes = [...applyReplyTags(role, msg), ...xm.notes.map(text => ({ text }))];
     msg.notes.push(...after, ...tagNotes);
     all.push(msg);
     thread.sel[parent] = msg.id;
   } else if (last) {
     const tmp = { text: item.text || "" };
-    const tagNotes = applyReplyTags(role, tmp);
+    const xm = await applyXinchaoMemoryTags(role, tmp.text);
+    tmp.text = xm.text;
+    const tagNotes = [...applyReplyTags(role, tmp), ...xm.notes.map(text => ({ text }))];
     const head = item.error
       ? `${role.name} 醒来时出错了：${shortError(item.error)}`
       : `${role.name} 醒来过（${item.reasons.join("；")}），没有打扰你`;

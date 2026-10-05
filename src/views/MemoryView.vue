@@ -9,10 +9,14 @@ import Sheet from "../components/Sheet.vue";
 import Icon from "../components/Icon.vue";
 import Avatar from "../components/Avatar.vue";
 import BigTextarea from "../components/BigTextarea.vue";
+import XinchaoDrawer from "../components/xinchao/XinchaoDrawer.vue";
+import { hasXinchao } from "../lib/xinchao.js";
 
 const tab = ref(store.roles[0]?.id ?? null);
 watch(() => store.roles.length, () => { if (!roleById(tab.value)) tab.value = store.roles[0]?.id ?? null; });
 const role = computed(() => roleById(tab.value));
+// 接了心潮的角色：记忆都在心潮里
+const xinchao = computed(() => hasXinchao(role.value));
 
 const query = ref("");
 const cards = computed(() => {
@@ -84,6 +88,9 @@ function remove() {
       <button v-for="r in store.roles" :key="r.id" :class="{ on: tab === r.id }" @click="tab = r.id">{{ r.name }} 的抽屉</button>
     </nav>
 
+    <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" />
+
+    <template v-else>
     <div class="search">
       <Icon name="search" :size="17" />
       <input v-model="query" placeholder="搜索标题、内容、日期" />
@@ -110,6 +117,7 @@ function remove() {
     </p>
 
     <button v-if="role" class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="26" /></button>
+    </template>
 
     <!-- 查看 -->
     <Sheet :open="!!viewing" @close="viewing = null">
