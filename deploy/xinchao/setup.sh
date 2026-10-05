@@ -61,6 +61,7 @@ DM_TOKEN=$(rand)
 DASH_TOKEN=$(rand)
 APPROVE_TOKEN=$(rand 16)
 MCP_TOKEN=$(rand)
+BRIDGE_TOKEN=$(rand)
 
 cp .env.example .env
 setenv() { # 有这一行就改，没有就加在最后
@@ -91,6 +92,15 @@ setenv MCP_PATH_TOKEN "$MCP_TOKEN"
 setenv OAUTH_ENABLED "true"
 setenv OAUTH_PUBLIC_BASE_URL "https://$DOMAIN"
 setenv OAUTH_APPROVAL_TOKEN "$APPROVE_TOKEN"
+# 心潮自己也用这个小模型：判断每轮对话算哪种互动、写梦
+setenv MODEL_ENABLED "true"
+setenv MODEL_BASE_URL "$LLM_BASE"
+setenv MODEL_API_KEY "$LLM_KEY"
+setenv MODEL_NAME "$LLM_MODEL"
+# 桥：心潮想送进窗口的东西（她在小屋的互动、TA 自己冒出来的念头）先排队，栖所来取
+setenv BRIDGE_ENABLED "true"
+setenv BRIDGE_MACHINE_TOKEN "$BRIDGE_TOKEN"
+setenv BRIDGE_SELF_SIGNALS "true"
 setenv DASHBOARD_ENABLED "true"
 setenv DASHBOARD_ACCESS_TOKEN "$DASH_TOKEN"
 setenv DASHBOARD_PUBLIC_BASE_URL "https://$DOMAIN"
@@ -127,6 +137,10 @@ cat > "$INFO" <<EOF
 【栖所里看数据（以后会用到）】
   心潮地址：https://$DOMAIN
   看板口令：$DASH_TOKEN
+
+【栖所实时接入（以后会用到）】
+  服务口令：$DM_TOKEN
+  桥口令：$BRIDGE_TOKEN
 
 【Cloudflare 隧道里要填的】
   公共主机名：$DOMAIN
