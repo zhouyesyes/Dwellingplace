@@ -124,7 +124,7 @@ async function expandDraft() {
 function onKeydown(e) {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !coarse) {
     e.preventDefault();
-    send();
+    send(false);
   }
 }
 
@@ -145,8 +145,11 @@ const needReply = computed(() => {
   const last = messages.value[messages.value.length - 1];
   return !!last && last.from === "user";
 });
+// 让 TA 回复：输入框里有字就先发出去
 async function askReply() {
   if (busy.value) return;
+  if (draft.value.trim() || attachments.value.length) return send(true);
+  if (!needReply.value) return;
   scrollToBottom(true);
   await generate(thread.value);
 }
@@ -451,8 +454,6 @@ const back = () => goBack(router, "/chats");
           <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
           <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
-        <button v-if="needReply && !draft.trim() && !attachments.length" class="reply-pill" @click="askReply">让 {{ role.name }} 回复</button>
-        <button v-if="!busy && (draft.trim() || attachments.length)" class="reply-pill soft" @click="send(false)">先发送，不让 TA 回</button>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div class="row">
@@ -460,8 +461,11 @@ const back = () => goBack(router, "/chats");
         <button class="tool" aria-label="切换对话" @click="threadsOpen = true"><Icon name="threads" :size="22" /></button>
         <textarea ref="inputEl" v-model="draft" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
-        <button v-if="busy" class="send on" aria-label="停止" @click="stop"><Icon name="stop" :size="22" /></button>
-        <button v-else class="send" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send(true)"><Icon name="send" :size="24" /></button>
+        <div class="sends">
+          <button class="send small" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send(false)"><Icon name="send" :size="20" /></button>
+          <button v-if="busy" class="send reply on" aria-label="停止" @click="stop"><Icon name="stop" :size="20" /></button>
+          <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="chat" :size="20" /></button>
+        </div>
       </div>
     </footer>
 
@@ -717,8 +721,11 @@ const back = () => goBack(router, "/chats");
 .img-grid .more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .38); color: #fff; font-weight: 700; font-size: 1.1rem; }
 .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .gallery :deep(.thumb) { width: 100%; max-width: none; }
-.reply-pill { border: 0; border-radius: 999px; padding: 4px 12px; font-size: 0.78rem; background: var(--ink); color: #fff; }
-.reply-pill.soft { background: var(--bg); color: var(--text-2); }
+.sends { flex: none; display: flex; gap: 6px; align-items: flex-end; }
+.send.small { width: 40px; height: 40px; }
+.send.reply { width: 40px; height: 40px; }
+.send.small.on { background: #9aa0ad; }
+.send.reply.on { background: var(--ink); }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 输入面板 */

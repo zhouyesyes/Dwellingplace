@@ -10,6 +10,7 @@ const emit = defineEmits(["close"]);
       <div v-if="open" class="backdrop" @click.self="emit('close')">
         <div class="sheet">
           <div class="grip" />
+          <button class="close" aria-label="关闭" @click="emit('close')">×</button>
           <h3 v-if="title">{{ title }}</h3>
           <slot />
         </div>
@@ -38,8 +39,10 @@ const emit = defineEmits(["close"]);
   padding: 10px 18px calc(var(--safe-bottom) + 20px);
   box-shadow: 0 -10px 40px rgba(40, 40, 60, .12);
 }
+.sheet { position: relative; }
+.close { position: absolute; top: 10px; right: 12px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--bg); color: var(--text-2); font-size: 1.25rem; line-height: 1; display: grid; place-items: center; z-index: 1; }
 .grip { width: 38px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 12px; }
-h3 { margin: 0 4px 12px; font-size: 1.07rem; font-weight: 600; }
+h3 { margin: 0 44px 12px 4px; font-size: 1.07rem; font-weight: 600; }
 .sheet-enter-active, .sheet-leave-active { transition: opacity .22s; }
 .sheet-enter-active .sheet, .sheet-leave-active .sheet { transition: transform .26s cubic-bezier(.2, .8, .2, 1); }
 .sheet-enter-from, .sheet-leave-to { opacity: 0; }
