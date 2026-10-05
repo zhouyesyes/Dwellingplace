@@ -27,7 +27,12 @@ export async function exportAll({ includeKeys = true } = {}) {
   const meta = JSON.parse(JSON.stringify(store));
   if (!includeKeys) {
     for (const a of meta.apis) a.key = "";
-    for (const s of meta.mcpServers || []) for (const h of s.headers || []) h.value = "";
+    for (const s of meta.mcpServers || []) {
+      for (const h of s.headers || []) h.value = "";
+      // 写在网址里的口令：心潮的 /mcp/口令、邮箱脚本的 ?key=
+      s.url = (s.url || "").replace(/\/mcp\/[^/?#]+/, "/mcp/").replace(/([?&]key=)[^&#]*/, "$1");
+    }
+    for (const r of meta.roles || []) if (r.xinchao) r.xinchao.dashToken = "";
     if (meta.tools?.relay) meta.tools.relay.token = "";
     if (meta.tools?.search) meta.tools.search.key = "";
   }

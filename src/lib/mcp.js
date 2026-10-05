@@ -162,17 +162,24 @@ export async function callTool(server, name, args) {
     const head = [r.title && `标题：${r.title}`, `网址：${r.url}`, r.truncated && `（内容太长，只读了前 ${r.text.length} 字，全文约 ${r.length} 字）`].filter(Boolean).join("\n");
     return { text: `${head}\n\n${r.text || "（网页里没有读到文字）"}`, isError: false };
   }
-  return withSession(server, async session => {
-    const { result } = await rpc(server, "tools/call", { name, arguments: args || {} }, session);
-    const parts = (result?.content || []).map(c => {
-      if (c.type === "text") return c.text;
-      if (c.type === "resource") return c.resource?.text || `[资源 ${c.resource?.uri || ""}]`;
-      if (c.type === "image") return "[图片]";
-      return JSON.stringify(c);
-    });
-    if (result?.structuredContent && !parts.length) parts.push(JSON.stringify(result.structuredContent));
-    return { text: parts.join("\n") || "（没有返回内容）", isError: !!result?.isError };
+  const result = await callToolRaw(server, name, args);
+  return { text: resultText(result), isError: !!result?.isError };
+}
+
+export function resultText(result) {
+  const parts = (result?.content || []).map(c => {
+    if (c.type === "text") return c.text;
+    if (c.type === "resource") return c.resource?.text || `[资源 ${c.resource?.uri || ""}]`;
+    if (c.type === "image") return "[图片]";
+    return JSON.stringify(c);
   });
+  if (result?.structuredContent && !parts.length) parts.push(JSON.stringify(result.structuredContent));
+  return parts.join("\n") || "（没有返回内容）";
+}
+
+// 调用工具，返回原始结果（content / structuredContent / isError）
+export function callToolRaw(server, name, args) {
+  return withSession(server, async session => (await rpc(server, "tools/call", { name, arguments: args || {} }, session)).result);
 }
 
 // ---------- 从粘贴的 JSON 读出服务器 ----------

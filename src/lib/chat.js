@@ -11,6 +11,7 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
+import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced } from "./xinchao.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -70,7 +71,7 @@ export function buildSystem(role, messages, { wake = false } = {}) {
     canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
-    memoryForAI(role, who),
+    hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
     calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
     alarmForAI(role, who, wake),
     toolsForAI(serversFor(role.id)),
@@ -151,6 +152,11 @@ export async function generate(thread, parentId) {
 
   const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
   try {
+    // 接了心潮：先取一下此刻浮现的记忆（第一次最多等 4 秒，之后用缓存、后台刷新）
+    if (hasXinchao(role)) {
+      const p = refreshSurfaced(role);
+      if (!surfaced[role.id]?.at) await Promise.race([p, new Promise(r => setTimeout(r, 4000))]);
+    }
     const system = buildSystem(role, history);
     const messages = await buildMessages(history);
     all.push(msg);
@@ -239,9 +245,11 @@ export async function generate(thread, parentId) {
     }
     msg.text = text;
 
+    const xm = await applyXinchaoMemoryTags(role, msg.text);
+    msg.text = xm.text;
     const alarm = await applyAlarmTags(role, msg.text);
     msg.text = alarm.text;
-    msg.notes.push(...applyReplyTags(role, msg), ...alarm.notes.map(text => ({ text })));
+    msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
       msg.text = visibleText(msg.text);

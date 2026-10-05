@@ -171,6 +171,7 @@ function migrate() {
     r.wake = { ...newWake(), ...(r.wake || {}) };
     r.wakeAlarms ??= [];
     r.wakeLog ??= [];
+    r.xinchao ??= { dashToken: "" }; // 心潮看板口令
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
   }
   for (const a of store.apis) {
