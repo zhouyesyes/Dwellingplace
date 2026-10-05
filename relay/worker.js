@@ -617,6 +617,65 @@ async function pendingBox(env) {
   return out.sort((a, b) => a.ts - b.ts);
 }
 
+// ---------- 心潮的桥：TA 心里攒满了、或者有人在心潮网页上抱了 TA，就叫醒 TA ----------
+// 心潮只提供一个事件流（连上就把待投递的 id 都推过来）和逐条读取 / 回执，这里连上几秒收一下就断开
+async function pollBridge(bridge) {
+  const base = trimUrl(bridge.url);
+  const auth = { Authorization: `Bearer ${bridge.token}` };
+  const ctrl = new AbortController();
+  const stop = setTimeout(() => ctrl.abort(), 6000);
+  const ids = new Set();
+  try {
+    const r = await fetch(`${base}/bridge/v1/events`, { headers: { ...auth, Accept: "text/event-stream" }, signal: ctrl.signal });
+    if (!r.ok || !r.body) throw new Error(`心潮的桥返回 ${r.status}`);
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", connected = false, quietUntil = Infinity;
+    while (Date.now() < quietUntil) {
+      const left = Math.max(1, quietUntil - Date.now());
+      const chunk = await Promise.race([reader.read(), new Promise(res => setTimeout(() => res({ idle: true }), Math.min(left, 6000)))]);
+      if (chunk.idle || chunk.done) break;
+      buf += dec.decode(chunk.value, { stream: true });
+      for (const m of buf.matchAll(/event: (\w+)\ndata: (.*)\n/g)) {
+        if (m[1] === "connected") connected = true;
+        if (m[1] === "delivery") { try { const id = JSON.parse(m[2]).deliveryId; if (id) ids.add(id); } catch {} }
+      }
+      const end = buf.lastIndexOf("\n\n");
+      if (end >= 0) buf = buf.slice(end + 2);
+      if (connected) quietUntil = Date.now() + 1200; // 连上以后 1 秒多没新东西就收工
+    }
+    reader.cancel().catch(() => {});
+  } catch (e) {
+    if (e.name !== "AbortError") throw e;
+  } finally {
+    clearTimeout(stop);
+    ctrl.abort();
+  }
+  const out = [];
+  for (const id of [...ids].slice(0, 6)) {
+    const r = await fetch(`${base}/bridge/v1/deliveries/${encodeURIComponent(id)}`, { headers: auth });
+    if (r.ok) { const d = await r.json(); if (d.message) out.push({ id, reason: d.reason, message: d.message }); }
+  }
+  return out;
+}
+
+async function ackBridge(bridge, ids, status = "delivered", code = "") {
+  for (const id of ids) {
+    await fetch(`${trimUrl(bridge.url)}/bridge/v1/deliveries/${encodeURIComponent(id)}/ack`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bridge.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ status, code }),
+    }).catch(() => {});
+  }
+}
+
+// 心潮递过来的话，变成叫醒的原因
+function bridgeReason(d) {
+  const msg = String(d.message).replace(/^【心潮】/, "").replace(/回应之后记得回传一次，否则心潮不知道你们已经聊过。?/, "").replace(/，落在[^。]*上。?/, "。").trim();
+  if (d.reason === "self_signal") return { kind: "bridge", text: `心里冒出来一件事：${msg}`, deliveryId: d.id };
+  return { kind: "bridge", text: `心潮那边传来：${msg}`, deliveryId: d.id };
+}
+
 async function runWake(env, cfg, role, reasons, now = Date.now()) {
   const me = role.meName || "对方";
   const box = (await pendingBox(env)).filter(x => x.roleId === role.id && !x.silent);
@@ -723,6 +782,16 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
   }
 
   const silent = SILENT_RE.test(text) || !visible(text);
+  // 心潮递来的话：TA 回应过了，告诉心潮一声（不然心潮不知道你们聊过）
+  const fromBridge = reasons.filter(r => r.kind === "bridge");
+  if (fromBridge.length && !silent) {
+    const xc = servers.find(s => s.tools?.includes("xinchao_event"));
+    if (xc) {
+      const said = visible(text).replace(SILENT_RE, "").trim().slice(0, 800);
+      const exchange = `（${fromBridge.map(r => r.text).join("；")}）\n${role.name}：${said}`.slice(0, 1500);
+      await mcpCall(sessions, xc, "xinchao_event", { event_id: `qisuo-wake-${now.toString(36)}`, exchange }).catch(() => {});
+    }
+  }
   text = text.replace(SILENT_RE, "").replace(/<tool_call[\s\S]*?(<\/tool_call>|$)/g, "").replace(/\n{3,}/g, "\n\n").trim();
   const item = {
     id: rid() + rid(),
@@ -805,6 +874,18 @@ async function tick(env, now = Date.now()) {
     const mine = alarms.filter(a => a.roleId === role.id && a.at <= now);
     for (const a of mine) reasons.push({ kind: "alarm", text: `你给自己定的闹钟响了（${a.note || "没写要做什么"}）`, key: a.key });
 
+    // 心潮的桥：免打扰时段不去取，留着等醒了再说（过期的心潮自己会丢掉）
+    if (role.bridge?.url && role.bridge?.token && !inQuiet(w.quiet, now)) {
+      try {
+        const got = await pollBridge(role.bridge);
+        reasons.push(...got.map(bridgeReason));
+        if (sched.bridgeError) { delete sched.bridgeError; changed = true; }
+      } catch (e) {
+        const err = String(e.message || e).slice(0, 120);
+        if (sched.bridgeError !== err) { sched.bridgeError = err; changed = true; }
+      }
+    }
+
     if (reasons.length) due.push({ role, sched, key, reasons, overdue: Math.min(...mine.map(a => a.at), sched.nextAt || now) });
     else if (changed) await env.KV.put(key, JSON.stringify(sched));
   }
@@ -815,10 +896,13 @@ async function tick(env, now = Date.now()) {
   const { role, sched, key, reasons } = due[0];
   sched.lastWakeAt = now;
   for (const r of reasons) if (r.key) await env.KV.delete(r.key);
+  const bridgeIds = reasons.filter(r => r.deliveryId).map(r => r.deliveryId);
   try {
     const item = await runWake(env, cfg, role, reasons, now);
     sched.last = { at: now, reasons: item.reasons, silent: item.silent, usage: item.usage };
+    if (bridgeIds.length) await ackBridge(role.bridge, bridgeIds);
   } catch (e) {
+    if (bridgeIds.length) await ackBridge(role.bridge, bridgeIds, "retryable_failed", "wake_failed");
     sched.last = { at: now, reasons: reasons.map(r => r.text), error: String(e.message || e) };
     // 出错也告诉栖所一声
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: reasons.map(r => r.text), silent: true, error: String(e.message || e), text: "", notes: [], usage: { input: 0, output: 0 } };
@@ -849,7 +933,7 @@ async function wakeRoute(path, req, env) {
     const roles = {};
     for (const r of cfg.roles) {
       const sched = (await env.KV.get(`sched:${r.id}`, "json")) || {};
-      roles[r.id] = { alarms: alarms.filter(a => a.roleId === r.id).map(a => alarmView(a, now)), nextAt: sched.nextAt || null, last: sched.last || null };
+      roles[r.id] = { alarms: alarms.filter(a => a.roleId === r.id).map(a => alarmView(a, now)), nextAt: sched.nextAt || null, last: sched.last || null, bridgeError: sched.bridgeError || "" };
     }
     const subs = await env.KV.list({ prefix: "sub:" });
     return json({ roles, syncedAt: cfg.syncedAt || 0, tick: Number(await env.KV.get("tick")) || 0, devices: subs.keys.length });
@@ -874,6 +958,20 @@ async function wakeRoute(path, req, env) {
       return json({ ok: true, item });
     } catch (e) {
       return json({ error: e.message || String(e) }, 502);
+    }
+  }
+
+  // 试试能不能连上心潮的桥（只看，不取走）
+  if (path === "/wake/bridge-test") {
+    if (!body.url || !body.token) return json({ error: "缺少地址或桥口令" }, 400);
+    try {
+      const r = await fetch(`${trimUrl(body.url)}/bridge/v1/health`, { headers: { Authorization: `Bearer ${body.token}` } });
+      if (r.status === 401) return json({ error: "桥口令不对" }, 400);
+      if (r.status === 404) return json({ error: "心潮那边没有打开桥（BRIDGE_ENABLED）" }, 400);
+      if (!r.ok) return json({ error: `心潮返回 ${r.status}` }, 502);
+      return json({ ok: true });
+    } catch (e) {
+      return json({ error: "连不上心潮：" + (e.message || e) }, 502);
     }
   }
 
@@ -928,7 +1026,7 @@ export default {
     if (path === "/ping") {
       const ready = Object.entries(PROVIDERS).filter(([, p]) => env[p.env]).map(([k]) => k);
       const tick = env.KV ? Number(await env.KV.get("tick")) || 0 : 0;
-      return json({ ok: true, version: 4, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick });
+      return json({ ok: true, version: 5, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick });
     }
 
     if (path === "/search" && req.method === "POST") {

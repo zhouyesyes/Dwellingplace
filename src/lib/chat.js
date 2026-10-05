@@ -332,14 +332,16 @@ export async function oneShot(role, prompt) {
 export { describeError };
 
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
-export async function sendMessage(thread, text, attachments = [], { reply = true } = {}) {
+// hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
+export const HUG_TEXT = "（抱了抱你）";
+export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false } = {}) {
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
   if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
   const path = pathOf(thread, all);
   const parent = path.length ? path[path.length - 1].id : ROOT;
-  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now() };
+  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}) };
   all.push(m);
   thread.sel[parent] = m.id;
   role.lastThreadId = thread.id;
