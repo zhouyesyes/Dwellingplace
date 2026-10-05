@@ -122,16 +122,7 @@ sed -i \
   -e "s/\"127.0.0.1:18110:18110\"/\"127.0.0.1:$PORT:18110\"/" \
   compose.yaml
 
-say "构建并启动（第一次要几分钟）…"
-$SUDO docker compose up -d --build
-
-say "等它启动…"
-ok=""
-for _ in $(seq 1 60); do
-  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then ok=1; break; fi
-  sleep 5
-done
-
+# 连接信息先存下来（就算后面构建失败，口令也在）
 INFO="$DIR/栖所连接信息.txt"
 cat > "$INFO" <<EOF
 心潮·念（$AGENT）连接信息 —— 不要发给别人，也不要截图发到群里
@@ -160,6 +151,26 @@ cat > "$INFO" <<EOF
   文件夹：$DIR
 EOF
 chmod 600 "$INFO"
+
+say "构建并启动（第一次要几分钟）…"
+if ! $SUDO docker compose up -d --build; then
+  # 最常见的原因：连 Python 官方源下载依赖时断了。换腾讯云的镜像再试一次（下载的文件照样校验，内容一样）
+  say "第一次构建没成功，换个下载源再试一次…"
+  setenv PIP_INDEX_URL "https://mirrors.cloud.tencent.com/pypi/simple"
+  $SUDO docker compose up -d --build || {
+    say "还是没成功。把上面最后几行报错截图发给我（里面没有口令）。"
+    echo "修好以后，在 $DIR 里运行：$SUDO docker compose up -d --build"
+    exit 1
+  }
+fi
+
+say "等它启动…"
+ok=""
+for _ in $(seq 1 60); do
+  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then ok=1; break; fi
+  sleep 5
+done
+
 
 if [ -n "$ok" ]; then
   say "部署好了！"
