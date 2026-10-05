@@ -72,6 +72,8 @@ MCP_TOKEN=$(rand)
 BRIDGE_TOKEN=$(rand)
 
 cp .env.example .env
+# 去掉每行后面的说明文字：有的 docker compose 会把「KEY=    # 说明」里的说明当成值
+sed -i -E '/^[A-Za-z_][A-Za-z0-9_]*=/ s/[[:space:]]+#.*$//' .env
 setenv() { # 有这一行就改，没有就加在最后
   local k="$1" v="$2"
   if grep -q "^$k=" .env; then
