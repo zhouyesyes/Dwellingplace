@@ -11,7 +11,7 @@ import { relayCall, searchEnabled } from "./search.js";
 import { serversFor, enabledTools, headerObj } from "./mcp.js";
 import { ROOT } from "./tree.js";
 import { buildSystem, pathOf, touchThread, applyReplyTags, meName } from "./chat.js";
-import { applyXinchaoMemoryTags } from "./xinchao.js";
+import { applyXinchaoMemoryTags, hasXinchao, xinchaoBase } from "./xinchao.js";
 
 export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
 export const MAX_ALARMS = 5;
@@ -128,6 +128,8 @@ async function snapshotRole(role) {
     name: role.name,
     meName: meName(role),
     wake: role.wake,
+    bridge: role.wake?.bridgeOn && hasXinchao(role) && role.xinchao?.bridgeToken?.trim()
+      ? { url: xinchaoBase(role), token: role.xinchao.bridgeToken.trim() } : null,
     threadId: thread?.id || null,
     system: buildSystem(role, path, { wake: true }),
     history,

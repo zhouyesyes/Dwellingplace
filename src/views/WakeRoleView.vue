@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 import { roleById, newWake, fmtTokens } from "../store/index.js";
 import { fetchState, cancelAlarm, wakeNow, whenLabel, everyText, syncNow, scheduleSync, MAX_ALARMS } from "../lib/wake.js";
 import { stamp } from "../lib/time.js";
+import { relayCall } from "../lib/search.js";
+import { hasXinchao, xinchaoBase } from "../lib/xinchao.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
@@ -15,7 +17,7 @@ if (!role.value) router.replace("/settings/wake");
 else role.value.wake ??= newWake();
 const w = computed(() => role.value.wake);
 // 改了设置很快同步上去
-watch(() => role.value && JSON.stringify(role.value.wake), () => scheduleSync(2000));
+watch(() => role.value && JSON.stringify(role.value.wake) + (role.value.xinchao?.bridgeToken || ""), () => scheduleSync(2000));
 
 // 间隔：存的是分钟，显示可以按小时
 const everyShown = computed({
@@ -82,6 +84,23 @@ async function toggled() {
   await syncNow();
   if (w.value.enabled) loadState();
 }
+// 心潮的桥：TA 心里攒满了、或者有人在心潮网页上抱了 TA，就会醒来
+const xc = computed(() => hasXinchao(role.value));
+if (role.value) role.value.xinchao ??= {};
+const bridgeBusy = ref(false);
+async function testBridge() {
+  const token = (role.value.xinchao.bridgeToken || "").trim();
+  if (!token) return toast("先填桥口令");
+  bridgeBusy.value = true;
+  try {
+    await relayCall("/wake/bridge-test", { url: xinchaoBase(role.value), token });
+    toast("连上了～", 2500);
+  } catch (e) {
+    toast(/没有这个地址/.test(e.message) ? "中转（Worker）还是旧版本，要先更新" : e.message, 5000);
+  } finally {
+    bridgeBusy.value = false;
+  }
+}
 const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output || 0)} tokens` : "");
 </script>
 
@@ -146,6 +165,24 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         </div>
         <p class="hint">这段时间里，每隔一段时间的那种不会醒；TA 自己也不能把闹钟定在这段时间。</p>
       </div>
+
+      <template v-if="xc">
+        <div class="section-label">心潮 · TA 自己来找你</div>
+        <div class="card body">
+          <label class="row">
+            <span class="grow">心里攒满了就来找你<small>（想你想得厉害、情绪转折、做了梦、有人在心潮网页上抱了 TA……）</small></span>
+            <input v-model="w.bridgeOn" type="checkbox" class="sw" />
+          </label>
+          <template v-if="w.bridgeOn">
+            <div class="row">
+              <input v-model.trim="role.xinchao.bridgeToken" class="input grow" placeholder="桥口令" autocomplete="off" autocapitalize="off" spellcheck="false" />
+              <button class="btn soft small" :disabled="bridgeBusy" @click="testBridge">{{ bridgeBusy ? "试…" : "试试" }}</button>
+            </div>
+            <p class="hint">桥口令在服务器上的「栖所连接信息.txt」里，【栖所实时接入】那一段。中转每 5 分钟去心潮看一眼，有话就叫醒 TA。免打扰时间不去看。</p>
+            <p v-if="state?.bridgeError" class="note bad">上次去心潮那边取的时候出错了：{{ state.bridgeError }}</p>
+          </template>
+        </div>
+      </template>
 
       <div class="section-label">{{ role.name }} 自己定的闹钟（{{ alarms.length }}/{{ MAX_ALARMS }}）</div>
       <div class="list-card">

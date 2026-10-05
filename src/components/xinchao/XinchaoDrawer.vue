@@ -86,6 +86,23 @@ async function respond() {
   }
 }
 
+// 留下一次拥抱：送进心潮；开了「自己来找你」的话，TA 几分钟内会醒来回应
+const hugging = ref(false);
+async function leaveHug() {
+  if (hugging.value) return;
+  hugging.value = true;
+  try {
+    await sendInteraction(role.value, "affection");
+    const comes = role.value.wake?.enabled && role.value.wake?.bridgeOn && role.value.xinchao?.bridgeToken;
+    toast(comes ? `抱到了，${role.value.name} 过几分钟会来找你` : `抱到了，${role.value.name} 下次聊天时会知道`, 3000);
+    load(true);
+  } catch (e) {
+    toast(e.message, 4000);
+  } finally {
+    hugging.value = false;
+  }
+}
+
 const presence = computed(() => {
   const m = snap.value?.runtime?.idleMinutes;
   if (m == null) return "";
@@ -320,6 +337,7 @@ if (props.openId) {
               <div class="eyebrow">{{ asleep ? "睡着了" : "此刻" }} · {{ presence }}</div>
               <h3>{{ emotion.shown || emotion.label || "平静" }}</h3>
             </div>
+            <button class="icon-btn small-btn hug-btn" :disabled="hugging" aria-label="留下一次拥抱" @click="leaveHug"><Icon name="heart" :size="17" /></button>
             <button class="icon-btn small-btn" :disabled="loading" @click="load(true)"><Icon name="refresh" :size="17" /></button>
           </div>
           <CandyShelf :drives="drives" :selected="pickedKey" :asleep="asleep" @select="pickedKey = $event.key" />
@@ -536,6 +554,7 @@ if (props.openId) {
 .story-head { margin: 6px 0 8px; font-size: 1rem; font-weight: 600; line-height: 1.6; }
 .story-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .story-tail { font-size: 0.8rem; color: var(--text-3); }
+.hug-btn { color: #d9789a; background: #fbe7ee; }
 .respond { flex: none; background: #e9a3b9; color: #fff; }
 .near { margin: 4px 0 12px; font-size: 0.95rem; }
 .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; height: 90px; align-items: end; }

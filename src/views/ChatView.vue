@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
+import { generating, generate, sendMessage, HUG_TEXT, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
 import { hasXinchao, dashToken, refreshMind, xcCache } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
@@ -138,6 +138,13 @@ async function send(reply = true) {
   nextTick(autoGrow);
   scrollToBottom(true);
   await sendMessage(thread.value, text, atts, { reply });
+}
+// 抱抱 TA：发一个小拥抱，TA 马上回应（接了心潮的话，心潮也会知道）
+async function hug() {
+  plusOpen.value = false;
+  if (busy.value) return;
+  scrollToBottom(true);
+  await sendMessage(thread.value, HUG_TEXT, [], { hug: true, reply: !!currentApi.value });
 }
 // 最后一条是自己的、TA 还没回：可以让 TA 回复
 const needReply = computed(() => {
@@ -409,7 +416,8 @@ const back = () => goBack(router, "/chats");
                   <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="openActions(m)">
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
-                  <div v-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
+                  <div v-if="m.hug" class="bubble hug" @click="openActions(m)"><Icon name="heart" :size="16" />抱了抱 {{ role.name }}</div>
+                  <div v-else-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
                   <div v-if="vers(m).list.length > 1" class="ver">
                     <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
                     {{ vers(m).index + 1 }} / {{ vers(m).list.length }}
@@ -474,6 +482,7 @@ const back = () => goBack(router, "/chats");
       <div class="grid-actions">
         <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片</button>
         <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
+        <button :disabled="busy" @click="hug"><span class="hug-ic"><Icon name="heart" :size="26" /></span>抱抱 TA</button>
       </div>
     </Sheet>
 
@@ -772,6 +781,8 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .grid-actions { display: flex; justify-content: space-around; padding: 6px 0 4px; }
 .grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .grid-actions button:disabled { opacity: .4; }
+.grid-actions span.hug-ic { color: #d9789a; background: #fbe7ee; }
+.bubble.hug { display: inline-flex; align-items: center; gap: 6px; background: #fbe7ee !important; color: #b4587a; }
 .grid-actions span { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 20px; background: var(--bg-deep); color: var(--ink); }
 
 .list-card.flat { box-shadow: none; border: 1px solid var(--line); }

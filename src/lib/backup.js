@@ -32,7 +32,7 @@ export async function exportAll({ includeKeys = true } = {}) {
       // 写在网址里的口令：心潮的 /mcp/口令、邮箱脚本的 ?key=
       s.url = (s.url || "").replace(/\/mcp\/[^/?#]+/, "/mcp/").replace(/([?&]key=)[^&#]*/, "$1");
     }
-    for (const r of meta.roles || []) if (r.xinchao) r.xinchao.dashToken = "";
+    for (const r of meta.roles || []) if (r.xinchao) { r.xinchao.dashToken = ""; r.xinchao.bridgeToken = ""; }
     if (meta.tools?.relay) meta.tools.relay.token = "";
     if (meta.tools?.search) meta.tools.search.key = "";
   }
