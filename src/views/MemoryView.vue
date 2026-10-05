@@ -15,6 +15,7 @@ import { hasXinchao } from "../lib/xinchao.js";
 const tab = ref(store.roles[0]?.id ?? null);
 watch(() => store.roles.length, () => { if (!roleById(tab.value)) tab.value = store.roles[0]?.id ?? null; });
 const role = computed(() => roleById(tab.value));
+const switchOpen = ref(false);
 // 接了心潮的角色：记忆都在心潮里
 const xinchao = computed(() => hasXinchao(role.value));
 
@@ -84,9 +85,19 @@ function remove() {
   <div class="page memory">
     <h1 class="studio">Memory Studio</h1>
 
-    <nav class="tabs">
-      <button v-for="r in store.roles" :key="r.id" :class="{ on: tab === r.id }" @click="tab = r.id">{{ r.name }} 的抽屉</button>
-    </nav>
+    <!-- 换角色：右上角展开 -->
+    <p v-if="role" class="drawer-name">{{ role.name }} 的抽屉</p>
+    <div v-if="role" class="who-switch">
+      <button class="who-btn" @click="switchOpen = !switchOpen">
+        <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="26" />
+        <i class="caret">{{ switchOpen ? "▴" : "▾" }}</i>
+      </button>
+      <div v-if="switchOpen" class="who-menu">
+        <button v-for="r in store.roles" :key="r.id" :class="{ on: tab === r.id }" @click="tab = r.id; switchOpen = false">
+          <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="26" /> {{ r.name }} 的抽屉
+        </button>
+      </div>
+    </div>
 
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" />
 
@@ -161,6 +172,14 @@ function remove() {
 </template>
 
 <style scoped>
+.memory { position: relative; }
+.drawer-name { text-align: center; margin: -6px 0 14px; font-size: 0.87rem; color: var(--text-2); }
+.who-switch { position: absolute; top: calc(var(--safe-top, 0px) + 18px); right: 16px; z-index: 20; }
+.who-btn { display: flex; align-items: center; gap: 4px; border: 0; background: var(--card); border-radius: 999px; padding: 4px 8px 4px 4px; box-shadow: var(--shadow-soft); font-size: 0.85rem; }
+.caret { font-style: normal; color: var(--text-3); font-size: 0.7rem; }
+.who-menu { position: absolute; right: 0; top: calc(100% + 6px); background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 6px; min-width: 170px; }
+.who-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px; border-radius: 12px; font-size: 0.9rem; text-align: left; }
+.who-menu button.on { background: var(--bg); font-weight: 600; }
 .studio {
   font-family: Georgia, "Times New Roman", "Songti SC", serif;
   text-align: center;

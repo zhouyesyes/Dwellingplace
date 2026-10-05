@@ -1,7 +1,7 @@
 <script setup>
 // 窗台上的一排像素糖罐：每股驱力一个罐子，糖越多越强。可以左右滑，点罐子看它最近的动静
 import { computed } from "vue";
-import { jarGrid, STRONG_AT } from "../../lib/pixel.js";
+import { jarGrid, STRONG_AT, RIBBONS, leavesGrid } from "../../lib/pixel.js";
 import PixelArt from "../PixelArt.vue";
 
 const props = defineProps({ drives: { type: Array, default: () => [] }, selected: String, asleep: Boolean });
@@ -30,7 +30,10 @@ const cloud = (() => {
 })();
 
 // 糖多的排前面
-const jars = computed(() => [...props.drives].sort((a, b) => b.value - a.value).map(d => ({ ...d, grid: jarGrid(d.value), strong: d.value >= STRONG_AT })));
+// 每个罐子系的东西固定跟着驱力走，不会因为排序换来换去
+const ribbonOf = key => RIBBONS[[...String(key)].reduce((a, c) => a + c.charCodeAt(0), 0) % RIBBONS.length];
+const jars = computed(() => [...props.drives].sort((a, b) => b.value - a.value).map(d => ({ ...d, grid: jarGrid(d.value, ribbonOf(d.key)), strong: d.value >= STRONG_AT })));
+const leaves = leavesGrid(sky === "night");
 </script>
 
 <template>
@@ -45,6 +48,7 @@ const jars = computed(() => [...props.drives].sort((a, b) => b.value - a.value).
         </template>
         <PixelArt v-if="sky === 'day'" :grid="cloud" :size="56" class="cloud c1" />
         <PixelArt v-if="sky === 'day'" :grid="cloud" :size="40" class="cloud c2" />
+        <PixelArt :grid="leaves" :size="120" class="leaves" />
       </div>
       <div class="mullion v"></div>
       <div class="mullion h"></div>
@@ -56,7 +60,7 @@ const jars = computed(() => [...props.drives].sort((a, b) => b.value - a.value).
         <span class="name" :class="{ strong: j.strong }">{{ j.short || j.label }}</span>
       </button>
     </div>
-    <div class="sill"></div>
+    <div class="sill"><i class="dapple d1"></i><i class="dapple d2"></i><i class="dapple d3"></i></div>
   </div>
 </template>
 
@@ -74,6 +78,9 @@ const jars = computed(() => [...props.drives].sort((a, b) => b.value - a.value).
 .cloud { position: absolute; opacity: .95; }
 .c1 { left: 10%; top: 22px; }
 .c2 { left: 52%; top: 58px; }
+.leaves { position: absolute; left: -6px; top: -4px; }
+.dapple { position: absolute; top: 3px; height: 8px; background: rgba(120, 150, 110, .18); }
+.d1 { left: 8%; width: 18px; } .d2 { left: 14%; width: 8px; top: 6px; } .d3 { left: 27%; width: 12px; }
 .mullion { position: absolute; background: #f3ebe1; box-shadow: 0 0 0 1px #e6d8c6; }
 .mullion.v { left: 50%; top: 0; bottom: 0; width: 6px; transform: translateX(-50%); }
 .mullion.h { left: 0; right: 0; top: 46%; height: 6px; }

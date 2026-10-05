@@ -115,7 +115,21 @@ export async function applyXinchaoMemoryTags(role, text) {
 }
 
 // ---------- 看板接口（直连） ----------
+// 看板会话：记在本机，下次打开不用重新登录（12 小时有效）
 const sessions = new Map(); // base -> { token, exp }
+const SKEY = base => "xc-session:" + base;
+function savedSession(base) {
+  if (sessions.has(base)) return sessions.get(base);
+  try {
+    const s = JSON.parse(localStorage.getItem(SKEY(base)) || "null");
+    if (s?.token) { sessions.set(base, s); return s; }
+  } catch { /* 读不了就重新登录 */ }
+  return null;
+}
+function forgetSession(base) {
+  sessions.delete(base);
+  try { localStorage.removeItem(SKEY(base)); } catch { /* 无所谓 */ }
+}
 
 async function login(base, token) {
   let res;
@@ -124,6 +138,7 @@ async function login(base, token) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accessToken: token, mode: "header" }),
+      signal: AbortSignal.timeout?.(15_000),
     });
   } catch {
     throw new Error("连不上心潮：检查隧道（打开 网址/health 看看），或者服务器没有允许栖所的网址");
@@ -135,6 +150,7 @@ async function login(base, token) {
   const j = await res.json();
   const s = { token: j.token, exp: Date.parse(j.expiresAt) || Date.now() + 3600_000 };
   sessions.set(base, s);
+  try { localStorage.setItem(SKEY(base), JSON.stringify(s)); } catch { /* 存不了也能用 */ }
   return s;
 }
 
@@ -143,15 +159,16 @@ export async function dash(role, path, init = {}) {
   const token = dashToken(role);
   if (!base) throw new Error("这个角色还没有接心潮");
   if (!token) throw new Error("还没有填看板口令");
-  let s = sessions.get(base);
+  let s = savedSession(base);
   if (!s || s.exp - Date.now() < 60_000) s = await login(base, token);
   const go = sess => fetch(`${base}/dashboard/api/${path}`, {
     ...init,
     headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), Authorization: `Bearer ${sess.token}` },
+    signal: AbortSignal.timeout?.(20_000),
   });
   let res;
-  try { res = await go(s); } catch { throw new Error("连不上心潮"); }
-  if (res.status === 401) { s = await login(base, token); res = await go(s); }
+  try { res = await go(s); } catch (e) { throw new Error(e?.name === "TimeoutError" ? "心潮太久没有回应，稍后再试" : "连不上心潮"); }
+  if (res.status === 401) { forgetSession(base); s = await login(base, token); res = await go(s); }
   const j = await res.json().catch(() => null);
   if (!res.ok) throw new Error(j?.error || `心潮返回 ${res.status}`);
   return j;
@@ -165,7 +182,7 @@ export const fetchTimeline = (role, limit = 40) => dash(role, `timeline?limit=${
 
 // 测试看板口令
 export async function testDash(role) {
-  sessions.delete(xinchaoBase(role));
+  forgetSession(xinchaoBase(role));
   const snap = await fetchSnapshot(role);
   return snap?.identity?.agentName || "心潮";
 }
@@ -239,4 +256,48 @@ export function driveStory(drive, timeline = []) {
   const byYou = hit.sessionId === "dashboard-interaction";
   const how = byYou ? (d > 0 ? "被你碰了一下，多了一些" : "被你安抚了一下，少了一些") : `${SOURCE_WORD[hit.type] || ""}${d > 0 ? "多了一些" : "少了一些"}`;
   return { head: `${when}，「${name}」${how}。`, tail: `${d > 0 ? "+" : ""}${d.toFixed(2)} · 现在${level}。` };
+}
+
+// ---------- 缓存：打开页面先显示上次的，后台再刷新 ----------
+export const xcCache = reactive({}); // roleId -> { snap, map, timeline, at, loading, error }
+function cacheOf(role) {
+  if (!xcCache[role.id]) xcCache[role.id] = { snap: null, map: null, timeline: [], at: 0, loading: false, error: "" };
+  return xcCache[role.id]; // 要拿响应式的那个，改了页面才会跟着变
+}
+
+// 取「此刻」（快照）；记忆星表和时间线在后台慢慢来
+export async function refreshMind(role, { force = false } = {}) {
+  if (!hasXinchao(role) || !dashToken(role)) return null;
+  const c = cacheOf(role);
+  if (c.loading) return c;
+  if (!force && c.snap && Date.now() - c.at < 30_000) return c;
+  c.loading = true;
+  c.error = "";
+  try {
+    c.snap = await fetchSnapshot(role);
+    c.at = Date.now();
+  } catch (e) {
+    c.error = e.message;
+  } finally {
+    c.loading = false;
+  }
+  fetchTimeline(role, 200).then(t => { c.timeline = t?.items || []; }).catch(() => {});
+  fetchMemoryMap(role).then(m => {
+    c.map = m;
+    if (m && !m.available && m.reason === "building") setTimeout(() => fetchMemoryMap(role).then(m2 => { c.map = m2; }).catch(() => {}), 4000);
+  }).catch(() => {});
+  return c;
+}
+
+// 聊完一轮，告诉心潮（由心潮判断算哪种互动，驱力和情绪跟着变）
+export function reportExchange(role, eventId, userText, aiText, meName = "她") {
+  const s = xinchaoServer(role);
+  if (!s || !hasTool(s, "xinchao_event")) return;
+  const u = String(userText || "").trim().slice(0, 600);
+  const a = String(aiText || "").trim().slice(0, 800);
+  if (!u && !a) return;
+  const exchange = `${meName}：${u || "（发来了图片）"}\n${role.name}：${a}`.slice(0, 1500);
+  callToolRaw(s, "xinchao_event", { event_id: String(eventId).slice(0, 120), exchange })
+    .then(() => { const c = xcCache[role.id]; if (c) c.at = 0; })
+    .catch(() => {});
 }

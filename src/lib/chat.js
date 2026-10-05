@@ -11,7 +11,7 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
-import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced } from "./xinchao.js";
+import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange } from "./xinchao.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -250,6 +250,11 @@ export async function generate(thread, parentId) {
     const alarm = await applyAlarmTags(role, msg.text);
     msg.text = alarm.text;
     msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
+    // 告诉心潮刚才这一轮聊了什么
+    if (hasXinchao(role) && msg.text && !ctrl.signal.aborted) {
+      const lastUser = [...history].reverse().find(m => m.from === "user");
+      reportExchange(role, msg.id, lastUser?.text, visibleText(msg.text), meName(role));
+    }
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
       msg.text = visibleText(msg.text);
@@ -320,7 +325,8 @@ export async function oneShot(role, prompt) {
 
 export { describeError };
 
-export async function sendMessage(thread, text, attachments = []) {
+// reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
+export async function sendMessage(thread, text, attachments = [], { reply = true } = {}) {
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
@@ -333,7 +339,7 @@ export async function sendMessage(thread, text, attachments = []) {
   role.lastThreadId = thread.id;
   touchThread(thread, all);
   saveMessages(thread.id);
-  await generate(thread, m.id);
+  if (reply) await generate(thread, m.id);
 }
 
 // 重新生成：在同一个位置多一个新版本，旧的保留
@@ -361,6 +367,18 @@ export async function editAndResend(thread, msgId, text) {
 export function selectVersion(thread, msg) {
   thread.sel ??= {};
   thread.sel[parentOf(msg)] = msg.id;
+}
+
+// 删除这个位置的所有版本（以及它们后面的对话）
+export async function deleteAllVersions(thread, msgId) {
+  const all = await loadMessages(thread.id);
+  const m = all.find(x => x.id === msgId);
+  if (!m) return;
+  const p = parentOf(m);
+  for (const v of all.filter(x => parentOf(x) === p && x.from === m.from).map(x => x.id)) removeSubtree(all, v);
+  if (thread.sel) delete thread.sel[p];
+  touchThread(thread, all);
+  saveMessages(thread.id);
 }
 
 // 删除这一个版本（以及它后面的对话）

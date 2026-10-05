@@ -6,8 +6,8 @@ import { memoriesOf } from "../../lib/memoryTags.js";
 import { stamp } from "../../lib/time.js";
 import { toast } from "../../lib/toast.js";
 import {
-  dashToken, testDash, fetchSnapshot, fetchMemoryMap, fetchBucket, holdMemory, traceMemory, breath,
-  boardReady, readBoard, starDate, fetchTimeline, driveStory, driveAction, sendInteraction,
+  dashToken, testDash, fetchBucket, holdMemory, traceMemory, breath,
+  boardReady, readBoard, starDate, driveStory, driveAction, sendInteraction, xcCache, refreshMind,
 } from "../../lib/xinchao.js";
 import { faceGrid } from "../../lib/pixel.js";
 import PixelArt from "../PixelArt.vue";
@@ -50,36 +50,15 @@ function forgetToken() {
   if (confirm("清除这个角色的看板口令？")) role.value.xinchao.dashToken = "";
 }
 
-// ---------- 数据 ----------
-const snap = ref(null);
-const map = ref(null);
-const timeline = ref([]);
-const err = ref("");
-const loading = ref(false);
-async function load(force = false) {
-  if (needToken.value || (loading.value && !force)) return;
-  loading.value = true;
-  err.value = "";
-  try {
-    const [s, m, t] = await Promise.all([
-      fetchSnapshot(role.value),
-      fetchMemoryMap(role.value).catch(() => null),
-      fetchTimeline(role.value, 200).catch(() => null),
-    ]);
-    snap.value = s;
-    map.value = m;
-    timeline.value = t?.items || [];
-    if (m && !m.available && m.reason === "building") setTimeout(() => reloadMap(), 4000);
-  } catch (e) {
-    err.value = e.message;
-  } finally {
-    loading.value = false;
-  }
-}
-async function reloadMap() {
-  try { map.value = await fetchMemoryMap(role.value); } catch { /* 下次再试 */ }
-}
-watch(() => role.value.id, () => { snap.value = null; map.value = null; load(true); }, { immediate: true });
+// ---------- 数据（先显示上次取到的，后台刷新） ----------
+const cache = computed(() => xcCache[role.value.id] || {});
+const snap = computed(() => cache.value.snap || null);
+const map = computed({ get: () => cache.value.map || null, set: v => { if (xcCache[role.value.id]) xcCache[role.value.id].map = v; } });
+const timeline = computed(() => cache.value.timeline || []);
+const err = computed(() => cache.value.error || "");
+const loading = computed(() => !!cache.value.loading);
+const load = (force = false) => refreshMind(role.value, { force });
+watch(() => role.value.id, () => load(), { immediate: true });
 watch(sub, v => { if (v === "board" && boardOn.value && !board.value) loadBoard(); });
 
 const drives = computed(() => snap.value?.drives || []);
@@ -341,7 +320,7 @@ async function loadBoard() {
               <button v-if="action" class="btn small respond" :disabled="acting" @click="respond">{{ acting ? "送过去…" : action.label }}</button>
             </div>
           </div>
-          <p v-else class="hint center">点一个罐子，看看它最近发生了什么。粉色的罐子装得满，淡紫色的装得少。</p>
+          <p v-else class="hint center">点一个罐子，看看它最近发生了什么。<br />粉色的罐子装得满，淡紫色的装得少。</p>
         </div>
 
         <div class="card">
