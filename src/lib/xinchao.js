@@ -191,3 +191,52 @@ export function starDate(star) {
   const t = Date.parse(star.createdAt || star.updatedAt || star.lastActiveAt || "");
   return Number.isFinite(t) ? new Date(t) : null;
 }
+
+// ---------- 糖罐：最近一次动静、回应 ----------
+// 每股驱力对应的回应（送给心潮的「互动」）
+export const DRIVE_ACTION = {
+  possess: ["companionship", "陪着{n}"],
+  monitor: ["companionship", "告诉{n}我在"],
+  share: ["sharing", "听{n}说说"],
+  libido: ["intimacy", "靠近{n}"],
+  curiosity: ["discovery", "和{n}一起发现"],
+  boredom: ["companionship", "陪{n}玩一会儿"],
+  duty: ["task_progress", "给{n}打打气"],
+  reflection: ["reflection", "陪{n}想一想"],
+  grieve: ["empathy", "抱抱{n}"],
+  anger: ["reconciliation", "和{n}和好"],
+  favored: ["affection", "偏心{n}一下"],
+};
+export function driveAction(drive, name) {
+  const a = DRIVE_ACTION[drive?.key];
+  return a ? { type: a[0], label: a[1].replace("{n}", name) } : null;
+}
+
+// 送一个互动给 TA
+export async function sendInteraction(role, type) {
+  const eventId = `qisuo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return dash(role, "interactions", { method: "POST", body: JSON.stringify({ event_id: eventId, interaction_type: type }) });
+}
+
+// 这罐糖最近一次的动静（从时间线里找），翻成一句话
+const SOURCE_WORD = {
+  settle: "慢慢地", conversation_event: "聊天的时候", dream_recorded: "做梦的时候", memory_resonance: "想起一段记忆的时候",
+  surfaced_thought: "冒出一个念头的时候", longing_nudge: "想你的时候", self_signals: "心里动了一下的时候", awareness_scan: "回头看自己的时候",
+};
+const ago = ms => {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${Math.max(1, m)} 分钟前`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} 小时前` : `${Math.round(h / 24)} 天前`;
+};
+export function driveStory(drive, timeline = []) {
+  const name = drive.short || drive.label;
+  const level = drive.value >= 0.75 ? "快满出来了" : drive.value >= 0.5 ? "装了一大半" : drive.value >= 0.25 ? "有小半罐" : "只剩罐底一点点";
+  const hit = [...timeline].reverse().find(it => Math.abs(Number(it?.delta?.driveDeltas?.[drive.key]) || 0) >= 0.01);
+  if (!hit) return { head: `「${name}」这两天很安静，没有留下什么。`, tail: `罐子里${level}。` };
+  const d = Number(hit.delta.driveDeltas[drive.key]);
+  const when = ago(Date.now() - Date.parse(hit.at));
+  const byYou = hit.sessionId === "dashboard-interaction";
+  const how = byYou ? (d > 0 ? "被你碰了一下，多了一些" : "被你安抚了一下，少了一些") : `${SOURCE_WORD[hit.type] || ""}${d > 0 ? "多了一些" : "少了一些"}`;
+  return { head: `${when}，「${name}」${how}。`, tail: `${d > 0 ? "+" : ""}${d.toFixed(2)} · 现在${level}。` };
+}
