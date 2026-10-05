@@ -989,6 +989,7 @@ export default {
 
   // 定时任务（Cron 触发器）
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(tick(env, event.scheduledTime || Date.now()).catch(e => console.error("唤醒出错", e)));
+    console.log("定时任务运行了", new Date().toISOString(), env.KV ? "KV 已绑定" : "没有绑定 KV（变量名要是 KV）");
+    ctx.waitUntil(tick(env, event.scheduledTime || Date.now()).then(r => r && console.log("叫醒了", JSON.stringify(r))).catch(e => console.error("唤醒出错", e)));
   },
 };

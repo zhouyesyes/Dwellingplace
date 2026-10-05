@@ -610,7 +610,7 @@ const back = () => goBack(router, "/chats");
 .val { color: var(--text-2); font-size: 0.9rem; }
 .expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
 /* 细细的一条；换行后每一行各自是一条两端圆角的细条 */
-.event { padding: 0 6%; line-height: 2.1; }
+.event { padding: 0 6%; line-height: 2.1; overflow-wrap: anywhere; min-width: 0; }
 .event span {
   font-size: 0.73rem;
   color: var(--text-2);

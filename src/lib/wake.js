@@ -183,6 +183,25 @@ function logWake(role, item) {
   ].slice(0, 30);
 }
 
+// 出错的原因写短一点（完整的放在点开的详情里）
+function shortError(err) {
+  const code = Number(String(err).match(/接口返回 (\d{3})/)?.[1]);
+  const known = {
+    401: "密钥不对（401）",
+    403: "没有权限（403）",
+    404: "找不到这个模型或接口（404）",
+    429: "请求太频繁或额度用完了（429）",
+    500: "模型那边出错了（500）",
+    502: "模型那边暂时连不上（502）",
+    503: "模型那边暂时太忙了（503），下次醒来会再试",
+    504: "模型那边太久没回应（504）",
+    529: "模型那边暂时太忙了（529），下次醒来会再试",
+  };
+  if (known[code]) return known[code];
+  const s = String(err);
+  return s.length > 40 ? s.slice(0, 40) + "…" : s;
+}
+
 async function ingest(item) {
   const role = roleById(item.roleId);
   if (!role) return;
@@ -213,9 +232,9 @@ async function ingest(item) {
     const tmp = { text: item.text || "" };
     const tagNotes = applyReplyTags(role, tmp);
     const head = item.error
-      ? `${role.name} 醒来时出错了：${item.error}`
+      ? `${role.name} 醒来时出错了：${shortError(item.error)}`
       : `${role.name} 醒来过（${item.reasons.join("；")}），没有打扰你`;
-    last.notes = [...(last.notes || []), { text: head, wakeId: item.id }, ...before.map(n => ({ ...n, before: false })), ...after, ...tagNotes];
+    last.notes = [...(last.notes || []), { text: head, wakeId: item.id, ...(item.error ? { detail: item.error } : {}) }, ...before.map(n => ({ ...n, before: false })), ...after, ...tagNotes];
   }
   if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
   if (!item.silent) touchThread(thread, all);
