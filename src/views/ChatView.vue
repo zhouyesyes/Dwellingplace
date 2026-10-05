@@ -2,7 +2,10 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, sendMessage, regenerate, editAndResend, deleteMessage, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
+import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
+import { hasXinchao, dashToken, refreshMind, xcCache } from "../lib/xinchao.js";
+import { faceGrid } from "../lib/pixel.js";
+import PixelArt from "../components/PixelArt.vue";
 import { versionsOf } from "../lib/tree.js";
 import { saveImage, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
 import { stamp, shortTime } from "../lib/time.js";
@@ -57,6 +60,7 @@ onMounted(async () => {
     list[0] ||
     createThread(role.value.id);
   await openThread(pick.id);
+  refreshMood();
 });
 
 // ---------- 消息分组：同一个人 5 分钟内连续的消息算一组 ----------
@@ -124,7 +128,7 @@ function onKeydown(e) {
   }
 }
 
-async function send() {
+async function send(reply = true) {
   if (busy.value) return;
   const text = draft.value.trim();
   if (!text && !attachments.value.length) return;
@@ -133,8 +137,37 @@ async function send() {
   attachments.value = [];
   nextTick(autoGrow);
   scrollToBottom(true);
-  await sendMessage(thread.value, text, atts);
+  await sendMessage(thread.value, text, atts, { reply });
 }
+// 最后一条是自己的、TA 还没回：可以让 TA 回复
+const needReply = computed(() => {
+  if (busy.value || !currentApi.value) return false;
+  const last = messages.value[messages.value.length - 1];
+  return !!last && last.from === "user";
+});
+async function askReply() {
+  if (busy.value) return;
+  scrollToBottom(true);
+  await generate(thread.value);
+}
+
+// 心潮：名字旁边显示 TA 此刻的心情小脸
+const mind = computed(() => (role.value ? xcCache[role.value.id]?.snap : null));
+const moodFace = computed(() => {
+  const s = mind.value;
+  if (!s) return null;
+  const asleep = /sleep|asleep|dream|睡/i.test(s.runtime?.consciousness || "");
+  return { grid: faceGrid(asleep ? "睡着" : s.emotion?.shown || s.emotion?.label, s.emotion?.valence), word: asleep ? "睡着了" : s.emotion?.shown || s.emotion?.label };
+});
+function refreshMood() {
+  if (role.value && hasXinchao(role.value) && dashToken(role.value)) refreshMind(role.value);
+}
+watch(() => messages.value.length, () => setTimeout(refreshMood, 4000));
+
+// 多张图片：缩成一格，点开看全部
+const imgsOf = m => (m.attachments || []).filter(a => a.kind === "image");
+const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image");
+const gallery = ref(null);
 
 function stop() {
   generating[threadId.value]?.abort();
@@ -304,6 +337,13 @@ async function regen() {
   if (busy.value) return;
   await regenerate(thread.value, m.id);
 }
+async function removeAll() {
+  const m = actionMsg.value;
+  actionMsg.value = null;
+  const n = vers(m).list.length;
+  if (!confirm(`删除这里的全部 ${n} 个版本（以及它们后面的对话）？`)) return;
+  await deleteAllVersions(thread.value, m.id);
+}
 async function removeMsg() {
   const m = actionMsg.value;
   actionMsg.value = null;
@@ -322,7 +362,7 @@ const back = () => goBack(router, "/chats");
     <header class="top">
       <button class="icon-btn" aria-label="返回" @click="back"><Icon name="back" /></button>
       <div class="who">
-        <div class="name">{{ role.name }}</div>
+        <div class="name">{{ role.name }}<span v-if="moodFace" class="mood" :title="moodFace.word"><PixelArt :grid="moodFace.grid" :size="20" /></span></div>
         <div v-if="role.signature" class="sig">{{ role.signature }}</div>
       </div>
       <button class="icon-btn" aria-label="小世界" @click="smallWorld"><Icon name="house" /></button>
@@ -356,9 +396,15 @@ const back = () => goBack(router, "/chats");
             <div class="col">
               <template v-for="m in it.msgs" :key="m.id">
                 <template v-if="m.from === 'user'">
-                  <div v-for="(a, i) in m.attachments || []" :key="i" class="att" @click="openActions(m)">
-                    <ImgThumb v-if="a.kind === 'image'" :id="a.img" />
-                    <div v-else class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
+                  <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)" @click="gallery = m">
+                    <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell">
+                      <ImgThumb :id="a.img" />
+                      <span v-if="i === 3 && imgsOf(m).length > 4" class="more">+{{ imgsOf(m).length - 4 }}</span>
+                    </div>
+                  </div>
+                  <div v-else-if="imgsOf(m).length" class="att" @click="openActions(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
+                  <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="openActions(m)">
+                    <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
                   <div v-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
                   <div v-if="vers(m).list.length > 1" class="ver">
@@ -405,6 +451,8 @@ const back = () => goBack(router, "/chats");
           <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
           <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
+        <button v-if="needReply && !draft.trim() && !attachments.length" class="reply-pill" @click="askReply">让 {{ role.name }} 回复</button>
+        <button v-if="!busy && (draft.trim() || attachments.length)" class="reply-pill soft" @click="send(false)">先发送，不让 TA 回</button>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div class="row">
@@ -413,7 +461,7 @@ const back = () => goBack(router, "/chats");
         <textarea ref="inputEl" v-model="draft" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <button v-if="busy" class="send on" aria-label="停止" @click="stop"><Icon name="stop" :size="22" /></button>
-        <button v-else class="send" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send"><Icon name="send" :size="24" /></button>
+        <button v-else class="send" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send(true)"><Icon name="send" :size="24" /></button>
       </div>
     </footer>
 
@@ -503,8 +551,17 @@ const back = () => goBack(router, "/chats");
         <button v-if="!actionMsg.error" @click="copyMsg"><span><Icon name="copy" :size="24" /></span>复制</button>
         <button v-if="!actionMsg.error" @click="startEdit"><span><Icon name="edit" :size="24" /></span>修改</button>
         <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><span><Icon name="refresh" :size="24" /></span>重新生成</button>
-        <button @click="removeMsg"><span><Icon name="trash" :size="24" /></span>删除</button>
+        <button @click="removeMsg"><span><Icon name="trash" :size="24" /></span>{{ vers(actionMsg).list.length > 1 ? "删除这个版本" : "删除" }}</button>
+        <button v-if="vers(actionMsg).list.length > 1" @click="removeAll"><span><Icon name="trash" :size="24" /></span>删除全部 {{ vers(actionMsg).list.length }} 个</button>
       </div>
+    </Sheet>
+
+    <!-- 一组图片 -->
+    <Sheet :open="!!gallery" :title="gallery ? `${imgsOf(gallery).length} 张图片` : ''" @close="gallery = null">
+      <div v-if="gallery" class="gallery">
+        <ImgThumb v-for="(a, i) in imgsOf(gallery)" :key="i" :id="a.img" />
+      </div>
+      <div v-if="gallery" class="edit-actions"><button class="btn soft" @click="openActions(gallery); gallery = null">更多操作</button></div>
     </Sheet>
 
     <!-- 修改 -->
@@ -651,6 +708,17 @@ const back = () => goBack(router, "/chats");
 .stamp { font-size: 0.68rem; color: var(--text-3); padding: 0 6px; }
 .has-bg .stamp { color: var(--text-2); }
 .att { cursor: pointer; }
+.mood { display: inline-block; vertical-align: -3px; margin-left: 6px; }
+.img-grid { display: grid; grid-template-columns: repeat(2, 84px); gap: 4px; border-radius: 16px; overflow: hidden; cursor: pointer; }
+.img-grid.n2 { grid-template-columns: repeat(2, 96px); }
+.img-grid .cell { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--bg-deep); }
+.img-grid .cell :deep(.thumb) { width: 100%; height: 100%; border-radius: 0; box-shadow: none; pointer-events: none; }
+.img-grid .cell :deep(img) { width: 100%; height: 100%; object-fit: cover; }
+.img-grid .more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .38); color: #fff; font-weight: 700; font-size: 1.1rem; }
+.gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.gallery :deep(.thumb) { width: 100%; max-width: none; }
+.reply-pill { border: 0; border-radius: 999px; padding: 4px 12px; font-size: 0.78rem; background: var(--ink); color: #fff; }
+.reply-pill.soft { background: var(--bg); color: var(--text-2); }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 输入面板 */

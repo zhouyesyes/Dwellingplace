@@ -49,10 +49,16 @@ const view = reactive({ x: 0, y: 0, k: 1 });
 const pts = new Map();
 let start = null, moved = false;
 const svg = ref(null);
+// 屏幕坐标 → 星图坐标（全屏时有留边，用 SVG 自己的换算）
 const toLocal = e => {
-  const r = svg.value.getBoundingClientRect();
-  return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
+  const m = svg.value.getScreenCTM();
+  if (!m) return { x: 0, y: 0 };
+  const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+  return { x: p.x, y: p.y };
 };
+const selected = ref(null);
+let lastTap = 0;
+const full = ref(false);
 function down(e) {
   pts.set(e.pointerId, toLocal(e));
   moved = false;
@@ -89,7 +95,10 @@ function up(e) {
       const d = Math.hypot(s.x - wx, s.y - wy);
       if (d < bd) { bd = d; best = s; }
     }
-    if (best) emit("pick", best);
+    // 点一下：亮出名字；同一颗星再点一下（双击）：打开
+    if (best && selected.value === best.id && Date.now() - lastTap < 450) emit("pick", best);
+    else selected.value = best ? best.id : null;
+    lastTap = Date.now();
   }
   pts.delete(e.pointerId);
   start = { view: { ...view }, pts: new Map(pts) };
@@ -101,12 +110,13 @@ function wheel(e) {
   view.y = p.y - ((p.y - view.y) * k) / view.k;
   view.k = k;
 }
+const selectedStar = computed(() => layout.value.stars.find(s => s.id === selected.value) || null);
 function reset() { Object.assign(view, { x: 0, y: 0, k: 1 }); }
 </script>
 
 <template>
-  <div class="map">
-    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" class="sky" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @wheel.prevent="wheel">
+  <div class="map" :class="{ full }">
+    <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" class="sky" preserveAspectRatio="xMidYMid meet" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @wheel.prevent="wheel">
       <defs>
         <radialGradient id="nebula" cx="30%" cy="25%" r="80%">
           <stop offset="0" stop-color="#6a6a8e" /><stop offset=".55" stop-color="#3b4166" /><stop offset="1" stop-color="#2a3050" />
@@ -121,12 +131,17 @@ function reset() { Object.assign(view, { x: 0, y: 0, k: 1 }); }
         <g v-for="s in layout.stars" :key="s.id" class="star" :opacity="hit && !hit.has(s.id) ? 0.18 : 1">
           <circle :cx="s.x" :cy="s.y" :r="s.size * 3.2" fill="url(#glow)" :opacity="s.glow * 0.55" />
           <circle :cx="s.x" :cy="s.y" :r="s.size" :fill="s.pinned ? '#fff6d8' : '#ffffff'" :opacity="s.glow" />
-          <text v-if="s.pinned || view.k > 1.8 || (hit && hit.has(s.id))" :x="s.x" :y="s.y + s.size + 8 / Math.sqrt(view.k)" text-anchor="middle" class="title" :font-size="7.5 / Math.sqrt(view.k)">{{ s.title.slice(0, 12) }}</text>
+          <circle v-if="selected === s.id" :cx="s.x" :cy="s.y" :r="s.size + 4" fill="none" stroke="#ffe9a8" stroke-width="0.8" />
+          <text v-if="s.pinned || view.k > 1.8 || selected === s.id || (hit && hit.has(s.id))" :x="s.x" :y="s.y + s.size + 8 / Math.sqrt(view.k)" text-anchor="middle" class="title" :font-size="7.5 / Math.sqrt(view.k)">{{ s.title.slice(0, 12) }}</text>
         </g>
       </g>
     </svg>
-    <button v-if="view.k !== 1 || view.x || view.y" class="reset" @click="reset">回到中间</button>
-    <p class="tip">拖动看看，两根手指可以放大。亮黄色的是核心记忆，点一颗星打开它。</p>
+    <div class="btns">
+      <button v-if="view.k !== 1 || view.x || view.y" @click="reset">回到中间</button>
+      <button @click="full = !full">{{ full ? "退出全屏" : "全屏" }}</button>
+    </div>
+    <p v-if="selectedStar" class="sel-card" @click="emit('pick', selectedStar)">{{ selectedStar.title }}<small>再点一下这颗星，或点这里打开</small></p>
+    <p v-if="!full" class="tip">拖动看看，两根手指可以放大。亮黄色的是核心记忆。点一下星星看名字，连点两下打开。</p>
   </div>
 </template>
 
@@ -136,6 +151,13 @@ function reset() { Object.assign(view, { x: 0, y: 0, k: 1 }); }
 .star { cursor: pointer; }
 .group { fill: #c9cdea; opacity: .55; letter-spacing: 1px; }
 .title { fill: #e9ebff; opacity: .85; }
-.reset { position: absolute; right: 12px; top: 12px; border: 0; border-radius: 999px; padding: 4px 12px; font-size: 0.78rem; background: rgba(255, 255, 255, .85); }
+.btns { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; z-index: 2; }
+.btns button { border: 0; border-radius: 999px; padding: 5px 12px; font-size: 0.78rem; background: rgba(255, 255, 255, .85); }
+.full { position: fixed; inset: 0; z-index: 45; background: #2a3050; display: flex; align-items: center; }
+.full .sky { width: 100%; height: 100%; border-radius: 0; }
+.full .btns { top: calc(var(--safe-top) + 12px); }
+.sel-card { position: absolute; left: 12px; right: 12px; bottom: 44px; margin: 0; background: rgba(255, 255, 255, .92); border-radius: 14px; padding: 8px 12px; font-size: 0.9rem; cursor: pointer; }
+.full .sel-card { bottom: calc(var(--safe-bottom) + 20px); }
+.sel-card small { display: block; font-size: 0.72rem; color: var(--text-3); }
 .tip { font-size: 0.75rem; color: var(--text-3); margin: 8px 4px 0; line-height: 1.6; }
 </style>
