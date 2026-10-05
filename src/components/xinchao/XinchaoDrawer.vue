@@ -19,7 +19,8 @@ import Sheet from "../Sheet.vue";
 import Icon from "../Icon.vue";
 import BigTextarea from "../BigTextarea.vue";
 
-const props = defineProps({ role: { type: Object, required: true } });
+const props = defineProps({ role: { type: Object, required: true }, openId: String });
+const emit = defineEmits(["opened"]);
 const role = computed(() => props.role);
 
 const TABS = { now: "此刻", mem: "记忆", dream: "梦", core: "星核", board: "留言板" };
@@ -279,6 +280,14 @@ async function loadBoard() {
   } finally {
     boardBusy.value = false;
   }
+}
+
+// 从日历点进来：切到记忆，打开那一条
+if (props.openId) {
+  sub.value = "mem";
+  const s = xcCache[role.value.id]?.map?.stars?.find(x => x.id === props.openId);
+  openStar(s || { id: props.openId, title: "这一条记忆" });
+  emit("opened");
 }
 </script>
 

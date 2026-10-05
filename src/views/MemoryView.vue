@@ -1,6 +1,7 @@
 <script setup>
 // 记忆库：每个角色一个抽屉，里面是一张张记忆卡片
 import { ref, reactive, computed, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo } from "../store/index.js";
 import { memoriesOf } from "../lib/memoryTags.js";
 import { todayYmd } from "../lib/dates.js";
@@ -12,7 +13,17 @@ import BigTextarea from "../components/BigTextarea.vue";
 import XinchaoDrawer from "../components/xinchao/XinchaoDrawer.vue";
 import { hasXinchao } from "../lib/xinchao.js";
 
-const tab = ref(store.roles[0]?.id ?? null);
+// 记住上次看的是谁，下次进来还是 TA
+const LAST = "memory-last-role";
+const saved = (() => { try { return localStorage.getItem(LAST); } catch { return null; } })();
+// 从日历点进来会带上 ?role=…&open=…：直接打开那一条
+const route = useRoute();
+const router = useRouter();
+const openId = ref(route.query.open || null);
+const fromRoute = route.query.role;
+const tab = ref(roleById(fromRoute) ? fromRoute : roleById(saved) ? saved : store.roles[0]?.id ?? null);
+if (route.query.role || route.query.open) router.replace({ path: "/memory" });
+watch(tab, v => { try { v && localStorage.setItem(LAST, v); } catch {} });
 watch(() => store.roles.length, () => { if (!roleById(tab.value)) tab.value = store.roles[0]?.id ?? null; });
 const role = computed(() => roleById(tab.value));
 const switchOpen = ref(false);
@@ -99,7 +110,7 @@ function remove() {
       </div>
     </div>
 
-    <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" />
+    <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
 
     <template v-else>
     <div class="search">
