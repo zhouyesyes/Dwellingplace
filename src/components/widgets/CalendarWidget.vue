@@ -1,7 +1,9 @@
 <script setup>
 // 日历：你和 AI 们一起记的小事，日期下面用各自的颜色标小圆点
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { store, uid, authorInfo, PALETTE } from "../../store/index.js";
+import { hasXinchao, dashToken, loadMemoryMap, xcCache, starDate } from "../../lib/xinchao.js";
 import { ymd, todayYmd, MONTHS_EN } from "../../lib/dates.js";
 import Sheet from "../Sheet.vue";
 import Icon from "../Icon.vue";
@@ -35,6 +37,29 @@ const byDate = computed(() => {
   for (const e of store.events) (m[e.date] ??= []).push(e);
   return m;
 });
+// 接了心潮的 AI：这一天 TA 记住了什么（日期右上角一颗小星星）
+const router = useRouter();
+const xcRoles = computed(() => store.roles.filter(r => hasXinchao(r) && dashToken(r)));
+onMounted(() => xcRoles.value.forEach(r => loadMemoryMap(r)));
+const memByDate = computed(() => {
+  const m = {};
+  for (const r of xcRoles.value) {
+    for (const s of xcCache[r.id]?.map?.stars || []) {
+      const d = starDate(s);
+      if (d) (m[ymd(d)] ??= []).push({ ...s, role: r });
+    }
+  }
+  return m;
+});
+const starsOf = date => [...new Set((memByDate.value[date] || []).map(s => s.role.color))].slice(0, 3);
+const shownMems = computed(() => {
+  if (!selected.value) return [];
+  return (memByDate.value[selected.value] || []).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.importance || 0) - (a.importance || 0));
+});
+function openMem(s) {
+  if (props.editing) return;
+  router.push({ path: "/memory", query: { role: s.role.id, open: s.id } });
+}
 const dotsOf = date => [...new Set((byDate.value[date] || []).map(e => e.author))].slice(0, 4).map(a => authorInfo(a).color);
 
 const monthPrefix = computed(() => `${year.value}-${String(month.value + 1).padStart(2, "0")}`);
@@ -95,6 +120,7 @@ const colorsOpen = ref(false);
       <button v-for="(d, i) in cells" :key="i" class="day" :class="{ blank: !d, today: d === today, sel: d && d === selected }" :disabled="!d" @click.stop="tapDay(d)">
         <template v-if="d">
           <span class="num">{{ Number(d.slice(8)) }}</span>
+          <span v-if="starsOf(d).length" class="mem-stars"><i v-for="(c, j) in starsOf(d)" :key="j" :style="{ color: c }">✦</i></span>
           <span class="dots"><i v-for="(c, j) in dotsOf(d)" :key="j" :style="{ background: c }" /></span>
         </template>
       </button>
@@ -106,7 +132,15 @@ const colorsOpen = ref(false);
         <span class="text">{{ e.text }}</span>
         <i class="who" :style="{ background: authorInfo(e.author).color }" :title="authorInfo(e.author).name" />
       </div>
-      <p v-if="!shown.length" class="none">{{ selected ? "这一天还没有记录" : "这个月还没有记录" }}</p>
+      <template v-if="shownMems.length">
+        <div class="mem-head">这一天 TA 们记住的</div>
+        <div v-for="s in shownMems" :key="s.role.id + s.id" class="ev mem" @click.stop="openMem(s)">
+          <i class="spark" :style="{ color: s.role.color }">✦</i>
+          <span class="text">{{ s.title }}</span>
+          <span class="whoname">{{ s.role.name }}</span>
+        </div>
+      </template>
+      <p v-if="!shown.length && !shownMems.length" class="none">{{ selected ? "这一天还没有记录" : "这个月还没有记录" }}</p>
       <button class="add" @click.stop="newEvent"><Icon name="plus" :size="15" /> {{ selected ? `在 ${md(selected)} 记一笔` : "记一笔" }}</button>
     </div>
   </div>
@@ -183,6 +217,12 @@ const colorsOpen = ref(false);
 .ev .date { color: var(--accent); font-weight: 700; font-size: 0.93rem; flex: none; }
 .ev .text { flex: 1; min-width: 0; font-size: 0.93rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev .who { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.mem-stars { position: absolute; top: 2px; right: 3px; display: flex; font-size: 8px; line-height: 1; }
+.mem-stars i { font-style: normal; text-shadow: 0 0 1px #fff; }
+.mem-head { font-size: 0.75rem; color: var(--text-3); margin: 6px 4px 0; }
+.ev.mem { background: #f7f6fb; }
+.spark { font-style: normal; font-size: 0.8rem; flex: none; }
+.whoname { font-size: 0.75rem; color: var(--text-3); flex: none; }
 .none { margin: 4px 0 0; text-align: center; font-size: 0.8rem; color: var(--text-3); }
 .add { align-self: center; border: 0; background: none; color: var(--text-2); font-size: 0.87rem; display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
 

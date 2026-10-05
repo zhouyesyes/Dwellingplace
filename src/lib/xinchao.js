@@ -284,9 +284,42 @@ export async function refreshMind(role, { force = false } = {}) {
   fetchTimeline(role, 200).then(t => { c.timeline = t?.items || []; }).catch(() => {});
   fetchMemoryMap(role).then(m => {
     c.map = m;
+    c.mapAt = Date.now();
     if (m && !m.available && m.reason === "building") setTimeout(() => fetchMemoryMap(role).then(m2 => { c.map = m2; }).catch(() => {}), 4000);
   }).catch(() => {});
   return c;
+}
+
+// 只取记忆星表（日历用），10 分钟内用缓存
+export async function loadMemoryMap(role) {
+  if (!hasXinchao(role) || !dashToken(role)) return null;
+  const c = cacheOf(role);
+  if (c.map?.stars && Date.now() - (c.mapAt || 0) < 10 * 60_000) return c.map;
+  if (c.mapLoading) return c.map;
+  c.mapLoading = true;
+  try {
+    c.map = await fetchMemoryMap(role);
+    c.mapAt = Date.now();
+  } catch {} finally {
+    c.mapLoading = false;
+  }
+  return c.map;
+}
+
+// 给 AI 看的「此刻」：心情、醒着没、最强的几股驱力、最近的情绪变化。没取到就不写
+export function mindForAI(role) {
+  const snap = xcCache[role.id]?.snap;
+  if (!snap) return "";
+  const emo = snap.emotion || {};
+  const rt = snap.runtime || {};
+  const drives = [...(snap.drives || [])].filter(d => Number(d.value) > 0.05).sort((a, b) => b.value - a.value).slice(0, 4);
+  const marks = (emo.marks || []).slice(-3).reverse();
+  const out = [`\n# 你此刻的内在状态（心潮）`, `这是你自己的心境，不是要说给对方听的数据。让它自然地影响语气和想说的话，不用报数字、不用提「心潮」「驱力」这些词。`];
+  if (emo.shown || emo.label) out.push(`心情：${emo.shown || emo.label}`);
+  if (rt.consciousness) out.push(`状态：${rt.consciousness}`);
+  if (drives.length) out.push(`心里最满的：${drives.map(d => `${d.short || d.label}（${Math.round(d.value * 100)}%）`).join("、")}`);
+  if (marks.length) out.push(`最近的情绪变化：${marks.map(m => `${m.word}${m.why ? `——${String(m.why).slice(0, 40)}` : ""}`).join("；")}`);
+  return out.length > 2 ? out.join("\n") : "";
 }
 
 // 聊完一轮，告诉心潮（由心潮判断算哪种互动，驱力和情绪跟着变）
