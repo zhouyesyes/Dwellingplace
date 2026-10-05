@@ -47,8 +47,15 @@ echo
 echo "6. 记忆库要用一个「小模型」整理记忆（OpenAI 兼容格式，建议用不带思考的模型，比如 deepseek-chat）"
 ask LLM_BASE "   接口地址" "https://api.deepseek.com/v1"
 ask LLM_MODEL "   模型名" "deepseek-chat"
-read -r -s -p "   API Key（输入时不显示）: " LLM_KEY </dev/tty; echo
-[ -n "$LLM_KEY" ] || { echo "API Key 不能为空"; exit 1; }
+echo "   API Key：粘贴一次，然后直接回车（为了安全，屏幕上不会显示，连 * 也没有）"
+while true; do
+  read -r -s -p "   API Key: " LLM_KEY </dev/tty; echo
+  LLM_KEY=$(printf '%s' "$LLM_KEY" | tr -d '[:space:]')
+  if [ -z "$LLM_KEY" ]; then echo "   没有收到，再粘贴一次"; continue; fi
+  echo "   收到：${LLM_KEY:0:5}…${LLM_KEY: -4}（共 ${#LLM_KEY} 位）"
+  read -r -p "   对吗？直接回车 = 对，输入 n 再粘贴一次: " OKK </dev/tty
+  [ "$OKK" = "n" ] || [ "$OKK" = "N" ] || break
+done
 
 say "下载心潮·念…"
 git clone --depth 1 --recursive --shallow-submodules "$REPO" "$DIR"
