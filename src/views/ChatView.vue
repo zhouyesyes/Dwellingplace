@@ -379,7 +379,7 @@ async function removeMsg() {
   await deleteMessage(thread.value, m.id);
 }
 
-const smallWorld = () => toast(`${role.value.name} 的小世界还在建造中～`);
+const smallWorld = () => router.push(`/room/${role.value.id}`);
 const back = () => goBack(router, "/chats");
 </script>
 
