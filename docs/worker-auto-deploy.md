@@ -13,7 +13,7 @@
 
 1. 打开你的中转 Worker → **设置**（Settings）→ **构建**（Build）→ **Git 存储库** 旁边点 **连接**（Connect）
 2. 第一次会让你授权 GitHub：选你的账号，**只选** `Dwellingplace` 这一个仓库就够了
-3. 回到 Cloudflare，按下面填：
+3. 回到 Cloudflare，按下面填。**Cloudflare 会预先填好 `npm run build`、根目录 `/` 这些默认值，一定要改掉**，不然它会把栖所网页当成中转部署上去，把中转顶掉：
 
 | 项目 | 填什么 |
 |---|---|
@@ -22,10 +22,10 @@
 | 构建命令（Build command） | 空着 |
 | 部署命令（Deploy command） | `node config.mjs && npx wrangler deploy` |
 | 路径 / 根目录（Path / Root directory） | `relay` |
-| 构建变量（Build variables，有的版本在「变量和机密」里） | 添加两个：`WORKER_NAME` = Worker 的名字；`KV_ID` = KV 的 ID |
+| 构建变量（Builds 里的 Variables and secrets） | 添加两个（每个变量**上面那格填名字，下面那格填值**）：名字 `WORKER_NAME`、值 Worker 的名字；名字 `KV_ID`、值 KV 的 ID |
 | 构建监视路径（Build watch paths，如果有） | 包含 `relay/*` |
 
-4. 点 **连接**（Connect）。它会马上构建一次，等一两分钟
+4. 点 **连接**（Connect）。之后 `relay/` 里的代码有改动（合并 PR）才会构建；想马上构建，去 **Deployments / Builds** 点最新一条的 **Retry build**
 5. 在 **部署**（Deployments）或 **构建**（Builds）里看到成功的勾就好了
 
 ## 确认一下
@@ -33,6 +33,9 @@
 栖所 → 设置 → 工具 → 中转 → **测试连接**。能连上就说明好了。
 
 ## 出了问题
+
+- **Worker 的设置页写着「only has static assets」，绑定和定时任务都没了**：构建命令、根目录用了默认值，栖所网页被部署成了中转。按上面的表改好（构建命令清空、根目录 `relay`），重新构建一次；然后到 Worker 的 **Settings → Variables and secrets** 看 `RELAY_TOKEN` 还在不在，不在就重新添加（类型选 Secret，值是栖所里填的中转密码）。KV 里的闹钟和通知订阅不会丢
+- **构建日志里写「名字和值可能填反了」**：变量的上下两格填反了，删掉重填
 
 - **构建失败，日志里写「缺少构建变量」**：`WORKER_NAME` 或 `KV_ID` 没填，或者填在了运行时变量里。要填在**构建**变量里
 - **构建失败，说名字不匹配**：`WORKER_NAME` 和 Worker 的名字不一样，复制最上面那个名字重新填
