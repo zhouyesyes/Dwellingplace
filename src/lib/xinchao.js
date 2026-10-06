@@ -178,6 +178,13 @@ export const fetchSnapshot = role => dash(role, "snapshot");
 export const fetchMemoryMap = role => dash(role, "memory-map");
 export const fetchBucket = (role, id) => dash(role, `memory-bucket?id=${encodeURIComponent(id)}`);
 export const fetchCabin = role => dash(role, "cabin");
+
+// ---------- 小屋的信（心潮的信箱） ----------
+// 你写的信默认上锁：TA 只知道有一封信，你开锁以后 TA 才能读
+export const sendLetter = (role, content, locked = false) =>
+  dash(role, "cabin/note", { method: "POST", body: JSON.stringify({ event_id: `qisuo-letter-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, content, locked }) });
+export const markLettersRead = (role, ids) => dash(role, "cabin/note", { method: "PATCH", body: JSON.stringify({ read: true, ids }) });
+export const unlockLetter = (role, id) => dash(role, "cabin/note", { method: "PATCH", body: JSON.stringify({ id, locked: false }) });
 export const fetchTimeline = (role, limit = 40) => dash(role, `timeline?limit=${limit}`);
 
 // 测试看板口令
@@ -267,22 +274,39 @@ export function driveStory(drive, timeline = []) {
 
 // ---------- 缓存：打开页面先显示上次的，后台再刷新 ----------
 export const xcCache = reactive({}); // roleId -> { snap, map, timeline, at, loading, error }
+// 上次取到的「此刻」存一份在这台设备上：打开栖所马上就有，偶尔取不到也不会变成空的
+const SNAP_KEY = id => "xc-snap:" + id;
+function savedSnap(id) {
+  try { return JSON.parse(localStorage.getItem(SNAP_KEY(id)) || "null"); } catch { return null; }
+}
+function saveSnap(id, snap) {
+  const { emotion = {}, runtime = {}, drives = [] } = snap;
+  const small = { emotion: { shown: emotion.shown, label: emotion.label, valence: emotion.valence }, runtime: { consciousness: runtime.consciousness, idleMinutes: runtime.idleMinutes }, drives, _saved: true };
+  try { localStorage.setItem(SNAP_KEY(id), JSON.stringify(small)); } catch { /* 存不了也没关系 */ }
+}
 function cacheOf(role) {
-  if (!xcCache[role.id]) xcCache[role.id] = { snap: null, map: null, timeline: [], at: 0, loading: false, error: "" };
+  if (!xcCache[role.id]) xcCache[role.id] = { snap: savedSnap(role.id), map: null, timeline: [], at: 0, loading: false, error: "" };
   return xcCache[role.id]; // 要拿响应式的那个，改了页面才会跟着变
 }
+// 这个角色有没有已经取到（或存着）的「此刻」
+export const snapOf = role => (role ? (xcCache[role.id]?.snap ?? (hasXinchao(role) && dashToken(role) ? cacheOf(role).snap : null)) : null);
 
 // 取「此刻」（快照）；记忆星表和时间线在后台慢慢来
 export async function refreshMind(role, { force = false } = {}) {
   if (!hasXinchao(role) || !dashToken(role)) return null;
   const c = cacheOf(role);
   if (c.loading) return c;
-  if (!force && c.snap && Date.now() - c.at < 30_000) return c;
+  if (!force && c.snap && !c.snap._saved && Date.now() - c.at < 30_000) return c;
   c.loading = true;
   c.error = "";
   try {
-    c.snap = await fetchSnapshot(role);
-    c.at = Date.now();
+    const snap = await fetchSnapshot(role);
+    // 取回来的不像样（空的、没有情绪也没有驱力）就别覆盖上次的
+    if (snap && typeof snap === "object" && (snap.emotion || snap.drives)) {
+      c.snap = snap;
+      c.at = Date.now();
+      saveSnap(role.id, snap);
+    }
   } catch (e) {
     c.error = e.message;
   } finally {
