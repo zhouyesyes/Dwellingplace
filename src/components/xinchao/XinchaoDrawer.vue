@@ -7,7 +7,7 @@ import { stamp } from "../../lib/time.js";
 import { toast } from "../../lib/toast.js";
 import {
   dashToken, testDash, fetchBucket, holdMemory, traceMemory, breath,
-  boardReady, readBoard, starDate, driveStory, driveAction, sendInteraction, xcCache, refreshMind,
+  boardReady, readBoard, starDate, withDateTag, DATE_TAG_RE, driveStory, driveAction, sendInteraction, xcCache, refreshMind,
 } from "../../lib/xinchao.js";
 import { faceGrid } from "../../lib/pixel.js";
 import PixelArt from "../PixelArt.vue";
@@ -165,6 +165,9 @@ async function deepSearch() {
   }
 }
 
+// 列表里的小标签（日期标签不显示，日期已经写在前面了）
+const chipsOf = s => [...(s.domains || []), ...(s.tags || []).filter(t => !DATE_TAG_RE.test(String(t).trim()))].slice(0, 5);
+
 // 看一条
 const viewing = ref(null);
 const preview = ref(null);
@@ -205,7 +208,9 @@ async function archive() {
   }
 }
 function startEdit() {
-  editing.value = { name: viewing.value.title, importance: Number(viewing.value.importance) || 5, content: preview.value?.truncated ? "" : preview.value?.preview || "" };
+  const d = starDate(viewing.value);
+  const ymd = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
+  editing.value = { name: viewing.value.title, importance: Number(viewing.value.importance) || 5, date: ymd, date0: ymd, content: preview.value?.truncated ? "" : preview.value?.preview || "" };
 }
 async function saveEdit() {
   const f = {};
@@ -213,10 +218,21 @@ async function saveEdit() {
   const c = editing.value.content.trim();
   if (c && c !== (preview.value?.preview || "").trim()) f.content = c;
   if (editing.value.importance !== (Number(viewing.value.importance) || 5)) f.importance = editing.value.importance;
+  // 日期：OB 不能改写下的时间，就存成一个标签（各个设备、TA 都看得到）
+  let newTags = null;
+  if (editing.value.date && editing.value.date !== editing.value.date0) {
+    newTags = withDateTag(viewing.value.tags, editing.value.date);
+    f.tags = newTags.join(",");
+  }
   if (!Object.keys(f).length) return (editing.value = null);
   if (await doTrace(f, "改好了")) {
     if (f.name) viewing.value.title = f.name;
     if (f.importance) viewing.value.importance = f.importance;
+    if (newTags) {
+      viewing.value.tags = newTags;
+      const star = map.value?.stars?.find(x => x.id === viewing.value.id);
+      if (star) star.tags = newTags;
+    }
     if (f.content) preview.value = { ...preview.value, preview: f.content };
     editing.value = null;
   }
@@ -412,8 +428,8 @@ if (props.openId) {
             <span v-else-if="s.importance" class="imp">重要度 {{ s.importance }}</span>
           </div>
           <h3>{{ s.title }}</h3>
-          <div v-if="s.domains?.length || s.tags?.length" class="tags">
-            <span v-for="t in [...(s.domains || []), ...(s.tags || [])].slice(0, 5)" :key="t">{{ t }}</span>
+          <div v-if="chipsOf(s).length" class="tags">
+            <span v-for="t in chipsOf(s)" :key="t">{{ t }}</span>
           </div>
         </article>
         </template>
@@ -503,6 +519,7 @@ if (props.openId) {
         </template>
         <template v-else>
           <label class="field"><span>标题</span><input v-model="editing.name" class="input" /></label>
+          <label class="field"><span>日期<small>（这件事是哪天的）</small></span><input v-model="editing.date" class="input" type="date" /></label>
           <label class="field"><span>重要度 {{ editing.importance }}<small>（1–10，越重要越容易想起）</small></span><input v-model.number="editing.importance" type="range" min="1" max="10" /></label>
           <label class="field"><span>内容<small>{{ preview?.truncated ? "（原文太长只读到一部分，留空就不改内容）" : "（留空就不改）" }}</small></span>
             <BigTextarea v-model="editing.content" rows="6" title="记忆内容" />

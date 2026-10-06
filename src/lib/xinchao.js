@@ -203,10 +203,17 @@ export function moodColor(valence = 0.5) {
   return `rgb(${c.join(",")})`;
 }
 
-// 星表里的日期
+// 星表里的日期：你改过的（存在标签「日期:2026-09-28」里）优先，其次是写下的时间
+export const DATE_TAG_RE = /^日期[:：]\s*(\d{4})-(\d{1,2})-(\d{1,2})$/;
 export function starDate(star) {
+  const tag = (star.tags || []).map(t => String(t).trim().match(DATE_TAG_RE)).find(Boolean);
+  if (tag) return new Date(Number(tag[1]), Number(tag[2]) - 1, Number(tag[3]), 12);
   const t = Date.parse(star.createdAt || star.updatedAt || star.lastActiveAt || "");
   return Number.isFinite(t) ? new Date(t) : null;
+}
+// 改日期：换掉旧的日期标签，其他标签不动。返回新的标签列表
+export function withDateTag(tags, ymd) {
+  return [...(tags || []).filter(t => !DATE_TAG_RE.test(String(t).trim())), `日期:${ymd}`];
 }
 
 // ---------- 糖罐：最近一次动静、回应 ----------
