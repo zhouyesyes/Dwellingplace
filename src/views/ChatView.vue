@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, generate, sendMessage, HUG_TEXT, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
-import { hasXinchao, dashToken, refreshMind, xcCache } from "../lib/xinchao.js";
+import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
 import { versionsOf } from "../lib/tree.js";
@@ -180,7 +180,7 @@ async function askReply() {
 }
 
 // 心潮：名字旁边显示 TA 此刻的心情小脸
-const mind = computed(() => (role.value ? xcCache[role.value.id]?.snap : null));
+const mind = computed(() => snapOf(role.value));
 const moodFace = computed(() => {
   const s = mind.value;
   if (!s) return null;

@@ -174,7 +174,7 @@ const tap = {
   notebook: () => emit("open", "notebook"),
   bed: () => emit("say", props.asleep ? `${props.name}正睡着，被子皱皱的。` : "矮矮的木床，暖黄色的被子永远有点皱——起来不叠。"),
   plant: () => emit("say", "陶土色的小盆，种着一棵还没开花的不知名小苗。"),
-  box: () => emit("say", "床底下的小箱子，深木色，铜锁旧旧的，但擦得很干净。锁着呢。"),
+  box: () => emit("say", "床底下的小箱子，深木色，铜锁旧旧的，但擦得很干净。这是 TA 自己的黑匣子，只有 TA 能打开。"),
   window: () => emit("say", "窗外是傍晚灰灰暖暖的海，远处是雾潮群岛的小岛。"),
 };
 </script>
