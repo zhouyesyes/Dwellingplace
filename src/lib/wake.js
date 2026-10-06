@@ -241,7 +241,7 @@ async function ingest(item) {
     const head = item.error
       ? `${role.name} 醒来时出错了：${shortError(item.error)}`
       : `${role.name} 醒来过（${item.reasons.join("；")}），没有打扰你`;
-    last.notes = [...(last.notes || []), { text: head, wakeId: item.id, ...(item.error ? { detail: item.error } : {}) }, ...before.map(n => ({ ...n, before: false })), ...after, ...tagNotes];
+    last.notes = [...(last.notes || []), { text: head, wakeId: item.id, ...(item.error ? { detail: item.error } : {}) }, ...before.map(({ at, ...n }) => ({ ...n, before: false })), ...after, ...tagNotes];
   }
   if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
   if (!item.silent) touchThread(thread, all);

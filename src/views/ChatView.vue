@@ -64,24 +64,42 @@ onMounted(async () => {
 });
 
 // ---------- 消息分组：同一个人 5 分钟内连续的消息算一组 ----------
+// TA 一边说话一边用工具：提示条（带 at）插在说到一半的地方，前后的话都留着
 const items = computed(() => {
   const out = [];
   let group = null;
-  const notes = (m, before) =>
-    (m.notes || []).forEach((n, i) => { if (!!n.before === before) { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; } });
-  for (const m of messages.value) {
-    notes(m, true);
+  const event = (m, n, i) => { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; };
+  const add = m => {
     if (group && group.from === m.from && m.ts - group.lastTs < 5 * 60_000) {
       group.msgs.push(m);
       group.lastTs = m.ts;
     } else {
-      group = { type: "group", from: m.from, msgs: [m], lastTs: m.ts, key: m.id };
+      group = { type: "group", from: m.from, msgs: [m], lastTs: m.ts, key: m._key || m.id };
       out.push(group);
     }
-    notes(m, false);
+  };
+  for (const m of messages.value) {
+    const all = (m.notes || []).map((n, i) => [n, i]);
+    const mid = m.from === "ai" && !m.error ? all.filter(([n]) => n.before && n.at > 0) : [];
+    all.filter(([n]) => n.before && !mid.some(([x]) => x === n)).forEach(([n, i]) => event(m, n, i));
+    if (!mid.length) add(m);
+    else {
+      const text = m.text || "";
+      let from = 0;
+      mid.forEach(([n, i], k) => {
+        const at = Math.min(n.at, text.length);
+        const part = text.slice(from, at);
+        if (part.trim()) add({ ...m, text: part, pending: false, _src: m, _key: `${m.id}~${k}`, _first: from === 0 });
+        event(m, n, i);
+        from = at;
+      });
+      add({ ...m, text: text.slice(from), _src: m, _key: `${m.id}~end`, _last: true, _first: from === 0 });
+    }
+    all.filter(([n]) => !n.before).forEach(([n, i]) => event(m, n, i));
   }
   return out;
 });
+const src = m => m._src || m;
 
 // ---------- 滚动 ----------
 const scroller = ref(null);
@@ -306,7 +324,7 @@ const shownCount = computed(() => Math.min(messages.value.filter(m => m.from !==
 function tokensOf(group) {
   if (group.from !== "ai") return "";
   let i = 0, o = 0;
-  for (const m of group.msgs) { i += m.usage?.input || 0; o += m.usage?.output || 0; }
+  for (const m of group.msgs) if (!m._src || m._last) { i += m.usage?.input || 0; o += m.usage?.output || 0; }
   return i || o ? `输入 ${fmtTokens(i)} · 输出 ${fmtTokens(o)} tokens` : "";
 }
 
@@ -404,7 +422,7 @@ const back = () => goBack(router, "/chats");
               <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" />
             </div>
             <div class="col">
-              <template v-for="m in it.msgs" :key="m.id">
+              <template v-for="m in it.msgs" :key="m._key || m.id">
                 <template v-if="m.from === 'user'">
                   <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)" @click="gallery = m">
                     <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell">
@@ -425,19 +443,19 @@ const back = () => goBack(router, "/chats");
                   </div>
                 </template>
                 <template v-else>
-                  <div v-if="m.thinking" class="think" @click="openThink[m.id] = !openThink[m.id]">
+                  <div v-if="m.thinking && (!m._src || m._first)" class="think" @click="openThink[m.id] = !openThink[m.id]">
                     <Icon name="bulb" :size="14" />
                     {{ m.pending && !splitBubbles(m.text).length ? "思考中…" : "思考过程" }}
                     <span class="arrow">{{ openThink[m.id] ? "▴" : "▾" }}</span>
                   </div>
-                  <div v-if="m.thinking && openThink[m.id]" class="think-body">{{ m.thinking.trim() }}</div>
+                  <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="openActions(m)">{{ b }}</div>
-                  <div v-if="vers(m).list.length > 1" class="ver">
-                    <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
-                    {{ vers(m).index + 1 }} / {{ vers(m).list.length }}
-                    <button :disabled="vers(m).index === vers(m).list.length - 1" aria-label="下一个版本" @click="switchVersion(m, 1)">›</button>
+                  <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="openActions(src(m))">{{ b }}</div>
+                  <div v-if="(!m._src || m._last) && vers(src(m)).list.length > 1" class="ver">
+                    <button :disabled="vers(src(m)).index === 0" aria-label="上一个版本" @click="switchVersion(src(m), -1)">‹</button>
+                    {{ vers(src(m)).index + 1 }} / {{ vers(src(m)).list.length }}
+                    <button :disabled="vers(src(m)).index === vers(src(m)).list.length - 1" aria-label="下一个版本" @click="switchVersion(src(m), 1)">›</button>
                   </div>
                 </template>
               </template>
