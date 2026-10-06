@@ -9,6 +9,9 @@ const name = (process.env.WORKER_NAME || "").trim();
 const kv = (process.env.KV_ID || "").trim();
 if (!name) throw new Error("缺少构建变量 WORKER_NAME：填 Worker 的名字");
 if (!kv) throw new Error("缺少构建变量 KV_ID：填 KV 命名空间的 ID（存储和数据库 → KV 里能看到）");
+// 常见填反：把 KV 的 ID 填进了名字那格、把 Worker 名填进了值那格
+if (/^[0-9a-f]{32}$/i.test(name)) throw new Error("WORKER_NAME 看起来是 KV 的 ID：变量的名字和值可能填反了");
+if (!/^[0-9a-f]{32}$/i.test(kv)) throw new Error("KV_ID 应该是 32 位的字母数字：变量的名字和值可能填反了");
 
 const config = {
   name,
