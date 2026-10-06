@@ -8,8 +8,11 @@ const props = defineProps({ drives: { type: Array, default: () => [] }, selected
 const emit = defineEmits(["select"]);
 
 // 窗外的天色跟着时间走
-const hour = new Date().getHours();
-const sky = props.asleep || hour < 6 || hour >= 19 ? "night" : hour >= 17 ? "dusk" : "day";
+// 清晨 5–8 点、白天、夕阳 17–19 点半、夜里（TA 睡着了也是夜里）
+const now = new Date();
+const hm = now.getHours() + now.getMinutes() / 60;
+const sky = props.asleep || hm < 5 || hm >= 19.5 ? "night" : hm < 8 ? "dawn" : hm >= 17 ? "dusk" : "day";
+const low = sky === "dawn" || sky === "dusk"; // 太阳贴着地平线
 
 const blank = (w, h) => Array.from({ length: h }, () => Array(w).fill(null));
 function disc(r, color, cut) {
@@ -22,11 +25,12 @@ function disc(r, color, cut) {
   }
   return g;
 }
-const sun = disc(5, sky === "dusk" ? "#f6a26b" : "#ffd36e");
+const sun = disc(low ? 7 : 5, sky === "dusk" ? "#f59a6b" : sky === "dawn" ? "#ffd9a0" : "#ffd36e");
 const moon = disc(5, "#fdf1c7", 3);
 const cloud = (() => {
   const rows = ["....oooo......", "..oooooooo.oo.", ".oooooooooooooo", "oooooooooooooo", ".oooooooooooo."];
-  return rows.map(r => [...r].map(c => (c === "o" ? "#ffffff" : null)));
+  const color = sky === "dusk" ? "#fbd3c6" : sky === "dawn" ? "#fde8ef" : "#ffffff";
+  return rows.map(r => [...r].map(c => (c === "o" ? color : null)));
 })();
 
 // 糖多的排前面
@@ -37,17 +41,18 @@ const leaves = leavesGrid(sky === "night");
 </script>
 
 <template>
-  <div class="scene" :class="sky">
+  <div class="scene" :class="'sky-' + sky">
     <!-- 窗户 -->
     <div class="window">
       <div class="pane">
-        <PixelArt v-if="sky !== 'night'" :grid="sun" :size="34" class="sun" />
+        <PixelArt v-if="sky !== 'night'" :grid="sun" :size="low ? 46 : 34" class="sun" :class="{ low }" />
         <template v-else>
           <PixelArt :grid="moon" :size="30" class="moon" />
           <i v-for="n in 7" :key="n" class="star" :style="{ left: (n * 13 + (n % 3) * 5) % 92 + '%', top: (n * 17) % 60 + 8 + '%' }"></i>
         </template>
-        <PixelArt v-if="sky === 'day'" :grid="cloud" :size="56" class="cloud c1" />
-        <PixelArt v-if="sky === 'day'" :grid="cloud" :size="40" class="cloud c2" />
+        <PixelArt v-if="sky !== 'night'" :grid="cloud" :size="56" class="cloud c1" />
+        <PixelArt v-if="sky !== 'night'" :grid="cloud" :size="40" class="cloud c2" />
+        <i v-if="sky === 'dawn'" class="mist"></i>
         <PixelArt :grid="leaves" :size="120" class="leaves" />
       </div>
       <div class="mullion v"></div>
@@ -69,10 +74,16 @@ const leaves = leavesGrid(sky === "night");
 .scene::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 30px; background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--card)); pointer-events: none; }
 .window { position: absolute; left: 22px; right: 22px; top: 6px; height: 120px; border: 8px solid #f3ebe1; border-bottom-width: 0; border-radius: 4px 4px 0 0; box-shadow: inset 0 0 0 2px #e6d8c6; overflow: hidden; }
 .pane { position: absolute; inset: 0; }
-.day .pane { background: linear-gradient(#bfe2f6 0 40%, #d3ecf9 40% 75%, #e5f4fb 75%); }
-.dusk .pane { background: linear-gradient(#f3b3bd 0 35%, #f8c9a9 35% 70%, #fbe0c2 70%); }
-.night .pane { background: linear-gradient(#36406b 0 45%, #46507c 45% 80%, #57618b 80%); }
+/* 像素风的天：几段平涂的色带 */
+.sky-day .pane { background: linear-gradient(#bfe2f6 0 40%, #d3ecf9 40% 75%, #e5f4fb 75%); }
+.sky-dawn .pane { background: linear-gradient(#c9cdeb 0 28%, #e6d3ea 28% 52%, #f8dbe0 52% 76%, #fdebd3 76%); }
+.sky-dusk .pane { background: linear-gradient(#8f8fc2 0 22%, #d99fb8 22% 46%, #f4ad9b 46% 72%, #fbcf95 72%); }
+.sky-night .pane { background: linear-gradient(#36406b 0 45%, #46507c 45% 80%, #57618b 80%); }
 .sun { position: absolute; right: 16%; top: 16px; }
+.sun.low { top: 22px; right: 18%; }
+.sky-dawn .sun.low { right: 58%; top: 26px; }
+.sky-dusk .cloud, .sky-dawn .cloud { opacity: .8; }
+.mist { position: absolute; left: 0; right: 0; bottom: 8px; height: 6px; background: rgba(255, 255, 255, .45); box-shadow: 0 -10px 0 -1px rgba(255, 255, 255, .25); }
 .moon { position: absolute; right: 14%; top: 14px; }
 .star { position: absolute; width: 3px; height: 3px; background: #fdf3cf; box-shadow: 0 0 3px #fff6; }
 .cloud { position: absolute; opacity: .95; }

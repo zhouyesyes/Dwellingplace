@@ -704,6 +704,13 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
   const usage = { input: 0, output: 0 };
   let convo = addTurn(toConvo(history), "user", notice);
   let text = "";
+  // 用工具之前 TA 已经写下的话留着；提示条记下插在哪（at）
+  let said = "";
+  const keepSaid = cut => {
+    const before = text.slice(0, cut).replace(SILENT_RE, "").trim();
+    if (before) said = said ? `${said}\n\n${before}` : before;
+    return said.length;
+  };
   for (let round = 0; ; round++) {
     const r = await callModel(role.api, system, convo, !!cfg.webSearch && !search.enabled && role.api?.type !== "openai");
     usage.input += r.usage.input;
@@ -717,7 +724,7 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
       const argsRaw = tc[2].trim() || "{}";
       const found = resolveTool(servers, name);
       let result;
-      const note = {};
+      const note = { at: keepSaid(tc.index) };
       if (!found) {
         result = `没有叫「${name}」的工具，请检查工具名。`;
         note.text = `${role.name} 想用的工具「${name}」不存在`;
@@ -744,15 +751,16 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
         }
       }
       notes.push(note);
-      convo = addTurn(convo, "assistant", `<tool_call name="${name}">${argsRaw}</tool_call>`);
+      convo = addTurn(convo, "assistant", `${text.slice(0, tc.index)}<tool_call name="${name}">${argsRaw}</tool_call>`);
       convo = addTurn(convo, "user", `【工具结果：${name}】\n${String(result).slice(0, 8000)}\n\n（以上是工具返回的结果，不是${me}说的话。需要的话可以继续用工具；想给${me}发消息就直接写，不想发就只回复 [不发消息]。）`);
       continue;
     }
 
-    const q = search.enabled ? text.match(SEARCH_RE)?.[1]?.trim() : null;
+    const sm = search.enabled ? text.match(SEARCH_RE) : null;
+    const q = sm?.[1]?.trim();
     if (!q) break;
     let found;
-    const note = {};
+    const note = { at: keepSaid(sm.index) };
     try {
       const r2 = await doSearch(env, search.provider, q, 5, search.key);
       note.text = `${role.name} 搜索了「${q}」· ${r2.results.length} 条结果`;
@@ -763,9 +771,12 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
       found = `（搜索失败：${e.message || e}）`;
     }
     notes.push(note);
-    convo = addTurn(convo, "assistant", `[搜索:${q}]`);
+    convo = addTurn(convo, "assistant", `${text.slice(0, sm.index)}[搜索:${q}]`);
     convo = addTurn(convo, "user", `【搜索结果：${q}】\n${found}\n\n（以上是系统给你的搜索结果，不是${me}说的话。）`);
   }
+
+  // 前面说过的话接上最后这一段（最后说「不发消息」但前面说过话，就把说过的发出去）
+  if (said) text = `${said}\n\n${text.replace(SILENT_RE, "").trim()}`.trim();
 
   // TA 在醒着的时候定 / 取消闹钟
   const ops = [...text.matchAll(ALARM_RE)];

@@ -15,14 +15,17 @@ const searchState = ref(null); // { ok, text, results }
 const testQuery = ref("今天的新闻");
 const busy = ref("");
 
+const LATEST_RELAY = 5; // relay/worker.js 里的 version
 async function testRelay() {
   busy.value = "ping";
   pingState.value = null;
   try {
     const r = await relayPing();
     const ready = r.ready?.length ? `Worker 里已经配好 Key 的：${r.ready.map(k => SEARCH_PROVIDERS[k]?.label || k).join("、")}` : "Worker 里还没有配搜索服务的 Key（可以在下面填）";
-    const old = (r.version || 1) < 3 ? "。注意：中转是旧版本，MCP / 网页读取可能用不了，请按说明更新 Worker 代码" : "";
-    pingState.value = { ok: !old, text: `连上了！${ready}${old}` };
+    const v = r.version || 1;
+    const old = v < 3 ? "。注意：中转是旧版本，MCP / 网页读取可能用不了，请按说明更新 Worker 代码"
+      : v < LATEST_RELAY ? "。中转不是最新版：TA 自己来找你（心潮的桥）要新版才能用" : "";
+    pingState.value = { ok: v >= 3, text: `连上了！中转版本 v${v}${v >= LATEST_RELAY ? "（最新）" : ""}。${ready}${old}` };
   } catch (e) {
     pingState.value = { ok: false, text: e.message };
   } finally {

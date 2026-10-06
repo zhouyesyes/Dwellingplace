@@ -171,8 +171,17 @@ export async function generate(thread, parentId) {
     const servers = serversFor(role.id).filter(s => s.tools?.length);
     let convo = messages;
     let text = "";
+    // 用工具 / 搜索之前 TA 已经说出口的话：留着，后面接着往下写（提示条按 at 插在这些话中间）
+    let said = "";
+    const keepSaid = (roundText, cut) => {
+      const before = roundText.slice(0, cut).trim();
+      if (before) said = said ? `${said}\n\n${before}` : before;
+      msg.text = said ? said + "\n\n" : "";
+      return said.length;
+    };
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
+      const base = msg.text.length;
       const res = await streamChat({
         api, model, system, messages: convo, signal: ctrl.signal,
         // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
@@ -180,7 +189,7 @@ export async function generate(thread, parentId) {
         onText: d => { msg.text += d; },
         onThinking: d => { msg.thinking += d; },
       });
-      text = res.text || msg.text;
+      text = res.text || msg.text.slice(base);
       if (res.thinking) msg.thinking = thinkingBefore + res.thinking;
       msg.ctx = res.usage.input; // 这一次 TA 看到的内容有多大
       msg.usage.input += res.usage.input;
@@ -194,9 +203,8 @@ export async function generate(thread, parentId) {
       if (tc) {
         const name = tc[1].trim();
         const argsRaw = tc[2].trim() || "{}";
-        const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true });
+        const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true, at: keepSaid(text, tc.index) });
         msg.notes.push(note);
-        msg.text = "";
         let result;
         const found = resolveToolCall(servers, name);
         if (!found) {
@@ -220,18 +228,18 @@ export async function generate(thread, parentId) {
         if (ctrl.signal.aborted) break;
         convo = [
           ...convo,
-          { role: "assistant", parts: [{ type: "text", text: `<tool_call name="${name}">${argsRaw}</tool_call>` }] },
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, tc.index)}<tool_call name="${name}">${argsRaw}</tool_call>` }] },
           { role: "user", parts: [{ type: "text", text: `【工具结果：${name}】\n${String(result).slice(0, 8000)}\n\n（以上是工具返回的结果，不是对方说的话。需要的话可以再调用工具，否则就自然地回复对方。）` }] },
         ];
         continue;
       }
 
       // AI 要搜索：网页通过中转去搜，再把结果交回给 AI
-      const q = useRelaySearch && text.match(SEARCH_RE)?.[1]?.trim();
+      const sm = useRelaySearch ? text.match(SEARCH_RE) : null;
+      const q = sm?.[1]?.trim();
       if (!q) break;
-      const ev = reactive({ text: `${role.name} 正在搜索「${q}」…`, before: true });
+      const ev = reactive({ text: `${role.name} 正在搜索「${q}」…`, before: true, at: keepSaid(text, sm.index) });
       msg.notes.push(ev);
-      msg.text = "";
       let found;
       try {
         const r = await relaySearch(q);
@@ -245,11 +253,11 @@ export async function generate(thread, parentId) {
       if (ctrl.signal.aborted) break;
       convo = [
         ...convo,
-        { role: "assistant", parts: [{ type: "text", text: `[搜索:${q}]` }] },
+        { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, sm.index)}[搜索:${q}]` }] },
         { role: "user", parts: [{ type: "text", text: `【搜索结果：${q}】\n${found}\n\n（以上是系统给你的搜索结果，不是对方说的话。请根据结果自然地回复对方，需要时可以提到来源。）` }] },
       ];
     }
-    msg.text = text;
+    msg.text = said ? `${said}\n\n${text.trim()}`.trim() : text;
 
     const xm = await applyXinchaoMemoryTags(role, msg.text);
     msg.text = xm.text;
