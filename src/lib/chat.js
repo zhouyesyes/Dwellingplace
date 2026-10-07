@@ -1,7 +1,7 @@
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "idb-keyval";
-import { store, uid, roleById, groupById, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
+import { store, uid, roleById, groupById, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -101,6 +101,30 @@ function groupForAI(role, group) {
   ].join("\n");
 }
 
+// 群聊里：TA 和你最近的私聊（只给 TA 自己看，别人看不到）
+async function privateForAI(role) {
+  const t = threadsOf(role.id).find(x => x.id === role.lastThreadId) || threadsOf(role.id)[0];
+  if (!t) return "";
+  const path = pathOf(t, await loadMessages(t.id)).filter(m => m.from !== "event" && !m.pending && !m.error);
+  const me = meName(role);
+  const lines = [];
+  let size = 0;
+  for (const m of path.slice(-40).reverse()) {
+    const text = (m.from === "user" ? m.text : splitBubbles(m.text).join(" ")) || (m.attachments?.length ? "[图片/文件]" : "");
+    if (!text) continue;
+    const line = `${m.from === "user" ? me : role.name}：${text.length > 300 ? text.slice(0, 300) + "…" : text}`;
+    size += line.length;
+    if (size > 6000) break;
+    lines.unshift(line);
+  }
+  if (!lines.length) return "";
+  return [
+    `\n# 你和${me}最近的私聊`,
+    `下面是你们俩私下聊天的最近一段（群里其他人看不到）。在群里自然地记得这些就好；私密的事要不要在群里说，你自己拿捏。`,
+    lines.join("\n"),
+  ].join("\n");
+}
+
 async function partsOf(m) {
   const parts = [];
   for (const a of m.attachments || []) {
@@ -189,7 +213,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
       if (m && !xcCache[role.id]?.snap) waits.push(m);
       if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
     }
-    const system = buildSystem(role, history) + (group ? groupForAI(role, group) : "");
+    const system = buildSystem(role, history) + (group ? groupForAI(role, group) + (await privateForAI(role)) : "");
     const messages = await buildMessages(history, group ? role.id : null);
     all.push(msg);
     thread.sel[parent] = msg.id;
