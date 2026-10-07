@@ -3,14 +3,15 @@
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, messageCache, saveMessages, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread } from "../lib/chat.js";
+import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread, fileToAttachment } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
-import { pickAndCrop, deleteImage, useImage } from "../lib/images.js";
+import { pickAndCrop, deleteImage, useImage, pickFile, saveImage } from "../lib/images.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
+import ImgThumb from "../components/ImgThumb.vue";
 import UsageSheet from "../components/UsageSheet.vue";
 
 const route = useRoute();
@@ -122,13 +123,40 @@ async function round(text = "") {
 async function send(reply) {
   if (busy.value) return;
   const text = draft.value.trim();
-  if (!text) return reply ? round() : undefined;
+  if (!text && !attachments.value.length) return reply ? round() : undefined;
+  const atts = attachments.value;
   draft.value = "";
+  attachments.value = [];
   nextTick(autoGrow);
   scrollToBottom(true);
-  await sendMessage(thread.value, text, [], { reply: false });
+  await sendMessage(thread.value, text, atts, { reply: false });
   if (reply) await round(text);
 }
+
+// ---------- ＋ 图片、文件 ----------
+const attachments = ref([]);
+const plusOpen = ref(false);
+async function addImages() {
+  plusOpen.value = false;
+  for (const f of await pickFile("image/*", true)) {
+    try { attachments.value.push({ kind: "image", img: await saveImage(f), name: f.name }); }
+    catch { toast("这张图片读不了：" + f.name); }
+  }
+}
+async function addFiles() {
+  plusOpen.value = false;
+  for (const f of await pickFile(".pdf,.txt,.md,.json,.csv,.html,.js,.py,text/*,application/pdf", true)) {
+    try { attachments.value.push(await fileToAttachment(f)); }
+    catch (e) { toast(e.message, 3000); }
+  }
+}
+function removeAttachment(i) {
+  const [a] = attachments.value.splice(i, 1);
+  if (a.kind === "image") deleteImage(a.img);
+}
+const imgsOf = m => (m.attachments || []).filter(a => a.kind === "image");
+const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image");
+const gallery = ref(null);
 function stop() {
   stopped = true;
   generating[thread.value.id]?.abort();
@@ -158,6 +186,7 @@ async function removeMsg() {
   if (t.sel?.[m.parentId] === m.id) { if (kids[0]) t.sel[m.parentId] = kids[0].id; else delete t.sel[m.parentId]; }
   if (t.sel?.[m.id]) { if (kids.length) t.sel[m.parentId] = t.sel[m.id]; delete t.sel[m.id]; }
   all.splice(i, 1);
+  for (const a of m.attachments || []) if (a.kind === "image") deleteImage(a.img);
   touchThread(t, all);
   saveMessages(t.id);
 }
@@ -258,7 +287,19 @@ function clearBg() {
             <div class="col">
               <div v-if="it.from !== 'user'" class="speaker">{{ nameOf(it.who) }}</div>
               <template v-for="m in it.msgs" :key="m._key || m.id">
-                <div v-if="m.from === 'user'" class="bubble" @click="actionMsg = m">{{ m.text }}</div>
+                <template v-if="m.from === 'user'">
+                  <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)" @click="gallery = m">
+                    <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell">
+                      <ImgThumb :id="a.img" />
+                      <span v-if="i === 3 && imgsOf(m).length > 4" class="more">+{{ imgsOf(m).length - 4 }}</span>
+                    </div>
+                  </div>
+                  <div v-else-if="imgsOf(m).length" class="att" @click="actionMsg = m"><ImgThumb :id="imgsOf(m)[0].img" /></div>
+                  <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="actionMsg = m">
+                    <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
+                  </div>
+                  <div v-if="m.text" class="bubble" @click="actionMsg = m">{{ m.text }}</div>
+                </template>
                 <template v-else>
                   <div v-if="m.error" class="bubble error" @click="actionMsg = src(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
@@ -277,12 +318,20 @@ function clearBg() {
         <button v-for="r in members" :key="r.id" class="at" @click="mention(r)">@{{ r.name }}</button>
         <button v-if="totalInput" class="usage" @click="usageOpen = true">用量 {{ fmtTokens(totalInput) }}</button>
       </div>
+      <div v-if="attachments.length" class="pending-atts">
+        <div v-for="(a, i) in attachments" :key="i" class="patt">
+          <ImgThumb v-if="a.kind === 'image'" :id="a.img" />
+          <span v-else class="file-chip"><Icon name="file" :size="16" />{{ a.name }}</span>
+          <button class="x" aria-label="去掉" @click="removeAttachment(i)"><Icon name="close" :size="14" /></button>
+        </div>
+      </div>
       <div class="row">
+        <button class="tool" aria-label="添加图片或文件" @click="plusOpen = true"><Icon name="plus" :size="26" /></button>
         <textarea ref="inputEl" v-model="draft" rows="1" placeholder="在群里说点什么…" @input="autoGrow" />
         <div class="sends">
-          <button class="send small" :class="{ on: draft.trim() }" aria-label="发送" @click="send(false)"><Icon name="send" :size="20" /></button>
+          <button class="send small" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send(false)"><Icon name="send" :size="20" /></button>
           <button v-if="busy" class="send reply on" aria-label="停止" @click="stop"><Icon name="stop" :size="20" /></button>
-          <button v-else class="send reply" :class="{ on: draft.trim() || lastIsMine || messages.length }" :aria-label="draft.trim() ? '发送并让大家接话' : '让大家接着聊'" @click="send(true)"><Icon name="chat" :size="20" /></button>
+          <button v-else class="send reply" :class="{ on: draft.trim() || attachments.length || lastIsMine || messages.length }" :aria-label="draft.trim() || attachments.length ? '发送并让大家接话' : '让大家接着聊'" @click="send(true)"><Icon name="chat" :size="20" /></button>
         </div>
       </div>
     </footer>
@@ -290,6 +339,20 @@ function clearBg() {
     <UsageSheet :open="usageOpen" title="这个群的用量" :all="allMessages" :path="messages" per-member @close="usageOpen = false">
       群里每个人每次说话，都要把群聊记录、TA 和你的私聊（设置里调条数）一起看一遍，人越多、轮得越多就越费。
     </UsageSheet>
+
+    <Sheet :open="plusOpen" @close="plusOpen = false">
+      <div class="grid-actions">
+        <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片</button>
+        <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
+      </div>
+    </Sheet>
+
+    <Sheet :open="!!gallery" :title="gallery ? `${imgsOf(gallery).length} 张图片` : ''" @close="gallery = null">
+      <div v-if="gallery" class="gallery">
+        <ImgThumb v-for="(a, i) in imgsOf(gallery)" :key="i" :id="a.img" />
+      </div>
+      <div v-if="gallery" class="gal-more"><button class="btn soft" @click="actionMsg = gallery; gallery = null">更多操作</button></div>
+    </Sheet>
 
     <Sheet :open="!!actionMsg" @close="actionMsg = null">
       <div v-if="actionMsg" class="grid-actions">
@@ -370,6 +433,24 @@ function clearBg() {
 .at { flex: none; border: 0; border-radius: 999px; padding: 2px 10px; background: var(--bg); color: var(--text-2); font-size: 0.78rem; }
 .usage { flex: none; margin-left: auto; border: 0; background: none; color: var(--text-3); font-size: 0.72rem; padding: 2px 4px; }
 .row { display: flex; align-items: flex-end; gap: 4px; max-width: 760px; margin: 0 auto; }
+.tool { flex: none; width: 40px; height: 44px; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
+.tool:active { color: var(--ink); }
+.att { cursor: pointer; }
+.img-grid { display: grid; grid-template-columns: repeat(2, 84px); gap: 4px; border-radius: 16px; overflow: hidden; cursor: pointer; }
+.img-grid.n2 { grid-template-columns: repeat(2, 96px); }
+.img-grid .cell { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--bg-deep); }
+.img-grid .cell :deep(.thumb) { width: 100%; height: 100%; border-radius: 0; box-shadow: none; pointer-events: none; }
+.img-grid .cell :deep(img) { width: 100%; height: 100%; object-fit: cover; }
+.img-grid .more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .38); color: #fff; font-weight: 700; font-size: 1.1rem; }
+.gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.gallery :deep(.thumb) { width: 100%; max-width: none; }
+.gal-more { display: flex; justify-content: center; margin-top: 12px; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-atts { display: flex; gap: 8px; overflow-x: auto; max-width: 760px; margin: 0 auto 10px; padding: 6px 2px 2px; }
+.patt { position: relative; flex: none; }
+.patt :deep(.thumb) { width: 64px; height: 64px; }
+.patt :deep(.thumb img) { width: 64px; height: 64px; object-fit: cover; }
+.patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; padding: 0; }
 textarea { flex: 1; border: 0; outline: none; resize: none; background: none; padding: 10px 6px; line-height: 1.5; max-height: 140px; color: var(--text); }
 textarea::placeholder { color: var(--text-3); font-size: 0.93rem; }
 .sends { flex: none; display: flex; gap: 6px; align-items: flex-end; }
