@@ -154,6 +154,8 @@ function migrate() {
   }
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
+  store.settings.groupPrivateLimit ??= 40; // 群聊里 TA 能看到你们最近多少条私聊
+  store.settings.privateGroupLimit ??= 40; // 私聊里 TA 能看到最近多少条群聊
   store.settings.privacy ??= "";
   store.profile.userName ??= "";
   store.profile.bioSelf ??= "";
@@ -205,7 +207,10 @@ export function apiFor(thread, role) {
 export function modelFor(thread, role) {
   const api = apiFor(thread, role);
   if (!api) return "";
-  return (thread?.apiId === api.id && thread.model) || api.model;
+  if (thread?.apiId === api.id && thread.model) return thread.model;
+  // 角色设置里选的模型（API 里标星的那些）
+  if (role?.apiId === api.id && role.model) return role.model;
+  return api.model;
 }
 
 // ---------- 群聊 ----------

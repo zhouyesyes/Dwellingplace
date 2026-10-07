@@ -872,7 +872,7 @@ async function tick(env, now = Date.now()) {
         sched.ih = ih;
         changed = true;
       } else if (sched.nextAt <= now) {
-        if (!inQuiet(w.quiet, now)) reasons.push({ kind: "interval", text: "到了平时醒来的时间" });
+        if (!inQuiet(w.quiet, now)) reasons.push({ kind: "interval", text: `到了平时醒来的时间${w.intervalNote ? `（${role.meName || "对方"}留了话：${w.intervalNote}）` : ""}` });
         sched.nextAt = nextInterval(w, now);
         changed = true;
       }
@@ -887,7 +887,8 @@ async function tick(env, now = Date.now()) {
     for (const t of w.times || []) {
       const tm = hm2min(t);
       if (mod >= tm && mod - tm < 15 && sched.fired[t] !== today) {
-        reasons.push({ kind: "time", text: `到了每天 ${t} 醒来的时间` });
+        const note = w.timeNotes?.[t];
+        reasons.push({ kind: "time", text: `到了每天 ${t} 醒来的时间${note ? `（${role.meName || "对方"}留了话：${note}）` : ""}` });
         sched.fired[t] = today;
         changed = true;
       }

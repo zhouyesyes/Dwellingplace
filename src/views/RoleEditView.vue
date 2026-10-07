@@ -19,6 +19,23 @@ if (!isNew && !original) router.replace("/settings");
 const form = reactive(JSON.parse(JSON.stringify(original || newRole({ color: PALETTE[store.roles.length % PALETTE.length] }))));
 const valid = computed(() => form.name.trim().length > 0);
 
+// 使用的 API 和模型：默认模型 + 标星的模型都能选
+form.model ??= null;
+const apiChoices = computed(() => store.apis.flatMap(a => [...new Set([a.model, ...(a.favModels || [])])].filter(Boolean).map(m => ({
+  key: `${a.id}|${m}`,
+  label: `${a.name} · ${m}${m === a.model ? "（默认）" : " ★"}`,
+}))));
+const apiPick = computed({
+  get: () => (form.apiId ? `${form.apiId}|${form.model || store.apis.find(a => a.id === form.apiId)?.model || ""}` : ""),
+  set: v => {
+    if (!v) { form.apiId = null; form.model = null; return; }
+    const i = v.indexOf("|");
+    const id = v.slice(0, i), m = v.slice(i + 1);
+    form.apiId = id;
+    form.model = m === store.apis.find(a => a.id === id)?.model ? null : m;
+  },
+});
+
 form.me ??= { name: "", avatar: null, about: "" };
 
 async function changeMyAvatar() {
@@ -90,10 +107,11 @@ async function remove() {
 
       <label class="field">
         <span>使用的 API</span>
-        <select v-model="form.apiId" class="input">
-          <option :value="null">跟随全局默认</option>
-          <option v-for="a in store.apis" :key="a.id" :value="a.id">{{ a.name }}（{{ a.model }}）</option>
+        <select v-model="apiPick" class="input">
+          <option value="">跟随全局默认</option>
+          <option v-for="c in apiChoices" :key="c.key" :value="c.key">{{ c.label }}</option>
         </select>
+        <small class="field-hint">每个 API 的默认模型和标了星的模型都能选</small>
       </label>
     </div>
 
@@ -143,6 +161,7 @@ async function remove() {
 </template>
 
 <style scoped>
+.field-hint { display: block; font-size: 0.75rem; color: var(--text-3); margin-top: 4px; }
 .body { padding: 18px; }
 .ava-row { display: flex; justify-content: center; margin-bottom: 14px; }
 .ava-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
