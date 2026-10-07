@@ -323,9 +323,9 @@ const shownCount = computed(() => Math.min(messages.value.filter(m => m.from !==
 // 一组 AI 消息用了多少 tokens
 function tokensOf(group) {
   if (group.from !== "ai") return "";
-  let i = 0, o = 0;
-  for (const m of group.msgs) if (!m._src || m._last) { i += m.usage?.input || 0; o += m.usage?.output || 0; }
-  return i || o ? `输入 ${fmtTokens(i)} · 输出 ${fmtTokens(o)} tokens` : "";
+  let i = 0, o = 0, c = 0;
+  for (const m of group.msgs) if (!m._src || m._last) { i += m.usage?.input || 0; o += m.usage?.output || 0; c += m.usage?.cached || 0; }
+  return i || o ? `输入 ${fmtTokens(i)}${c ? `（缓存 ${fmtTokens(c)}）` : ""} · 输出 ${fmtTokens(o)} tokens` : "";
 }
 
 // ---------- 消息操作 ----------

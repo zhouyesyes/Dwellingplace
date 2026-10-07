@@ -11,6 +11,7 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
+import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
 
 // threadId -> AbortController（正在生成中）
@@ -55,16 +56,13 @@ function canChangeSignature(role) {
 export function buildSystem(role, messages, { wake = false } = {}) {
   const me = meOf(role);
   const who = me.name ? `「${me.name}」` : "对方";
-  const lastOther = [...messages].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
     role.persona ? `\n# 你的设定\n${role.persona}` : "",
     me.about ? `\n# 关于${me.name || "对方"}\n${me.about}` : "",
     store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
-    `\n# 现在`,
-    wake ? "{{NOW}}" : `现在是 ${nowForAI()}。`,
-    !wake && lastOther && Date.now() - lastOther.ts > 30 * 60_000
-      ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
+    // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
+    wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
     `\n# 你的签名`,
@@ -72,8 +70,7 @@ export function buildSystem(role, messages, { wake = false } = {}) {
     canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
-    hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
-    !wake && hasXinchao(role) ? mindForAI(role) : "",
+    hasXinchao(role) ? xinchaoMemoryForAI(role, who, { inline: wake }) : memoryForAI(role, who),
     calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
     alarmForAI(role, who, wake),
     toolsForAI(serversFor(role.id)),
@@ -86,6 +83,21 @@ export function buildSystem(role, messages, { wake = false } = {}) {
       : "",
   ];
   return lines.filter(Boolean).join("\n");
+}
+
+// 「此刻」附注：每次都会变的东西（时间、心境、浮现的记忆、私聊 / 群聊里最近的事），附在最新那条消息前面。
+// 系统提示和更早的聊天记录每次都一样，模型服务商就能把它们缓存起来，输入便宜很多
+async function contextNote(role, history, group) {
+  const me = meName(role);
+  const lastOther = [...history].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
+  const parts = [
+    `现在是 ${nowForAI()}。`,
+    lastOther && Date.now() - lastOther.ts > 30 * 60_000 ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
+    hasXinchao(role) ? mindForAI(role) : "",
+    hasXinchao(role) ? surfacedForAI(role) : "",
+    group ? await privateForAI(role) : await groupsForAI(role),
+  ].filter(Boolean);
+  return `【此刻——系统附上的，不是${me}说的话】\n${parts.join("\n")}\n【以下是新消息】`;
 }
 
 // 群聊里给 TA 的说明
@@ -173,13 +185,20 @@ async function buildMessages(list, selfId = null) {
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
   const self = selfId && roleById(selfId);
-  for (const m of real.slice(-limit)) {
+  // 窗口每 10 条才往前挪一次（不是每条都挪）：开头那段聊天记录能连着好几轮保持一样，缓存才用得上
+  const cut = Math.max(0, real.length - limit);
+  const win = real.slice(cut - (cut % 10));
+  // 图片很费 token：只有最近 6 条消息里的图片发原图，更早的写成 [图片]
+  const fresh = new Set(win.slice(-6));
+  for (const m of win) {
     const mine = m.from === "ai" && (!selfId || m.speaker === selfId);
     const role = mine ? "assistant" : "user";
     let parts;
     if (mine) parts = [{ type: "text", text: m.text }];
     else if (m.from === "user") {
-      parts = await partsOf(m);
+      parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image") });
+      const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
+      if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
       if (selfId) parts = [{ type: "text", text: `【${meName(self)}】` }, ...parts];
     } else parts = [{ type: "text", text: `【${roleById(m.speaker)?.name || "群友"}】${visibleText(m.text)}` }];
     if (!parts.length) continue;
@@ -237,8 +256,9 @@ export async function generate(thread, parentId, { speaker } = {}) {
       if (m && !xcCache[role.id]?.snap) waits.push(m);
       if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
     }
-    const system = buildSystem(role, history) + (group ? groupForAI(role, group) + (await privateForAI(role)) : await groupsForAI(role));
+    const system = buildSystem(role, history) + (group ? groupForAI(role, group) : "");
     const messages = await buildMessages(history, group ? role.id : null);
+    messages[messages.length - 1].parts.unshift({ type: "text", text: await contextNote(role, history, group) });
     all.push(msg);
     thread.sel[parent] = msg.id;
     const useRelaySearch = searchEnabled();
@@ -268,6 +288,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
       msg.ctx = res.usage.input; // 这一次 TA 看到的内容有多大
       msg.usage.input += res.usage.input;
       msg.usage.output += res.usage.output;
+      msg.usage.cached = (msg.usage.cached || 0) + (res.usage.cached || 0);
       if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);
 
       if (round >= MAX_ROUNDS) break;

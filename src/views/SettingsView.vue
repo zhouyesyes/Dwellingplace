@@ -65,6 +65,11 @@ function usageLine(api) {
         <span class="grow">私聊里看得到多少条群聊<span class="sub">私聊时附上 TA 在的群里最近聊的；0 就是不附</span></span>
         <input v-model.number="store.settings.privateGroupLimit" class="num-input" type="number" min="0" max="500" step="10" inputmode="numeric" />
       </label>
+      <label class="list-row">
+        <Icon name="alarm" :size="20" />
+        <span class="grow">TA 醒来时看多少条聊天<span class="sub">一天会醒好几次，少一点更省；不会超过上面第一项</span></span>
+        <input v-model.number="store.settings.wakeHistoryLimit" class="num-input" type="number" min="2" max="500" step="10" inputmode="numeric" />
+      </label>
     </div>
 
     <div class="section-label">对外保密</div>

@@ -71,12 +71,15 @@ export async function refreshSurfaced(role, force = false) {
 }
 
 // 给 AI 的说明（替代栖所记忆卡片那一段）
-export function xinchaoMemoryForAI(role, who) {
+// inline：把此刻浮现的记忆直接写进来（唤醒用）；平时聊天放在「此刻」附注里，系统提示保持不变好省钱
+export function xinchaoMemoryForAI(role, who, { inline = true } = {}) {
   const text = surfaced[role.id]?.text?.trim();
   return [
     `\n# 你的记忆库（心潮）`,
-    `你的长期记忆都在心潮记忆库里，所有对话共用。下面是此刻自然浮现的几条，聊天时自然地记得就好，不用刻意复述：`,
-    text || "（这次还没取到，需要时可以用 breath 工具找）",
+    inline
+      ? `你的长期记忆都在心潮记忆库里，所有对话共用。下面是此刻自然浮现的几条，聊天时自然地记得就好，不用刻意复述：`
+      : `你的长期记忆都在心潮记忆库里，所有对话共用。此刻自然浮现的几条附在最新消息前面的【此刻】里，聊天时自然地记得就好，不用刻意复述。`,
+    inline ? text || "（这次还没取到，需要时可以用 breath 工具找）" : "",
     `想找更早的事，用 breath 工具带上关键词去找。`,
     `这次聊天里有值得长久记住的事（关于${who}的喜好、经历、约定、重要的时刻），在回复末尾另起一行写：[记忆:标题|内容]，会存进记忆库。`,
     `要修改某条记忆写：[改记忆:#编号|新的内容]（编号是记忆库里那条的 id）。只记真正重要的事。`,
@@ -338,6 +341,11 @@ export async function loadMemoryMap(role) {
 }
 
 // 给 AI 看的「此刻」：心情、醒着没、最强的几股驱力、最近的情绪变化。没取到就不写
+// 此刻浮现的记忆（放进「此刻」附注）
+export function surfacedForAI(role) {
+  const text = surfaced[role.id]?.text?.trim();
+  return text ? `\n# 此刻浮现的记忆\n${text}` : "";
+}
 export function mindForAI(role) {
   const snap = xcCache[role.id]?.snap;
   if (!snap) return "";
