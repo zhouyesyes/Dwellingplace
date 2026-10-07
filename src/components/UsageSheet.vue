@@ -62,7 +62,7 @@ const members = computed(() => {
   const ids = [...new Set(props.all.filter(m => m.from === "ai" && m.speaker).map(m => m.speaker))];
   return ids.map(id => ({ id, name: roleById(id)?.name || "（已删除）", ...sum(props.all.filter(m => m.speaker === id)) }));
 });
-const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b) * 100));
 </script>
 
 <template>
@@ -108,7 +108,8 @@ const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : 0);
       </template>
 
       <p class="tip">
-        命中缓存的部分服务商一般只收一到两折的钱；「工具来回」是用一次工具就要把内容再看一遍。「都花在哪」是按字数估的，看比例就好。
+        命中缓存的部分服务商一般只收一到两折的钱（中转平台要看它自己怎么算）。「工具来回」：TA 每用一次工具，都要带着整段内容再问一次模型，多出来的这些输入就算在这里；没用工具就是 0。
+        缓存和工具来回是这次更新以后才开始记的，以前的回复算不进去。「都花在哪」是按字数估的，看比例就好。
         <slot />
       </p>
     </template>
