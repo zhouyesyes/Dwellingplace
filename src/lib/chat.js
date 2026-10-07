@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool } from "./mcp.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, isToolShow, showTool, toolDoc } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -224,6 +224,13 @@ export function touchThread(thread, all) {
   }
 }
 
+// 粗估 token 数：中日韩文字大约一个字一个，其他大约 3.5 个字符一个（只用来看比例，不是计费数）
+export function estTokens(text) {
+  const t = String(text || "");
+  const cjk = (t.match(/[\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/g) || []).length;
+  return Math.round(cjk + (t.length - cjk) / 3.5);
+}
+
 // 生成一条 AI 回复，接在 parentId 那条消息后面（不传就接在当前路径最后）
 // speaker：群聊里这次由谁来说
 export async function generate(thread, parentId, { speaker } = {}) {
@@ -257,6 +264,8 @@ export async function generate(thread, parentId, { speaker } = {}) {
       if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
     }
     const system = buildSystem(role, history) + (group ? groupForAI(role, group) : "");
+    // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
+    msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversFor(role.id).filter(s => s.tools?.length))) };
     const messages = await buildMessages(history, group ? role.id : null);
     messages[messages.length - 1].parts.unshift({ type: "text", text: await contextNote(role, history, group) });
     all.push(msg);
@@ -286,6 +295,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
       text = res.text || msg.text.slice(base);
       if (res.thinking) msg.thinking = thinkingBefore + res.thinking;
       msg.ctx = res.usage.input; // 这一次 TA 看到的内容有多大
+      if (round === 0) msg.ctx0 = res.usage.input; // 第一轮（没用工具时就是全部）；多出来的是用工具来回花的
       msg.usage.input += res.usage.input;
       msg.usage.output += res.usage.output;
       msg.usage.cached = (msg.usage.cached || 0) + (res.usage.cached || 0);
@@ -301,17 +311,27 @@ export async function generate(thread, parentId, { speaker } = {}) {
         const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true, at: keepSaid(text, tc.index) });
         msg.notes.push(note);
         let result;
-        const found = resolveToolCall(servers, name);
-        if (!found) {
+        const found = isToolShow(name) ? null : resolveToolCall(servers, name);
+        if (isToolShow(name)) {
+          // 查说明：不用真的调用，网页这边就有完整说明
+          let args = {};
+          try { args = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
+          const r = showTool(servers, args);
+          result = r.text;
+          note.text = `${role.name} 看了看工具说明${r.label ? "：" + r.label : ""}`;
+          note.detail = result;
+        } else if (!found) {
           result = `没有叫「${name}」的工具，请检查工具名。`;
           note.text = `${role.name} 想用的工具「${name}」不存在`;
         } else {
           let args = null;
-          try { args = JSON.parse(argsRaw); } catch { result = "参数不是有效的 JSON，请重新调用。"; note.text = `${role.name} 调用 ${name} 时参数写错了`; }
+          try { args = JSON.parse(argsRaw); } catch { result = `参数不是有效的 JSON，请重新调用。这个工具的说明：\n${toolDoc(found.server, found.tool)}`; note.text = `${role.name} 调用 ${name} 时参数写错了`; }
           if (args) {
             try {
               const r = await callTool(found.server, found.tool.name, args);
               result = r.text;
+              // 出错多半是参数不对：顺手把说明附上，省得再查一轮
+              if (r.isError) result = `${result}\n\n（这个工具的说明：\n${toolDoc(found.server, found.tool)}）`;
               note.text = `${role.name} 使用了 ${found.server.name} · ${found.tool.name}${r.isError ? "（出错了）" : ""}`;
             } catch (e) {
               result = `调用失败：${e.message}`;

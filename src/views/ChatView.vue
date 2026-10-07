@@ -14,6 +14,7 @@ import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
+import UsageSheet from "../components/UsageSheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 import BigTextarea from "../components/BigTextarea.vue";
@@ -307,17 +308,6 @@ const ctxInfo = computed(() => {
   const pct = Math.min(100, Math.round((ctx / limit) * 100));
   return { ctx, limit, pct, level: pct >= 85 ? "high" : pct >= 60 ? "mid" : "" };
 });
-const threadTotals = computed(() => {
-  let input = 0, output = 0, replies = 0;
-  // 所有版本都算（重新生成也花了 tokens）
-  for (const m of allMessages.value) {
-    if (m.from !== "ai" || !m.usage) continue;
-    input += m.usage.input || 0;
-    output += m.usage.output || 0;
-    replies++;
-  }
-  return { input, output, replies };
-});
 const shownCount = computed(() => Math.min(messages.value.filter(m => m.from !== "event").length, Number(store.settings.historyLimit) || 80));
 
 // 一组 AI 消息用了多少 tokens
@@ -536,24 +526,9 @@ const back = () => goBack(router, "/chats");
     </Sheet>
 
     <!-- 上下文 -->
-    <Sheet :open="ctxOpen" title="这个对话的用量" @close="ctxOpen = false">
-      <template v-if="ctxInfo">
-        <div class="ctx-big">
-          <div class="ctx-num">{{ fmtTokens(ctxInfo.ctx) }}<small> / {{ fmtTokens(ctxInfo.limit) }} tokens</small></div>
-          <i class="bar big" :class="ctxInfo.level"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
-          <p>上一次回复时，{{ role.name }} 一共看了这么多内容：最近 {{ shownCount }} 条消息，加上设定、记忆卡片和日历。</p>
-        </div>
-        <div class="list-card flat">
-          <div class="list-row"><span class="grow">这个对话累计</span><span class="val">{{ threadTotals.replies }} 次回复</span></div>
-          <div class="list-row"><span class="grow">累计输入</span><span class="val">{{ fmtTokens(threadTotals.input) }}</span></div>
-          <div class="list-row"><span class="grow">累计输出</span><span class="val">{{ fmtTokens(threadTotals.output) }}</span></div>
-        </div>
-        <p class="tip">
-          对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息 TA 就不再看到（记忆卡片里的事 TA 一直记得）。
-          想让 TA 记得更久、或者想省一点，可以在「设置 → 聊天」里改这个数字；模型的上限在「设置 → API」里改。
-        </p>
-      </template>
-    </Sheet>
+    <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" @close="ctxOpen = false">
+      对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息 TA 就不再看到（记忆卡片里的事 TA 一直记得）。想让 TA 记得更久、或者想省一点，可以在「设置 → 聊天」里改这个数字；模型的上限在「设置 → API」里改。
+    </UsageSheet>
 
     <!-- 模型切换 -->
     <Sheet :open="modelOpen" title="切换模型" @close="modelOpen = false">
@@ -690,12 +665,6 @@ const back = () => goBack(router, "/chats");
 .ctx.mid .bar b, .bar.mid b { background: #f0c36a; }
 .ctx.high .bar b, .bar.high b { background: var(--danger); }
 .ctx.high { color: var(--danger); }
-.ctx-big { text-align: center; padding: 4px 0 14px; }
-.ctx-num { font-size: 1.6rem; font-weight: 700; }
-.ctx-num small { font-size: 0.8rem; font-weight: 400; color: var(--text-3); }
-.bar.big { width: 70%; height: 8px; border-radius: 4px; margin: 8px 0; }
-.ctx-big p { margin: 6px 0 0; font-size: 0.83rem; color: var(--text-2); line-height: 1.7; }
-.val { color: var(--text-2); font-size: 0.9rem; }
 .expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
 /* 细细的一条；换行后每一行各自是一条两端圆角的细条 */
 .event { padding: 0 6%; line-height: 2.1; overflow-wrap: anywhere; min-width: 0; }

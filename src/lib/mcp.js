@@ -216,6 +216,38 @@ function signature(tool) {
   return `${tool.name}(${args.join(", ")})`;
 }
 
+// 一句话用途：说明的第一句，最多 50 字
+export function shortDesc(desc) {
+  const d = String(desc || "").replace(/\s+/g, " ").trim();
+  const m = d.match(/^.{6,}?[。！？；.!?;](?=\s|$|[^\d])/);
+  const first = (m ? m[0] : d).trim();
+  return first.length > 50 ? first.slice(0, 49) + "…" : first;
+}
+
+// 一个工具的完整说明：用途 + 每个参数（AI 用「工具说明」查的就是这个；醒来时中转也用它）
+export function toolDoc(server, tool) {
+  const props = tool.inputSchema?.properties || {};
+  const req = new Set(tool.inputSchema?.required || []);
+  const params = Object.entries(props).map(([k, v]) => {
+    const bits = [typeOf(v), req.has(k) ? "必填" : "可选"];
+    if (v?.enum) bits.push(`可选值：${v.enum.slice(0, 20).join(" / ")}`);
+    if (v?.items?.type) bits.push(`元素：${v.items.type}`);
+    const d = String(v?.description || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    return `- ${k}（${bits.join("，")}）${d ? "：" + d : ""}`;
+  });
+  return [
+    `${server.name}.${signature(tool)}`,
+    String(tool.description || "（没有说明）").trim().slice(0, 2000),
+    params.length ? `参数：\n${params.join("\n")}` : "参数：无（写 {}）",
+  ].join("\n");
+}
+
+// 查说明用的内置工具名
+export const TOOL_SHOW = "工具说明";
+export const isToolShow = name => /^(工具说明|tool_show)$/i.test(String(name).replace(/^.*\./, "").trim());
+
+// 给 AI 的只是一份目录：工具名 + 一句话用途。要用哪个、拿不准参数，先查「工具说明」拿完整说明。
+// 工具再多，每轮多出来的也只有一行一个
 export function toolsForAI(servers) {
   const lines = [];
   for (const s of servers) {
@@ -223,18 +255,28 @@ export function toolsForAI(servers) {
     if (!tools.length) continue;
     lines.push(`\n## ${s.name}`);
     for (const t of tools) {
-      const desc = (t.description || "").replace(/\s+/g, " ").slice(0, 160);
-      lines.push(`- ${s.name}.${signature(t)}${desc ? " — " + desc : ""}`);
+      const desc = shortDesc(t.description);
+      lines.push(`- ${s.name}.${t.name}${desc ? " — " + desc : ""}`);
     }
   }
   if (!lines.length) return "";
   return [
     `\n# 你可以用的工具（MCP）`,
-    `需要用工具时，只回复一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>（JSON 格式，没有参数就写 {}），不要写别的。系统会把结果发给你，你再继续。`,
+    `下面只是目录（工具名 + 一句话用途）。需要用工具时，只回复一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>（JSON 格式，没有参数就写 {}），不要写别的。系统会把结果发给你，你再继续。`,
+    `不确定某个工具怎么用、要哪些参数时，先查说明：<tool_call name="${TOOL_SHOW}">{"name": "服务名.工具名"}</tool_call>，系统会把完整说明发给你（这一次对话里查过的不用再查）。`,
     `一次只调用一个工具；普通聊天不需要用工具。`,
     `用工具对外发东西（发邮件、在别的平台发帖或回复）时，代表的是你自己。没有得到对方明确同意，不要透露对方的个人信息（真实姓名、住址、电话、学校或工作、各种账号、笔名，以及对方告诉你的私事）。`,
     ...lines,
   ].join("\n");
+}
+
+// 「工具说明」：找到工具，返回完整说明
+export function showTool(servers, args) {
+  const want = String(args?.name || args?.tool || "").trim();
+  if (!want) return { text: `要查哪个工具？写成 {"name": "服务名.工具名"}。`, label: "" };
+  const found = resolveToolCall(servers, want);
+  if (!found) return { text: `没有叫「${want}」的工具，请对照目录里的名字再查。`, label: want };
+  return { text: toolDoc(found.server, found.tool), label: `${found.server.name} · ${found.tool.name}` };
 }
 
 export const TOOL_CALL_RE = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/tool_call>/;

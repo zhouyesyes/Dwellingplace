@@ -63,9 +63,13 @@ const searchTool = model => ({
 async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch }) {
   const client = anthropicClient(api);
   const msgs = messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) }));
-  // 提示缓存：系统提示一个断点，最后一条消息一个断点。下一次请求前面一样的部分按缓存价算（便宜很多）
-  const lastBlock = msgs[msgs.length - 1]?.content?.at(-1);
-  if (lastBlock) lastBlock.cache_control = { type: "ephemeral" };
+  // 提示缓存：系统提示一个断点，最后两条消息各一个断点。
+  // 最后一条前面附着【此刻】，下一轮就变了，它的断点只在用工具来回时用得上；
+  // 倒数第二条的断点下一轮还能对上，较早的聊天记录就按缓存价算（便宜很多）
+  for (const m of msgs.slice(-2)) {
+    const b = m.content?.at(-1);
+    if (b) b.cache_control = { type: "ephemeral" };
+  }
   const params = {
     model,
     max_tokens: Number(api.maxTokens) || 32000,
