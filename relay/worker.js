@@ -435,11 +435,15 @@ const trimUrl = u => String(u || "").trim().replace(/\/+$/, "");
 async function callAnthropic(api, system, messages, webSearch) {
   const base = trimUrl(api.baseUrl) || "https://api.anthropic.com";
   const headers = { "Content-Type": "application/json", "x-api-key": api.key, "anthropic-version": "2023-06-01" };
+  // 提示缓存：一次醒来里用好几次工具时，前面一样的部分按缓存价算
+  const msgs = messages.map(m => ({ role: m.role, content: m.content }));
+  const last = msgs[msgs.length - 1];
+  if (last && typeof last.content === "string") last.content = [{ type: "text", text: last.content, cache_control: { type: "ephemeral" } }];
   const body = {
     model: api.model,
     max_tokens: Math.min(Number(api.maxTokens) || 8000, 16000),
-    system,
-    messages: messages.map(m => ({ role: m.role, content: m.content })),
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+    messages: msgs,
   };
   if (api.effort) body.output_config = { effort: api.effort };
   if (webSearch) body.tools = [{ type: NEW_SEARCH_MODELS.test(api.model) ? "web_search_20260209" : "web_search_20250305", name: "web_search", max_uses: 3 }];
@@ -456,7 +460,7 @@ async function callAnthropic(api, system, messages, webSearch) {
     const j = JSON.parse(raw);
     if (j.stop_reason === "refusal") throw new Error("模型拒绝了这次请求");
     text += (j.content || []).filter(b => b.type === "text").map(b => b.text).join("");
-    usage.input += j.usage?.input_tokens ?? 0;
+    usage.input += (j.usage?.input_tokens ?? 0) + (j.usage?.cache_read_input_tokens ?? 0) + (j.usage?.cache_creation_input_tokens ?? 0);
     usage.output += j.usage?.output_tokens ?? 0;
     if (j.stop_reason !== "pause_turn") break;
     body.messages = [...body.messages, { role: "assistant", content: j.content }];

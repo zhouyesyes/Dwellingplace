@@ -62,11 +62,15 @@ const searchTool = model => ({
 
 async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch }) {
   const client = anthropicClient(api);
+  const msgs = messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) }));
+  // 提示缓存：系统提示一个断点，最后一条消息一个断点。下一次请求前面一样的部分按缓存价算（便宜很多）
+  const lastBlock = msgs[msgs.length - 1]?.content?.at(-1);
+  if (lastBlock) lastBlock.cache_control = { type: "ephemeral" };
   const params = {
     model,
     max_tokens: Number(api.maxTokens) || 32000,
-    system,
-    messages: messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) })),
+    system: system ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] : undefined,
+    messages: msgs,
   };
   if (api.effort) params.output_config = { effort: api.effort };
   if (webSearch) params.tools = [searchTool(model)];
@@ -75,7 +79,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
 
   let text = "";
   let thinking = "";
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, cached: 0 };
   // 联网搜索时服务端可能会暂停（pause_turn），把已有内容带上继续
   for (let round = 0; round < 4; round++) {
     let stream;
@@ -92,7 +96,10 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
     const msg = await stream.finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
     text += msg.content.filter(b => b.type === "text").map(b => b.text).join("");
-    usage.input += msg.usage?.input_tokens ?? 0;
+    // input_tokens 只算没命中缓存的部分；加上缓存读写，才是这次一共喂进去多少
+    const read = msg.usage?.cache_read_input_tokens ?? 0;
+    usage.input += (msg.usage?.input_tokens ?? 0) + read + (msg.usage?.cache_creation_input_tokens ?? 0);
+    usage.cached += read;
     usage.output += msg.usage?.output_tokens ?? 0;
     if (msg.stop_reason !== "pause_turn") break;
     params.messages = [...params.messages, { role: "assistant", content: msg.content }];
@@ -145,7 +152,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = "", content = "", text = "", thinking = "", reasoning = "", usage = { input: 0, output: 0 };
+  let buf = "", content = "", text = "", thinking = "", reasoning = "", usage = { input: 0, output: 0, cached: 0 };
   // 把新的正文 / 思考按增量交出去
   const emit = () => {
     const parts = splitThink(content);
@@ -173,7 +180,8 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
         if (typeof r === "string" && r) reasoning += r;
         if (delta.content) content += delta.content;
         if (r || delta.content) emit();
-        if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0 };
+        // 命中缓存的输入：OpenAI / Gemini 写在 prompt_tokens_details 里，DeepSeek 叫 prompt_cache_hit_tokens
+        if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0, cached: j.usage.prompt_tokens_details?.cached_tokens ?? j.usage.prompt_cache_hit_tokens ?? j.usage.cached_tokens ?? 0 };
       } catch { /* 不完整的行，忽略 */ }
     }
   }

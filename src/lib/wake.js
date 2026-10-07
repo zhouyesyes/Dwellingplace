@@ -118,7 +118,8 @@ function textOf(m) {
 async function snapshotRole(role) {
   const thread = threadFor(role);
   const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
-  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
+  // 醒来一天好几次，每次都要把聊天记录整个发一遍：单独用一个小一点的上限
+  const limit = Math.max(2, Math.min(Number(store.settings.historyLimit) || 80, Number(store.settings.wakeHistoryLimit ?? 30) || 30));
   const history = path
     .filter(m => m.from !== "event" && !m.pending && !m.error)
     .slice(-limit)
