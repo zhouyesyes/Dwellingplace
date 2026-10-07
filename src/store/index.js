@@ -37,7 +37,8 @@ function defaults() {
         persona: "刚搬进栖所的小 AI，好奇、温柔，有一点点笨拙，正在慢慢认识对方。",
       }),
     ],
-    threads: [],
+    threads: [], // 一对一：{ roleId }；群聊：{ groupId, roleId: null }
+    groups: [], // 群聊：{ id, name, memberIds, createdAt }
     apis: [],
     defaultApiId: null,
     usage: {}, // { "2026-10-04": { [apiId]: { input, output, calls } } }
@@ -161,6 +162,7 @@ function migrate() {
   store.anniversaries ??= [];
   store.events ??= [];
   store.memories ??= [];
+  store.groups ??= [];
   store.mcpServers ??= [];
   store.wake ??= { enabled: false, synced: false };
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
@@ -206,6 +208,23 @@ export function modelFor(thread, role) {
   return (thread?.apiId === api.id && thread.model) || api.model;
 }
 
+// ---------- 群聊 ----------
+export const groupById = id => store.groups.find(g => g.id === id);
+export const groupThread = gid => store.threads.find(t => t.groupId === gid) || null;
+export function createGroup(name, memberIds) {
+  const g = { id: uid(), name: name.trim() || "群聊", memberIds: [...memberIds], createdAt: Date.now() };
+  store.groups.push(g);
+  const t = { id: uid(), roleId: null, groupId: g.id, title: g.name, createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "", sel: {} };
+  store.threads.push(t);
+  messageCache[t.id] = [];
+  return g;
+}
+export async function deleteGroup(id) {
+  const t = groupThread(id);
+  if (t) await deleteThread(t.id);
+  store.groups.splice(store.groups.findIndex(g => g.id === id), 1);
+}
+
 // ---------- 对话 ----------
 export function createThread(roleId) {
   const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "", sel: {} };
@@ -222,6 +241,7 @@ export async function deleteThread(id) {
 
 export async function deleteRole(id) {
   for (const t of store.threads.filter(t => t.roleId === id)) await deleteThread(t.id);
+  for (const g of store.groups || []) g.memberIds = g.memberIds.filter(x => x !== id);
   store.roles.splice(store.roles.findIndex(r => r.id === id), 1);
 }
 

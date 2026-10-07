@@ -1,7 +1,7 @@
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "idb-keyval";
-import { store, uid, roleById, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
+import { store, uid, roleById, groupById, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -29,6 +29,7 @@ export function visibleText(text) {
     .replace(MEM_TAG_RE, "")
     .replace(ALARM_RE, "")
     .replace(/\[不发消息\]/g, "")
+    .replace(/\[不说话\]/g, "")
     .replace(new RegExp(SEARCH_RE.source, "g"), "")
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
@@ -87,6 +88,19 @@ export function buildSystem(role, messages, { wake = false } = {}) {
   return lines.filter(Boolean).join("\n");
 }
 
+// 群聊里给 TA 的说明
+function groupForAI(role, group) {
+  const me = meName(role);
+  const others = group.memberIds.filter(id => id !== role.id).map(id => roleById(id)?.name).filter(Boolean);
+  return [
+    `\n# 群聊`,
+    `现在是在群聊「${group.name}」里，群里有${me}${others.length ? `，还有${others.join("、")}` : ""}。`,
+    `消息里用【名字】开头的，是别人说的话。你只代表你自己（${role.name}）说话：不要替别人说话，也不要在开头写自己的名字。`,
+    `可以接别人的话、跟别人聊，也可以只回应${me}。像真人在群里聊天一样，说得自然、简短一点。`,
+    `如果这次没什么想说的，只回复：[不说话]`,
+  ].join("\n");
+}
+
 async function partsOf(m) {
   const parts = [];
   for (const a of m.attachments || []) {
@@ -104,14 +118,22 @@ async function partsOf(m) {
   return parts;
 }
 
-async function buildMessages(list) {
+// selfId：群聊里「我是谁」——自己说过的是 assistant，别人说的都当成带名字的 user 消息
+async function buildMessages(list, selfId = null) {
   const out = [];
   const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
+  const self = selfId && roleById(selfId);
   for (const m of real.slice(-limit)) {
-    const role = m.from === "user" ? "user" : "assistant";
-    const parts = role === "user" ? await partsOf(m) : [{ type: "text", text: m.text }];
+    const mine = m.from === "ai" && (!selfId || m.speaker === selfId);
+    const role = mine ? "assistant" : "user";
+    let parts;
+    if (mine) parts = [{ type: "text", text: m.text }];
+    else if (m.from === "user") {
+      parts = await partsOf(m);
+      if (selfId) parts = [{ type: "text", text: `【${meName(self)}】` }, ...parts];
+    } else parts = [{ type: "text", text: `【${roleById(m.speaker)?.name || "群友"}】${visibleText(m.text)}` }];
     if (!parts.length) continue;
     const prev = out[out.length - 1];
     if (prev && prev.role === role) prev.parts.push(...parts);
@@ -130,14 +152,18 @@ export function touchThread(thread, all) {
   thread.updatedAt = Date.now();
   if (last) {
     const att = last.attachments?.length ? "[附件] " : "";
-    thread.preview = att + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
+    const who = last.speaker ? `${roleById(last.speaker)?.name || ""}：` : "";
+    thread.preview = att + who + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
   }
 }
 
 // 生成一条 AI 回复，接在 parentId 那条消息后面（不传就接在当前路径最后）
-export async function generate(thread, parentId) {
+// speaker：群聊里这次由谁来说
+export async function generate(thread, parentId, { speaker } = {}) {
   if (generating[thread.id]) return;
-  const role = roleById(thread.roleId);
+  const group = thread.groupId ? groupById(thread.groupId) : null;
+  const role = roleById(speaker || thread.roleId);
+  if (!role) return;
   const all = await loadMessages(thread.id);
   thread.sel ??= {};
   let history = pathOf(thread, all);
@@ -151,7 +177,7 @@ export async function generate(thread, parentId) {
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
+  const msg = reactive({ id: uid(), parentId: parent, from: "ai", ...(group ? { speaker: role.id } : {}), text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
   try {
     // 接了心潮：先取一下此刻浮现的记忆（第一次最多等 4 秒，之后用缓存、后台刷新）
     if (hasXinchao(role)) {
@@ -163,8 +189,8 @@ export async function generate(thread, parentId) {
       if (m && !xcCache[role.id]?.snap) waits.push(m);
       if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
     }
-    const system = buildSystem(role, history);
-    const messages = await buildMessages(history);
+    const system = buildSystem(role, history) + (group ? groupForAI(role, group) : "");
+    const messages = await buildMessages(history, group ? role.id : null);
     all.push(msg);
     thread.sel[parent] = msg.id;
     const useRelaySearch = searchEnabled();
@@ -258,6 +284,7 @@ export async function generate(thread, parentId) {
       ];
     }
     msg.text = said ? `${said}\n\n${text.trim()}`.trim() : text;
+    if (group) msg.text = msg.text.replace(/\[不说话\]/g, "").trim(); // 不说话：这一条就不留了
 
     const xm = await applyXinchaoMemoryTags(role, msg.text);
     msg.text = xm.text;
@@ -346,16 +373,16 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
-  if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
+  if (!thread.groupId && !all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
   const path = pathOf(thread, all);
   const parent = path.length ? path[path.length - 1].id : ROOT;
   const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}) };
   all.push(m);
   thread.sel[parent] = m.id;
-  role.lastThreadId = thread.id;
+  if (role) role.lastThreadId = thread.id;
   touchThread(thread, all);
   saveMessages(thread.id);
-  if (reply) await generate(thread, m.id);
+  if (reply && !thread.groupId) await generate(thread, m.id);
 }
 
 // 重新生成：在同一个位置多一个新版本，旧的保留
