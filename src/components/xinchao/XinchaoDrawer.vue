@@ -202,7 +202,17 @@ async function togglePin() {
 }
 async function archive() {
   if (!confirm("把这条记忆放进档案？放进去以后 TA 平时不会再想起，但不会真的删掉。")) return;
+  const v = viewing.value;
+  const d = starDate(v);
+  // 心潮那边不能列出、也不能直接恢复放进档案的记忆，所以在这台设备上留一份，想拿回来的时候能重新写回去
+  const record = {
+    id: v.id, title: v.title, content: preview.value?.preview || "", truncated: !!preview.value?.truncated,
+    importance: Number(v.importance) || 5, tags: (v.tags || []).filter(t => !DATE_TAG_RE.test(String(t).trim())), domains: v.domains || [],
+    date: d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "", at: Date.now(),
+  };
   if (await doTrace({ delete: true }, "放进档案了")) {
+    role.value.xinchao ??= {};
+    role.value.xinchao.archive = [record, ...(role.value.xinchao.archive || []).filter(x => x.id !== record.id)].slice(0, 300);
     map.value.stars = map.value.stars.filter(x => x.id !== viewing.value.id);
     viewing.value = null;
   }
@@ -240,6 +250,28 @@ async function saveEdit() {
 
 // 写一条
 const draft = ref(null);
+// ---------- 档案 ----------
+const archiveOpen = ref(false);
+const archived = computed(() => role.value.xinchao?.archive || []);
+async function putBack(a) {
+  if (!a.content && !confirm("这条放进档案的时候没有读到内容，放回去只有标题。继续吗？")) return;
+  busy.value = true;
+  try {
+    const tags = a.date ? withDateTag(a.tags, a.date) : a.tags;
+    await holdMemory(role.value, { content: a.content ? `${a.title}：${a.content}` : a.title, importance: a.importance, tags: tags.join(","), why: `${store.profile.userName || "对方"}从档案里拿回来的` });
+    role.value.xinchao.archive = archived.value.filter(x => x.id !== a.id);
+    toast("放回去了（星图过几分钟会出现）", 3000);
+  } catch (e) {
+    toast(e.message, 4000);
+  } finally {
+    busy.value = false;
+  }
+}
+function forgetRecord(a) {
+  if (!confirm("从这个列表里拿掉？（心潮那边的档案还在，只是这里不再显示）")) return;
+  role.value.xinchao.archive = archived.value.filter(x => x.id !== a.id);
+}
+
 function newMemory() { draft.value = { content: "", importance: 6, pinned: false }; }
 async function saveDraft() {
   const d = draft.value;
@@ -433,6 +465,7 @@ if (props.openId) {
           </div>
         </article>
         </template>
+        <button v-if="archived.length" class="link archive-link" @click="archiveOpen = true">档案里的记忆（{{ archived.length }}）</button>
         <button class="fab" aria-label="写一条记忆" @click="newMemory"><Icon name="plus" :size="26" /></button>
       </section>
 
@@ -545,7 +578,22 @@ if (props.openId) {
         </div>
       </template>
     </Sheet>
-  </div>
+      <Sheet :open="archiveOpen" title="档案里的记忆" @close="archiveOpen = false">
+      <p class="small">在栖所里放进档案的记忆。TA 平时不会想起它们；「放回去」会把它重新写进记忆库（是一条新的记忆，日期和重要度照旧）。</p>
+      <div class="archive-list">
+        <article v-for="a in archived" :key="a.id" class="star">
+          <div class="star-meta"><span>{{ a.date || "没有日期" }}</span><span class="imp">重要度 {{ a.importance }}</span></div>
+          <h3>{{ a.title }}</h3>
+          <p v-if="a.content" class="archive-text">{{ a.content.slice(0, 120) }}{{ a.content.length > 120 || a.truncated ? "…" : "" }}</p>
+          <div class="view-actions">
+            <button class="btn small" :disabled="busy" @click="putBack(a)">放回去</button>
+            <button class="btn soft small" @click="forgetRecord(a)">不再显示</button>
+          </div>
+        </article>
+        <p v-if="!archived.length" class="small">档案是空的。</p>
+      </div>
+    </Sheet>
+</div>
 </template>
 
 <style scoped>
@@ -598,6 +646,9 @@ if (props.openId) {
 .star h3 { margin: 4px 0 0; font-size: 1rem; }
 .star-meta { display: flex; gap: 8px; font-size: 0.75rem; color: var(--text-3); }
 .pin { color: #c4718f; }
+.archive-link { display: block; margin: 14px auto 0; font-size: 0.85rem; }
+.archive-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.archive-text { font-size: 0.85rem; color: var(--text-2); line-height: 1.6; margin: 4px 0 0; white-space: pre-wrap; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .tags span { font-size: 0.72rem; background: var(--bg); border-radius: 999px; padding: 2px 8px; color: var(--text-2); }
 .dream .eyebrow { margin-bottom: 6px; }

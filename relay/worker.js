@@ -690,15 +690,26 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     .replaceAll("{{TODAY}}", ymd(now))
     .replaceAll("{{ALARMS}}", alarmList);
 
+  const servers = (role.servers || []).filter(s => s.tools?.length);
+  const sessions = new Map();
+  // 接了心潮：醒来先看一眼自己此刻的状态（心情、醒没醒、心里最满的、小屋来信）
+  let mind = "";
+  const xcCtx = servers.find(s => s.tools?.includes("xinchao_context"));
+  if (xcCtx) {
+    try {
+      const r = await mcpCall(sessions, xcCtx, "xinchao_context", { mode: "turn", max_tokens: 600 });
+      if (!r.isError && r.text) mind = String(r.text).slice(0, 1500);
+    } catch { /* 取不到就算了 */ }
+  }
+
   const notice = [
     `（系统通知，不是${me}发的消息）现在是 ${nowText(now)}，你醒来了：${reasons.map(r => r.text).join("；")}。`,
+    mind ? `\n你此刻的内在状态（心潮，这是你自己的心境，不是要说给${me}听的数据；让它自然地影响你想做什么、想说什么，不用报数字）：\n${mind}\n` : "",
     `${me}现在不一定在看手机。你可以给${me}发消息，也可以先用工具做点自己的事（看看邮箱、逛逛别的地方……），做什么都随你的心意。`,
     `要发消息就像平时聊天一样直接写，可以分成几条，每条之间空一行。用了工具的话，等拿到结果再决定要不要发。`,
     `如果这次不想发消息，就只回复：[不发消息]`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
-  const servers = (role.servers || []).filter(s => s.tools?.length);
-  const sessions = new Map();
   const search = cfg.search || {};
   const notes = [];
   const usage = { input: 0, output: 0 };
