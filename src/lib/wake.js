@@ -8,7 +8,7 @@
 import { reactive, watch } from "vue";
 import { store, uid, roleById, threadsOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
 import { relayCall, searchEnabled } from "./search.js";
-import { serversFor, enabledTools, headerObj } from "./mcp.js";
+import { serversFor, enabledTools, headerObj, toolDoc } from "./mcp.js";
 import { ROOT } from "./tree.js";
 import { buildSystem, pathOf, touchThread, applyReplyTags, meName } from "./chat.js";
 import { applyXinchaoMemoryTags, hasXinchao, xinchaoBase } from "./xinchao.js";
@@ -138,7 +138,9 @@ async function snapshotRole(role) {
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort },
     servers: serversFor(role.id)
       .filter(s => s.tools?.length)
-      .map(s => ({ name: s.name, url: s.builtin ? "" : s.url.trim(), builtin: !!s.builtin, headers: s.builtin ? {} : headerObj(s), tools: enabledTools(s).map(t => t.name) })),
+      .map(s => ({ name: s.name, url: s.builtin ? "" : s.url.trim(), builtin: !!s.builtin, headers: s.builtin ? {} : headerObj(s), tools: enabledTools(s).map(t => t.name),
+        // 工具的完整说明：TA 醒来时查「工具说明」，中转直接从这里拿
+        docs: Object.fromEntries(enabledTools(s).map(t => [t.name, toolDoc(s, t)])) })),
   };
 }
 

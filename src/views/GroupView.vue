@@ -2,7 +2,7 @@
 // 群聊：你和几个 AI 一起聊。你说完，大家轮流接话（@谁就只让谁说）；也可以让大家接着聊
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, messageCache, saveMessages } from "../store/index.js";
+import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, messageCache, saveMessages, fmtTokens } from "../store/index.js";
 import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
@@ -11,6 +11,7 @@ import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
+import UsageSheet from "../components/UsageSheet.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -60,6 +61,19 @@ const items = computed(() => {
   return out;
 });
 const src = m => m._src || m;
+
+// ---------- tokens：每组消息下面一行，点「用量」看总的 ----------
+function tokensOf(grp) {
+  if (grp.from !== "ai") return "";
+  let i = 0, o = 0, c = 0;
+  for (const m of grp.msgs) {
+    if (m._src && !m._key.endsWith("~end")) continue; // 用工具时一条消息会拆成几段，算在最后一段
+    i += m.usage?.input || 0; o += m.usage?.output || 0; c += m.usage?.cached || 0;
+  }
+  return i || o ? `输入 ${fmtTokens(i)}${c ? `（缓存 ${fmtTokens(c)}）` : ""} · 输出 ${fmtTokens(o)} tokens` : "";
+}
+const usageOpen = ref(false);
+const totalInput = computed(() => allMessages.value.reduce((n, m) => n + (m.from === "ai" ? m.usage?.input || 0 : 0), 0));
 const openNotes = ref({});
 
 // 气泡颜色跟着说话的人
@@ -251,7 +265,7 @@ function clearBg() {
                   <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="actionMsg = src(m)">{{ b }}</div>
                 </template>
               </template>
-              <div class="stamp">{{ stamp(it.lastTs) }}</div>
+              <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
             </div>
           </div>
         </template>
@@ -261,6 +275,7 @@ function clearBg() {
     <footer class="composer">
       <div class="mentions">
         <button v-for="r in members" :key="r.id" class="at" @click="mention(r)">@{{ r.name }}</button>
+        <button v-if="totalInput" class="usage" @click="usageOpen = true">用量 {{ fmtTokens(totalInput) }}</button>
       </div>
       <div class="row">
         <textarea ref="inputEl" v-model="draft" rows="1" placeholder="在群里说点什么…" @input="autoGrow" />
@@ -271,6 +286,10 @@ function clearBg() {
         </div>
       </div>
     </footer>
+
+    <UsageSheet :open="usageOpen" title="这个群的用量" :all="allMessages" :path="messages" per-member @close="usageOpen = false">
+      群里每个人每次说话，都要把群聊记录、TA 和你的私聊（设置里调条数）一起看一遍，人越多、轮得越多就越费。
+    </UsageSheet>
 
     <Sheet :open="!!actionMsg" @close="actionMsg = null">
       <div v-if="actionMsg" class="grid-actions">
@@ -349,6 +368,7 @@ function clearBg() {
 .composer { background: rgba(255, 255, 255, .97); border-radius: 30px 30px 0 0; box-shadow: 0 -6px 30px rgba(40, 40, 60, .08); padding: 10px 14px calc(var(--safe-bottom) + 14px); }
 .mentions { max-width: 760px; margin: 0 auto 6px; display: flex; gap: 6px; overflow-x: auto; padding: 0 6px; }
 .at { flex: none; border: 0; border-radius: 999px; padding: 2px 10px; background: var(--bg); color: var(--text-2); font-size: 0.78rem; }
+.usage { flex: none; margin-left: auto; border: 0; background: none; color: var(--text-3); font-size: 0.72rem; padding: 2px 4px; }
 .row { display: flex; align-items: flex-end; gap: 4px; max-width: 760px; margin: 0 auto; }
 textarea { flex: 1; border: 0; outline: none; resize: none; background: none; padding: 10px 6px; line-height: 1.5; max-height: 140px; color: var(--text); }
 textarea::placeholder { color: var(--text-3); font-size: 0.93rem; }

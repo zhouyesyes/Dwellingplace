@@ -737,15 +737,28 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     if (tc) {
       const name = tc[1].trim();
       const argsRaw = tc[2].trim() || "{}";
-      const found = resolveTool(servers, name);
+      const show = /^(工具说明|tool_show)$/i.test(name.replace(/^.*\./, ""));
+      const found = show ? null : resolveTool(servers, name);
       let result;
       const note = { at: keepSaid(tc.index) };
-      if (!found) {
+      const docOf = f => f?.server.docs?.[f.tool] || "";
+      if (show) {
+        // 查说明：网页同步过来的时候带着完整说明
+        let a = {};
+        try { a = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
+        const want = String(a?.name || a?.tool || "").trim();
+        const f = want ? resolveTool(servers, want) : null;
+        result = !want ? `要查哪个工具？写成 {"name": "服务名.工具名"}。`
+          : !f ? `没有叫「${want}」的工具，请对照目录里的名字再查。`
+          : docOf(f) || `${f.server.name}.${f.tool}：没有更多说明，按工具名猜着用吧。`;
+        note.text = `${role.name} 看了看工具说明${f ? `：${f.server.name} · ${f.tool}` : ""}`;
+        note.detail = result;
+      } else if (!found) {
         result = `没有叫「${name}」的工具，请检查工具名。`;
         note.text = `${role.name} 想用的工具「${name}」不存在`;
       } else {
         let args = null;
-        try { args = JSON.parse(argsRaw); } catch { result = "参数不是有效的 JSON，请重新调用。"; note.text = `${role.name} 调用 ${name} 时参数写错了`; }
+        try { args = JSON.parse(argsRaw); } catch { result = `参数不是有效的 JSON，请重新调用。${docOf(found) ? `这个工具的说明：\n${docOf(found)}` : ""}`; note.text = `${role.name} 调用 ${name} 时参数写错了`; }
         if (args) {
           try {
             let out;
@@ -757,6 +770,7 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
               out = await mcpCall(sessions, found.server, found.tool, args);
             }
             result = out.text;
+            if (out.isError && docOf(found)) result = `${result}\n\n（这个工具的说明：\n${docOf(found)}）`;
             note.text = `${role.name} 使用了 ${found.server.name} · ${found.tool}${out.isError ? "（出错了）" : ""}`;
           } catch (e) {
             result = `调用失败：${e.message || e}`;
@@ -1053,7 +1067,7 @@ export default {
     if (path === "/ping") {
       const ready = Object.entries(PROVIDERS).filter(([, p]) => env[p.env]).map(([k]) => k);
       const tick = env.KV ? Number(await env.KV.get("tick")) || 0 : 0;
-      return json({ ok: true, version: 5, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick });
+      return json({ ok: true, version: 6, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick });
     }
 
     if (path === "/search" && req.method === "POST") {
