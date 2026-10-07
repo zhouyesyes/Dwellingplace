@@ -55,6 +55,16 @@ function usageLine(api) {
         <span class="grow">TA 每次能看到最近多少条消息<span class="sub">越多记得越久，也越费 tokens</span></span>
         <input v-model.number="store.settings.historyLimit" class="num-input" type="number" min="2" max="1000" step="10" inputmode="numeric" />
       </label>
+      <label class="list-row">
+        <Icon name="chat" :size="20" />
+        <span class="grow">群聊里看得到多少条私聊<span class="sub">轮到 TA 在群里说话时，附上 TA 和你最近的私聊；0 就是不附</span></span>
+        <input v-model.number="store.settings.groupPrivateLimit" class="num-input" type="number" min="0" max="500" step="10" inputmode="numeric" />
+      </label>
+      <label class="list-row">
+        <Icon name="chat" :size="20" />
+        <span class="grow">私聊里看得到多少条群聊<span class="sub">私聊时附上 TA 在的群里最近聊的；0 就是不附</span></span>
+        <input v-model.number="store.settings.privateGroupLimit" class="num-input" type="number" min="0" max="500" step="10" inputmode="numeric" />
+      </label>
     </div>
 
     <div class="section-label">对外保密</div>

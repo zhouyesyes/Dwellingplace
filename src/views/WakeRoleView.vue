@@ -33,15 +33,30 @@ function setUnit(u) {
   if (u === "hour" && w.value.every < 60) w.value.every = 60;
 }
 
-// 固定时间
+// 固定时间（每个时间可以写一句备注，告诉 TA 醒了要干嘛）
 const newTime = ref("");
+const newNote = ref("");
 function addTime() {
   const t = newTime.value;
   if (!/^\d{2}:\d{2}$/.test(t)) return toast("先选一个时间");
   if (!w.value.times.includes(t)) w.value.times = [...w.value.times, t].sort();
+  w.value.timeNotes = { ...(w.value.timeNotes || {}) };
+  if (newNote.value.trim()) w.value.timeNotes[t] = newNote.value.trim();
+  else delete w.value.timeNotes[t];
   newTime.value = "";
+  newNote.value = "";
 }
-const removeTime = t => { w.value.times = w.value.times.filter(x => x !== t); };
+const removeTime = t => {
+  w.value.times = w.value.times.filter(x => x !== t);
+  if (w.value.timeNotes?.[t]) { const n = { ...w.value.timeNotes }; delete n[t]; w.value.timeNotes = n; }
+};
+function editNote(t) {
+  const v = prompt(`${t} 醒来要做什么？（留空就是没有备注）`, w.value.timeNotes?.[t] || "");
+  if (v === null) return;
+  w.value.timeNotes = { ...(w.value.timeNotes || {}) };
+  if (v.trim()) w.value.timeNotes[t] = v.trim();
+  else delete w.value.timeNotes[t];
+}
 
 // 中转上的情况
 const state = ref(null);
@@ -136,6 +151,9 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <span class="grow">前后随机浮动<small>（分钟，免得像闹钟一样准）</small></span>
             <input v-model.number="w.jitter" class="num-input" type="number" min="0" step="5" inputmode="numeric" />
           </div>
+          <div class="row">
+            <input v-model.trim="w.intervalNote" class="input grow" placeholder="备注（可选）：醒了想让 TA 做什么" maxlength="200" />
+          </div>
           <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。碰上免打扰时间就跳过。最短 10 分钟。</p>
         </template>
       </div>
@@ -143,13 +161,16 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
       <div class="section-label">固定时间（你来定，每天这个时间醒）</div>
       <div class="card body">
         <div v-if="w.times.length" class="chips">
-          <span v-for="t in w.times" :key="t" class="chip">{{ t }}<button @click="removeTime(t)"><Icon name="close" :size="14" /></button></span>
+          <span v-for="t in w.times" :key="t" class="chip" @click="editNote(t)">{{ t }}<small v-if="w.timeNotes?.[t]" class="note-txt"> · {{ w.timeNotes[t] }}</small><button @click.stop="removeTime(t)"><Icon name="close" :size="14" /></button></span>
         </div>
         <div class="row">
           <input v-model="newTime" class="input time" type="time" />
           <button class="btn soft small" @click="addTime">添加</button>
         </div>
-        <p class="hint">固定时间不受免打扰影响，到点就醒。</p>
+        <div class="row">
+          <input v-model.trim="newNote" class="input grow" placeholder="备注（可选）：比如「叫我起床」「提醒我吃药」" maxlength="200" />
+        </div>
+        <p class="hint">固定时间不受免打扰影响，到点就醒。点已经加好的时间可以改备注。TA 醒来时会看到备注。</p>
       </div>
 
       <div class="section-label">免打扰</div>
@@ -233,6 +254,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 .hint { margin: 8px 2px 0; font-size: 0.8rem; color: var(--text-3); line-height: 1.6; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
+.note-txt { font-size: 0.8rem; color: var(--text-2); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip button { border: 0; background: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--text-3); }
 .time { flex: 1; min-width: 0; }
 .wide { width: 100%; }

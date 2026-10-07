@@ -6,6 +6,7 @@ import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, mes
 import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
+import { pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -177,15 +178,43 @@ async function clearChat() {
 async function removeGroup() {
   if (!confirm(`删除群聊「${group.value.name}」和里面的聊天记录？`)) return;
   setOpen.value = false;
+  if (group.value.myAvatar) deleteImage(group.value.myAvatar);
+  if (thread.value?.bg) deleteImage(thread.value.bg);
   await deleteGroup(group.value.id);
   router.replace("/chats");
 }
 const nameOf = id => roleById(id)?.name || "（已离开）";
+
+// 我在这个群里的头像、群聊背景
+const myAvatar = computed(() => group.value?.myAvatar || store.profile.avatar);
+async function changeMyAvatar() {
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "我在这个群里的头像", maxSize: 500 });
+  if (!id) return;
+  if (group.value.myAvatar) deleteImage(group.value.myAvatar);
+  group.value.myAvatar = id;
+}
+function resetMyAvatar() {
+  if (group.value.myAvatar) deleteImage(group.value.myAvatar);
+  group.value.myAvatar = null;
+}
+const bgUrl = useImage(() => thread.value?.bg);
+async function changeBg() {
+  setOpen.value = false;
+  const id = await pickAndCrop({ aspect: innerWidth / innerHeight, title: "调整背景", maxSize: 1800 });
+  if (!id) return;
+  const old = thread.value.bg;
+  thread.value.bg = id;
+  if (old) deleteImage(old);
+}
+function clearBg() {
+  deleteImage(thread.value.bg);
+  thread.value.bg = null;
+}
 </script>
 
 <template>
-  <div v-if="group && thread" class="chat">
-    <div class="bg" />
+  <div v-if="group && thread" class="chat" :class="{ 'has-bg': bgUrl }">
+    <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
     <header class="top">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/chats')"><Icon name="back" /></button>
       <div class="who">
@@ -209,7 +238,7 @@ const nameOf = id => roleById(id)?.name || "（已离开）";
           </div>
           <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'" :style="it.from === 'user' ? null : tint(it.who)">
             <div class="ava">
-              <Avatar v-if="it.from === 'user'" :img="store.profile.avatar" :name="store.profile.name" :color="store.profile.color" :size="40" />
+              <Avatar v-if="it.from === 'user'" :img="myAvatar" :name="store.profile.name" :color="store.profile.color" :size="40" />
               <Avatar v-else :img="roleById(it.who)?.avatar" :name="nameOf(it.who)" :color="roleById(it.who)?.color" :size="40" />
             </div>
             <div class="col">
@@ -253,6 +282,17 @@ const nameOf = id => roleById(id)?.name || "（已离开）";
     <Sheet :open="setOpen" title="群设置" @close="setOpen = false">
       <template v-if="form">
         <label class="field"><span>群名字</span><input v-model="form.name" class="input" /></label>
+        <div class="field"><span>我在这个群里的头像</span></div>
+        <div class="me-row">
+          <Avatar :img="myAvatar" :name="store.profile.name" :color="store.profile.color" :size="44" />
+          <button class="btn soft small" @click="changeMyAvatar">换一张</button>
+          <button v-if="group.myAvatar" class="btn soft small" @click="resetMyAvatar">用回原来的</button>
+        </div>
+        <div class="field"><span>聊天背景</span></div>
+        <div class="me-row">
+          <button class="btn soft small" @click="changeBg">换背景</button>
+          <button v-if="thread.bg" class="btn soft small" @click="clearBg">去掉背景</button>
+        </div>
         <div class="field"><span>成员</span></div>
         <div class="pick">
           <button v-for="r in store.roles" :key="r.id" class="pick-row" :class="{ on: form.ids.includes(r.id) }" @click="toggleMember(r.id)">
@@ -272,7 +312,9 @@ const nameOf = id => roleById(id)?.name || "（已离开）";
 
 <style scoped>
 .chat { position: fixed; inset: 0; display: flex; flex-direction: column; height: 100dvh; }
-.bg { position: absolute; inset: 0; z-index: -1; background: var(--bg); }
+.bg { position: absolute; inset: 0; z-index: -1; background: var(--bg); background-size: cover; background-position: center; }
+.has-bg .name, .has-bg .sig, .has-bg .speaker, .has-bg .stamp { text-shadow: 0 0 10px rgba(255, 255, 255, .9), 0 0 2px rgba(255, 255, 255, .8); }
+.me-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .top { width: 100%; max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: calc(var(--safe-top) + 10px) 16px 10px; }
 .who { flex: 1; text-align: center; min-width: 0; }
 .name { font-size: 1.13rem; font-weight: 700; letter-spacing: 1px; }

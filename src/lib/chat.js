@@ -103,18 +103,19 @@ function groupForAI(role, group) {
 
 // 群聊里：TA 和你最近的私聊（只给 TA 自己看，别人看不到）
 async function privateForAI(role) {
+  const limit = Math.max(0, Number(store.settings.groupPrivateLimit ?? 40) || 0);
   const t = threadsOf(role.id).find(x => x.id === role.lastThreadId) || threadsOf(role.id)[0];
-  if (!t) return "";
+  if (!t || !limit) return "";
   const path = pathOf(t, await loadMessages(t.id)).filter(m => m.from !== "event" && !m.pending && !m.error);
   const me = meName(role);
   const lines = [];
   let size = 0;
-  for (const m of path.slice(-40).reverse()) {
+  for (const m of path.slice(-limit).reverse()) {
     const text = (m.from === "user" ? m.text : splitBubbles(m.text).join(" ")) || (m.attachments?.length ? "[图片/文件]" : "");
     if (!text) continue;
     const line = `${m.from === "user" ? me : role.name}：${text.length > 300 ? text.slice(0, 300) + "…" : text}`;
     size += line.length;
-    if (size > 6000) break;
+    if (size > limit * 320) break;
     lines.unshift(line);
   }
   if (!lines.length) return "";
@@ -123,6 +124,29 @@ async function privateForAI(role) {
     `下面是你们俩私下聊天的最近一段（群里其他人看不到）。在群里自然地记得这些就好；私密的事要不要在群里说，你自己拿捏。`,
     lines.join("\n"),
   ].join("\n");
+}
+
+// 私聊里：TA 在的群里最近聊了什么
+async function groupsForAI(role) {
+  const limit = Math.max(0, Number(store.settings.privateGroupLimit ?? 40) || 0);
+  const groups = (store.groups || []).filter(g => g.memberIds.includes(role.id));
+  if (!limit || !groups.length) return "";
+  const me = meName(role);
+  const all = [];
+  for (const g of groups) {
+    const t = store.threads.find(x => x.groupId === g.id);
+    if (!t) continue;
+    for (const m of pathOf(t, await loadMessages(t.id))) {
+      if (m.from === "event" || m.pending || m.error) continue;
+      const text = m.from === "user" ? m.text : splitBubbles(m.text).join(" ");
+      if (!text) continue;
+      const who = m.from === "user" ? me : m.speaker === role.id ? `${role.name}（你）` : roleById(m.speaker)?.name || "群友";
+      all.push({ ts: m.ts, line: `${groups.length > 1 ? `[${g.name}] ` : ""}${who}：${text.length > 300 ? text.slice(0, 300) + "…" : text}` });
+    }
+  }
+  if (!all.length) return "";
+  const lines = all.sort((a, b) => a.ts - b.ts).slice(-limit).map(x => x.line);
+  return [`\n# 最近群聊里的事`, `你也在${groups.map(g => `「${g.name}」`).join("、")}里。下面是群里最近聊的，私聊时自然地记得就好：`, lines.join("\n")].join("\n");
 }
 
 async function partsOf(m) {
@@ -213,7 +237,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
       if (m && !xcCache[role.id]?.snap) waits.push(m);
       if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
     }
-    const system = buildSystem(role, history) + (group ? groupForAI(role, group) + (await privateForAI(role)) : "");
+    const system = buildSystem(role, history) + (group ? groupForAI(role, group) + (await privateForAI(role)) : await groupsForAI(role));
     const messages = await buildMessages(history, group ? role.id : null);
     all.push(msg);
     thread.sel[parent] = msg.id;

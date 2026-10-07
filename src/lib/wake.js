@@ -63,7 +63,8 @@ export function alarmForAI(role, who, wake) {
   const list = wake
     ? "{{ALARMS}}"
     : liveAlarms(role).map(a => `#${a.id} ${whenLabel(a.at)}${a.note ? " · " + a.note : ""}`).join("；") || "（没有）";
-  const sched = [w.intervalOn && `大约每 ${everyText(w.every)}一次`, w.times?.length && `每天 ${w.times.join("、")}`].filter(Boolean).join("，还有");
+  const note = t => (w.timeNotes?.[t] ? `（${w.timeNotes[t]}）` : "");
+  const sched = [w.intervalOn && `大约每 ${everyText(w.every)}一次${w.intervalNote ? `（${w.intervalNote}）` : ""}`, w.times?.length && `每天 ${w.times.map(t => t + note(t)).join("、")}`].filter(Boolean).join("，还有");
   return [
     `\n# 醒来和闹钟`,
     sched
