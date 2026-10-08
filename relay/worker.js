@@ -476,6 +476,8 @@ async function callOpenAI(api, system, messages) {
       model: api.model,
       max_tokens: Number(api.maxTokens) || undefined,
       messages: [{ role: "system", content: system }, ...messages],
+      // OpenRouter：思考强度跟着栖所里设的走（醒来时不用看思考，不让它传回来）
+      ...(/openrouter\.ai/i.test(api.baseUrl || "") && api.effort ? { reasoning: { effort: api.effort, exclude: true } } : {}),
     }),
   });
   const raw = await r.text();

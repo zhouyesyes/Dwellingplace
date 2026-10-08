@@ -23,6 +23,7 @@ const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === orig
 const loading = ref(false);
 const showKey = ref(false);
 const valid = computed(() => form.name.trim() && form.baseUrl.trim() && form.model.trim());
+const isOpenRouter = computed(() => form.type === "openai" && /openrouter\.ai/i.test(form.baseUrl || ""));
 
 function switchType(type) {
   if (form.type === type) return;
@@ -189,7 +190,7 @@ function remove() {
         <input v-model.number="form.maxTokens" class="input" type="number" min="256" step="1000" />
         <small>如果接口报错说 max_tokens 太大，就把它调小一点。</small>
       </label>
-      <label v-if="form.type === 'anthropic'" class="field">
+      <label v-if="form.type === 'anthropic' || isOpenRouter" class="field">
         <span>思考强度（effort）</span>
         <select v-model="form.effort" class="input">
           <option value="">不设置（用模型默认）</option>
@@ -204,8 +205,8 @@ function remove() {
         <input v-model.number="form.contextLimit" class="input" type="number" min="1000" step="1000" inputmode="numeric" />
         <small>模型一次最多能看多少内容，用来在聊天页显示「上下文」用了多少。不确定就填 200000。</small>
       </label>
-      <label v-if="form.type === 'anthropic'" class="switch-row">
-        <span>显示思考过程<small class="sub-note">Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开</small></span>
+      <label v-if="form.type === 'anthropic' || isOpenRouter" class="switch-row">
+        <span>显示思考过程<small class="sub-note">{{ isOpenRouter ? "OpenRouter 要打开才会传回思考；GPT 只给思考摘要，有的模型不给" : "Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开" }}</small></span>
         <input v-model="form.showThinking" type="checkbox" />
       </label>
       <label class="switch-row">

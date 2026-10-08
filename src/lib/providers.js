@@ -139,18 +139,25 @@ function splitThink(raw) {
   return { text, thinking };
 }
 
+const isOpenRouter = api => /openrouter\.ai/i.test(api.baseUrl || "");
+
 async function openaiStream({ api, model, system, messages, signal, onText, onThinking }) {
+  const body = {
+    model,
+    stream: true,
+    stream_options: { include_usage: true },
+    max_tokens: Number(api.maxTokens) || undefined,
+    messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
+  };
+  // OpenRouter：要明说才会把思考（GPT 是思考摘要）传回来；思考强度也走这里
+  if (isOpenRouter(api) && (api.showThinking || api.effort)) {
+    body.reasoning = { ...(api.effort ? { effort: api.effort } : {}), ...(api.showThinking ? { enabled: true } : { exclude: true }) };
+  }
   const res = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
     signal,
-    headers: openaiHeaders(api),
-    body: JSON.stringify({
-      model,
-      stream: true,
-      stream_options: { include_usage: true },
-      max_tokens: Number(api.maxTokens) || undefined,
-      messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
-    }),
+    headers: { ...openaiHeaders(api), ...(isOpenRouter(api) ? { "X-Title": "Qisuo" } : {}) },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`接口返回 ${res.status}：${(await res.text()).slice(0, 300)}`);
 
@@ -180,7 +187,9 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       try {
         const j = JSON.parse(data);
         const delta = j.choices?.[0]?.delta || {};
-        const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text;
+        // OpenRouter 还会把思考放在 reasoning_details 里（GPT 给的是摘要；加密的那种看不了）
+        const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text
+          ?? (Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map(d => d.summary ?? d.text ?? "").join("") || undefined : undefined);
         if (typeof r === "string" && r) reasoning += r;
         if (delta.content) content += delta.content;
         if (r || delta.content) emit();
@@ -201,7 +210,21 @@ export async function streamChat(opts) {
   const model = opts.model || api.model;
   if (!model) throw new Error(`「${api.name || "API"}」还没有选择模型`);
   const fn = api.type === "openai" ? openaiStream : anthropicStream;
-  return fn({ ...opts, model });
+  // 网络断了（手机信号、切到后台、中转平台掐断……）：还没收到任何内容的话，自动再试两次
+  let got = false;
+  const o = { ...opts, model, onText: d => { got = true; opts.onText?.(d); }, onThinking: d => { got = true; opts.onThinking?.(d); } };
+  for (let i = 0; ; i++) {
+    try {
+      return await fn(o);
+    } catch (e) {
+      const net = /load failed|failed to fetch|networkerror|network error|network connection|terminated|econnreset|socket/i.test(String(e?.message || e));
+      if (!net || got || i >= 2 || opts.signal?.aborted) {
+        if (net && !got) throw new Error(`连不上「${api.name || "API"}」（试了 ${i + 1} 次）：网络断了，或者平台那边掐断了连接。稍后点重新生成再试。`);
+        throw e;
+      }
+      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
 }
 
 export async function fetchModels(api) {
