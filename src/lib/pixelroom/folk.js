@@ -566,3 +566,11 @@ export const FOLK = {
     peck: { frames: [build([[NN_SIDE, 1, 2]], NNX, 14, 15), build([[NN_PECK, 1, 2]], NNX, 14, 15)] },
   },
 };
+
+// 躺在床上时只露一个头（被子由屋子画）：闭眼睡着 / 睁眼看星星
+export const HEADS = {
+  xq: build([[closedXQ(XQ_HEAD), 1, 1]], XQX, 20, 16),
+  rw: build([[closedRW(RW_HEAD), 1, 1]], RWX, 20, 16),
+  rwGaze: build([[RW_HEAD, 1, 1]], RWX, 20, 16),
+  nn: build([[NN_SLEEP, 1, 1]], NNX, 14, 14),
+};

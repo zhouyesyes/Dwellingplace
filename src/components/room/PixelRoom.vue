@@ -78,8 +78,9 @@ function tap(e) {
   if (!scene) return;
   const r = canvas.value.getBoundingClientRect();
   const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
-  const what = scene.hit(x, y);
+  let what = scene.hit(x, y);
   if (!what) return;
+  if ((what === "bed" || what === "daybed") && scene.state.bed) what = "me"; // 躺在床上时点床就是点 TA
   if (what === "me") { scene.tapMe(performance.now()); emit("tap-me", scene.doing()); return; }
   if (what === "pet") { say("pet", props.asleep ? "暖暖缩在被子边上，睡得圆滚滚的。" : "暖暖抬起头，「啾」了一声。"); sfx.chirp(); return; }
   if (what === "mailbox") { sfx.paper(); return say("mailbox", props.mailLit ? `小旗竖着呢，里面有 ${props.name} 写给你的信。` : `小旗放平着，没有新信。也可以给 ${props.name} 写一封。`, "mailbox"); }
