@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc } from "./mcp.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -34,6 +34,7 @@ export function visibleText(text) {
     .replace(new RegExp(SEARCH_RE.source, "g"), "")
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
+    .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
     .replace(/\n?\s*\[(签|记|改|删|搜|定|取)[^\]]*$/, "")
     .trimEnd();
 }
@@ -297,6 +298,8 @@ export async function generate(thread, parentId, { speaker } = {}) {
         onThinking: d => { msg.thinking += d; },
       });
       text = res.text || msg.text.slice(base);
+      const fixed = normalizeToolCalls(text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
+      if (fixed !== text) { text = fixed; msg.text = msg.text.slice(0, base) + fixed; }
       if (res.thinking) msg.thinking = thinkingBefore + res.thinking;
       msg.ctx = res.usage.input; // 这一次 TA 看到的内容有多大
       if (round === 0) msg.ctx0 = res.usage.input; // 第一轮（没用工具时就是全部）；多出来的是用工具来回花的
