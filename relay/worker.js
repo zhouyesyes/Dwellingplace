@@ -1073,7 +1073,14 @@ export default {
     if (path === "/ping") {
       const ready = Object.entries(PROVIDERS).filter(([, p]) => env[p.env]).map(([k]) => k);
       const tick = env.KV ? Number(await env.KV.get("tick")) || 0 : 0;
-      return json({ ok: true, version: 7, features: ["search", "mcp", "fetch", "llm", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick });
+      // 中转实际在哪儿运行、从哪个国家/地区发出请求（模型按地区拦人时看这个）
+      let where = null;
+      try {
+        const t = await (await fetch("https://www.cloudflare.com/cdn-cgi/trace")).text();
+        const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
+        where = { colo: get("colo"), loc: get("loc") };
+      } catch { /* 查不到就算了 */ }
+      return json({ ok: true, version: 8, features: ["search", "mcp", "fetch", "llm", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
