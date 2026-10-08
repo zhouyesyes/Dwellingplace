@@ -124,7 +124,10 @@ async function round(text = "") {
     for (const r of speakersFor(text)) {
       if (stopped) break;
       scrollToBottom(true);
+      const before = messages.value.length;
       await generate(thread.value, undefined, { speaker: r.id });
+      // 选了 [不说话] 的那条不会留下：告诉你一声，不然看起来像 TA 没被叫到
+      if (!stopped && messages.value.length === before) toast(`${r.name} 这次没说话`, 2000);
     }
   } finally {
     running.value = false;
