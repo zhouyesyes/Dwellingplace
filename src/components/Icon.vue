@@ -3,7 +3,8 @@
 defineProps({ name: String, size: { type: [Number, String], default: 22 } });
 const P = {
   home: '<path d="M4 11.2 12 4.5l8 6.7"/><path d="M6.2 9.6V19a1 1 0 0 0 1 1h3.3v-5.2a1.5 1.5 0 0 1 3 0V20h3.3a1 1 0 0 0 1-1V9.6"/>',
-  chat: '<path d="M5 18.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4a2.8 2.8 0 0 1-2.8 2.8H9.2L5 18.5Z"/><path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01" stroke-width="2.2"/>',
+  // 气泡下面有小尾巴，整体往下挪一点，看着才和别的图标在同一条线上
+  chat: '<g transform="translate(0 1)"><path d="M5 18.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4a2.8 2.8 0 0 1-2.8 2.8H9.2L5 18.5Z"/><path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01" stroke-width="2.2"/></g>',
   memory: '<path d="M6 4.5h10.5A1.5 1.5 0 0 1 18 6v13.5H7.5A1.5 1.5 0 0 1 6 18V4.5Z"/><path d="M6 18a1.5 1.5 0 0 1 1.5-1.5H18"/><path d="M9.5 8.5h5"/>',
   settings: '<path d="M5 7.5h8M17 7.5h2M5 16.5h2M11 16.5h8"/><circle cx="15" cy="7.5" r="2"/><circle cx="9" cy="16.5" r="2"/>',
   back: '<path d="M14.5 5.5 8 12l6.5 6.5"/>',
