@@ -13,7 +13,7 @@ const tabs = [
   <nav class="tabbar">
     <RouterLink v-for="t in tabs" :key="t.key" :to="t.to" replace class="tab" :class="{ on: active === t.key }"
       :style="{ '--tint': t.tint }" :aria-label="t.label">
-      <Icon :name="t.icon" :size="23" :class="'ic-' + t.icon" />
+      <Icon :name="t.icon" :size="23" />
     </RouterLink>
   </nav>
 </template>
@@ -44,6 +44,4 @@ const tabs = [
   transition: background .2s, color .2s;
 }
 .tab.on { color: var(--ink); background: var(--tint); }
-/* 对话气泡下面有个小尾巴，图形本身偏上：往下挪一点，看起来才和其他三个齐 */
-.ic-chat { transform: translateY(1.5px); }
 </style>

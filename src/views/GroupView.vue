@@ -108,6 +108,8 @@ function speakersFor(text) {
 }
 async function round(text = "") {
   if (!members.value.length) return toast("群里还没有成员");
+  // 先「只发送」再点「让大家接话」：按你最后一条消息里 @ 的人来
+  if (!text) { const last = messages.value[messages.value.length - 1]; if (last?.from === "user") text = last.text || ""; }
   running.value = true;
   stopped = false;
   try {
@@ -395,7 +397,7 @@ function clearBg() {
 <style scoped>
 .chat { position: fixed; inset: 0; display: flex; flex-direction: column; height: 100dvh; }
 .bg { position: absolute; inset: 0; z-index: -1; background: var(--bg); background-size: cover; background-position: center; }
-.has-bg .name, .has-bg .sig, .has-bg .speaker, .has-bg .stamp { text-shadow: 0 0 10px rgba(255, 255, 255, .9), 0 0 2px rgba(255, 255, 255, .8); }
+.has-bg .stamp, .has-bg .speaker { color: var(--text-2); }
 .me-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .top { width: 100%; max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: calc(var(--safe-top) + 10px) 16px 10px; }
 .who { flex: 1; text-align: center; min-width: 0; }
