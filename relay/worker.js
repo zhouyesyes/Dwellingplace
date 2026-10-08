@@ -201,6 +201,7 @@ const BJ = 8 * 3600_000; // 北京时间
 const DAY = 86400_000;
 const MAX_ALARMS = 5;
 const MAX_ROUNDS = 6;
+const SAID_NOT_DONE_RE = /(这就|马上|现在就|立刻|赶紧|先去|我去|再试|重新|改好|换个|一步到位|交掉|交上|提交|轮到我了)[^。！？\n]{0,24}([。！？…]|$)\s*$/;
 const pad = n => String(n).padStart(2, "0");
 const bj = ms => new Date(ms + BJ); // 用 getUTC* 读出来就是北京时间
 const bjDayStart = ms => ms - ((ms + BJ) % DAY);
@@ -761,6 +762,7 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     if (before) said = said ? `${said}\n\n${before}` : before;
     return said.length;
   };
+  let usedTool = false, nudged = false; // 用过工具后只说「这就去交」却没调用：提醒一次
   for (let round = 0; ; round++) {
     const r = await callModel(role.api, system, convo, !!cfg.webSearch && !search.enabled && role.api?.type !== "openai");
     usage.input += r.usage.input;
@@ -769,7 +771,15 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     if (round >= MAX_ROUNDS) break;
 
     const tc = servers.length ? text.match(TOOL_CALL_RE) : null;
+    if (!tc && servers.length && usedTool && !nudged && SAID_NOT_DONE_RE.test(visible(text).trim())) {
+      nudged = true;
+      notes.push({ text: `${role.name} 说要去做但没动手，提醒了一下`, at: keepSaid(text.length) });
+      convo = addTurn(convo, "assistant", text.slice(0, 2000));
+      convo = addTurn(convo, "user", `（系统：你刚才说要去做，但没有调用工具，什么都没发生。要做就现在调用；如果决定不做了，就直接写要发给${me}的话或 [不发消息]，不用重复刚才的话。）`);
+      continue;
+    }
     if (tc) {
+      usedTool = true;
       const name = tc[1].trim();
       const argsRaw = tc[2].trim() || "{}";
       // 查说明：本来就是「工具说明」；或者拿某个服务自带的查参数工具去查别的服务的工具（它不认识，这里替它查）
@@ -1140,7 +1150,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 10, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 11, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
