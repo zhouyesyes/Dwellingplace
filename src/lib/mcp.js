@@ -298,6 +298,27 @@ export function showTool(servers, args) {
 
 export const TOOL_CALL_RE = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/tool_call>/;
 
+// 有的模型（比如 DeepSeek）不按约定写 <tool_call>，而是写成 <invoke name="…"><parameter name="…">…</parameter></invoke>
+// 外面可能还包着 <function_calls>、<｜DSML｜…> 之类。这里把它换成约定的 <tool_call name="…">{JSON}</tool_call>
+export function normalizeToolCalls(text) {
+  if (!text || !/<[^>]{0,20}invoke\s+name=/.test(text)) return text;
+  const m = text.match(/<[^>]{0,20}invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/[^>]{0,20}invoke>|$)/);
+  if (!m) return text;
+  const args = {};
+  const re = /<[^>]{0,20}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?=<\/[^>]{0,20}parameter>|<[^>]{0,20}parameter\s+name=|$)/g;
+  for (const [, k, raw] of m[2].matchAll(re)) {
+    const v = raw.trim();
+    if (/^(true|false|null|-?\d{1,9}(\.\d+)?)$/.test(v) || /^[[{]/.test(v)) { try { args[k] = JSON.parse(v); continue; } catch { /* 当字符串 */ } }
+    args[k] = v;
+  }
+  const call = `<tool_call name="${m[1]}">${JSON.stringify(args)}</tool_call>`;
+  // 去掉包在外面的 <function_calls> / DSML 标记
+  return (text.slice(0, m.index) + call + text.slice(m.index + m[0].length))
+    .replace(/<\/?[^>]{0,20}function_calls>/g, "")
+    .replace(/<\/?｜DSML｜[^>]*>/g, "");
+}
+
+
 // 找到 AI 要调用的工具
 export function resolveToolCall(servers, fullName) {
   for (const s of servers) {
