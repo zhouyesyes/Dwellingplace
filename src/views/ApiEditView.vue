@@ -2,7 +2,7 @@
 import { reactive, ref, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, apiById, today, fmtTokens } from "../store/index.js";
-import { API_TYPES, newApi, fetchModels } from "../lib/providers.js";
+import { API_TYPES, newApi, fetchModels, relayOk } from "../lib/providers.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -18,11 +18,13 @@ if (!isNew && !original) router.replace("/settings");
 const form = reactive(JSON.parse(JSON.stringify(original || newApi("anthropic"))));
 form.favModels ??= [];
 form.showThinking ??= false;
+form.viaRelay ??= false;
 form.contextLimit ??= 200000;
 const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === original?.id);
 const loading = ref(false);
 const showKey = ref(false);
 const valid = computed(() => form.name.trim() && form.baseUrl.trim() && form.model.trim());
+const isOpenRouter = computed(() => form.type === "openai" && /openrouter\.ai/i.test(form.baseUrl || ""));
 
 function switchType(type) {
   if (form.type === type) return;
@@ -189,7 +191,7 @@ function remove() {
         <input v-model.number="form.maxTokens" class="input" type="number" min="256" step="1000" />
         <small>如果接口报错说 max_tokens 太大，就把它调小一点。</small>
       </label>
-      <label v-if="form.type === 'anthropic'" class="field">
+      <label v-if="form.type === 'anthropic' || isOpenRouter" class="field">
         <span>思考强度（effort）</span>
         <select v-model="form.effort" class="input">
           <option value="">不设置（用模型默认）</option>
@@ -204,9 +206,13 @@ function remove() {
         <input v-model.number="form.contextLimit" class="input" type="number" min="1000" step="1000" inputmode="numeric" />
         <small>模型一次最多能看多少内容，用来在聊天页显示「上下文」用了多少。不确定就填 200000。</small>
       </label>
-      <label v-if="form.type === 'anthropic'" class="switch-row">
-        <span>显示思考过程<small class="sub-note">Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开</small></span>
+      <label v-if="form.type === 'anthropic' || isOpenRouter" class="switch-row">
+        <span>显示思考过程<small class="sub-note">{{ isOpenRouter ? "OpenRouter 要打开才会传回思考；GPT 只给思考摘要，有的模型不给" : "Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开" }}</small></span>
         <input v-model="form.showThinking" type="checkbox" />
+      </label>
+      <label class="switch-row">
+        <span>通过中转连接<small class="sub-note">{{ relayOk() ? "手机直连不上这个接口（比如 OpenRouter 不开梯子就连不上）时打开：请求先到你自己的 Cloudflare 中转再转过去，Key 只是经过、不会存下" : "要先在「工具」里填好中转地址和中转密码" }}</small></span>
+        <input v-model="form.viaRelay" type="checkbox" :disabled="!relayOk() && !form.viaRelay" />
       </label>
       <label class="switch-row">
         <span>设为全局默认</span>

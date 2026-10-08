@@ -15,7 +15,7 @@ const searchState = ref(null); // { ok, text, results }
 const testQuery = ref("今天的新闻");
 const busy = ref("");
 
-const LATEST_RELAY = 6; // relay/worker.js 里的 version
+const LATEST_RELAY = 7; // relay/worker.js 里的 version
 async function testRelay() {
   busy.value = "ping";
   pingState.value = null;
@@ -24,7 +24,7 @@ async function testRelay() {
     const ready = r.ready?.length ? `Worker 里已经配好 Key 的：${r.ready.map(k => SEARCH_PROVIDERS[k]?.label || k).join("、")}` : "Worker 里还没有配搜索服务的 Key（可以在下面填）";
     const v = r.version || 1;
     const old = v < 3 ? "。注意：中转是旧版本，MCP / 网页读取可能用不了，请按说明更新 Worker 代码"
-      : v < LATEST_RELAY ? "。中转不是最新版：TA 自己来找你（心潮的桥）、醒来时查工具说明要新版才能用" : "";
+      : v < LATEST_RELAY ? "。中转不是最新版：TA 自己来找你（心潮的桥）、醒来时查工具说明、模型走中转要新版才能用" : "";
     pingState.value = { ok: v >= 3, text: `连上了！中转版本 v${v}${v >= LATEST_RELAY ? "（最新）" : ""}。${ready}${old}` };
   } catch (e) {
     pingState.value = { ok: false, text: e.message };
@@ -97,6 +97,17 @@ async function testSearch() {
         </ul>
       </div>
     </div>
+
+    <!-- 流式 -->
+    <div class="section-label">回复方式</div>
+    <div class="list-card">
+      <label class="list-row">
+        <Icon name="send" :size="20" />
+        <span class="grow">流式回复<span class="sub">开着：一边生成一边显示；关掉：等整条写完一次显示</span></span>
+        <input v-model="store.tools.stream" type="checkbox" class="sw" />
+      </label>
+    </div>
+    <p class="note">所有 API 通用。关掉以后，开头那段等待没有动静，但中途断掉时整条会自动重试，不会只剩半句；回复很长时要等得久一点。</p>
 
     <!-- 网页读取 -->
     <div class="section-label">网页读取（fetch）</div>

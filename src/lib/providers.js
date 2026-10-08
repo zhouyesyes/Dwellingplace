@@ -5,6 +5,7 @@
 // 统一的消息格式：{ role: "user" | "assistant", parts: [{ type: "text", text } | { type: "image", data, mime } | { type: "pdf", data, name }] }
 
 import Anthropic from "@anthropic-ai/sdk";
+import { store } from "../store/index.js";
 
 export const API_TYPES = {
   anthropic: { label: "Anthropic 格式", baseUrl: "https://api.anthropic.com", model: "claude-opus-5-5" },
@@ -22,20 +23,39 @@ export function newApi(type = "anthropic") {
     maxTokens: 32000,
     effort: "",
     showThinking: false,
+    viaRelay: false, // 通过 Cloudflare 中转连接（手机直连不上时用）
     contextLimit: 200000,
   };
 }
 
 const trimUrl = u => (u || "").trim().replace(/\/+$/, "");
 
+// 流式开关（工具页里，所有 API 通用）
+const streaming = () => store.tools?.stream !== false;
+
+// ---------------- 走中转 ----------------
+// 手机直连不上的模型接口（OpenRouter 这类）：请求先到你自己的 Cloudflare 中转，再由它转过去
+const relayBase = () => (store.tools?.relay?.url || "").trim().replace(/\/+$/, "");
+export const relayOk = () => !!(relayBase() && store.tools?.relay?.token);
+const viaRelay = api => !!api.viaRelay && relayOk();
+function apiFetch(api) {
+  if (!viaRelay(api)) return (...a) => fetch(...a);
+  return (url, init = {}) => {
+    const headers = new Headers(init.headers || {});
+    headers.set("X-Relay-Token", store.tools.relay.token);
+    headers.set("X-Target-Url", String(url));
+    return fetch(relayBase() + "/llm", { ...init, method: init.method || "GET", headers });
+  };
+}
+
 // ---------------- Anthropic ----------------
 
 const clients = new Map();
 function anthropicClient(api) {
   const baseURL = trimUrl(api.baseUrl) || API_TYPES.anthropic.baseUrl;
-  const k = baseURL + "|" + api.key;
+  const k = baseURL + "|" + api.key + "|" + (viaRelay(api) ? relayBase() : "");
   if (!clients.has(k)) {
-    clients.set(k, new Anthropic({ apiKey: api.key, baseURL, dangerouslyAllowBrowser: true, maxRetries: 1 }));
+    clients.set(k, new Anthropic({ apiKey: api.key, baseURL, dangerouslyAllowBrowser: true, maxRetries: 1, fetch: apiFetch(api) }));
   }
   return clients.get(k);
 }
@@ -86,6 +106,26 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
   const usage = { input: 0, output: 0, cached: 0 };
   // 联网搜索时服务端可能会暂停（pause_turn），把已有内容带上继续
   for (let round = 0; round < 4; round++) {
+    // 关了流式：一次请求拿回整条，再交给页面（思考先、正文后）
+    if (!streaming()) {
+      const fb = isOfficialAnthropic(api) && FALLBACK_MODELS.test(model);
+      const msg = fb
+        ? await client.beta.messages.create({ ...params, fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] }, { signal, timeout: 600_000 })
+        : await client.messages.create(params, { signal, timeout: 600_000 });
+      if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
+      const th = msg.content.filter(b => b.type === "thinking").map(b => b.thinking).join("");
+      if (th) { thinking += th; onThinking?.(th); }
+      const tx = msg.content.filter(b => b.type === "text").map(b => b.text).join("");
+      if (tx) onText(tx);
+      text += tx;
+      const read = msg.usage?.cache_read_input_tokens ?? 0;
+      usage.input += (msg.usage?.input_tokens ?? 0) + read + (msg.usage?.cache_creation_input_tokens ?? 0);
+      usage.cached += read;
+      usage.output += msg.usage?.output_tokens ?? 0;
+      if (msg.stop_reason !== "pause_turn") break;
+      params.messages = [...params.messages, { role: "assistant", content: msg.content }];
+      continue;
+    }
     let stream;
     if (isOfficialAnthropic(api) && FALLBACK_MODELS.test(model)) {
       stream = client.beta.messages.stream(
@@ -139,20 +179,45 @@ function splitThink(raw) {
   return { text, thinking };
 }
 
+const isOpenRouter = api => /openrouter\.ai/i.test(api.baseUrl || "");
+
 async function openaiStream({ api, model, system, messages, signal, onText, onThinking }) {
-  const res = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
+  const stream = streaming();
+  const body = {
+    model,
+    stream,
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
+    max_tokens: Number(api.maxTokens) || undefined,
+    messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
+  };
+  // OpenRouter：要明说才会把思考（GPT 是思考摘要）传回来；思考强度也走这里
+  if (isOpenRouter(api) && (api.showThinking || api.effort)) {
+    body.reasoning = { ...(api.effort ? { effort: api.effort } : {}), ...(api.showThinking ? { enabled: true } : { exclude: true }) };
+  }
+  const res = await apiFetch(api)(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
     signal,
-    headers: openaiHeaders(api),
-    body: JSON.stringify({
-      model,
-      stream: true,
-      stream_options: { include_usage: true },
-      max_tokens: Number(api.maxTokens) || undefined,
-      messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
-    }),
+    headers: { ...openaiHeaders(api), ...(isOpenRouter(api) ? { "X-Title": "Qisuo" } : {}) },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`接口返回 ${res.status}：${(await res.text()).slice(0, 300)}`);
+
+  // 关了流式：整条一次拿回来
+  if (!stream) {
+    const raw = await res.text();
+    let j;
+    try { j = JSON.parse(raw); } catch { throw new Error(`接口返回的不是 JSON：${raw.slice(0, 200)}`); }
+    if (j.error) throw new Error(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`);
+    const m = j.choices?.[0]?.message || {};
+    const c = typeof m.content === "string" ? m.content : (m.content || []).map(x => x.text || "").join("");
+    const parts = splitThink(c);
+    const reasoning = (m.reasoning_content ?? m.reasoning ?? (Array.isArray(m.reasoning_details) ? m.reasoning_details.map(d => d.summary ?? d.text ?? "").join("") : "")) || "";
+    const thinking = reasoning + parts.thinking;
+    if (thinking) onThinking?.(thinking);
+    if (parts.text) onText(parts.text);
+    const u = j.usage || {};
+    return { text: parts.text, thinking, usage: { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0 } };
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -180,7 +245,9 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       try {
         const j = JSON.parse(data);
         const delta = j.choices?.[0]?.delta || {};
-        const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text;
+        // OpenRouter 还会把思考放在 reasoning_details 里（GPT 给的是摘要；加密的那种看不了）
+        const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text
+          ?? (Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map(d => d.summary ?? d.text ?? "").join("") || undefined : undefined);
         if (typeof r === "string" && r) reasoning += r;
         if (delta.content) content += delta.content;
         if (r || delta.content) emit();
@@ -201,12 +268,26 @@ export async function streamChat(opts) {
   const model = opts.model || api.model;
   if (!model) throw new Error(`「${api.name || "API"}」还没有选择模型`);
   const fn = api.type === "openai" ? openaiStream : anthropicStream;
-  return fn({ ...opts, model });
+  // 网络断了（手机信号、切到后台、中转平台掐断……）：还没收到任何内容的话，自动再试两次
+  let got = false;
+  const o = { ...opts, model, onText: d => { got = true; opts.onText?.(d); }, onThinking: d => { got = true; opts.onThinking?.(d); } };
+  for (let i = 0; ; i++) {
+    try {
+      return await fn(o);
+    } catch (e) {
+      const net = /load failed|failed to fetch|networkerror|network error|network connection|terminated|econnreset|socket|中转连不上模型接口/i.test(String(e?.message || e));
+      if (!net || got || i >= 2 || opts.signal?.aborted) {
+        if (net && !got) throw new Error(`连不上「${api.name || "API"}」（试了 ${i + 1} 次）：网络断了，或者平台那边掐断了连接。稍后点重新生成再试。`);
+        throw e;
+      }
+      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
 }
 
 export async function fetchModels(api) {
   if (api.type === "openai") {
-    const res = await fetch(`${trimUrl(api.baseUrl)}/models`, { headers: openaiHeaders(api) });
+    const res = await apiFetch(api)(`${trimUrl(api.baseUrl)}/models`, { headers: openaiHeaders(api) });
     if (!res.ok) throw new Error(`接口返回 ${res.status}：${(await res.text()).slice(0, 200)}`);
     const j = await res.json();
     return (j.data || j.models || []).map(m => m.id || m.name).filter(Boolean).sort();
