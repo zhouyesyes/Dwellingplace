@@ -200,7 +200,15 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     headers: { ...openaiHeaders(api), ...(isOpenRouter(api) ? { "X-Title": "Qisuo" } : {}) },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`接口返回 ${res.status}：${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) {
+    const raw = await res.text();
+    if (/not available in your region|unsupported_country|country, region, or territory/i.test(raw)) {
+      throw new Error(viaRelay(api)
+        ? "这个模型不对中转所在的地区提供服务。中转要更新到新版（会在美国运行），更新后再试；或者换一个模型。"
+        : "这个模型不对你所在的地区提供服务：打开这个 API 的「通过中转连接」试试，或者换一个模型。");
+    }
+    throw new Error(`接口返回 ${res.status}：${raw.slice(0, 300)}`);
+  }
 
   // 关了流式：整条一次拿回来
   if (!stream) {

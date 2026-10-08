@@ -25,6 +25,7 @@
 | 构建变量（Builds 里的 Variables and secrets） | 添加两个（每个变量**上面那格填名字，下面那格填值**）：名字 `WORKER_NAME`、值 Worker 的名字；名字 `KV_ID`、值 KV 的 ID |
 | 构建监视路径（Build watch paths，如果有） | 包含 `relay/*` |
 | （可选）构建变量 `RELAY_DOMAIN` | 自己域名下的中转地址，比如 `relay.qisuo.xyz`。每次部署都会带上这个地址，国内不开梯子也能连。加好后把栖所里的「中转地址」换成 `https://relay.qisuo.xyz` |
+| （可选）构建变量 `RELAY_REGION` | 中转在哪儿运行，默认 `aws:us-east-1`（美国），转给模型接口的请求从美国发出，OpenAI 这类按地区限制的模型才能用。不想指定就填 `auto` |
 
 4. 点 **连接**（Connect）。之后 `relay/` 里的代码有改动（合并 PR）才会构建；想马上构建，去 **Deployments / Builds** 点最新一条的 **Retry build**
 5. 在 **部署**（Deployments）或 **构建**（Builds）里看到成功的勾就好了

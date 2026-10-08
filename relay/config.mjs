@@ -3,11 +3,14 @@
 //   WORKER_NAME  Worker 的名字（和 Cloudflare 里的一模一样）
 //   KV_ID        绑定为 KV 的那个 KV 命名空间的 ID
 //   RELAY_DOMAIN （可选）自己域名下的中转地址，比如 relay.qisuo.xyz：国内不用梯子也能连
+//   RELAY_REGION （可选）中转在哪儿运行，默认 aws:us-east-1（美国）。不设的话 Cloudflare 会在离你最近的
+//                香港等地运行，OpenAI 这类模型在那里不提供服务（报 not available in your region）。填 auto 就不指定
 // 已经在网页上填好的变量和机密（RELAY_TOKEN、搜索 Key……）会保留，不会被覆盖
 import { writeFileSync } from "node:fs";
 
 const name = (process.env.WORKER_NAME || "").trim();
 const kv = (process.env.KV_ID || "").trim();
+const region = (process.env.RELAY_REGION || "aws:us-east-1").trim();
 const domain = (process.env.RELAY_DOMAIN || "").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
 if (!name) throw new Error("缺少构建变量 WORKER_NAME：填 Worker 的名字");
 if (!kv) throw new Error("缺少构建变量 KV_ID：填 KV 命名空间的 ID（存储和数据库 → KV 里能看到）");
@@ -25,6 +28,8 @@ const config = {
   workers_dev: true, // 原来的 xxx.workers.dev 地址也留着
   ...(domain ? { routes: [{ pattern: domain, custom_domain: true }] } : {}),
   observability: { enabled: true },
+  // 在美国运行：转给模型接口的请求从美国发出，不会被按地区拦下
+  ...(region && region !== "auto" ? { placement: { region } } : {}),
 };
 writeFileSync(new URL("./wrangler.json", import.meta.url), JSON.stringify(config, null, 2));
-console.log(`wrangler.json 已生成：${name}（KV 已绑定，每 5 分钟运行一次${domain ? `，地址 https://${domain}` : ""}）`);
+console.log(`wrangler.json 已生成：${name}（KV 已绑定，每 5 分钟运行一次${domain ? `，地址 https://${domain}` : ""}${region !== "auto" ? `，在 ${region} 附近运行` : ""}）`);
