@@ -1,8 +1,8 @@
 <script setup>
 // 用量：上一次回复都花在哪（设定和记忆、工具目录、聊天记录）、累计用了多少、命中缓存多少、用工具来回多花了多少
-// 单聊和群聊共用；群聊还按人分开算
-import { computed } from "vue";
-import { roleById, fmtTokens } from "../store/index.js";
+// 单聊和群聊共用；群聊还按人分开算。往左滑是第二页：TA 们每次看得到多少条（随时能调）
+import { computed, ref, watch } from "vue";
+import { store, roleById, fmtTokens } from "../store/index.js";
 import Sheet from "./Sheet.vue";
 
 const props = defineProps({
@@ -12,7 +12,7 @@ const props = defineProps({
   path: { type: Array, default: () => [] }, // 现在看到的这一条线
   limit: { type: Number, default: 200000 },
   shownCount: { type: Number, default: 0 },
-  perMember: Boolean,
+  perMember: Boolean, // 群聊
 });
 const emit = defineEmits(["close"]);
 
@@ -22,13 +22,13 @@ const pct = computed(() => Math.min(100, Math.round((ctx.value / props.limit) * 
 const level = computed(() => (pct.value >= 85 ? "high" : pct.value >= 60 ? "mid" : ""));
 const lastName = computed(() => roleById(last.value?.speaker)?.name || "TA");
 
-// 上一次回复：系统提示里的设定 / 记忆 / 日历、工具目录，剩下的是聊天记录和【此刻】
-const parts = computed(() => {
-  const m = last.value;
+// 一次回复：系统提示里的设定 / 记忆 / 日历、工具目录，剩下的是聊天记录和【此刻】
+const ctxOf = m => m.ctx0 || m.ctx || m.usage?.input || 0;
+function partsOf(m) {
   if (!m?.est) return null;
   const tools = m.est.tools || 0;
   const sys = Math.max(0, (m.est.system || 0) - tools);
-  const total = ctx.value;
+  const total = ctxOf(m);
   // 估出来的数和服务商算的不一样：按比例对到实际的数上
   const est = sys + tools;
   const k = est > total ? total / est : 1;
@@ -38,11 +38,40 @@ const parts = computed(() => {
   ];
   rows.push({ label: `聊天记录和【此刻】`, n: Math.max(0, total - rows[0].n - rows[1].n) });
   return rows.map(r => ({ ...r, pct: total ? Math.round((r.n / total) * 100) : 0 }));
+}
+const extraOf = m => (m?.ctx0 ? Math.max(0, (m.usage?.input || 0) - m.ctx0) : 0);
+const parts = computed(() => partsOf(last.value));
+const lastExtra = computed(() => extraOf(last.value));
+
+// 群聊：最近一轮（你上一次说话之后）每个接话的人
+const lastRound = computed(() => {
+  if (!props.perMember) return [];
+  const i = props.path.map(m => m.from).lastIndexOf("user");
+  return props.path.slice(i + 1).filter(m => m.from === "ai" && !m.error && m.usage?.input)
+    .map(m => ({ m, name: roleById(m.speaker)?.name || "TA", ctx: ctxOf(m), parts: partsOf(m), extra: extraOf(m) }));
 });
-const lastExtra = computed(() => {
-  const m = last.value;
-  return m?.ctx0 ? Math.max(0, (m.usage?.input || 0) - m.ctx0) : 0;
-});
+
+// ---------- 第二页：看得到多少条 ----------
+const page = ref(0);
+const pager = ref(null);
+const onScroll = () => { const el = pager.value; if (el) page.value = Math.round(el.scrollLeft / el.clientWidth); };
+const go = i => pager.value?.scrollTo({ left: i * pager.value.clientWidth, behavior: "smooth" });
+watch(() => props.open, v => { if (v) { page.value = 0; requestAnimationFrame(() => pager.value && (pager.value.scrollLeft = 0)); } });
+const limits = computed(() => (props.perMember
+  ? [
+      { key: "groupHistoryLimit", label: "大家每次能看到群里最近多少条", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
+      { key: "groupPrivateLimit", label: "群聊里看得到多少条私聊", sub: "轮到 TA 在群里说话时，附上 TA 和你最近的私聊；0 就是不附", min: 0, def: 40 },
+    ]
+  : [
+      { key: "historyLimit", label: "TA 每次能看到最近多少条消息", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
+      { key: "privateGroupLimit", label: "私聊里看得到多少条群聊", sub: "私聊时附上 TA 在的群里最近聊的；0 就是不附", min: 0, def: 40 },
+      { key: "wakeHistoryLimit", label: "TA 醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；不会超过第一项", min: 2, def: 30 },
+    ]));
+function setLimit(l, v) {
+  const n = Math.round(Number(v));
+  store.settings[l.key] = Number.isFinite(n) ? Math.max(l.min, Math.min(1000, n)) : l.def;
+}
+const step = (l, d) => setLimit(l, (Number(store.settings[l.key] ?? l.def) || 0) + d);
 
 function sum(list) {
   const t = { replies: 0, input: 0, cached: 0, output: 0, extra: 0 };
@@ -67,7 +96,13 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
 
 <template>
   <Sheet :open="open" :title="title" @close="emit('close')">
-    <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。</p>
+    <nav class="tabs">
+      <button :class="{ on: page === 0 }" @click="go(0)">用量</button>
+      <button :class="{ on: page === 1 }" @click="go(1)">看得到多少条</button>
+    </nav>
+    <div ref="pager" class="pager" @scroll.passive="onScroll">
+    <section class="pg">
+    <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。往左滑可以调 TA 们每次看得到多少条消息。</p>
     <template v-else>
       <div v-if="last" class="ctx-big">
         <div class="ctx-num">{{ fmtTokens(ctx) }}<small> / {{ fmtTokens(limit) }} tokens</small></div>
@@ -75,7 +110,18 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
         <p>上一次{{ perMember ? ` ${lastName} ` : "" }}回复时一共看了这么多内容<template v-if="shownCount">（最近 {{ shownCount }} 条消息，加上设定、记忆和日历）</template>。</p>
       </div>
 
-      <template v-if="parts">
+      <template v-if="lastRound.length > 1">
+        <div class="section">最近一轮（{{ lastRound.length }} 个人接了话）</div>
+        <div class="list-card flat">
+          <div v-for="r in lastRound" :key="r.m.id" class="list-row col">
+            <b>{{ r.name }} · 看了 {{ fmtTokens(r.ctx) }}</b>
+            <span class="sub">输入 {{ fmtTokens(r.m.usage.input) }}<template v-if="r.m.usage.cached">（缓存 {{ fmtTokens(r.m.usage.cached) }}）</template> · 输出 {{ fmtTokens(r.m.usage.output) }}<template v-if="r.extra"> · 工具来回 {{ fmtTokens(r.extra) }}</template></span>
+            <span v-if="r.parts" class="sub">{{ r.parts.map(p => `${p.label} ${fmtTokens(p.n)}`).join(" · ") }}</span>
+          </div>
+        </div>
+      </template>
+
+      <template v-else-if="parts">
         <div class="section">上一次都花在哪（估算）</div>
         <div class="list-card flat">
           <div v-for="r in parts" :key="r.label" class="list-row">
@@ -113,6 +159,23 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
         <slot />
       </p>
     </template>
+    </section>
+
+    <section class="pg">
+      <div class="list-card flat">
+        <div v-for="l in limits" :key="l.key" class="list-row col limit">
+          <b>{{ l.label }}</b>
+          <span class="sub">{{ l.sub }}</span>
+          <div class="stepper">
+            <button aria-label="少 10 条" @click="step(l, -10)">−</button>
+            <input :value="store.settings[l.key] ?? l.def" type="number" inputmode="numeric" :min="l.min" max="1000" step="10" @change="setLimit(l, $event.target.value)" />
+            <button aria-label="多 10 条" @click="step(l, 10)">+</button>
+          </div>
+        </div>
+      </div>
+      <p class="tip">所有{{ perMember ? "群聊" : "私聊" }}通用，改了马上生效。记忆库里的事不受这个影响，TA 一直记得。</p>
+    </section>
+    </div>
   </Sheet>
 </template>
 
@@ -134,4 +197,17 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
 .list-row.col b { font-size: 0.9rem; font-weight: 600; }
 .sub { font-size: 0.78rem; color: var(--text-3); }
 .tip { font-size: 0.78rem; color: var(--text-3); line-height: 1.7; margin: 12px 4px 0; }
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.tabs button { flex: 1; border: 0; border-radius: 12px; padding: 7px; background: var(--bg); font-size: 0.85rem; color: var(--text-2); }
+.tabs button.on { background: var(--ink); color: #fff; font-weight: 600; }
+/* 两页左右滑 */
+.pager { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; align-items: flex-start; overscroll-behavior-x: contain; }
+.pager::-webkit-scrollbar { display: none; }
+.pg { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+.limit { gap: 4px; }
+.list-row.col .sub { white-space: normal; line-height: 1.6; }
+.pg .list-card { margin-left: 0; margin-right: 0; }
+.stepper { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.stepper button { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--bg); color: var(--ink); font-size: 1.1rem; display: grid; place-items: center; padding: 0; }
+.stepper input { width: 80px; text-align: center; border: 1px solid var(--line); border-radius: 10px; padding: 6px; font-size: 1rem; background: var(--card); color: var(--text); }
 </style>

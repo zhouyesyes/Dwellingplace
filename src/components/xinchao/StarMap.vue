@@ -233,14 +233,22 @@ function spin() {
   if (Date.now() > idleUntil) rot.yaw += 0.0025;
   raf = requestAnimationFrame(spin);
 }
+// 按真正铺开的大小来画（手机上 innerWidth 和实际可见的宽高不一定一样）
+function measure() {
+  const r = svg.value?.getBoundingClientRect();
+  vp.w = Math.round(r?.width || window.innerWidth);
+  vp.h = Math.round(r?.height || window.innerHeight);
+}
+const onResize = () => full.value && measure();
+window.addEventListener("resize", onResize);
+onBeforeUnmount(() => window.removeEventListener("resize", onResize));
 async function toggleFull() {
   full.value = !full.value;
   selected.value = null;
   cancelAnimationFrame(raf);
   if (full.value) {
     await nextTick();
-    vp.w = window.innerWidth;
-    vp.h = window.innerHeight;
+    measure();
     idleUntil = 0;
     raf = requestAnimationFrame(spin);
   }
@@ -249,8 +257,10 @@ onBeforeUnmount(() => cancelAnimationFrame(raf));
 </script>
 
 <template>
+  <!-- 立体星空搬到最外层：放在抽屉里时，抽屉的变形会让 fixed 只铺满抽屉那么宽 -->
+  <Teleport to="body" :disabled="!full">
   <div class="map" :class="{ full }">
-    <svg ref="svg" :viewBox="full ? `0 0 ${vp.w} ${vp.h}` : `0 0 ${W} ${H}`" class="sky" preserveAspectRatio="xMidYMid meet" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @wheel.prevent="wheel">
+    <svg ref="svg" :viewBox="full ? `0 0 ${vp.w} ${vp.h}` : `0 0 ${W} ${H}`" class="sky" :preserveAspectRatio="full ? 'xMidYMid slice' : 'xMidYMid meet'" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @wheel.prevent="wheel">
       <defs>
         <radialGradient id="nebula" cx="30%" cy="25%" r="80%">
           <stop offset="0" stop-color="#6a6a8e" /><stop offset=".55" stop-color="#3b4166" /><stop offset="1" stop-color="#2a3050" />
@@ -278,7 +288,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf));
 
       <!-- 立体 -->
       <template v-else>
-        <rect :width="vp.w" :height="vp.h" fill="url(#nebula)" />
+        <rect x="-20" y="-20" :width="vp.w + 40" :height="vp.h + 40" fill="url(#nebula)" />
         <circle v-for="(d, i) in scene.dust" :key="'d' + i" :cx="d.x" :cy="d.y" :r="d.r" fill="#fff" :opacity="d.o" />
         <line v-for="([a, b, sim], i) in scene.lines" :key="'l' + i" :x1="a.x" :y1="a.y" :x2="b.x" :y2="b.y" stroke="#cdd4ff" :stroke-opacity="(0.08 + (sim || 0) * 0.25) * Math.min(a.fade, b.fade)" stroke-width="0.7" />
         <text v-for="l in scene.labels" :key="l.k" :x="l.x" :y="l.y" text-anchor="middle" class="group" font-size="12" :opacity="l.fade">{{ l.k }}</text>
@@ -301,6 +311,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf));
     <p v-if="selectedStar" class="sel-card" @click="emit('pick', selectedStar)">{{ selectedStar.title }}<small>{{ selectedStar.pinned ? "核心记忆" : `重要度 ${selectedStar.importance || "—"}` }} · 再点一下这颗星，或点这里打开</small></p>
     <p v-if="!full" class="tip">拖动看看，两根手指可以放大。越重要的星越大越暖，金色的四角星是核心记忆。点一下看名字，连点两下打开。</p>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

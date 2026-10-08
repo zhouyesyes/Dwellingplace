@@ -6,7 +6,7 @@ import { memoriesOf } from "../../lib/memoryTags.js";
 import { stamp } from "../../lib/time.js";
 import { toast } from "../../lib/toast.js";
 import {
-  dashToken, testDash, fetchBucket, holdMemory, traceMemory, breath,
+  dashToken, testDash, fetchBucket, holdMemory, traceMemory, breath, readFullMemory, listArchivedMemories,
   boardReady, readBoard, starDate, withDateTag, DATE_TAG_RE, driveStory, driveAction, sendInteraction, xcCache, refreshMind,
 } from "../../lib/xinchao.js";
 import { faceGrid } from "../../lib/pixel.js";
@@ -177,6 +177,12 @@ async function openStar(s) {
   editing.value = null;
   try {
     preview.value = await fetchBucket(role.value, s.id);
+    // 太长的只给了前几行：在后台把全文读来，看和改都是整条
+    if (preview.value?.truncated) {
+      readFullMemory(role.value, s.id).then(full => {
+        if (full?.trim() && viewing.value?.id === s.id && !editing.value) preview.value = { ...preview.value, preview: full, truncated: false, full: true };
+      }).catch(() => {});
+    }
   } catch (e) {
     preview.value = { preview: "", error: e.message };
   }
@@ -217,9 +223,18 @@ async function archive() {
     viewing.value = null;
   }
 }
-function startEdit() {
+async function startEdit() {
   const d = starDate(viewing.value);
   const ymd = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
+  // 太长的记忆，列表这边只读到前几行：先去记忆库把全文拿来再改
+  if (preview.value?.truncated && !preview.value.full) {
+    busy.value = true;
+    try {
+      const full = await readFullMemory(role.value, viewing.value.id);
+      if (full?.trim()) preview.value = { ...preview.value, preview: full, truncated: false, full: true };
+    } catch { /* 拿不到就只改标题、日期、重要度 */ }
+    busy.value = false;
+  }
   editing.value = { name: viewing.value.title, importance: Number(viewing.value.importance) || 5, date: ymd, date0: ymd, content: preview.value?.truncated ? "" : preview.value?.preview || "" };
 }
 async function saveEdit() {
@@ -253,6 +268,35 @@ const draft = ref(null);
 // ---------- 档案 ----------
 const archiveOpen = ref(false);
 const archived = computed(() => role.value.xinchao?.archive || []);
+// 心潮档案区里的：TA 自己放进去的、在别处放进去的，这台设备上没有留底
+const serverArchived = ref(null);
+const archiveErr = ref("");
+const serverOnly = computed(() => (serverArchived.value || []).filter(x => !archived.value.some(a => a.id === x.id)));
+async function openArchive() {
+  archiveOpen.value = true;
+  archiveErr.value = "";
+  try {
+    serverArchived.value = await listArchivedMemories(role.value);
+  } catch (e) {
+    archiveErr.value = e.message;
+  }
+}
+const dayOf = x => { const d = starDate(x); return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : ""; };
+async function putBackTitle(x) {
+  if (!confirm("心潮不让读档案里的正文，放回去只有标题（和重要度、标签）。继续吗？")) return;
+  busy.value = true;
+  try {
+    const plain = x.tags.filter(t => !DATE_TAG_RE.test(t));
+    const date = dayOf(x);
+    await holdMemory(role.value, { content: x.title, importance: x.importance, tags: (date ? withDateTag(plain, date) : plain).join(","), why: `${store.profile.userName || "对方"}从档案里拿回来的` });
+    serverArchived.value = serverArchived.value.filter(y => y.id !== x.id);
+    toast("放回去了（星图过几分钟会出现）", 3000);
+  } catch (e) {
+    toast(e.message, 4000);
+  } finally {
+    busy.value = false;
+  }
+}
 async function putBack(a) {
   if (!a.content && !confirm("这条放进档案的时候没有读到内容，放回去只有标题。继续吗？")) return;
   busy.value = true;
@@ -465,7 +509,7 @@ if (props.openId) {
           </div>
         </article>
         </template>
-        <button v-if="archived.length" class="link archive-link" @click="archiveOpen = true">档案里的记忆（{{ archived.length }}）</button>
+        <button class="link archive-link" @click="openArchive">档案里的记忆{{ archived.length ? `（${archived.length}）` : "" }}</button>
         <button class="fab" aria-label="写一条记忆" @click="newMemory"><Icon name="plus" :size="26" /></button>
       </section>
 
@@ -546,7 +590,7 @@ if (props.openId) {
           <p v-else class="view-body">{{ preview.preview || "（读不到内容）" }}<template v-if="preview.truncated">…</template></p>
           <div class="view-actions">
             <button class="btn soft small" :disabled="busy" @click="togglePin">{{ viewing.pinned ? "取消核心" : "钉成核心" }}</button>
-            <button class="btn soft small" :disabled="busy || !preview" @click="startEdit">修改</button>
+            <button class="btn soft small" :disabled="busy || !preview" @click="startEdit">{{ busy && preview?.truncated ? "读全文…" : "修改" }}</button>
             <button class="btn danger small" :disabled="busy" @click="archive">放进档案</button>
           </div>
         </template>
@@ -590,7 +634,18 @@ if (props.openId) {
             <button class="btn soft small" @click="forgetRecord(a)">不再显示</button>
           </div>
         </article>
-        <p v-if="!archived.length" class="small">档案是空的。</p>
+        <template v-if="serverOnly.length">
+          <div class="arch-sec">心潮档案区里的（{{ serverOnly.length }}）</div>
+          <p class="small">TA 自己放进去的，或者在别的地方放进去的。心潮不让读档案里的正文，这里只看得到标题。</p>
+          <article v-for="x in serverOnly" :key="x.id" class="star">
+            <div class="star-meta"><span>{{ dayOf(x) || "没有日期" }}</span><span class="imp">重要度 {{ x.importance }}</span></div>
+            <h3>{{ x.title }}</h3>
+            <div class="view-actions"><button class="btn soft small" :disabled="busy" @click="putBackTitle(x)">按标题放回去</button></div>
+          </article>
+        </template>
+        <p v-if="archiveErr" class="small err">读心潮档案区没成功：{{ archiveErr }}</p>
+        <p v-else-if="serverArchived === null" class="small">正在看心潮的档案区…</p>
+        <p v-if="!archived.length && serverArchived && !serverOnly.length" class="small">档案是空的。</p>
       </div>
     </Sheet>
 </div>
@@ -648,6 +703,7 @@ if (props.openId) {
 .pin { color: #c4718f; }
 .archive-link { display: block; margin: 14px auto 0; font-size: 0.85rem; }
 .archive-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; }
+.arch-sec { font-size: 0.8rem; color: var(--text-3); margin: 10px 2px 0; }
 .archive-text { font-size: 0.85rem; color: var(--text-2); line-height: 1.6; margin: 4px 0 0; white-space: pre-wrap; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .tags span { font-size: 0.72rem; background: var(--bg); border-radius: 999px; padding: 2px 8px; color: var(--text-2); }

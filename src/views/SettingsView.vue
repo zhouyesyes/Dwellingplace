@@ -49,28 +49,7 @@ function usageLine(api) {
     </div>
 
     <div class="section-label">聊天</div>
-    <div class="list-card">
-      <label class="list-row">
-        <Icon name="chat" :size="20" />
-        <span class="grow">TA 每次能看到最近多少条消息<span class="sub">越多记得越久，也越费 tokens</span></span>
-        <input v-model.number="store.settings.historyLimit" class="num-input" type="number" min="2" max="1000" step="10" inputmode="numeric" />
-      </label>
-      <label class="list-row">
-        <Icon name="chat" :size="20" />
-        <span class="grow">群聊里看得到多少条私聊<span class="sub">轮到 TA 在群里说话时，附上 TA 和你最近的私聊；0 就是不附</span></span>
-        <input v-model.number="store.settings.groupPrivateLimit" class="num-input" type="number" min="0" max="500" step="10" inputmode="numeric" />
-      </label>
-      <label class="list-row">
-        <Icon name="chat" :size="20" />
-        <span class="grow">私聊里看得到多少条群聊<span class="sub">私聊时附上 TA 在的群里最近聊的；0 就是不附</span></span>
-        <input v-model.number="store.settings.privateGroupLimit" class="num-input" type="number" min="0" max="500" step="10" inputmode="numeric" />
-      </label>
-      <label class="list-row">
-        <Icon name="alarm" :size="20" />
-        <span class="grow">TA 醒来时看多少条聊天<span class="sub">一天会醒好几次，少一点更省；不会超过上面第一项</span></span>
-        <input v-model.number="store.settings.wakeHistoryLimit" class="num-input" type="number" min="2" max="500" step="10" inputmode="numeric" />
-      </label>
-    </div>
+    <p class="hint moved">TA 们每次看得到多少条消息，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调。</p>
 
     <div class="section-label">对外保密</div>
     <div class="card body privacy">
@@ -94,6 +73,7 @@ function usageLine(api) {
 </template>
 
 <style scoped>
+.moved { font-size: 0.82rem; color: var(--text-3); line-height: 1.7; margin: 0 6px 18px; }
 .add { color: var(--text-2); }
 .privacy { padding: 14px 16px; }
 .privacy .hint { margin: 0 0 8px; font-size: 0.8rem; color: var(--text-3); }

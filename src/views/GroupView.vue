@@ -316,7 +316,7 @@ function clearBg() {
     <footer class="composer">
       <div class="mentions">
         <button v-for="r in members" :key="r.id" class="at" @click="mention(r)">@{{ r.name }}</button>
-        <button v-if="totalInput" class="usage" @click="usageOpen = true">用量 {{ fmtTokens(totalInput) }}</button>
+        <button class="usage" @click="usageOpen = true">用量{{ totalInput ? " " + fmtTokens(totalInput) : "" }}</button>
       </div>
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
