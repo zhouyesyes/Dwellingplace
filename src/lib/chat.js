@@ -58,8 +58,7 @@ export function buildSystem(role, messages, { wake = false } = {}) {
   const who = me.name ? `「${me.name}」` : "对方";
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
-    role.persona ? `\n# 你的设定\n${role.persona}` : "",
-    me.about ? `\n# 关于${me.name || "对方"}\n${me.about}` : "",
+    // 不再放手写的「设定」「关于我」：TA 是谁、知道对方什么，都来自心潮里的核心记忆
     store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
     // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
     wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
@@ -447,7 +446,7 @@ function describeError(err) {
 export async function oneShot(role, prompt) {
   const api = apiFor(null, role);
   const model = modelFor(null, role);
-  const system = [`你是「${role.name}」。`, role.persona ? `\n# 你的设定\n${role.persona}` : ""].join("\n");
+  const system = `你是「${role.name}」。`;
   const { text, usage } = await streamChat({
     api, model, system,
     messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],

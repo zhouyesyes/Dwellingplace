@@ -91,7 +91,7 @@ export function newRole(over = {}) {
 
 // 唤醒设置：every 是分钟；unit 只是显示用（小时 / 分钟）
 export function newWake() {
-  return { enabled: false, intervalOn: true, every: 120, unit: "hour", jitter: 20, times: [], quiet: { enabled: true, from: "03:00", to: "10:00" } };
+  return { enabled: false, intervalOn: true, every: 120, unit: "hour", jitter: 20, times: [], once: [], quiet: { enabled: true, from: "03:00", to: "10:00" } };
 }
 
 export const store = reactive(defaults());

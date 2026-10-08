@@ -33,30 +33,56 @@ function setUnit(u) {
   if (u === "hour" && w.value.every < 60) w.value.every = 60;
 }
 
-// 固定时间（每个时间可以写一句备注，告诉 TA 醒了要干嘛）
+// 固定时间（每天这个时间醒；每个时间可以写一段备注，告诉 TA 醒了要干嘛）
 const newTime = ref("");
 const newNote = ref("");
+const editing = ref(""); // 正在改哪个时间
 function addTime() {
   const t = newTime.value;
   if (!/^\d{2}:\d{2}$/.test(t)) return toast("先选一个时间");
+  if (editing.value && editing.value !== t) removeTime(editing.value); // 改了时间：旧的去掉
   if (!w.value.times.includes(t)) w.value.times = [...w.value.times, t].sort();
   w.value.timeNotes = { ...(w.value.timeNotes || {}) };
   if (newNote.value.trim()) w.value.timeNotes[t] = newNote.value.trim();
   else delete w.value.timeNotes[t];
   newTime.value = "";
   newNote.value = "";
+  editing.value = "";
 }
 const removeTime = t => {
   w.value.times = w.value.times.filter(x => x !== t);
   if (w.value.timeNotes?.[t]) { const n = { ...w.value.timeNotes }; delete n[t]; w.value.timeNotes = n; }
 };
-function editNote(t) {
-  const v = prompt(`${t} 醒来要做什么？（留空就是没有备注）`, w.value.timeNotes?.[t] || "");
-  if (v === null) return;
-  w.value.timeNotes = { ...(w.value.timeNotes || {}) };
-  if (v.trim()) w.value.timeNotes[t] = v.trim();
-  else delete w.value.timeNotes[t];
+function editTime(t) { // 点一个已经加好的时间：放回上面的框里改
+  editing.value = t;
+  newTime.value = t;
+  newNote.value = w.value.timeNotes?.[t] || "";
 }
+function cancelEdit() { editing.value = ""; newTime.value = ""; newNote.value = ""; }
+
+// 一次性的闹钟：定一个日期和时间，只响一次
+if (role.value) w.value.once ??= [];
+const onceAt = ref("");
+const onceNote = ref("");
+const pad = n => String(n).padStart(2, "0");
+const localInput = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const onceMin = localInput(new Date());
+const onceList = computed(() => [...(w.value.once || [])].filter(o => o.at > Date.now() - 3600_000).sort((a, b) => a.at - b.at));
+function addOnce() {
+  const at = Date.parse(onceAt.value);
+  if (!Number.isFinite(at)) return toast("先选日期和时间");
+  if (at < Date.now() + 60_000) return toast("这个时间已经过去了");
+  if (onceList.value.length >= 20) return toast("一次性闹钟最多 20 个");
+  w.value.once = [...onceList.value, { id: Math.random().toString(36).slice(2, 8), at, note: onceNote.value.trim() }];
+  onceAt.value = "";
+  onceNote.value = "";
+}
+const removeOnce = o => { w.value.once = (w.value.once || []).filter(x => x.id !== o.id); };
+// 响过一小时以上的，自己清掉
+if (role.value && w.value.once?.some(o => o.at <= Date.now() - 3600_000)) w.value.once = onceList.value;
+
+// 最近醒来：先显示 5 条，其余收起来
+const logOpen = ref(false);
 
 // 中转上的情况
 const state = ref(null);
@@ -151,26 +177,44 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <span class="grow">前后随机浮动<small>（分钟，免得像闹钟一样准）</small></span>
             <input v-model.number="w.jitter" class="num-input" type="number" min="0" step="5" inputmode="numeric" />
           </div>
-          <div class="row">
-            <input v-model.trim="w.intervalNote" class="input grow" placeholder="备注（可选）：醒了想让 TA 做什么" maxlength="200" />
-          </div>
+          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" placeholder="备注（可选）：醒了想让 TA 做什么" maxlength="1000" />
           <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。碰上免打扰时间就跳过。最短 10 分钟。</p>
         </template>
       </div>
 
       <div class="section-label">固定时间（你来定，每天这个时间醒）</div>
       <div class="card body">
-        <div v-if="w.times.length" class="chips">
-          <span v-for="t in w.times" :key="t" class="chip" @click="editNote(t)">{{ t }}<small v-if="w.timeNotes?.[t]" class="note-txt"> · {{ w.timeNotes[t] }}</small><button @click.stop="removeTime(t)"><Icon name="close" :size="14" /></button></span>
+        <div v-if="w.times.length" class="t-list">
+          <div v-for="t in w.times" :key="t" class="t-item" :class="{ on: editing === t }" @click="editTime(t)">
+            <b>{{ t }}</b>
+            <p>{{ w.timeNotes?.[t] || "没写备注" }}</p>
+            <button @click.stop="removeTime(t)"><Icon name="close" :size="14" /></button>
+          </div>
         </div>
         <div class="row">
           <input v-model="newTime" class="input time" type="time" />
-          <button class="btn soft small" @click="addTime">添加</button>
+          <button v-if="editing" class="btn soft small" @click="cancelEdit">取消</button>
+          <button class="btn soft small" @click="addTime">{{ editing ? "保存" : "添加" }}</button>
+        </div>
+        <textarea v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
+        <p class="hint">固定时间不受免打扰影响，到点就醒。点已经加好的时间，会放回上面的框里改。TA 醒来时会看到备注。</p>
+      </div>
+
+      <div class="section-label">一次性闹钟（只响一次）</div>
+      <div class="card body">
+        <div v-if="onceList.length" class="t-list">
+          <div v-for="o in onceList" :key="o.id" class="t-item">
+            <b>{{ whenLabel(o.at) }}</b>
+            <p>{{ o.note || "没写备注" }}</p>
+            <button @click.stop="removeOnce(o)"><Icon name="close" :size="14" /></button>
+          </div>
         </div>
         <div class="row">
-          <input v-model.trim="newNote" class="input grow" placeholder="备注（可选）：比如「叫我起床」「提醒我吃药」" maxlength="200" />
+          <input v-model="onceAt" class="input time" type="datetime-local" :min="onceMin" />
+          <button class="btn soft small" @click="addOnce">添加</button>
         </div>
-        <p class="hint">固定时间不受免打扰影响，到点就醒。点已经加好的时间可以改备注。TA 醒来时会看到备注。</p>
+        <textarea v-model.trim="onceNote" class="input note-box" rows="3" placeholder="备注（可选）：比如「明天 9 点有面试，叫我起来、帮我再顺一遍自我介绍」" maxlength="1000" />
+        <p class="hint">到点叫醒一次就没了，不受免打扰影响。需要中转是最新版。</p>
       </div>
 
       <div class="section-label">免打扰</div>
@@ -226,7 +270,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
       <template v-if="role.wakeLog?.length">
         <div class="section-label">最近醒来</div>
         <div class="list-card">
-          <div v-for="l in role.wakeLog.slice(0, 10)" :key="l.id" class="list-row log">
+          <div v-for="l in role.wakeLog.slice(0, logOpen ? undefined : 5)" :key="l.id" class="list-row log">
             <span class="grow">
               {{ stamp(l.ts) }} · {{ l.error ? "出错了" : l.silent ? "没发消息" : "发了消息" }}
               <span class="sub">{{ l.error || l.reasons.join("；") }}</span>
@@ -234,6 +278,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
               <span class="sub">{{ usageText(l.usage) }}</span>
             </span>
           </div>
+          <button v-if="role.wakeLog.length > 5" class="list-row more" @click="logOpen = !logOpen">{{ logOpen ? "收起 ▴" : `展开其余 ${role.wakeLog.length - 5} 条 ▾` }}</button>
         </div>
       </template>
     </template>
@@ -252,10 +297,14 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 .seg button { border: 0; background: none; border-radius: 9px; padding: 4px 10px; font-size: 0.85rem; color: var(--text-2); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
 .hint { margin: 8px 2px 0; font-size: 0.8rem; color: var(--text-3); line-height: 1.6; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
-.note-txt { font-size: 0.8rem; color: var(--text-2); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip button { border: 0; background: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--text-3); }
+.t-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.t-item { position: relative; background: var(--bg); border-radius: 14px; padding: 8px 36px 8px 12px; }
+.t-item.on { box-shadow: 0 0 0 2px var(--ink); }
+.t-item b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.t-item p { margin: 2px 0 0; font-size: 0.85rem; color: var(--text-2); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.t-item button { position: absolute; top: 6px; right: 6px; border: 0; background: none; display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-3); }
+.note-box { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.6; box-sizing: border-box; }
+.more { justify-content: center; color: var(--text-2); font-size: 0.85rem; }
 .time { flex: 1; min-width: 0; }
 .wide { width: 100%; }
 .empty { color: var(--text-3); font-size: 0.85rem; white-space: normal; }
