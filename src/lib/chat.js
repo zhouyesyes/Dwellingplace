@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls } from "./mcp.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -289,6 +289,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
     };
     const done = new Set(); // 这次回复里已经调用过的工具 + 参数
     let fixAsked = false; // 格式写错只提醒一次
+    let usedTool = false, nudged = false; // 用过工具后只说不做：提醒一次
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
       const base = msg.text.length;
@@ -331,7 +332,18 @@ export async function generate(thread, parentId, { speaker } = {}) {
           { role: "user", parts: [{ type: "text", text: `（系统：上面的工具调用格式不对，没有执行。请只写一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>，参数是 JSON。）` }] }];
         continue;
       }
+      // 用过工具、这次却只说「这就去交」没调用：提醒一次，让 TA 现在就做
+      if (!tc && servers.length && usedTool && !nudged && SAID_NOT_DONE_RE.test(visibleText(text).trim())) {
+        nudged = true;
+        keepSaid(text, text.length);
+        msg.notes.push({ text: `${role.name} 说要去做但没动手，提醒了一下` });
+        convo = [...convo,
+          { role: "assistant", parts: [{ type: "text", text: text.slice(0, 2000) }] },
+          { role: "user", parts: [{ type: "text", text: `（系统：你刚才说要去做，但没有调用工具，什么都没发生。要做就现在调用；如果决定不做了，就直接回复对方，不用重复刚才的话。）` }] }];
+        continue;
+      }
       if (tc) {
+        usedTool = true;
         const name = tc[1].trim();
         const argsRaw = tc[2].trim() || "{}";
         const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true, at: keepSaid(text, tc.index) });

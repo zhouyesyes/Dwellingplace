@@ -256,16 +256,19 @@ export function toolsForAI(servers) {
     lines.push(`\n## ${s.name}`);
     for (const t of tools) {
       const desc = shortDesc(t.description);
-      lines.push(`- ${s.name}.${t.name}${desc ? " — " + desc : ""}`);
+      let sig = signature(t); // 带上参数名（没有 ? 的是必填），省得 TA 猜参数、错一次再查一次
+      if (sig.length > 160) sig = sig.slice(0, 158) + "…)";
+      lines.push(`- ${s.name}.${sig}${desc ? " — " + desc : ""}`);
     }
   }
   if (!lines.length) return "";
   return [
     `\n# 你可以用的工具（MCP）`,
-    `下面只是目录（工具名 + 一句话用途）。需要用工具时，只回复一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>（JSON 格式，没有参数就写 {}），不要写别的。系统会把结果发给你，你再继续。`,
+    `下面是目录：工具名(参数)，参数后面带 ? 的可以不写，其余必填；再加一句话用途。需要用工具时，只回复一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>（JSON 格式，没有参数就写 {}），不要写别的。系统会把结果发给你，你再继续。`,
     `不确定某个工具怎么用、要哪些参数时，先查说明：<tool_call name="${TOOL_SHOW}">{"name": "服务名.工具名"}</tool_call>，系统会把完整说明发给你（这一次对话里查过的不用再查）。查任何服务的工具都用「${TOOL_SHOW}」，不要用某个服务自带的查参数工具（比如 get_tool_schema）去查别的服务的工具。`,
     `工具名要照目录里的写法完整写上「服务名.工具名」，服务名就是目录里 ## 后面那个。`,
     `一次只调用一个工具；普通聊天不需要用工具。`,
+    `说了要去做，就在这条回复里直接调用，不要只说「我这就去交」就停下。一件事要好几步（先看状态、再行动），就一步接一步做完，最后再回复。工具报错时看清报错和附上的说明，改好参数再调用。`,
     `用工具对外发东西（发邮件、在别的平台发帖或回复）时，代表的是你自己。没有得到对方明确同意，不要透露对方的个人信息（真实姓名、住址、电话、学校或工作、各种账号、笔名，以及对方告诉你的私事）。`,
     ...lines,
   ].join("\n");
@@ -295,6 +298,9 @@ export function showTool(servers, args) {
   if (!found) return { text: `没有叫「${want}」的工具，请对照目录里的名字再查。`, label: want };
   return { text: toolDoc(found.server, found.tool), label: `${found.server.name} · ${found.tool.name}` };
 }
+
+// 用过工具之后，嘴上说「这就去交 / 再试一次」却没调用：拿来提醒一次
+export const SAID_NOT_DONE_RE = /(这就|马上|现在就|立刻|赶紧|先去|我去|再试|重新|改好|换个|一步到位|交掉|交上|提交|轮到我了)[^。！？\n]{0,24}([。！？…]|$)\s*$/;
 
 export const TOOL_CALL_RE = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/tool_call>/;
 
