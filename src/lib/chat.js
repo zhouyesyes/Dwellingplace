@@ -181,7 +181,7 @@ async function partsOf(m) {
 // selfId：群聊里「我是谁」——自己说过的是 assistant，别人说的都当成带名字的 user 消息
 async function buildMessages(list, selfId = null) {
   const out = [];
-  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
+  const limit = Math.max(2, Number(selfId ? store.settings.groupHistoryLimit : store.settings.historyLimit) || 80);
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
   const self = selfId && roleById(selfId);

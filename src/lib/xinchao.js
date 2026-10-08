@@ -48,6 +48,44 @@ export async function breath(role, { query = "", maxResults = 8 } = {}) {
   return resultText(r);
 }
 
+// 读一条记忆的全文：看板只给前几行，breath 用记忆的 id 去查会原样返回整条
+export async function readFullMemory(role, id) {
+  const text = await breath(role, { query: id, maxResults: 1 });
+  const at = text.indexOf(`[bucket_id:${id}]`);
+  if (at < 0) return null;
+  const head = text.indexOf("[instructions:false]", at);
+  if (head < 0) return null;
+  const lines = text.slice(text.indexOf("\n", head) + 1).split("\n");
+  while (lines.length && /^(💭 meaning:|🖼️ media:)/.test(lines[0])) lines.shift(); // 记忆的附注，不是正文
+  // 末尾可能接着记忆库的提示（[OB-W001] 之类），不算正文
+  return lines.join("\n").replace(/\n\n[^\n]*\[OB-[A-Z]\d+\][\s\S]*$/, "");
+}
+
+// 记忆库档案区里的记忆：pulse 带上档案区和不带比一比，多出来的就是放进档案的
+// （只有标题、重要度、标签这些，正文心潮不给读）
+const PULSE_LINE = /^(\S+)\s*\[([A-Za-z0-9._-]+)\](?:\s*《([^》]*)》)?([^\n]*)$/gm;
+function pulseItems(text) {
+  const out = [];
+  for (const m of String(text).matchAll(PULSE_LINE)) {
+    const [, icon, id, title, tail] = m;
+    if (/🫧|📋|💌/.test(icon)) continue; // feel / plan / 信，不是记忆
+    out.push({
+      id, title: title || id,
+      importance: Number((tail.match(/重要[:：]\s*([\d.]+)/) || [])[1]) || 5,
+      tags: ((tail.match(/标签[:：]\s*(.+)$/) || [])[1] || "").split(/[,，]/).map(t => t.trim()).filter(Boolean),
+    });
+  }
+  return out;
+}
+export async function listArchivedMemories(role) {
+  const [all, live] = await Promise.all([
+    call(role, "pulse", { include_archive: true }).then(resultText),
+    call(role, "pulse", { include_archive: false }).then(resultText),
+  ]);
+  const liveIds = new Set(pulseItems(live).map(x => x.id));
+  return pulseItems(all).filter(x => !liveIds.has(x.id));
+}
+
 // 留言板（要在服务器上填了留言板令牌才有）
 export const boardReady = role => hasTool(xinchaoServer(role), "board_read");
 export async function readBoard(role, { limit = 30, query = "" } = {}) {

@@ -470,6 +470,7 @@ const back = () => goBack(router, "/chats");
           <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
           <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
+        <button v-else class="ctx" @click="ctxOpen = true">用量</button>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div class="row">
@@ -527,7 +528,7 @@ const back = () => goBack(router, "/chats");
 
     <!-- 上下文 -->
     <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" @close="ctxOpen = false">
-      对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息 TA 就不再看到（记忆卡片里的事 TA 一直记得）。想让 TA 记得更久、或者想省一点，可以在「设置 → 聊天」里改这个数字；模型的上限在「设置 → API」里改。
+      对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息 TA 就不再看到（记忆卡片里的事 TA 一直记得）。想让 TA 记得更久、或者想省一点，往左滑就能改这个数字；模型的上限在「设置 → API」里改。
     </UsageSheet>
 
     <!-- 模型切换 -->
