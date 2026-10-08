@@ -203,9 +203,13 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
   if (!res.ok) {
     const raw = await res.text();
     if (/not available in your region|unsupported_country|country, region, or territory/i.test(raw)) {
-      throw new Error(viaRelay(api)
-        ? "这个模型不对中转所在的地区提供服务。中转要更新到新版（会在美国运行），更新后再试；或者换一个模型。"
+      // 中转偶尔会留在离你近的机房（香港等）运行，不按设好的美国走：这种会自动重试（见 streamChat）
+      const where = res.headers.get("cf-placement"); // 比如 local-HKG / remote-IAD
+      const e = new Error(viaRelay(api)
+        ? `这个模型不对中转这次所在的地区提供服务${where ? `（这次在 ${where.replace(/^(local|remote)-/, "")} 运行）` : ""}。中转偶尔会留在离你近的机房，过一会儿点重新生成通常就好了。`
         : "这个模型不对你所在的地区提供服务：打开这个 API 的「通过中转连接」试试，或者换一个模型。");
+      e.region = viaRelay(api);
+      throw e;
     }
     throw new Error(`接口返回 ${res.status}：${raw.slice(0, 300)}`);
   }
@@ -283,9 +287,10 @@ export async function streamChat(opts) {
     try {
       return await fn(o);
     } catch (e) {
-      const net = /load failed|failed to fetch|networkerror|network error|network connection|terminated|econnreset|socket|中转连不上模型接口/i.test(String(e?.message || e));
+      // 网络断了，或者中转这次刚好在被拦的地区运行（被拦的请求不收费）：都再试
+      const net = e?.region || /load failed|failed to fetch|networkerror|network error|network connection|terminated|econnreset|socket|中转连不上模型接口/i.test(String(e?.message || e));
       if (!net || got || i >= 2 || opts.signal?.aborted) {
-        if (net && !got) throw new Error(`连不上「${api.name || "API"}」（试了 ${i + 1} 次）：网络断了，或者平台那边掐断了连接。稍后点重新生成再试。`);
+        if (net && !got && !e?.region) throw new Error(`连不上「${api.name || "API"}」（试了 ${i + 1} 次）：网络断了，或者平台那边掐断了连接。稍后点重新生成再试。`);
         throw e;
       }
       await new Promise(r => setTimeout(r, 1500 * (i + 1)));
