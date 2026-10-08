@@ -1,5 +1,6 @@
 // 第四版家具：东西放大到一眼看得出是什么；脆脆地炉贴左墙、地台床头贴后墙；Rowan 榻台进墙角、书桌贴墙
-import { box, quad, sprite, dither, hex, mix, glow, shadow, floorQuad, floorGlow, planks, P, applyLights } from "./iso.js";
+import { box, quad, sprite, dither, hex, mix, glow, shadow, floorQuad, floorGlow, planks, P, applyLights, tagId } from "./iso.js";
+const T = tagId;
 import { litTop, sunOn } from "./light.js";
 import { cui, cuiDeck, rowan } from "./rooms.js";
 
@@ -39,6 +40,7 @@ function plant(cv, gx, gy, z, { s = 1, pot = "#B8673A", leaves = ["#24502F", "#3
   box(cv, { x: gx, y: gy, z, w: pw, d: pw, h: ph }, { top: "#4A3020", left: pot, right: shade(pot, 0.75), line: shade(pot, 0.5) }, L);
   box(cv, { x: gx - 0.03, y: gy - 0.03, z: z + ph - 0.08 * s, w: pw + 0.06, d: pw + 0.06, h: 0.08 * s }, soft(shade(pot, 1.1)), L);
   const [bx, by] = P(gx + pw / 2, gy + pw / 2, z + ph);
+  const z0 = cv.z; cv.z = gx + gy + pw; // 叶子挡在花盆那个位置
   const L1 = 13 * s * tall, W1 = 3.6 * s;
   const fan = [[-2.6, 0.75], [-0.55, 0.75], [-2.15, 1], [-1.0, 1], [-1.6, 1.1], [-2.85, 0.6], [-0.3, 0.6], [-1.85, 0.85], [-1.3, 0.9]];
   fan.forEach(([a, k], i) => {
@@ -46,6 +48,7 @@ function plant(cv, gx, gy, z, { s = 1, pot = "#B8673A", leaves = ["#24502F", "#3
     for (let t = 0; t < 4 * s; t++) cv.set(Math.round(bx + Math.cos(a) * t), Math.round(by - 1 + Math.sin(a) * t), hex(leaves[0]));
     leaf(cv, bx2 + Math.cos(a) * 2 * s, by2 + Math.sin(a) * 2 * s, a, L1 * k, W1 * (0.8 + 0.2 * k), i < 3 ? [leaves[0], shade(leaves[1], 0.85), leaves[1]] : leaves);
   });
+  cv.z = z0;
 }
 // 平铺在地上的一张纸（报纸、地图），可以转个角度；接窗光
 function sheet(cv, x, y, w, d, ang, paint, win, L) {
@@ -179,7 +182,7 @@ const BAG = [ // 暖暖的粮袋：麻布袋子、口子扎着绳，正面印一
 // 挂在左墙上的信箱：一个小木箱从墙上凸出来，正面一条投信口、侧面一面小旗。
 // 有新信（globalThis.MAIL）：旗子竖起来、投信口露出半封信、周围亮一圈
 function mailbox(cv, gy0, z0, { body, dark, trim, flag, letter, seal, glow: halo }, L) {
-  const has = !!globalThis.MAIL, w = 0.42, d = 0.85, h = 0.75;
+  const has = !!cv.mail, w = 0.42, d = 0.85, h = 0.75;
   if (has) onLeft(cv, gy0 - 0.25, gy0 + d + 0.25, z0 - 0.2, z0 + h + 0.35, (u, v, x, y) => {
     const e = Math.hypot((u - 0.5) * 1.3, (v - 0.5) * 1.1);
     return e < 0.5 && (e < 0.38 || dither(x, y)) ? glow(cv.get(x, y), hex(halo), 0.35) : null;
@@ -211,10 +214,12 @@ export const cuiLights = [
   { at: [ICX, ICY, 0.4], r: 3.9, color: "#FFB35C", s: 0.62 }, // 地炉
 ];
 
-export function cuiFurnish(cv, L) {
+export function cuiFurnish(cv, L, state = {}) {
+  cv.mail = state.mail;
   const win = cui.win, D = cuiDeck, top = D.h;
 
   // ---- 左墙：大一点的海图、「记得喝水」便签、三格贝壳标本 ----
+  cv.tag = T("chart");
   onLeft(cv, 0.4, 2.3, 3.0, 4.9, framed("#7A5638", (u, v, x, y) => {
     const land = 0.25 * Math.sin(u * 7) + 0.3 - v;
     if (Math.abs(land) < 0.03) return "#8A6A48";
@@ -224,6 +229,7 @@ export function cuiFurnish(cv, L) {
     if (Math.abs(u - 0.45 - Math.sin(v * 6) * 0.05) < 0.02 && v > 0.35 && v < 0.85 && (y % 3)) return "#C64A3A";
     return "#EDE3CC";
   }), L);
+  cv.tag = T("note");
   onBack(cv, 2.2, 3.3, 4.2, 5.2, (u, v, x, y, i) => {
     if (i.edge < 1) return "#D9B860";
     if (v > 0.86 && Math.abs(u - 0.5) < 0.08) return "#C64A3A"; // 图钉
@@ -236,6 +242,7 @@ export function cuiFurnish(cv, L) {
     if (row === 1 && Math.hypot((u - 0.72) * 1.5, v - 0.3) < 0.09) return "#5A8AC8";
     return "#FFF2B8";
   }, L);
+  cv.tag = T("shells");
   onLeft(cv, 3.6, 5.6, 3.25, 4.25, (u, v, x, y, i) => {
     if (i.edge < 1.2) return "#6E4D30";
     const cell = Math.floor(u * 3), cu = u * 3 - cell;
@@ -255,7 +262,9 @@ export function cuiFurnish(cv, L) {
   }, L);
 
   // ---- 后墙左边：墙角一大盆植物、带靠背的小凳挂草帽 ----
+  cv.tag = T("plant");
   plant(cv, 0.3, 0.3, 0, { s: 1.5, tall: 1.2 }, L);
+  cv.tag = T("hat");
   shadow(cv, 2.6, 0.35, 0.65, 0.65, 0.22);
   legs(cv, 2.6, 0.35, 0.65, 0.65, 0.55, WD, L, 0.1);
   box(cv, { x: 2.6, y: 0.35, z: 0.55, w: 0.65, d: 0.65, h: 0.08 }, wood(W), L);
@@ -264,8 +273,10 @@ export function cuiFurnish(cv, L) {
 
   // ---- 地炉：贴着左墙；木框、灰、石头、火；三个靛蓝坐垫围着另外三边 ----
   const { x: ix, y: iy, S } = IRORI, cx = ICX, cy = ICY;
+  cv.tag = T("cushion");
   box(cv, { x: ix + 0.3, y: iy - 0.95, w: 0.9, d: 0.8, h: 0.14 }, soft(INDIGO[0]), L); // 后
   shadow(cv, ix, iy, S, S, 0.2);
+  cv.tag = T("fire");
   box(cv, { x: ix, y: iy, w: S, d: S, h: 0.1 }, {
     line: "#4A3020", left: "#6A4630", right: "#5A3A26",
     top: (u, v) => (u < 0.12 || u > 0.88 || v < 0.12 || v > 0.88 ? "#7A5236" : ((u * 13 + v * 7) % 1 < 0.5 ? "#9A9086" : "#8A8076")),
@@ -274,40 +285,30 @@ export function cuiFurnish(cv, L) {
     const a = (i / 7) * Math.PI * 2;
     box(cv, { x: cx + Math.cos(a) * 0.4 - 0.1, y: cy + Math.sin(a) * 0.4 - 0.1, z: 0.1, w: 0.2, d: 0.2, h: 0.12 }, { top: "#B9B2A6", left: "#8E877C", right: "#766F65", line: "#5A544C" }, L);
   }
-  sprite(cv, [cx - 0.05, cy + 0.15, 0.12], [
-    "...#.....",
-    "..#@#.#..",
-    ".#@o@##..",
-    "#@oo@@#..",
-    "#@owo@@#.",
-    ".#@oo@#..",
-  ], { "#": "#E8642C", "@": "#FFB35C", o: "#FFE08A", w: "#FFF6D6" });
+  // 火苗和热气会动，画在 cuiAnim 里；灭了就只剩一堆暗红的炭
+  if (state.fire === false) sprite(cv, [cx - 0.05, cy + 0.15, 0.12], [".#.#..", "#@##@#"], { "#": "#5A2E22", "@": "#8A3A28" });
+  cv.tag = T("cushion");
   box(cv, { x: ix + S + 0.25, y: iy + 0.35, w: 0.8, d: 0.9, h: 0.14 }, soft(INDIGO[2]), L); // 右
   // 铁壶 + 从墙上伸出来的横木上垂下来的绳
+  cv.tag = T("kettle");
   const armZ = 5.0;
   for (let h = 1.45; h < armZ; h += 1 / 16) sprite(cv, [cx, cy, h], ["#"], { "#": "#5A4632" });
   sprite(cv, [cx - 0.1, cy, 2.1], ["#####"], { "#": "#3A2A1C" }); // 自在钩的横木
   { // 铁壶正挂在火上：贴图按绳子的位置居中
     const [kx, ky] = P(cx, cy, 0.62), pal = { "#": "#141416", o: "#34343A", h: "#5A5A64", d: "#24242A" };
+    cv.z = cx + cy;
     KETTLE.forEach((r, j) => [...r].forEach((ch, i) => { if (pal[ch]) cv.set(Math.round(kx) - 7 + i, Math.round(ky) - KETTLE.length + j, hex(pal[ch])); }));
+    cv.z = -99;
   }
-  sprite(cv, [cx + 0.35, cy - 0.1, 1.45], [
-    "...#..",
-    "..#...",
-    ".#..#.",
-    "..#.#.",
-    "...#..",
-    "..#...",
-    ".#..#.",
-    "..##..",
-  ], { "#": "#F4EEE6" }); // 热气
   box(cv, { x: 0, y: cy - 0.15, z: armZ, w: cx + 0.35, d: 0.3, h: 0.26 }, wood("#6A4630", "#3A2416"), L);
   for (let i = 0; i < 8; i++) box(cv, { x: 0.02 + i * 0.07, y: cy - 0.1, z: armZ - 0.62 + i * 0.075, w: 0.1, d: 0.2, h: 0.1 }, wood("#5E3E28"), L); // 斜撑
   for (let i = 0; i < 6; i++) sprite(cv, [cx + 0.2 + (i % 2) * 0.06, cy - 0.12 + i * 0.07, armZ - 0.2 - i * 0.12], ["##", "@@", "@@", ".@"], { "#": "#3E5A2A", "@": i % 3 ? "#C8382A" : "#E0503A" }); // 干辣椒
+  cv.tag = T("cushion");
   box(cv, { x: ix + 0.3, y: iy + S + 0.25, w: 0.9, d: 0.8, h: 0.14 }, soft(INDIGO[1]), L); // 前
 
   // ---- 左墙：矮柜（收音机、陶罐、腌菜坛、暖暖的粮袋），推拉门，门边一盆植物 ----
   const ky = 5.25, kd = 1.55;
+  cv.tag = T("cabinet");
   shadow(cv, 0, ky, 0.85, kd);
   box(cv, { x: 0, y: ky, w: 0.85, d: kd, h: 1.15 }, {
     top: shade(W, 1.12), left: shade(W, 0.92), line: shade(W, 0.55),
@@ -318,21 +319,21 @@ export function cuiFurnish(cv, L) {
   sprite(cv, [0.3, ky + 0.3, 1.65], ["#", "#", "#", "#", "#", "#"], { "#": "#5A5A5A" });
   sprite(cv, [0.3, ky + 1.15, 1.15], JAR, { "#": "#6A3A18", o: "#C07A3A", h: "#E2A060", d: "#9A5A28" }, L);
   sprite(cv, [0.45, ky + 1.6, 1.15], CROCK, { "#": "#3A2418", o: "#7A5238", h: "#A27A58", d: "#5A3A28", r: "#C9A97A", s: "#9A9A94" }, L);
+  cv.tag = T("bag");
   sprite(cv, [0.95, ky + 1.75, 0], BAG, { "#": "#7A6040", o: "#E8D8B4", d: "#C9B48A", y: "#D9A030", v: "#6A9A4A" }, L); // 袋子上印一束谷穗
   sprite(cv, [1.55, ky + 1.95, 0], ["y.y..", "..y.y"], { y: "#E2B04A" }); // 撒出来几粒小米 // 粮袋放在柜子脚边地上
   // 推拉门
   const d = cui.door;
-  doorSpill(cv, d.u0, d.open, 3.2, "#FFC878", "left");
-  onLeft(cv, d.u0, d.open, 3.3, 4.4, (u, v) => {
-    if (Math.abs(u - 0.5) < 0.03) return null;
-    if (Math.abs(v - 0.55 - Math.sin(u * 14) * 0.08) < 0.07) return "#F2EEE6";
-    return v > 0.9 ? INDIGO[1] : INDIGO[0];
-  }, L, 0.08);
+  cv.tag = 0;
+  if (state.door !== false) doorSpill(cv, d.u0, d.open, 3.2, "#FFC878", "left"); // 暖帘会被风吹，画在 cuiAnim 里
+  cv.tag = T("plant");
   plant(cv, 0.2, 6.85, 0, { s: 1.1, pot: "#7A8A9A" }, L);
+  cv.tag = T("mailbox");
   // 门边墙上的信箱：浅海蓝的木箱、白边、红旗
   mailbox(cv, 6.25, 2.85, { body: "#6E9AB8", dark: "#5A3C26", trim: "#F2EEE6", flag: "#C64A3A", letter: "#FFF6E2", seal: "#C64A3A", glow: "#FFE2A0" }, L);
 
   // ---- 地台：后墙右边一大片，抬高一格，上面铺一层暖暖的毯子 ----
+  cv.tag = T("deck");
   shadow(cv, D.x, D.y, D.w, D.d, 0.25, 0.12);
   box(cv, D, {
     line: "#5A3C26",
@@ -358,15 +359,19 @@ export function cuiFurnish(cv, L) {
     return sunOn(hex(c), win, rx + u * rw, ry + v * rd, top, px, py, 1.1);
   }, L);
   // 窗台：左半宽，能坐；四个许愿瓶；右头一盆垂下来的绿萝
+  cv.tag = T("sill");
   litBox(cv, { x: 4.25, y: 0, z: win.h0 + 0.2, w: 3.0, d: 0.85, h: 0.12 }, wood("#A27650"), win, L);
   box(cv, { x: 7.25, y: 0, z: win.h0 + 0.2, w: 2.55, d: 0.3, h: 0.12 }, wood("#A27650"), L);
   const sillTop = win.h0 + 0.32;
+  cv.tag = T("jars");
   [["#E2C28A", "#D4B07A"], ["#F4D9CC", "#FFFFFF"], ["#C98AA0", "#E7B2C0"], ["#F6F4EE", "#DADCE2"]].forEach(([a, b], k) => {
     sprite(cv, [4.55 + k * 0.4, 0.5, sillTop], WISH.map(r => r.replace(/#/g, "#")), { "#": "#7FA4AE", c: "#A07850", g: "#DCEDEE", w: "#FFFFFF", a, b }, L);
   });
+  cv.tag = T("pothos");
   box(cv, { x: 6.55, y: 0.3, z: sillTop, w: 0.5, d: 0.5, h: 0.4 }, soft("#C07A3A"), L);
   { // 绿萝：盆里一小丛，藤从窗台边垂下来，一路挂着小叶子
     const [vx, vy] = P(6.8, 0.8, sillTop + 0.4);
+    cv.z = 7.6;
     const pal = ["#24502F", "#3F8A4C", "#74C06E"];
     for (const [ox, len] of [[-3, 26], [2, 18], [5, 30]]) {
       for (let t = 0; t < len; t++) {
@@ -376,9 +381,11 @@ export function cuiFurnish(cv, L) {
       }
     }
     for (const a of [-2.4, -1.6, -0.9, -0.3, -2.9]) leaf(cv, vx, vy - 1, a, 8, 3, pal);
+    cv.z = -99;
   }
 
   // ---- 地台上：床头贴着后墙 ----
+  cv.tag = T("bed");
   const bx = 7.35, by = 0.25, bw = 2.45, bd = 3.4;
   box(cv, { x: bx, y: 0.03, z: top, w: bw, d: 0.22, h: 0.62 }, wood("#8A5A38"), L);
   shadow(cv, bx, by, bw, bd, 0.25);
@@ -403,8 +410,17 @@ export function cuiFurnish(cv, L) {
     "#ppppppppp##ppppppppp#",
     "#,,,,,,,,,##,,,,,,,,,#",
   ], { "#": "#1E3450", "@": "#3E6A9A", g: "#E2C27A", p: "#FFF8E8", ",": "#D9CDB0" }, L);
+  // 床尾地台上：TA 的黑匣子（深木小箱子，铜包角、铜锁）
+  cv.tag = T("blackbox");
+  shadow(cv, 8.95, 4.05, 0.85, 0.6, 0.25, 0.06);
+  box(cv, { x: 8.95, y: 4.05, z: top, w: 0.85, d: 0.6, h: 0.45 }, {
+    line: "#1E120A", top: (u, v) => (u < 0.08 || u > 0.92 || v < 0.1 || v > 0.9 ? "#C9A24E" : "#4A2E1C"),
+    left: (u, v) => (Math.abs(u - 0.5) < 0.07 && v > 0.45 && v < 0.75 ? "#E8C26A" : u < 0.07 || u > 0.93 || v > 0.9 || v < 0.1 ? "#B08A3A" : Math.abs(v - 0.62) < 0.03 ? "#2E1C10" : "#3E2616"),
+    right: (u, v) => (u < 0.1 || u > 0.9 || v > 0.9 ? "#8A6A2A" : "#2E1C10"),
+  }, L);
 
   // ---- 地台上：毯子上的矮桌，大一点的茶壶、半杯茶、摊开的本子 ----
+  cv.tag = T("table");
   const tx = 4.85, ty = 2.9;
   box(cv, { x: tx + 0.35, y: ty + 1.3, z: top, w: 0.9, d: 0.85, h: 0.13 }, soft(INDIGO[0]), L);
   shadow(cv, tx, ty, 1.8, 1.1, 0.22);
@@ -423,10 +439,12 @@ export function cuiFurnish(cv, L) {
   ], { "#": "#9C8A70", t: "#B98A3A", o: "#F2E6D2", h: "#FFFFFF" }, L);
 
   // ---- 台阶、木屐、台阶旁一团渔网（一角搭在地台边上，带几个浮子） ----
+  cv.tag = T("deck");
   box(cv, { x: 5.3, y: D.d, w: 2.6, d: 0.7, h: 0.5 }, {
     top: litTop("#C99A6A", 5.3, D.d, 2.6, 0.7, 0.5, win),
     left: (u, v) => (v > 0.8 ? "#6E4A30" : "#8A6240"), right: "#6A4630", line: "#5A3C26",
   }, L);
+  cv.tag = T("net");
   quad(cv, [4.3, D.d + 0.01, 0.15], [0.85, 0, 0], [0, 0, 0.86], (u, v, x, y) => (v < 0.1 + Math.sin(u * 3) * 0.12 ? null : netTex(u, v, x, y)), L);
   quad(cv, [4.3, D.d - 0.5, top + 0.005], [0.85, 0, 0], [0, 0.5, 0], (u, v, x, y) => (v < 0.4 - u * 0.3 ? null : netTex(u, v, x, y)), L);
   for (const [x, y, w, d, h] of [[3.1, 6.75, 1.25, 1.0, 0.32], [3.35, 6.95, 0.85, 0.7, 0.5], [4.15, 6.7, 0.5, 0.75, 0.22]])
@@ -436,6 +454,7 @@ export function cuiFurnish(cv, L) {
   // ---- 右前角：暖暖的草窝（铺着软布），旁边一小碟小米和一碟水 ----
   {
     const nx = 8.55, ny = 8.45, ns = 1.25;
+    cv.tag = T("nest");
     shadow(cv, nx, ny, ns, ns, 0.25, 0.1);
     box(cv, { x: nx, y: ny, w: ns, d: ns, h: 0.38 }, {
       line: "#8A6A30",
@@ -453,10 +472,40 @@ export function cuiFurnish(cv, L) {
     box(cv, { x: 7.75, y: 9.35, w: 0.45, d: 0.45, h: 0.1 }, { top: (u, v, x, y) => (Math.hypot(u - 0.5, v - 0.5) < 0.34 ? ((x + y) % 2 ? "#E2B04A" : "#C9902A") : "#E9E3D6"), left: "#D6CFC0", right: "#B9B2A2", line: "#8A8478" }, L); // 小米
     box(cv, { x: 8.25, y: 9.55, w: 0.42, d: 0.42, h: 0.1 }, { top: (u, v) => (Math.hypot(u - 0.5, v - 0.5) < 0.34 ? "#8AB4D0" : "#E9E3D6"), left: "#D6CFC0", right: "#B9B2A2", line: "#8A8478" }, L); // 水
   }
+  cv.tag = T("geta");
   box(cv, { x: 8.5, y: 6.95, w: 0.4, d: 0.66, h: 0.1 }, wood("#B08A60"), L);
   box(cv, { x: 9.1, y: 7.2, w: 0.66, d: 0.4, h: 0.1 }, wood("#B08A60"), L);
   sprite(cv, [8.66, 7.3, 0.1], ["##"], { "#": "#C64A3A" });
   sprite(cv, [9.45, 7.42, 0.1], ["##"], { "#": "#C64A3A" });
+  cv.tag = 0;
+}
+
+// 脆脆屋里会动的：地炉的火苗、壶嘴的热气、门口被风吹的暖帘。每一帧画在已经画好的屋子上面
+const FLAMES = [
+  ["...#.....", "..#@#.#..", ".#@o@##..", "#@oo@@#..", "#@owo@@#.", ".#@oo@#.."],
+  ["....#....", "..#.#@#..", ".##@o@#..", "#@@oo@#..", "#@owo@@#.", ".#@oo@#.."],
+  ["..#......", ".#@#..#..", ".#@o@#@..", "#@oo@@#..", "#@oow@@#.", ".#@oo@#.."],
+];
+const STEAM = [
+  ["...#..", "..#...", ".#..#.", "..#.#.", "...#..", "..#...", ".#..#.", "..##.."],
+  ["..#...", "...#..", "..#.#.", ".#..#.", "..#...", "...#..", "..#.#.", "..##.."],
+  ["....#.", "...#..", "..#...", "..#.#.", "...#..", "..#...", ".#....", "..##.."],
+];
+export function cuiAnim(cv, state, time) {
+  const cx = ICX, cy = ICY, f = Math.floor(time * 6) % 3;
+  if (state.fire !== false) {
+    sprite(cv, [cx - 0.05, cy + 0.15, 0.12], FLAMES[f], { "#": "#E8642C", "@": "#FFB35C", o: "#FFE08A", w: "#FFF6D6" });
+    sprite(cv, [cx + 0.35, cy - 0.1, 1.45 + (time % 1) * 0.15], STEAM[Math.floor(time * 3) % 3], { "#": "#F4EEE6" });
+  }
+  if (state.door !== false) { // 暖帘：下摆被风吹得一摆一摆
+    const d = cui.door, sw = Math.sin(time * 1.6) * 0.06;
+    onLeft(cv, d.u0, d.open, 3.3, 4.4, (u, v) => {
+      const uu = u + (1 - v) * sw * (u < 0.5 ? -1 : 1);
+      if (Math.abs(uu - 0.5) < 0.03 + (1 - v) * 0.04 || uu < 0 || uu > 1) return null;
+      if (Math.abs(v - 0.55 - Math.sin(uu * 14) * 0.08) < 0.07) return "#F2EEE6";
+      return v > 0.9 ? INDIGO[1] : INDIGO[0];
+    }, null, 0.08);
+  }
 }
 
 // ============================ Rowan ============================
@@ -487,11 +536,13 @@ const bookRow = (cv, x0, x1, y, z, h, cols, L, gap = []) => { // 一排立着的
   }
 };
 
-export function rowanFurnish(cv, L) {
+export function rowanFurnish(cv, L, state = {}) {
+  cv.mail = state.mail;
   const win = rowan.win;
   const BOOKS = ["#7A2E2A", PINE, GOLD, "#3E4A6A", "#5A3A2A", RUST, "#2E4F6A", "#8A5A38"];
 
   // ---- 后墙：大星图（墙角榻台上方）、手稿、告示板 ----
+  cv.tag = T("starchart");
   onBack(cv, 0.25, 3.0, 2.7, 6.3, framed("#7A6440", (u, v, x, y) => {
     const h = (x * 73 + y * 31) % 97;
     if (Math.abs(Math.hypot(u - 0.5, (v - 0.5) * 0.85) - 0.38) < 0.01) return "#9A8A5A";
@@ -508,6 +559,7 @@ export function rowanFurnish(cv, L) {
     if (h === 3 || h === 41) return "#D9CDA8";
     return "#1E2840";
   }), L);
+  cv.tag = T("manuscripts");
   onBack(cv, 3.1, 5.9, 3.9, 5.0, (u, v, x) => {
     const sag = 0.94 - Math.sin(u * Math.PI) * 0.08;
     if (Math.abs(v - sag) < 0.03) return "#8A7A5A";
@@ -522,6 +574,7 @@ export function rowanFurnish(cv, L) {
     }
     return null;
   }, L, 0.04);
+  cv.tag = T("board");
   onBack(cv, 6.2, 8.0, 3.2, 4.7, (u, v, x, y, i) => {
     if (i.edge < 1.4) return "#4A3424";
     for (const [a, b, w, h, c] of [[0.08, 0.5, 0.36, 0.42, PAPER], [0.5, 0.56, 0.4, 0.34, "#E8D9A8"], [0.52, 0.1, 0.4, 0.38, PAPER], [0.1, 0.08, 0.32, 0.34, "#C9D6D0"]]) {
@@ -535,11 +588,13 @@ export function rowanFurnish(cv, L) {
 
   // ---- 左墙：观星窗的深窗台，杯子、罗盘放大；只挂一侧的窗帘 ----
   const sz = win.h0 + 0.2;
+  cv.tag = T("sill");
   box(cv, { x: 0, y: 0.85, z: sz, w: 0.8, d: 5.3, h: 0.12 }, wood("#4A3424"), L);
   const st = sz + 0.12;
   sprite(cv, [0.35, 1.7, st], ["#######.", "#ooooo###", "#hoooo#.#", "#hoooo###", "#ooooo#..", ".#####..."], { "#": "#8A8068", o: "#E9DFC4", h: "#FFFFFF" }, L); // 杯子
   sprite(cv, [0.4, 1.66, st + 0.4], [".#..", "..#.", ".#..", "#..."], { "#": "#9AA2B8" });
   { // 罗盘：黄铜圆盒，盖子立着打开；盘面白底、红白指针、N 字
+    cv.tag = T("compass");
     const [ox, oy] = P(0.45, 3.3, st);
     const X = Math.round(ox), Y = Math.round(oy) - 3;
     for (let dy = -14; dy <= -4; dy++) for (let dx = -6; dx <= 6; dx++) { // 盖子
@@ -561,16 +616,12 @@ export function rowanFurnish(cv, L) {
     }
     for (let dx = -8; dx <= 8; dx++) cv.set(X + dx, Y + 6, hex("#6E5428"));
   }
-  onLeft(cv, 0.2, 0.95, 2.45, 6.85, (u, v) => {
-    u = 1 - u; // 窗帘挂在靠墙角那边
-    const wid = 0.8 + Math.sin(v * 9) * 0.06 + (1 - v) * 0.12;
-    if (u > wid) return null;
-    return Math.floor(u * 6) % 2 ? "#26384A" : "#2E4458";
-  }, L, 0.06);
+  cv.tag = 0; // 窗帘会被风吹，画在 rowanAnim 里
   box(cv, { x: 0, y: 0.15, z: 6.85, w: 0.12, d: 0.85, h: 0.08 }, wood("#3A2A1C"));
 
   // ---- 观星榻台：塞进窗下那个墙角，两面贴墙；下面抽屉，窄垫、深蓝毯子；侧面两级台阶；大衣搭在床尾 ----
   const kw = 2.0, kd = 3.5, kh = 0.7;
+  cv.tag = T("daybed");
   shadow(cv, 0, 0, kw, kd, 0.3);
   box(cv, { x: 0, y: 0, w: kw, d: kd, h: kh }, {
     top: shade(WN, 1.1), left: shade(DW, 0.9), line: "#2A1C13",
@@ -596,7 +647,16 @@ export function rowanFurnish(cv, L) {
   box(cv, { x: 0.6, y: kd - 0.5, z: kh + 0.22, w: 0.9, d: 0.5, h: 0.08 }, { top: "#6A3A28", left: "#5A3424", right: "#4A2A1E", line: "#2E1A12" }, L);
 
   // ---- 后墙：书桌贴墙，上面一层架子放书；台灯、摊开的本子、羽毛笔、墨水瓶 ----
+  // 榻台边、靠后墙：TA 的黑匣子（黄铜包边的铁皮箱，一把很沉的锁）
+  cv.tag = T("blackbox");
+  shadow(cv, 2.12, 0.08, 0.85, 0.65, 0.3, 0.06);
+  box(cv, { x: 2.12, y: 0.08, w: 0.85, d: 0.65, h: 0.5 }, {
+    line: "#12100E", top: (u, v) => (u < 0.08 || u > 0.92 || v < 0.1 || v > 0.9 ? GOLD : "#3A4048"),
+    left: (u, v) => (Math.abs(u - 0.5) < 0.08 && v > 0.4 && v < 0.72 ? "#E8C26A" : u < 0.07 || u > 0.93 || v > 0.9 || v < 0.1 ? "#A8843E" : Math.abs(u - 0.25) < 0.03 || Math.abs(u - 0.75) < 0.03 ? "#5A6068" : "#2E3238"),
+    right: (u, v) => (u < 0.1 || u > 0.9 || v > 0.9 ? "#8A6A2A" : "#24282E"),
+  }, L);
   const dx = 3.1, dw = 2.8, dd = 1.2, dz = 1.45;
+  cv.tag = T("desk");
   shadow(cv, dx, 0, dw, dd, 0.3);
   legs(cv, dx, 0.02, dw, dd, dz, DW, L);
   box(cv, { x: dx + dw - 1.0, y: 0.1, z: dz - 0.5, w: 0.9, d: dd - 0.2, h: 0.5 }, { ...wood(DW), left: (u, v) => (Math.abs(u - 0.5) < 0.1 && Math.abs(v - 0.5) < 0.12 ? GOLD : DW) }, L);
@@ -612,10 +672,12 @@ export function rowanFurnish(cv, L) {
   box(cv, { x: dx, y: 0, z: tz, w: 0.08, d: 0.5, h: 1.9 }, wood(DW), L);
   box(cv, { x: dx + dw - 0.08, y: 0, z: tz, w: 0.08, d: 0.5, h: 1.9 }, wood(DW), L);
   // 桌面
+  cv.tag = T("notebook");
   litBox(cv, { x: dx + 0.5, y: 0.55, z: tz, w: 1.05, d: 0.6, h: 0.05 }, {
     top: (u, v, x) => (Math.abs(u - 0.5) < 0.03 ? "#CDBF9F" : (Math.floor(v * 7) % 2 && u > 0.08 && u < 0.92 && Math.abs(u - 0.5) > 0.07 && x % 3 ? "#CFC3A4" : PAPER)),
     left: "#D6CBB0", right: "#C4B89C", line: "#8A8068",
   }, win, L);
+  cv.tag = T("desk");
   sprite(cv, [dx + 1.75, 0.65, tz], ["..###..", ".#ooo#.", "#ooooo#", "#ohooo#", "#ohooo#", ".#####."], { "#": "#12162A", o: "#2E3550", h: "#5A6488" }, L); // 墨水瓶
   sprite(cv, [dx + 1.95, 0.75, tz + 0.3], ["........##", ".......###", "......###.", ".....###..", "....###...", "...###....", "..##......", ".#........", "#........."], { "#": "#F4F1EA" }); // 羽毛笔
   // 台灯：桌子右头，黄铜杆、绿灯罩
@@ -638,8 +700,11 @@ export function rowanFurnish(cv, L) {
       "...#bbbbbbbbbbb#....",
       "....###########.....",
     ];
-    sprite(cv, [4.9, 0.85, tz], LAMP, { "#": "#2A1C13", G: "#2E6A4A", h: "#5AA27A", y: "#FFE7A6", b: GOLD, c: "#B9A26E", o: GOLD });
+    cv.tag = T("lamp");
+    const on = state.lamp !== false;
+    sprite(cv, [4.9, 0.85, tz], LAMP, { "#": "#2A1C13", G: on ? "#2E6A4A" : "#244A38", h: on ? "#5AA27A" : "#3E6A52", y: on ? "#FFE7A6" : "#4A4A3A", b: GOLD, c: "#B9A26E", o: GOLD });
   }
+  cv.tag = T("chair");
   // 椅子：拉出来一点，椅背朝我们
   const cx = 4.0, cy = 1.5;
   shadow(cv, cx, cy, 0.85, 0.85, 0.25);
@@ -650,6 +715,7 @@ export function rowanFurnish(cv, L) {
   sprite(cv, [3.12, 1.65, 0.55], [".##.##", "######"], { "#": PAPER });
 
   // ---- 后墙右边：另一个书架挪到这里，靠门；告示板在它上面 ----
+  cv.tag = T("bookshelf");
   const sx = 6.2, sw = 1.8, sh = 2.6;
   shadow(cv, sx, 0, sw, 0.8, 0.3);
   box(cv, { x: sx, y: 0, w: sw, d: 0.8, h: sh }, {
@@ -678,9 +744,11 @@ export function rowanFurnish(cv, L) {
 
   // ---- 门：后墙右头，开一半，走廊的暖光 ----
   const dr = rowan.door;
-  doorSpill(cv, dr.u0, dr.u1, 3.0, "#FFC070", "back");
+  cv.tag = 0;
+  if (state.door !== false) doorSpill(cv, dr.u0, dr.u1, 3.0, "#FFC070", "back");
+  cv.tag = T("door");
   const a = 0.62, DWd = dr.u1 - dr.u0;
-  quad(cv, [dr.u1, 0.02, 0], [-Math.cos(a) * DWd, Math.sin(a) * DWd, 0], [0, 0, dr.h1], (u, v, x, y, i) => {
+  if (state.door !== false) quad(cv, [dr.u1, 0.02, 0], [-Math.cos(a) * DWd, Math.sin(a) * DWd, 0], [0, 0, dr.h1], (u, v, x, y, i) => {
     if (i.edge < 1) return "#2E1F15";
     const inP = (v > 0.1 && v < 0.45) || (v > 0.55 && v < 0.92);
     if (inP && u > 0.16 && u < 0.84) return (u < 0.2 || v > 0.89 || (v > 0.42 && v < 0.45)) ? "#2E1F15" : "#6E4D33";
@@ -689,6 +757,7 @@ export function rowanFurnish(cv, L) {
   }, L);
 
   // ---- 地上：摊开的海图、几张报纸 ----
+  cv.tag = T("map");
   sheet(cv, 4.3, 2.75, 2.0, 1.35, 0.12, (u, v, x, y, i) => {
     if (i.edge < 1) return "#9A8458";
     if (Math.abs(u - 0.333) < 0.006 || Math.abs(u - 0.666) < 0.006 || Math.abs(v - 0.5) < 0.01) return "#B9A57A"; // 折痕
@@ -707,18 +776,21 @@ export function rowanFurnish(cv, L) {
     if (col > 0.06 && col < 0.94 && Math.floor(v * 22) % 2 && x % 5) return "#A8A498";
     return "#E6E1D3";
   };
+  cv.tag = T("papers");
   sheet(cv, 3.7, 7.7, 1.0, 1.25, -0.3, paper, win, L);
   sheet(cv, 6.8, 5.5, 1.25, 0.95, 0.4, paper, win, L);
   sheet(cv, 2.2, 5.4, 0.9, 1.1, 0.15, paper, win, L);
 
   // ---- 望远镜：架在榻台边，镜筒对着窗 ----
-  const T = [2.75, 4.05, 1.25];
-  for (const f of [[2.45, 3.75, 0], [3.1, 3.85, 0], [2.75, 4.5, 0]]) rod(cv, f, T, 0.06, { top: "#4A3424", left: "#3A2A1C", right: "#2A1C13" }, L);
+  cv.tag = T("telescope");
+  const TOP3 = [2.75, 4.05, 1.25];
+  for (const f of [[2.45, 3.75, 0], [3.1, 3.85, 0], [2.75, 4.5, 0]]) rod(cv, f, TOP3, 0.06, { top: "#4A3424", left: "#3A2A1C", right: "#2A1C13" }, L);
   rod(cv, [3.25, 4.35, 1.05], [2.05, 3.75, 1.85], 0.2, { top: "#E8C880", left: "#C9A24E", right: "#A8843E" }, L);
   rod(cv, [3.35, 4.4, 1.0], [3.25, 4.35, 1.05], 0.12, { top: "#3A2A1C", left: "#2A1C13", right: "#1A120C" }, L);
   box(cv, { x: 1.95, y: 3.65, z: 1.8, w: 0.26, d: 0.26, h: 0.26 }, { top: "#E8C880", left: "#B88A3A", right: "#8A6A2A", line: "#5A4418" }, L);
 
   // ---- 左墙前段：一排吃的柜子 + 墙上一块小搁板 ----
+  cv.tag = T("food");
   const fy = 6.25, fd = 3.5;
   shadow(cv, 0, fy, 0.85, fd, 0.3);
   box(cv, { x: 0, y: fy, w: 0.85, d: fd, h: 1.15 }, {
@@ -761,10 +833,25 @@ export function rowanFurnish(cv, L) {
     sprite(cv, [0.08, fy + 0.85 + k * 0.82, 2.28], FJAR, { "#": "#4A6070", l, g: "#CFE0E4", w: "#FFFFFF", f }, L)); // 一排装吃的的玻璃罐（米、咖啡豆、饼干、茶叶）
 
   // 门口这边墙上的信箱：深绿铁皮、黄铜边、红旗，信上一枚火漆
+  cv.tag = T("mailbox");
   mailbox(cv, 8.55, 3.5, { body: "#3E5E4A", dark: "#2A1C13", trim: GOLD, flag: RUST, letter: PAPER, seal: "#A8322A", glow: "#FFD27A" }, L);
   // ---- 植物：窗前地上一盆，叶子大一点 ----
+  cv.tag = T("plant");
   plant(cv, 0.25, 4.15, 0, { s: 1.4, pot: "#8A5A3A", leaves: ["#1E3E28", "#3A6E46", "#62A066"] }, L);
   // 地毯上：矮坐垫、一摞书
+  cv.tag = T("rug");
   box(cv, { x: 3.4, y: 5.1, w: 0.95, d: 0.95, h: 0.2 }, soft("#3A5A4A"), L);
   for (let i = 0; i < 3; i++) box(cv, { x: 5.0 + i * 0.03, y: 6.0 - i * 0.02, z: i * 0.1, w: 0.6 - i * 0.04, d: 0.42, h: 0.1 }, soft(["#7A2E2A", GOLD, "#2E4F6A"][i]), L);
+  cv.tag = 0;
+}
+
+// Rowan 屋里会动的：窗帘被夜风吹得一摆一摆（窗外的灯塔、星星由 rooms.js 的 view 负责）
+export function rowanAnim(cv, state, time) {
+  const sw = Math.sin(time * 1.3) * 0.08 + Math.sin(time * 3.1) * 0.02;
+  onLeft(cv, 0.2, 0.95, 2.45, 6.85, (u, v) => {
+    u = 1 - u; // 窗帘挂在靠墙角那边
+    const wid = 0.8 + Math.sin(v * 9 + time * 2) * 0.05 + (1 - v) * (0.12 + sw);
+    if (u > wid) return null;
+    return Math.floor((u + Math.sin(v * 5 + time) * 0.03) * 6) % 2 ? "#26384A" : "#2E4458";
+  }, null, 0.06);
 }

@@ -1,8 +1,8 @@
 # 小世界 · 像素小屋重做（设计稿）
 
 这里是心晴（脆脆）和 Rowan（哥哥）小屋的**新设计**：房间、人物、动作、互动的定稿和生成它们的代码。
-现在 app 里用的还是旧的小屋（`src/components/room/CuiRoom.vue`、`RowanRoom.vue`），这些设计**还没实装**。
-以后实装时先读这份说明，图在 `rooms/out/`、`chars/out/`。
+**已经实装**：引擎和家具在 `src/lib/pixelroom/`（iso、light、rooms、furniture、folk 人物、scene 走动和每一帧），页面是 `src/components/room/PixelRoom.vue`，接在 `src/views/RoomView.vue`。
+这里的是设计稿和出图用的脚本；改屋子时两边一起改（app 那份多了深度、点到的东西、开关状态、会动的部分）。图在 `rooms/out/`、`chars/out/`。
 
 ## 怎么重新生成
 
@@ -77,3 +77,4 @@ ffmpeg -framerate 10 -i out/frames-cui/%03d.png -vf "split[a][b];[a]palettegen=m
 - **会动的**：窗外灯塔的灯闪、海面反光；窗帘被风吹（3–4 帧）；地炉的火苗跳。
 - **能点的**：火、台灯点一下开/关（关了屋里那圈暖光也收掉）；门点一下推开/关上（开着才有走廊的光）。
 - 之后可能接更多东西，现在只接信箱。
+- 信不能删：心潮的信箱接口只有写信、标已读、开锁，没有删除（要删得心潮那边先加）。

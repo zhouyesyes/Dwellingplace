@@ -319,6 +319,22 @@ export function driveStory(drive, timeline = []) {
   return { head: `${when}，「${name}」${how}。`, tail: `${d > 0 ? "+" : ""}${d.toFixed(2)} · 现在${level}。` };
 }
 
+// 小屋里点 TA 时，气泡第二行：心潮连着没有、最近一次心里动了一下是什么时候
+// tone：ok 已连接 / sync 正在同步 / off 没连上 / none 没接心潮
+export function xinchaoStatus(role) {
+  if (!hasXinchao(role) || !dashToken(role)) return { tone: "none", text: "还没接上心潮", detail: "在设置里接上心潮、填好看板口令以后，这里会显示 TA 的状态" };
+  const c = cacheOf(role);
+  if (c.loading) return { tone: "sync", text: "正在同步…", detail: "在取 TA 此刻的状态" };
+  if (!c.snap || c.snap._saved) {
+    if (c.error) return { tone: "off", text: "没连上", detail: `${c.at ? `上次连上是 ${ago(Date.now() - c.at)} · ` : ""}点一下重连` };
+    return { tone: "sync", text: "正在同步…", detail: "在取 TA 此刻的状态" };
+  }
+  const last = [...(c.timeline || [])].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+  const mood = c.snap.emotion?.shown || c.snap.emotion?.label;
+  const detail = last ? `${ago(Date.now() - Date.parse(last.at))} · ${SOURCE_WORD[last.type] || ""}心里动了一下` : mood ? `此刻：${mood}` : "刚刚同步过";
+  return { tone: c.error ? "off" : "ok", text: c.error ? "刚才没连上" : "已连接", detail };
+}
+
 // ---------- 缓存：打开页面先显示上次的，后台再刷新 ----------
 export const xcCache = reactive({}); // roleId -> { snap, map, timeline, at, loading, error }
 // 上次取到的「此刻」存一份在这台设备上：打开栖所马上就有，偶尔取不到也不会变成空的

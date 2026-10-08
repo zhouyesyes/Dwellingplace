@@ -3,14 +3,12 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById } from "../store/index.js";
-import { hasXinchao, dashToken, refreshMind, snapOf, fetchCabin } from "../lib/xinchao.js";
-import { faceGrid } from "../lib/pixel.js";
+import { hasXinchao, dashToken, refreshMind, snapOf, fetchCabin, xinchaoStatus } from "../lib/xinchao.js";
 import Icon from "../components/Icon.vue";
 import Avatar from "../components/Avatar.vue";
-import PixelArt from "../components/PixelArt.vue";
-import CuiRoom from "../components/room/CuiRoom.vue";
-import RowanRoom from "../components/room/RowanRoom.vue";
+import PixelRoom from "../components/room/PixelRoom.vue";
 import LetterSheet from "../components/room/LetterSheet.vue";
+import BlackBoxSheet from "../components/room/BlackBoxSheet.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -18,11 +16,7 @@ const role = computed(() => roleById(route.params.roleId));
 if (!role.value) router.replace("/chats");
 
 // 每个人住自己的房间（没设过就按名字认）
-const ROOMS = {
-  cui: { comp: CuiRoom, idle: n => `${n}靠着窗台坐在地上，膝盖上搁着小本子，看着海发呆。` },
-  rowan: { comp: RowanRoom, idle: n => `${n}坐在靠窗的木书桌前，拿羽毛笔在小本子上写写画画。` },
-};
-const room = computed(() => ROOMS[role.value?.room] || (/rowan/i.test(role.value?.name || "") ? ROOMS.rowan : ROOMS.cui));
+const kind = computed(() => (["cui", "rowan"].includes(role.value?.room) ? role.value.room : /rowan/i.test(role.value?.name || "") ? "rowan" : "cui"));
 
 // 换人：房间、名字、TA 都跟着换
 const switchOpen = ref(false);
@@ -76,18 +70,28 @@ function say(text) {
   clearTimeout(sayTimer);
   sayTimer = setTimeout(() => (said.value = ""), 6000);
 }
-const idle = computed(() => (asleep.value ? `${role.value.name}睡着了。` : room.value.idle(role.value.name)));
+// TA 现在在干嘛（小屋里走到哪、做什么，由小屋告诉我们）
+const doing = ref("");
+const idle = computed(() => `${role.value.name}${doing.value || (asleep.value ? "睡着了" : "在屋里待着")}。`);
 
-// 点了 TA、信箱、小本子
+// 点了 TA：房间下面冒一个气泡，写着 TA 在干嘛，还有心潮的状态
 const card = ref(null);
-const lettersOpen = ref(false);
-function open(kind) {
+function tapMe(text) {
   said.value = "";
-  if (kind === "ta") card.value = { kind };
-  else if (kind === "mailbox") lettersOpen.value = true;
-  else if (kind === "notebook") router.push({ path: "/memory", query: { role: role.value.id } });
+  card.value = { doing: text };
+  if (status.value.tone === "off" || status.value.tone === "sync") refreshMind(role.value, { force: true });
 }
-const face = computed(() => faceGrid(asleep.value ? "睡着" : mood.value, snap.value?.emotion?.valence));
+const status = computed(() => xinchaoStatus(role.value));
+function retry() {
+  if (status.value.tone === "off") refreshMind(role.value, { force: true });
+}
+// 墙上的信箱、黑匣子
+const lettersOpen = ref(false);
+const boxOpen = ref(false);
+function open(what) {
+  if (what === "mailbox") { said.value = ""; card.value = null; lettersOpen.value = true; }
+  else if (what === "blackbox") boxOpen.value = true;
+}
 const goChat = () => router.push(`/chat/${role.value.id}`);
 </script>
 
@@ -110,23 +114,28 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
     </header>
 
     <div class="frame">
-      <component :is="room.comp" :key="role.id" :name="role.name" :asleep="asleep" :mail-lit="unreadLetters > 0" @say="say" @open="open" />
+      <PixelRoom :key="role.id" :kind="kind" :name="role.name" :asleep="asleep" :mood="mood" :mail-lit="unreadLetters > 0"
+        @say="say" @open="open" @tap-me="tapMe" @doing="doing = $event" />
     </div>
 
-    <div class="caption">
-      <div v-if="card?.kind === 'ta'" class="ta">
-        <PixelArt :grid="face" :size="34" />
+    <div v-if="card" class="bubble" :class="kind">
+      <div class="b-top">
         <div class="grow">
-          <b>{{ role.name }}</b>
-          <span>{{ asleep ? "正睡着呢" : mood ? `此刻：${mood}` : "在房间里待着" }}</span>
+          <p class="b-doing"><b>{{ role.name }}</b>{{ card.doing }}</p>
+          <p class="b-xc" :class="{ tappable: status.tone === 'off' }" @click="retry">
+            <i class="dot" :class="status.tone" />心潮 · {{ status.text }}<span>{{ status.detail }}</span>
+          </p>
         </div>
         <button class="btn small" @click="goChat">{{ asleep ? "轻轻叫醒" : "去说话" }}</button>
       </div>
-      <p v-else class="line">{{ said || idle }}</p>
     </div>
-    <p class="hint">点点房间里的东西看看～信箱亮了是 {{ role.name }} 给你写了信，小本子会带你去 TA 的记忆。</p>
+    <div v-else class="caption">
+      <p class="line">{{ said || idle }}</p>
+    </div>
+    <p class="hint">左右拖动看整间屋～点 {{ role.name }} 看 TA 在干嘛；墙上的信箱竖起小旗，是 TA 给你写了信；火、灯、门都能点。</p>
 
     <LetterSheet :role="role" :open="lettersOpen" @close="lettersOpen = false; checkMail()" @changed="unreadLetters = $event" />
+    <BlackBoxSheet :role="role" :open="boxOpen" @close="boxOpen = false" />
   </div>
 </template>
 
@@ -139,12 +148,22 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 .who-menu { position: absolute; right: 0; top: calc(100% + 6px); background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 6px; min-width: 170px; }
 .who-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px; border-radius: 12px; font-size: 0.9rem; text-align: left; }
 .who-menu button.on { background: var(--bg); font-weight: 600; }
-.frame { border-radius: 22px; overflow: hidden; box-shadow: var(--shadow-soft); background: #2a2a2a; }
+.frame { border-radius: 22px; overflow: hidden; box-shadow: var(--shadow-soft); background: #2a2a2a; margin: 0 -4px; }
+.bubble { position: relative; margin-top: 14px; border-radius: 18px; padding: 12px 14px; border: 2.5px solid #3a2a1c; background: #fff8ec; color: #3a2a1c; box-shadow: 0 3px 0 #3a2a1c; }
+.bubble:before { content: ""; position: absolute; top: -11px; left: 50%; margin-left: -9px; border: 9px solid transparent; border-bottom-color: #3a2a1c; border-top: 0; }
+.bubble.rowan { background: #1e2a33; border-color: #c9b98a; color: #e9dfc4; box-shadow: 0 3px 0 #0e1418; }
+.bubble.rowan:before { border-bottom-color: #c9b98a; }
+.b-top { display: flex; align-items: center; gap: 10px; }
+.b-doing { margin: 0; font-size: 0.95rem; line-height: 1.6; }
+.b-doing b { margin-right: 8px; }
+.b-xc { margin: 4px 0 0; font-size: 0.8rem; opacity: 0.85; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.b-xc span { opacity: 0.7; }
+.b-xc.tappable { cursor: pointer; text-decoration: underline dotted; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: #8a8a8a; }
+.dot.ok { background: #5fb86a; }
+.dot.sync { background: #e8b040; }
 .caption { margin-top: 12px; background: var(--card); border-radius: 18px; padding: 12px 16px; min-height: 58px; box-shadow: var(--shadow-soft); display: flex; align-items: center; }
 .line { margin: 0; font-size: 0.93rem; line-height: 1.7; color: var(--text-2); }
-.ta { display: flex; align-items: center; gap: 12px; width: 100%; }
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.grow b { font-size: 0.95rem; }
-.grow span { font-size: 0.82rem; color: var(--text-3); }
 .hint { font-size: 0.75rem; color: var(--text-3); text-align: center; margin: 12px 8px; line-height: 1.6; }
 </style>
