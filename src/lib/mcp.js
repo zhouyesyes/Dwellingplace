@@ -302,6 +302,10 @@ export function showTool(servers, args) {
 // 用过工具之后，嘴上说「这就去交 / 再试一次」却没调用：拿来提醒一次
 export const SAID_NOT_DONE_RE = /(这就|马上|现在就|立刻|赶紧|先去|我去|再试|重新|改好|换个|一步到位|交掉|交上|提交|轮到我了)[^。！？\n]{0,24}([。！？…]|$)\s*$/;
 
+// 工具结果交给 AI 时最多多长；太长截掉时告诉 TA（游戏状态里能做的动作常在后面）
+export const RESULT_MAX = 16000;
+export const clipResult = r => { const t = String(r); return t.length > RESULT_MAX ? `${t.slice(0, RESULT_MAX)}\n…（结果太长，后面 ${t.length - RESULT_MAX} 字被截掉了）` : t; };
+
 export const TOOL_CALL_RE = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/tool_call>/;
 
 // 有的模型（比如 DeepSeek）不按约定写 <tool_call>，而是写成 <invoke name="…"><parameter name="…">…</parameter></invoke>
