@@ -19,7 +19,7 @@ const PLACES = {
       wander: { at: [2.8, 6.4, 0], node: "A", pose: "front", tap: "up", short: "屋子中间", label: "在屋里转转", mood: "好奇 无聊 开心" },
       sleep: { at: [8.55, 0.95, 1.55], node: "G", bed: "sleep", zz: [8.3, 0.4, 2.7], label: "和暖暖一起睡着了 💤", sleep: true },
     },
-    nest: [9.15, 9.1, 0.32], dish: [8.05, 9.05, 0],
+    nest: [9.15, 9.1, 0.32], dish: [8.3, 9.45, 0], // 站在碟子右边，低头啄
   },
   rowan: {
     room: rowan, who: "rw",
