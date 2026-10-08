@@ -12,7 +12,7 @@ import ToolsView from "./views/ToolsView.vue";
 import McpEditView from "./views/McpEditView.vue";
 import WakeView from "./views/WakeView.vue";
 import WakeRoleView from "./views/WakeRoleView.vue";
-import RoomView from "./views/RoomView.vue";
+
 import GroupView from "./views/GroupView.vue";
 
 export const router = createRouter({
@@ -25,7 +25,7 @@ export const router = createRouter({
     { path: "/chats", component: ChatsView, meta: { tab: "chats" } },
     { path: "/chat/:roleId/:threadId?", component: ChatView },
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
-    { path: "/room/:roleId", component: RoomView },
+    { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
     { path: "/group/:id", component: GroupView },
     { path: "/settings", component: SettingsView, meta: { tab: "settings" } },
     { path: "/settings/role/:id", component: RoleEditView },
