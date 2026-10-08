@@ -11,6 +11,7 @@ import PixelArt from "../components/PixelArt.vue";
 import CuiRoom from "../components/room/CuiRoom.vue";
 import RowanRoom from "../components/room/RowanRoom.vue";
 import LetterSheet from "../components/room/LetterSheet.vue";
+import IsoRoom from "../components/room/IsoRoom.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -22,7 +23,15 @@ const ROOMS = {
   cui: { comp: CuiRoom, idle: n => `${n}靠着窗台坐在地上，膝盖上搁着小本子，看着海发呆。` },
   rowan: { comp: RowanRoom, idle: n => `${n}坐在靠窗的木书桌前，拿羽毛笔在小本子上写写画画。` },
 };
-const room = computed(() => ROOMS[role.value?.room] || (/rowan/i.test(role.value?.name || "") ? ROOMS.rowan : ROOMS.cui));
+const roomKey = computed(() => (ROOMS[role.value?.room] ? role.value.room : /rowan/i.test(role.value?.name || "") ? "rowan" : "cui"));
+const room = computed(() => ROOMS[roomKey.value]);
+
+// 新版小屋（施工中）：先能切过去看看，旧版的信箱、小本子照常能用
+const isoOn = ref((() => { try { return localStorage.getItem("iso-room") === "1"; } catch { return false; } })());
+function toggleIso() {
+  isoOn.value = !isoOn.value;
+  try { localStorage.setItem("iso-room", isoOn.value ? "1" : "0"); } catch { /* 记不住也没关系 */ }
+}
 
 // 换人：房间、名字、TA 都跟着换
 const switchOpen = ref(false);
@@ -109,11 +118,14 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
       </div>
     </header>
 
-    <div class="frame">
+    <div v-if="isoOn" class="frame iso">
+      <IsoRoom :key="role.id" :room="roomKey" />
+    </div>
+    <div v-else class="frame">
       <component :is="room.comp" :key="role.id" :name="role.name" :asleep="asleep" :mail-lit="unreadLetters > 0" @say="say" @open="open" />
     </div>
 
-    <div class="caption">
+    <div v-if="!isoOn" class="caption">
       <div v-if="card?.kind === 'ta'" class="ta">
         <PixelArt :grid="face" :size="34" />
         <div class="grow">
@@ -124,7 +136,9 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
       </div>
       <p v-else class="line">{{ said || idle }}</p>
     </div>
-    <p class="hint">点点房间里的东西看看～信箱亮了是 {{ role.name }} 给你写了信，小本子会带你去 TA 的记忆。</p>
+    <p v-if="isoOn" class="hint">新小屋还在搭：现在只有墙、地板、窗和光，左右拖动看看。家具和 {{ role.name }} 下一步再搬进来。</p>
+    <p v-else class="hint">点点房间里的东西看看～信箱亮了是 {{ role.name }} 给你写了信，小本子会带你去 TA 的记忆。</p>
+    <button class="iso-toggle" @click="toggleIso">{{ isoOn ? "回到旧版小屋" : "试试新小屋（施工中）" }}</button>
 
     <LetterSheet :role="role" :open="lettersOpen" @close="lettersOpen = false; checkMail()" @changed="unreadLetters = $event" />
   </div>
@@ -146,5 +160,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .grow b { font-size: 0.95rem; }
 .grow span { font-size: 0.82rem; color: var(--text-3); }
+.frame.iso { margin: 0 -18px; border-radius: 0; background: none; box-shadow: none; }
+.iso-toggle { display: block; margin: 0 auto 8px; border: 0; background: var(--card); color: var(--text-2); border-radius: 999px; padding: 6px 14px; font-size: 0.8rem; box-shadow: var(--shadow-soft); }
 .hint { font-size: 0.75rem; color: var(--text-3); text-align: center; margin: 12px 8px; line-height: 1.6; }
 </style>
