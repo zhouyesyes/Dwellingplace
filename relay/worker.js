@@ -920,6 +920,16 @@ async function tick(env, now = Date.now()) {
         changed = true;
       }
     }
+    // 你定的一次性闹钟：到点响一次（不受免打扰影响）；响过的记下来，两天后忘掉
+    sched.firedOnce ??= {};
+    for (const o of w.once || []) {
+      if (!o?.id || !(o.at <= now) || now - o.at > 30 * 60_000 || sched.firedOnce[o.id]) continue;
+      const at = new Date(o.at + BJ).toISOString().slice(5, 16).replace("T", " ");
+      reasons.push({ kind: "once", text: `到了${role.meName || "对方"}给你定的一次性闹钟（${at}）${o.note ? `，留了话：${o.note}` : ""}` });
+      sched.firedOnce[o.id] = now;
+      changed = true;
+    }
+    for (const [id, t] of Object.entries(sched.firedOnce)) if (now - t > 2 * DAY) { delete sched.firedOnce[id]; changed = true; }
     // TA 自己定的闹钟
     const mine = alarms.filter(a => a.roleId === role.id && a.at <= now);
     for (const a of mine) reasons.push({ kind: "alarm", text: `你给自己定的闹钟响了（${a.note || "没写要做什么"}）`, key: a.key });
@@ -1083,7 +1093,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 8, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 9, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

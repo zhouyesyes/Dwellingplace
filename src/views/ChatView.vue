@@ -373,6 +373,25 @@ async function removeMsg() {
 
 const smallWorld = () => router.push(`/room/${role.value.id}`);
 const back = () => goBack(router, "/chats");
+
+// 点聊天里的头像：换自己的（只在 TA 面前用）或 TA 的头像
+async function changeAvatarOf(who) {
+  const r = role.value, mine = who === "user";
+  if (!confirm(mine ? `换一个你在 ${r.name} 面前的头像？` : `换 ${r.name} 的头像？`)) return;
+  const id = await pickAndCrop({ aspect: 1, round: true, title: mine ? "我的头像" : `${r.name} 的头像`, maxSize: 500 });
+  if (!id) return;
+  if (mine) {
+    r.me ??= { name: "", avatar: null, about: "" };
+    const old = r.me.avatar;
+    r.me.avatar = id;
+    if (old) deleteImage(old);
+  } else {
+    const old = r.avatar;
+    r.avatar = id;
+    if (old) deleteImage(old);
+  }
+  toast("换好了", 2000);
+}
 </script>
 
 <template>
@@ -410,8 +429,8 @@ const back = () => goBack(router, "/chats");
 
           <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'">
             <div class="ava">
-              <Avatar v-if="it.from === 'user'" :img="role.me?.avatar || store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" />
-              <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" />
+              <Avatar v-if="it.from === 'user'" :img="role.me?.avatar || store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" @click="changeAvatarOf('user')" />
+              <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" @click="changeAvatarOf('ai')" />
             </div>
             <div class="col">
               <template v-for="m in it.msgs" :key="m._key || m.id">

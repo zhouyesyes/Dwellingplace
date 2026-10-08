@@ -24,7 +24,7 @@ function usageLine(api) {
     <div class="list-card">
       <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/role/${r.id}`)">
         <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="36" />
-        <span class="grow">{{ r.name }}<span class="sub">{{ r.persona || "还没有写设定" }}</span></span>
+        <span class="grow">{{ r.name }}<span class="sub">{{ r.signature || "点进去改头像、颜色" }}</span></span>
         <Icon name="right" class="chev" :size="18" />
       </button>
       <button class="list-row add" @click="router.push('/settings/role/new')">
@@ -42,6 +42,9 @@ function usageLine(api) {
           <span class="sub usage">{{ usageLine(a) }}</span>
         </span>
         <Icon name="right" class="chev" :size="18" />
+      </button>
+      <button class="list-row" @click="router.push('/settings/billing')">
+        <Icon name="box" :size="20" /> <span class="grow">用量和余额<span class="sub">每天用了多少次、多少 tokens；DeepSeek、OpenRouter 的余额</span></span><Icon name="right" class="chev" :size="18" />
       </button>
       <button class="list-row add" @click="router.push('/settings/api/new')">
         <Icon name="plus" :size="20" /> <span class="grow">添加 API</span>

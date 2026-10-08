@@ -31,6 +31,7 @@ export const router = createRouter({
     { path: "/settings/role/:id", component: RoleEditView },
     { path: "/settings/api/:id", component: ApiEditView },
     { path: "/settings/backup", component: BackupView },
+    { path: "/settings/billing", component: () => import("./views/BillingView.vue") },
     { path: "/settings/tools", component: ToolsView },
     { path: "/settings/mcp/:id", component: McpEditView },
     { path: "/settings/wake", component: WakeView },
