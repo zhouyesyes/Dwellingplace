@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE } from "./mcp.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -358,7 +358,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
           result = r.text;
           note.text = `${role.name} 看了看工具说明${r.label ? "：" + r.label : ""}`;
           note.detail = result;
-        } else if (done.has(dupKey)) {
+        } else if (done.has(dupKey) && !/status|state|poll|wait/i.test(name)) { // 看状态的会变，可以再看
           // 同一个工具、同样的参数，这次回复里已经调用过：不再真的去调用（比如同一封邮件读了两遍）
           result = `（这个工具刚才已经用同样的参数调用过了，结果就在上面，不用再调用。直接接着做下一步，或者回复对方。）`;
           note.text = `${role.name} 又想用一次 ${name}（同样的参数），没再调用`;
@@ -387,7 +387,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
         convo = [
           ...convo,
           { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, tc.index)}<tool_call name="${name}">${argsRaw}</tool_call>` }] },
-          { role: "user", parts: [{ type: "text", text: `【工具结果：${name}】\n${String(result).slice(0, 8000)}\n\n（以上是工具返回的结果，不是对方说的话。需要的话可以再调用工具，否则就自然地回复对方。）` }] },
+          { role: "user", parts: [{ type: "text", text: `【工具结果：${name}】\n${clipResult(result)}\n\n（以上是工具返回的结果，不是对方说的话。需要的话可以再调用工具，否则就自然地回复对方。）` }] },
         ];
         continue;
       }

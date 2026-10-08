@@ -201,6 +201,8 @@ const BJ = 8 * 3600_000; // 北京时间
 const DAY = 86400_000;
 const MAX_ALARMS = 5;
 const MAX_ROUNDS = 6;
+const RESULT_MAX = 16000; // 工具结果最多多长；截掉时告诉 TA
+const clip = r => { const t = String(r); return t.length > RESULT_MAX ? `${t.slice(0, RESULT_MAX)}\n…（结果太长，后面 ${t.length - RESULT_MAX} 字被截掉了）` : t; };
 const SAID_NOT_DONE_RE = /(这就|马上|现在就|立刻|赶紧|先去|我去|再试|重新|改好|换个|一步到位|交掉|交上|提交|轮到我了)[^。！？\n]{0,24}([。！？…]|$)\s*$/;
 const pad = n => String(n).padStart(2, "0");
 const bj = ms => new Date(ms + BJ); // 用 getUTC* 读出来就是北京时间
@@ -833,7 +835,7 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
       }
       notes.push(note);
       convo = addTurn(convo, "assistant", `${text.slice(0, tc.index)}<tool_call name="${name}">${argsRaw}</tool_call>`);
-      convo = addTurn(convo, "user", `【工具结果：${name}】\n${String(result).slice(0, 8000)}\n\n（以上是工具返回的结果，不是${me}说的话。需要的话可以继续用工具；想给${me}发消息就直接写，不想发就只回复 [不发消息]。）`);
+      convo = addTurn(convo, "user", `【工具结果：${name}】\n${clip(result)}\n\n（以上是工具返回的结果，不是${me}说的话。需要的话可以继续用工具；想给${me}发消息就直接写，不想发就只回复 [不发消息]。）`);
       continue;
     }
 
@@ -1150,7 +1152,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 11, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 12, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
