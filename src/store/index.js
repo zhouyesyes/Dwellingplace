@@ -51,6 +51,7 @@ function defaultTools() {
     relay: { url: "", token: "" }, // Cloudflare Worker 中转
     search: { enabled: false, provider: "tavily", key: "" }, // 通过中转搜索（所有模型都能用）
     fetch: { enabled: false }, // 内置的「网页读取」工具
+    stream: true, // 流式：回复一边生成一边显示；关掉就等整条生成完再一次拿回来
   };
 }
 

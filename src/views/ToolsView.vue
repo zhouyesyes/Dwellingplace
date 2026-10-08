@@ -98,6 +98,17 @@ async function testSearch() {
       </div>
     </div>
 
+    <!-- 流式 -->
+    <div class="section-label">回复方式</div>
+    <div class="list-card">
+      <label class="list-row">
+        <Icon name="send" :size="20" />
+        <span class="grow">流式回复<span class="sub">开着：一边生成一边显示；关掉：等整条写完一次显示</span></span>
+        <input v-model="store.tools.stream" type="checkbox" class="sw" />
+      </label>
+    </div>
+    <p class="note">所有 API 通用。关掉以后，开头那段等待没有动静，但中途断掉时整条会自动重试，不会只剩半句；回复很长时要等得久一点。</p>
+
     <!-- 网页读取 -->
     <div class="section-label">网页读取（fetch）</div>
     <div class="list-card">

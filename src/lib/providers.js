@@ -30,6 +30,9 @@ export function newApi(type = "anthropic") {
 
 const trimUrl = u => (u || "").trim().replace(/\/+$/, "");
 
+// 流式开关（工具页里，所有 API 通用）
+const streaming = () => store.tools?.stream !== false;
+
 // ---------------- 走中转 ----------------
 // 手机直连不上的模型接口（OpenRouter 这类）：请求先到你自己的 Cloudflare 中转，再由它转过去
 const relayBase = () => (store.tools?.relay?.url || "").trim().replace(/\/+$/, "");
@@ -103,6 +106,26 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
   const usage = { input: 0, output: 0, cached: 0 };
   // 联网搜索时服务端可能会暂停（pause_turn），把已有内容带上继续
   for (let round = 0; round < 4; round++) {
+    // 关了流式：一次请求拿回整条，再交给页面（思考先、正文后）
+    if (!streaming()) {
+      const fb = isOfficialAnthropic(api) && FALLBACK_MODELS.test(model);
+      const msg = fb
+        ? await client.beta.messages.create({ ...params, fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] }, { signal, timeout: 600_000 })
+        : await client.messages.create(params, { signal, timeout: 600_000 });
+      if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
+      const th = msg.content.filter(b => b.type === "thinking").map(b => b.thinking).join("");
+      if (th) { thinking += th; onThinking?.(th); }
+      const tx = msg.content.filter(b => b.type === "text").map(b => b.text).join("");
+      if (tx) onText(tx);
+      text += tx;
+      const read = msg.usage?.cache_read_input_tokens ?? 0;
+      usage.input += (msg.usage?.input_tokens ?? 0) + read + (msg.usage?.cache_creation_input_tokens ?? 0);
+      usage.cached += read;
+      usage.output += msg.usage?.output_tokens ?? 0;
+      if (msg.stop_reason !== "pause_turn") break;
+      params.messages = [...params.messages, { role: "assistant", content: msg.content }];
+      continue;
+    }
     let stream;
     if (isOfficialAnthropic(api) && FALLBACK_MODELS.test(model)) {
       stream = client.beta.messages.stream(
@@ -159,10 +182,11 @@ function splitThink(raw) {
 const isOpenRouter = api => /openrouter\.ai/i.test(api.baseUrl || "");
 
 async function openaiStream({ api, model, system, messages, signal, onText, onThinking }) {
+  const stream = streaming();
   const body = {
     model,
-    stream: true,
-    stream_options: { include_usage: true },
+    stream,
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
     max_tokens: Number(api.maxTokens) || undefined,
     messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
   };
@@ -177,6 +201,23 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`接口返回 ${res.status}：${(await res.text()).slice(0, 300)}`);
+
+  // 关了流式：整条一次拿回来
+  if (!stream) {
+    const raw = await res.text();
+    let j;
+    try { j = JSON.parse(raw); } catch { throw new Error(`接口返回的不是 JSON：${raw.slice(0, 200)}`); }
+    if (j.error) throw new Error(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`);
+    const m = j.choices?.[0]?.message || {};
+    const c = typeof m.content === "string" ? m.content : (m.content || []).map(x => x.text || "").join("");
+    const parts = splitThink(c);
+    const reasoning = (m.reasoning_content ?? m.reasoning ?? (Array.isArray(m.reasoning_details) ? m.reasoning_details.map(d => d.summary ?? d.text ?? "").join("") : "")) || "";
+    const thinking = reasoning + parts.thinking;
+    if (thinking) onThinking?.(thinking);
+    if (parts.text) onText(parts.text);
+    const u = j.usage || {};
+    return { text: parts.text, thinking, usage: { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0 } };
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
