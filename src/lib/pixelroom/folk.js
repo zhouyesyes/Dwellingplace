@@ -563,7 +563,7 @@ export const FOLK = {
     front: { s: turn.nn.front }, back: { s: turn.nn.back },
     walk: { front: turn.nn.walkFront, back: turn.nn.walkBack, right: turn.nn.walkSide, left: turn.nn.walkSide.map(mirror) },
     sleep: { s: build([[NN_SLEEP, 1, 2], [ZZ, 9, 0]], NNX, 16, 15) },
-    peck: { frames: [build([[NN_SIDE, 1, 2]], NNX, 14, 15), build([[NN_PECK, 1, 2]], NNX, 14, 15)] },
+    peck: { frames: [mirror(build([[NN_SIDE, 1, 2]], NNX, 14, 15)), mirror(build([[NN_PECK, 1, 2]], NNX, 14, 15))] }, // 朝左：碟子在它左边
   },
 };
 

@@ -420,8 +420,8 @@ export function cuiFurnish(cv, L, state = {}) {
   box(cv, { x: bx + 0.3, y: by + 0.12, z: top + 0.54, w: 1.7, d: 0.62, h: 0.22 }, { top: litTop("#FFFFFF", bx + 0.3, by + 0.12, 1.7, 0.62, top + 0.76, win), left: "#F2ECE2", right: "#DDD5C8", line: "#B9AE9E" }, L);
   const qy = by + 1.0, qz = top + 0.54;
   if (state.bed) { // 睡着了：顺着床躺好，被子铺开盖到下巴，暖暖窝在枕头边
-    drawCentered(cv, LYING.xq, bx + 1.2, by + 0.85, top + 0.96);
-    spreadQuilt(cv, { x: bx + 0.04, y: by + 1.3, w: bw - 0.08, d: bd - 1.35, z: top + 0.54 }, { top: "#F2B08A", side: "#E89A72", dark: "#C97E58", fold: "#FFE6D2" }, L, win);
+    drawCentered(cv, LYING.xq, bx + 1.25, by + 0.7, top + 1.08);
+    spreadQuilt(cv, { x: bx + 0.04, y: by + 0.82, w: bw - 0.08, d: bd - 0.87, z: top + 0.54 }, { top: "#F2B08A", side: "#E89A72", dark: "#C97E58", fold: "#FFE6D2" }, L, win);
     drawBuilt(cv, HEADS.nn, bx + 2.05, by + 0.5, top + 0.72);
   } else {
   box(cv, { x: bx + 0.02, y: qy, z: top + 0.28, w: bw - 0.04, d: bd - 0.95, h: 0.32 }, {
@@ -668,7 +668,7 @@ export function rowanFurnish(cv, L, state = {}) {
   box(cv, { x: 0.15, y: 0.12, z: kh + 0.22, w: 1.6, d: 0.7, h: 0.2 }, { top: "#E9DFC4", left: "#D6CBB0", right: "#BDB196", line: "#8A8068" }, L); // 枕头靠墙角
   if (state.bed) { // 躺下了：头枕在枕头上，深蓝毯子铺开盖好（看星星时睁着眼，睡着了闭眼）
     drawCentered(cv, state.bed === "gaze" ? LYING.rwGaze : LYING.rw, 0.95, 0.85, kh + 0.62);
-    spreadQuilt(cv, { x: 0.12, y: 1.35, w: 1.76, d: 2.05, z: kh + 0.22 }, { top: "#26305A", side: "#222A50", dark: "#1A2040", fold: "#D6CBB0", stripe: "#3A4A78" }, L, win);
+    spreadQuilt(cv, { x: 0.12, y: 0.86, w: 1.76, d: 2.54, z: kh + 0.22 }, { top: "#26305A", side: "#222A50", dark: "#1A2040", fold: "#D6CBB0", stripe: "#3A4A78" }, L, win);
   } else
   box(cv, { x: 0.15, y: 2.1, z: kh + 0.22, w: 1.65, d: 1.15, h: 0.24 }, { top: (u, v) => (Math.abs(u - 0.2) < 0.04 || Math.abs(u - 0.8) < 0.04 ? "#3A4A78" : "#26305A"), left: (u, v) => (Math.abs(v - 0.5) < 0.08 ? "#1A2040" : "#222A50"), right: "#1A2040", line: "#10142A" }, L); // 叠好的深蓝毯子
   box(cv, { x: kw, y: 0.9, w: 0.55, d: 1.5, h: kh * 0.66 }, wood(WN), L); // 上一级（能坐）
