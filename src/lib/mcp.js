@@ -263,11 +263,28 @@ export function toolsForAI(servers) {
   return [
     `\n# 你可以用的工具（MCP）`,
     `下面只是目录（工具名 + 一句话用途）。需要用工具时，只回复一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>（JSON 格式，没有参数就写 {}），不要写别的。系统会把结果发给你，你再继续。`,
-    `不确定某个工具怎么用、要哪些参数时，先查说明：<tool_call name="${TOOL_SHOW}">{"name": "服务名.工具名"}</tool_call>，系统会把完整说明发给你（这一次对话里查过的不用再查）。`,
+    `不确定某个工具怎么用、要哪些参数时，先查说明：<tool_call name="${TOOL_SHOW}">{"name": "服务名.工具名"}</tool_call>，系统会把完整说明发给你（这一次对话里查过的不用再查）。查任何服务的工具都用「${TOOL_SHOW}」，不要用某个服务自带的查参数工具（比如 get_tool_schema）去查别的服务的工具。`,
+    `工具名要照目录里的写法完整写上「服务名.工具名」，服务名就是目录里 ## 后面那个。`,
     `一次只调用一个工具；普通聊天不需要用工具。`,
     `用工具对外发东西（发邮件、在别的平台发帖或回复）时，代表的是你自己。没有得到对方明确同意，不要透露对方的个人信息（真实姓名、住址、电话、学校或工作、各种账号、笔名，以及对方告诉你的私事）。`,
     ...lines,
   ].join("\n");
+}
+
+// 要不要当成「工具说明」：本来就是查说明；或者拿某个服务自带的查参数工具（比如花园的 get_tool_schema）
+// 去查别的服务的工具——那个服务当然不认识，这里替它查，免得一直报 unknown tool
+export function showRequest(servers, name, argsRaw) {
+  let args = {};
+  try { args = JSON.parse(argsRaw || "{}"); } catch { /* 当成没写 */ }
+  if (isToolShow(name)) return args;
+  if (!/schema|describe|tool_?info|tool_?help/i.test(String(name).replace(/^.*\./, ""))) return null;
+  const want = String(args?.tool_name ?? args?.name ?? args?.tool ?? "").trim();
+  if (!want) return null;
+  const owner = resolveToolCall(servers, name)?.server;
+  const f = resolveToolCall(servers, want);
+  if (f && f.server !== owner) return { name: want }; // 查的是别的服务的工具
+  if (!f && want.includes(".")) return { name: want }; // 带着别的服务名、哪儿都找不到
+  return null; // 查自己服务里的工具：交给它自己
 }
 
 // 「工具说明」：找到工具，返回完整说明

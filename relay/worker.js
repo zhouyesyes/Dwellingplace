@@ -739,16 +739,23 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     if (tc) {
       const name = tc[1].trim();
       const argsRaw = tc[2].trim() || "{}";
-      const show = /^(工具说明|tool_show)$/i.test(name.replace(/^.*\./, ""));
+      // 查说明：本来就是「工具说明」；或者拿某个服务自带的查参数工具去查别的服务的工具（它不认识，这里替它查）
+      let sa = {};
+      try { sa = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
+      let show = /^(工具说明|tool_show)$/i.test(name.replace(/^.*\./, ""));
+      if (!show && /schema|describe|tool_?info|tool_?help/i.test(name.replace(/^.*\./, ""))) {
+        const want = String(sa?.tool_name ?? sa?.name ?? sa?.tool ?? "").trim();
+        const owner = resolveTool(servers, name)?.server;
+        const f = want ? resolveTool(servers, want) : null;
+        if (want && ((f && f.server !== owner) || (!f && want.includes(".")))) { show = true; sa = { name: want }; }
+      }
       const found = show ? null : resolveTool(servers, name);
       let result;
       const note = { at: keepSaid(tc.index) };
       const docOf = f => f?.server.docs?.[f.tool] || "";
       if (show) {
         // 查说明：网页同步过来的时候带着完整说明
-        let a = {};
-        try { a = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
-        const want = String(a?.name || a?.tool || "").trim();
+        const want = String(sa?.name || sa?.tool || "").trim();
         const f = want ? resolveTool(servers, want) : null;
         result = !want ? `要查哪个工具？写成 {"name": "服务名.工具名"}。`
           : !f ? `没有叫「${want}」的工具，请对照目录里的名字再查。`
