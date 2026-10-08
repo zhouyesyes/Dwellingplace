@@ -20,7 +20,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Relay-Token, X-Search-Key",
-  "Access-Control-Expose-Headers": "Mcp-Session-Id, cf-placement",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -1058,11 +1058,7 @@ async function wakeRoute(path, req, env) {
 
 export default {
   async fetch(req, env) {
-    // 预检：模型接口要带 Authorization、x-api-key 这些头，按浏览器要的放行
-    if (req.method === "OPTIONS") {
-      const want = req.headers.get("Access-Control-Request-Headers");
-      return new Response(null, { status: 204, headers: { ...CORS, ...(want ? { "Access-Control-Allow-Headers": want } : {}) } });
-    }
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     if (!env.RELAY_TOKEN) return json({ error: "中转还没有设置密码：请在 Worker 的「变量和机密」里添加 RELAY_TOKEN" }, 500);
     if (req.headers.get("X-Relay-Token") !== env.RELAY_TOKEN) return json({ error: "中转密码不对" }, 401);
@@ -1080,7 +1076,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 8, features: ["search", "mcp", "fetch", "llm", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 8, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
@@ -1120,40 +1116,6 @@ export default {
         });
       } catch (e) {
         return json({ error: "连不上 MCP 服务器：" + (e.message || e) }, 502);
-      }
-    }
-
-    // 模型请求：手机连不上的模型接口（OpenRouter 这类）从这里转过去，流式回复原样带回
-    // 目标地址放在 X-Target-Url 里；Key 只是经过，不存
-    if (path === "/llm" && req.method === "POST") {
-      const target = req.headers.get("X-Target-Url") || "";
-      const allowHttp = env.ALLOW_HTTP === "1";
-      if (!/^https:\/\//i.test(target) && !(allowHttp && /^http:\/\//i.test(target))) return json({ error: "模型地址必须以 https:// 开头" }, 400);
-      // 只转发模型接口要的头（Key、版本号、内容类型这些），别的都不带
-      const headers = new Headers();
-      for (const [k, v] of req.headers) {
-        if (/^(content-type|accept|authorization|x-api-key|anthropic-|x-stainless-|openai-|x-title|http-referer)/i.test(k)) headers.set(k, v);
-      }
-      try {
-        const r = await fetch(target, { method: "POST", headers, body: await req.arrayBuffer() });
-        const out = new Headers(CORS);
-        for (const k of ["content-type", "request-id", "x-request-id"]) if (r.headers.get(k)) out.set(k, r.headers.get(k));
-        return new Response(r.body, { status: r.status, headers: out });
-      } catch (e) {
-        return json({ error: "中转连不上模型接口：" + (e.message || e) }, 502);
-      }
-    }
-    // 拉模型列表（GET）
-    if (path === "/llm" && req.method === "GET") {
-      const target = req.headers.get("X-Target-Url") || "";
-      if (!/^https?:\/\//i.test(target)) return json({ error: "模型地址不对" }, 400);
-      const headers = new Headers();
-      for (const k of ["authorization", "x-api-key", "anthropic-version"]) if (req.headers.get(k)) headers.set(k, req.headers.get(k));
-      try {
-        const r = await fetch(target, { headers });
-        return new Response(r.body, { status: r.status, headers: { ...CORS, "content-type": r.headers.get("content-type") || "application/json" } });
-      } catch (e) {
-        return json({ error: "中转连不上模型接口：" + (e.message || e) }, 502);
       }
     }
 

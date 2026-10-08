@@ -6,7 +6,7 @@ import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, mes
 import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread, fileToAttachment } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
-import { pickAndCrop, deleteImage, useImage, pickFile, saveImage } from "../lib/images.js";
+import { pickAndCrop, deleteImage, useImage, pickFile, saveImage, CHAT_IMAGE } from "../lib/images.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -154,7 +154,7 @@ const plusOpen = ref(false);
 async function addImages() {
   plusOpen.value = false;
   for (const f of await pickFile("image/*", true)) {
-    try { attachments.value.push({ kind: "image", img: await saveImage(f), name: f.name }); }
+    try { attachments.value.push({ kind: "image", img: await saveImage(f, CHAT_IMAGE), name: f.name }); }
     catch { toast("这张图片读不了：" + f.name); }
   }
 }

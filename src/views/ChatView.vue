@@ -7,7 +7,7 @@ import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
 import { versionsOf } from "../lib/tree.js";
-import { saveImage, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
+import { saveImage, CHAT_IMAGE, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
 import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -210,7 +210,7 @@ async function addImages() {
   plusOpen.value = false;
   const files = await pickFile("image/*", true);
   for (const f of files) {
-    try { attachments.value.push({ kind: "image", img: await saveImage(f), name: f.name }); }
+    try { attachments.value.push({ kind: "image", img: await saveImage(f, CHAT_IMAGE), name: f.name }); }
     catch { toast("这张图片读不了：" + f.name); }
   }
 }

@@ -24,7 +24,7 @@ async function testRelay() {
     const ready = r.ready?.length ? `Worker 里已经配好 Key 的：${r.ready.map(k => SEARCH_PROVIDERS[k]?.label || k).join("、")}` : "Worker 里还没有配搜索服务的 Key（可以在下面填）";
     const v = r.version || 1;
     const old = v < 3 ? "。注意：中转是旧版本，MCP / 网页读取可能用不了，请按说明更新 Worker 代码"
-      : v < LATEST_RELAY ? "。中转不是最新版：TA 自己来找你（心潮的桥）、醒来时查工具说明、模型走中转要新版才能用" : "";
+      : v < LATEST_RELAY ? "。中转不是最新版：TA 自己来找你（心潮的桥）、醒来时查工具说明要新版才能用" : "";
     // 中转这次从哪儿发出请求：在 HK、CN 这些地区的话，OpenAI 这类模型会拒绝
     const w = r.where?.loc ? `。中转这次从 ${r.where.loc}（机房 ${r.where.colo}）发出请求${/^(HK|CN|MO)$/.test(r.where.loc) ? "：这个地区 OpenAI 等模型不提供服务，走中转也会被拦" : ""}` : "";
     pingState.value = { ok: v >= 3, text: `连上了！中转版本 v${v}${v >= LATEST_RELAY ? "（最新）" : ""}。${ready}${w}${old}` };

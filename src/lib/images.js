@@ -6,6 +6,9 @@ import { cropImage } from "./crop.js";
 
 const urlCache = new Map();
 
+// 聊天里发的图：长边压到 1280、JPEG 质量 0.8。一张一般一两百 KB，TA 看得清，读起来也省 token
+export const CHAT_IMAGE = { maxSize: 1280, quality: 0.8 };
+
 export async function saveImage(file, { maxSize = 1600, quality = 0.85, square = false } = {}) {
   const bmp = await createImageBitmap(file);
   let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
