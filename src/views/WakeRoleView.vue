@@ -142,6 +142,10 @@ async function testBridge() {
     bridgeBusy.value = false;
   }
 }
+const GARDEN_GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/garden-wake.md";
+async function copyId() {
+  try { await navigator.clipboard.writeText(role.value.id); toast("复制好了", 2000); } catch { toast(role.value.id, 6000); }
+}
 const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output || 0)} tokens` : "");
 </script>
 
@@ -267,6 +271,15 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <p class="hint">马上让 TA 醒来一次，看看 TA 会做什么。会用掉一次 API。</p>
       </div>
 
+      <div class="section-label">花园唤醒桥</div>
+      <div class="card body">
+        <div class="row">
+          <span class="grow">{{ role.name }} 的编号<small>（装花园唤醒桥时要填）</small><br /><code class="rid">{{ role.id }}</code></span>
+          <button class="btn soft small" @click="copyId">复制</button>
+        </div>
+        <p class="hint">花园里游戏轮到 {{ role.name }} 时，装在服务器上的唤醒桥会马上叫醒 TA，不用等。装法见 <a :href="GARDEN_GUIDE" target="_blank">花园唤醒桥说明</a>。</p>
+      </div>
+
       <template v-if="role.wakeLog?.length">
         <div class="section-label">最近醒来</div>
         <div class="list-card">
@@ -304,6 +317,8 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 .t-item p { margin: 2px 0 0; font-size: 0.85rem; color: var(--text-2); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .t-item button { position: absolute; top: 6px; right: 6px; border: 0; background: none; display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-3); }
 .note-box { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.6; box-sizing: border-box; }
+.rid { font-size: 0.85rem; user-select: all; word-break: break-all; }
+.hint a { color: var(--accent); }
 .more { justify-content: center; color: var(--text-2); font-size: 0.85rem; }
 .time { flex: 1; min-width: 0; }
 .wide { width: 100%; }

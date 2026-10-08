@@ -1021,6 +1021,20 @@ async function wakeRoute(path, req, env) {
     }
   }
 
+  // 花园唤醒桥（galatea-garden-wake-bridge）：游戏轮到 TA 了，服务器上的桥调这里把 TA 叫醒
+  if (path === "/wake/poke") {
+    const cfg = await env.KV.get("cfg", "json");
+    const role = cfg?.roles?.find(r => r.id === body.roleId);
+    if (!role) return json({ error: "还没有同步这个角色：先在栖所打开 TA 的唤醒" }, 404);
+    const msg = String(body.message || "").slice(0, 4000) || "花园那边有事找你。";
+    try {
+      const item = await runWake(env, cfg, role, [{ kind: "garden", text: `花园那边来了提醒（${String(body.reason || "wake").slice(0, 60)}）：${msg}` }]);
+      return json({ ok: true, item });
+    } catch (e) {
+      return json({ error: e.message || String(e) }, 502);
+    }
+  }
+
   // 试试能不能连上心潮的桥（只看，不取走）
   if (path === "/wake/bridge-test") {
     if (!body.url || !body.token) return json({ error: "缺少地址或桥口令" }, 400);
@@ -1093,7 +1107,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 9, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 10, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
