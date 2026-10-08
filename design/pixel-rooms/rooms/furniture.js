@@ -640,12 +640,12 @@ export function rowanFurnish(cv, L) {
     ];
     sprite(cv, [4.9, 0.85, tz], LAMP, { "#": "#2A1C13", G: "#2E6A4A", h: "#5AA27A", y: "#FFE7A6", b: GOLD, c: "#B9A26E", o: GOLD });
   }
-  // 椅子：拉出来一点，椅背朝我们
+  // 椅子：拉出来一点，跟着 TA 的坐姿斜过来
   const cx = 4.0, cy = 1.5;
   shadow(cv, cx, cy, 0.85, 0.85, 0.25);
   legs(cv, cx, cy, 0.85, 0.85, 0.85, DW, L, 0.11);
   litBox(cv, { x: cx, y: cy, z: 0.85, w: 0.85, d: 0.85, h: 0.12 }, wood(WN), win, L);
-  box(cv, { x: cx, y: cy + 0.73, z: 0.97, w: 0.85, d: 0.12, h: 1.0 }, wood(WN), L);
+  box(cv, { x: cx, y: cy, z: 0.97, w: 0.12, d: 0.85, h: 1.0 }, wood(WN), L); // 椅背转到侧面：TA 侧身朝书桌坐，椅背在 TA 背后
   box(cv, { x: 3.0, y: 1.45, w: 0.45, d: 0.45, h: 0.55 }, { top: "#2A1E15", left: (u, v, x) => (x % 3 ? "#7A6A55" : "#6A5A45"), right: "#5A4A38", line: "#3A2E22" }, L); // 废纸篓
   sprite(cv, [3.12, 1.65, 0.55], [".##.##", "######"], { "#": PAPER });
 
