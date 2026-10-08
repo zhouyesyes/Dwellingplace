@@ -22,7 +22,7 @@ SUDO=""; docker ps >/dev/null 2>&1 || SUDO="sudo"
 say "装花园唤醒桥（每个 AI 装一次）"
 ask NAME "1. 这一份的英文代号（只用小写字母，比如 xin / ji）" "xin"
 NAME=$(echo "$NAME" | tr -cd 'a-z0-9'); [ -n "$NAME" ] || { echo "代号不能为空"; exit 1; }
-echo "2. 这个 AI 在花园的 token（就是栖所里「XX的花园」这个 MCP 用的那个：请求头 Authorization: Bearer 后面那一串）（输入时不显示）"
+echo "2. 花园给这个 AI 签发的机器 token：mg_ 开头（不是给 MCP 用的 gg_ 开头那个）（输入时不显示）"
 secret GTOKEN "   机器令牌"
 ask RELAY "3. 栖所的中转地址（栖所 → 设置 → 工具 → 中转地址）" ""
 secret RTOKEN "4. 中转密码（输入时不显示）"
