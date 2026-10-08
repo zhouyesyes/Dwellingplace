@@ -51,11 +51,11 @@ const items = computed(() => {
       mid.forEach(([n, i], k) => {
         const at = Math.min(n.at, text.length);
         const part = text.slice(from, at);
-        if (part.trim()) add({ ...m, text: part, pending: false, _src: m, _key: `${m.id}~${k}` });
+        if (part.trim()) add({ ...m, text: part, pending: false, _src: m, _key: `${m.id}~${k}`, _first: from === 0 });
         event(m, n, i);
         from = at;
       });
-      add({ ...m, text: text.slice(from), _src: m, _key: `${m.id}~end` });
+      add({ ...m, text: text.slice(from), _src: m, _key: `${m.id}~end`, _first: from === 0 });
     }
     all.filter(([n]) => !n.before).forEach(([n, i]) => event(m, n, i));
   }
@@ -84,6 +84,7 @@ const ctxInfo = computed(() => {
   return { ctx, limit, pct, level: pct >= 85 ? "high" : pct >= 60 ? "mid" : "" };
 });
 const openNotes = ref({});
+const openThink = ref({}); // 思考过程：点开 / 收起
 
 // 气泡颜色跟着说话的人
 function tint(id) {
@@ -314,6 +315,12 @@ function clearBg() {
                   <div v-if="m.text" class="bubble" @click="actionMsg = m">{{ m.text }}</div>
                 </template>
                 <template v-else>
+                  <div v-if="m.thinking && (!m._src || m._first)" class="think" @click="openThink[m.id] = !openThink[m.id]">
+                    <Icon name="bulb" :size="14" />
+                    {{ m.pending && !splitBubbles(m.text).length ? "思考中…" : "思考过程" }}
+                    <span class="arrow">{{ openThink[m.id] ? "▴" : "▾" }}</span>
+                  </div>
+                  <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="actionMsg = src(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                   <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="actionMsg = src(m)">{{ b }}</div>
@@ -433,6 +440,9 @@ function clearBg() {
 .mine .col { align-items: flex-end; }
 .theirs .col { align-items: flex-start; }
 .speaker { font-size: 0.75rem; color: var(--text-2); margin: 0 0 -2px 4px; }
+.think { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; font-size: 0.73rem; color: var(--text-2); background: rgba(255, 255, 255, .78); padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.think .arrow { font-size: 0.7rem; }
+.think-body { max-width: 100%; font-size: 0.78rem; line-height: 1.7; color: var(--text-2); background: rgba(255, 255, 255, .72); border-left: 3px solid var(--line); border-radius: 6px 14px 14px 6px; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow-y: auto; }
 .bubble { padding: 10px 15px; border-radius: 20px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 1rem; cursor: pointer; }
 .theirs .bubble { background: var(--their); color: var(--their-text); border-top-left-radius: 8px; }
 .mine .bubble { background: #fff; border-top-right-radius: 8px; box-shadow: 0 1px 3px rgba(40, 40, 60, .06); }
