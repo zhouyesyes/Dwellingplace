@@ -34,7 +34,8 @@ function scale(buf, w, h, s) {
 
 const shots = [];
 for (const [key, room] of [["cui", cui], ["rowan", rowan]]) {
-  for (const [step, opt] of [["final", { light: true, furniture: true }]]) {
+  for (const [step, opt, mail] of [["final", { light: true, furniture: true }, false], ["final-有信", { light: true, furniture: true }, true]]) {
+    globalThis.MAIL = mail;
     const cv = makeCanvas();
     drawRoom(cv, room, opt);
     const name = `${key}-${step}`;

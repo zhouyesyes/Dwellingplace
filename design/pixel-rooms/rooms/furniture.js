@@ -175,6 +175,33 @@ const BAG = [ // 暖暖的粮袋：麻布袋子、口子扎着绳，正面印一
   "..############..",
 ];
 
+
+// 挂在左墙上的信箱：一个小木箱从墙上凸出来，正面一条投信口、侧面一面小旗。
+// 有新信（globalThis.MAIL）：旗子竖起来、投信口露出半封信、周围亮一圈
+function mailbox(cv, gy0, z0, { body, dark, trim, flag, letter, seal, glow: halo }, L) {
+  const has = !!globalThis.MAIL, w = 0.42, d = 0.85, h = 0.75;
+  if (has) onLeft(cv, gy0 - 0.25, gy0 + d + 0.25, z0 - 0.2, z0 + h + 0.35, (u, v, x, y) => {
+    const e = Math.hypot((u - 0.5) * 1.3, (v - 0.5) * 1.1);
+    return e < 0.5 && (e < 0.38 || dither(x, y)) ? glow(cv.get(x, y), hex(halo), 0.35) : null;
+  });
+  box(cv, { x: 0.15, y: gy0 + 0.25, z: z0 - 0.25, w: 0.1, d: 0.35, h: 0.25 }, wood(dark), L); // 托架
+  box(cv, { x: 0.02, y: gy0, z: z0, w, d, h }, {
+    line: shade(dark, 0.7),
+    top: (u, v) => (v < 0.12 || v > 0.88 ? trim : body),
+    left: (u, v) => (v > 0.85 ? trim : shade(body, 0.92)),
+    right: (u, v) => { // 正面（朝屋里）：投信口 + 一个小信封图案
+      if (v > 0.85 || u < 0.06 || u > 0.94) return trim;
+      if (v > 0.6 && v < 0.72 && u > 0.2 && u < 0.8) return "#1A120C";
+      if (v > 0.18 && v < 0.45 && u > 0.32 && u < 0.68) return Math.abs((v - 0.18) / 0.27 - 1 + Math.abs(u - 0.5) * 3.7) < 0.18 ? trim : shade(trim, 1.15);
+      return shade(body, 0.8);
+    },
+  }, L);
+  if (has) quad(cv, [w + 0.03, gy0 + 0.2, z0 + h * 0.66], [0, 0.45, 0], [0, 0, 0.3], (u, v) => (Math.hypot((u - 0.5) * 2, v - 0.45) < 0.2 ? seal : v < 0.12 ? shade(letter, 0.85) : letter), L);
+  // 小旗：有信时竖起来，没信时放平
+  if (has) { box(cv, { x: w * 0.5, y: gy0 + d + 0.02, z: z0 + 0.3, w: 0.05, d: 0.05, h: 0.7 }, wood(dark)); box(cv, { x: w * 0.5, y: gy0 + d + 0.02, z: z0 + 0.75, w: 0.05, d: 0.32, h: 0.22 }, soft(flag)); }
+  else box(cv, { x: w * 0.5, y: gy0 + d + 0.02, z: z0 + 0.3, w: 0.05, d: 0.55, h: 0.08 }, soft(flag));
+}
+
 // ============================ 脆脆 ============================
 const W = "#A9784E", WD = "#7A5236";
 const INDIGO = ["#1F3566", "#18294F", "#2C4A80"];
@@ -302,6 +329,8 @@ export function cuiFurnish(cv, L) {
     return v > 0.9 ? INDIGO[1] : INDIGO[0];
   }, L, 0.08);
   plant(cv, 0.2, 6.85, 0, { s: 1.1, pot: "#7A8A9A" }, L);
+  // 门边墙上的信箱：浅海蓝的木箱、白边、红旗
+  mailbox(cv, 6.25, 2.45, { body: "#6E9AB8", dark: "#5A3C26", trim: "#F2EEE6", flag: "#C64A3A", letter: "#FFF6E2", seal: "#C64A3A", glow: "#FFE2A0" }, L);
 
   // ---- 地台：后墙右边一大片，抬高一格，上面铺一层暖暖的毯子 ----
   shadow(cv, D.x, D.y, D.w, D.d, 0.25, 0.12);
@@ -731,6 +760,8 @@ export function rowanFurnish(cv, L) {
   [["#C9A05A", "#E8D8B0"], ["#8A5A2A", "#C9A97A"], ["#E8D8B0", "#9A7050"], ["#5A3A2A", "#D9B86A"]].forEach(([f, l], k) =>
     sprite(cv, [0.08, fy + 0.85 + k * 0.82, 2.28], FJAR, { "#": "#4A6070", l, g: "#CFE0E4", w: "#FFFFFF", f }, L)); // 一排装吃的的玻璃罐（米、咖啡豆、饼干、茶叶）
 
+  // 门口这边墙上的信箱：深绿铁皮、黄铜边、红旗，信上一枚火漆
+  mailbox(cv, 8.55, 3.15, { body: "#3E5E4A", dark: "#2A1C13", trim: GOLD, flag: RUST, letter: PAPER, seal: "#A8322A", glow: "#FFD27A" }, L);
   // ---- 植物：窗前地上一盆，叶子大一点 ----
   plant(cv, 0.25, 4.15, 0, { s: 1.4, pot: "#8A5A3A", leaves: ["#1E3E28", "#3A6E46", "#62A066"] }, L);
   // 地毯上：矮坐垫、一摞书
