@@ -155,6 +155,7 @@ function migrate() {
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
   store.settings.groupHistoryLimit ??= 80; // 群聊里大家每次看群里最近多少条
+  store.settings.surfacedLimit ??= 8; // 每轮附上几条心潮里浮现的记忆
   store.settings.groupPrivateLimit ??= 40; // 群聊里 TA 能看到你们最近多少条私聊
   store.settings.privateGroupLimit ??= 40; // 私聊里 TA 能看到最近多少条群聊
   store.settings.wakeHistoryLimit ??= 30; // TA 醒来时看最近多少条聊天
