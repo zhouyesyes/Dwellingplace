@@ -16,6 +16,7 @@ import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import UsageSheet from "../components/UsageSheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
+import ImageViewer from "../components/ImageViewer.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import { openEditor } from "../lib/editor.js";
@@ -196,7 +197,8 @@ watch(() => messages.value.length, () => setTimeout(refreshMood, 4000));
 // 多张图片：缩成一格，点开看全部
 const imgsOf = m => (m.attachments || []).filter(a => a.kind === "image");
 const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image");
-const gallery = ref(null);
+const gallery = ref(null); // { m, start }：全屏看图，左右滑
+const viewImgs = (m, start = 0) => (gallery.value = { m, start });
 
 function stop() {
   generating[threadId.value]?.abort();
@@ -414,13 +416,13 @@ const back = () => goBack(router, "/chats");
             <div class="col">
               <template v-for="m in it.msgs" :key="m._key || m.id">
                 <template v-if="m.from === 'user'">
-                  <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)" @click="gallery = m">
-                    <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell">
+                  <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)">
+                    <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell" @click="viewImgs(m, i)">
                       <ImgThumb :id="a.img" />
                       <span v-if="i === 3 && imgsOf(m).length > 4" class="more">+{{ imgsOf(m).length - 4 }}</span>
                     </div>
                   </div>
-                  <div v-else-if="imgsOf(m).length" class="att" @click="openActions(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
+                  <div v-else-if="imgsOf(m).length" class="att one" @click="viewImgs(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
                   <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="openActions(m)">
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
@@ -564,12 +566,8 @@ const back = () => goBack(router, "/chats");
     </Sheet>
 
     <!-- 一组图片 -->
-    <Sheet :open="!!gallery" :title="gallery ? `${imgsOf(gallery).length} 张图片` : ''" @close="gallery = null">
-      <div v-if="gallery" class="gallery">
-        <ImgThumb v-for="(a, i) in imgsOf(gallery)" :key="i" :id="a.img" />
-      </div>
-      <div v-if="gallery" class="edit-actions"><button class="btn soft" @click="openActions(gallery); gallery = null">更多操作</button></div>
-    </Sheet>
+    <ImageViewer :open="!!gallery" :images="gallery ? imgsOf(gallery.m).map(a => a.img) : []" :start="gallery?.start || 0"
+      @close="gallery = null" @more="openActions(gallery.m); gallery = null" />
 
     <!-- 修改 -->
     <Sheet :open="!!editing" title="修改消息" @close="editing = null">
@@ -714,8 +712,8 @@ const back = () => goBack(router, "/chats");
 .img-grid .cell :deep(.thumb) { width: 100%; height: 100%; border-radius: 0; box-shadow: none; pointer-events: none; }
 .img-grid .cell :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .img-grid .more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .38); color: #fff; font-weight: 700; font-size: 1.1rem; }
-.gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.gallery :deep(.thumb) { width: 100%; max-width: none; }
+.att.one :deep(.thumb) { pointer-events: none; } /* 点图片打开看图，不是在新窗口打开 */
+.img-grid .cell { cursor: pointer; }
 .sends { flex: none; display: flex; gap: 6px; align-items: flex-end; }
 .send.small { width: 40px; height: 40px; }
 .send.reply { width: 40px; height: 40px; }
