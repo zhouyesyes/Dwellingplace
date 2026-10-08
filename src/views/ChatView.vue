@@ -613,7 +613,6 @@ const back = () => goBack(router, "/chats");
 }
 .who { flex: 1; text-align: center; min-width: 0; }
 .name { font-size: 1.13rem; font-weight: 700; letter-spacing: 1px; }
-.has-bg .name, .has-bg .sig { text-shadow: 0 0 10px rgba(255, 255, 255, .9), 0 0 2px rgba(255, 255, 255, .8); }
 .sig { font-size: 0.833rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 消息区 */
@@ -660,7 +659,7 @@ const back = () => goBack(router, "/chats");
   max-height: 45vh;
   overflow-y: auto;
 }
-.ctx { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; font-size: 0.7rem; color: var(--text-3); }
+.ctx { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; font-size: 0.7rem; color: var(--text-2); }
 .bar { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .bar b { display: block; height: 100%; background: #9cc5a1; border-radius: 2px; }
 .ctx.mid .bar b, .bar.mid b { background: #f0c36a; }
@@ -706,8 +705,7 @@ const back = () => goBack(router, "/chats");
 .typing i:nth-child(3) { animation-delay: .3s; }
 @keyframes hop { 0%, 60%, 100% { transform: none; opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-.stamp { font-size: 0.68rem; color: var(--text-3); padding: 0 6px; }
-.has-bg .stamp { color: var(--text-2); }
+.stamp { font-size: 0.7rem; color: var(--text-2); padding: 0 6px; }
 .att { cursor: pointer; }
 .mood { display: inline-block; vertical-align: -3px; margin-left: 6px; }
 .img-grid { display: grid; grid-template-columns: repeat(2, 84px); gap: 4px; border-radius: 16px; overflow: hidden; cursor: pointer; }

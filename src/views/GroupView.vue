@@ -2,7 +2,7 @@
 // 群聊：你和几个 AI 一起聊。你说完，大家轮流接话（@谁就只让谁说）；也可以让大家接着聊
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, messageCache, saveMessages, fmtTokens } from "../store/index.js";
+import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, messageCache, saveMessages, fmtTokens, apiFor } from "../store/index.js";
 import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread, fileToAttachment } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
@@ -74,7 +74,15 @@ function tokensOf(grp) {
   return i || o ? `输入 ${fmtTokens(i)}${c ? `（缓存 ${fmtTokens(c)}）` : ""} · 输出 ${fmtTokens(o)} tokens` : "";
 }
 const usageOpen = ref(false);
-const totalInput = computed(() => allMessages.value.reduce((n, m) => n + (m.from === "ai" ? m.usage?.input || 0 : 0), 0));
+// 和私聊一样：上一次接话的人看了多少 / 模型上限，加一条进度条
+const ctxInfo = computed(() => {
+  const last = [...messages.value].reverse().find(m => m.from === "ai" && !m.error && (m.ctx || m.usage?.input));
+  if (!last) return null;
+  const ctx = last.ctx || last.usage.input;
+  const limit = Number(apiFor(thread.value, roleById(last.speaker))?.contextLimit) || 200000;
+  const pct = Math.min(100, Math.round((ctx / limit) * 100));
+  return { ctx, limit, pct, level: pct >= 85 ? "high" : pct >= 60 ? "mid" : "" };
+});
 const openNotes = ref({});
 
 // 气泡颜色跟着说话的人
@@ -318,7 +326,10 @@ function clearBg() {
     <footer class="composer">
       <div class="mentions">
         <button v-for="r in members" :key="r.id" class="at" @click="mention(r)">@{{ r.name }}</button>
-        <button class="usage" @click="usageOpen = true">用量{{ totalInput ? " " + fmtTokens(totalInput) : "" }}</button>
+        <button class="usage" :class="ctxInfo?.level" @click="usageOpen = true">
+          <template v-if="ctxInfo"><span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span><i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i></template>
+          <template v-else>用量</template>
+        </button>
       </div>
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
@@ -338,7 +349,7 @@ function clearBg() {
       </div>
     </footer>
 
-    <UsageSheet :open="usageOpen" title="这个群的用量" :all="allMessages" :path="messages" per-member @close="usageOpen = false">
+    <UsageSheet :open="usageOpen" title="这个群的用量" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" per-member @close="usageOpen = false">
       群里每个人每次说话，都要把群聊记录、TA 和你的私聊（设置里调条数）一起看一遍，人越多、轮得越多就越费。
     </UsageSheet>
 
@@ -397,7 +408,6 @@ function clearBg() {
 <style scoped>
 .chat { position: fixed; inset: 0; display: flex; flex-direction: column; height: 100dvh; }
 .bg { position: absolute; inset: 0; z-index: -1; background: var(--bg); background-size: cover; background-position: center; }
-.has-bg .stamp, .has-bg .speaker { color: var(--text-2); }
 .me-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .top { width: 100%; max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 12px; padding: calc(var(--safe-top) + 10px) 16px 10px; }
 .who { flex: 1; text-align: center; min-width: 0; }
@@ -419,7 +429,7 @@ function clearBg() {
 .col { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: min(78%, 560px); }
 .mine .col { align-items: flex-end; }
 .theirs .col { align-items: flex-start; }
-.speaker { font-size: 0.75rem; color: var(--text-3); margin: 0 0 -2px 4px; }
+.speaker { font-size: 0.75rem; color: var(--text-2); margin: 0 0 -2px 4px; }
 .bubble { padding: 10px 15px; border-radius: 20px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 1rem; cursor: pointer; }
 .theirs .bubble { background: var(--their); color: var(--their-text); border-top-left-radius: 8px; }
 .mine .bubble { background: #fff; border-top-right-radius: 8px; box-shadow: 0 1px 3px rgba(40, 40, 60, .06); }
@@ -429,11 +439,16 @@ function clearBg() {
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
-.stamp { font-size: 0.73rem; color: var(--text-3); padding: 0 4px; }
+.stamp { font-size: 0.7rem; color: var(--text-2); padding: 0 6px; }
 .composer { background: rgba(255, 255, 255, .97); border-radius: 30px 30px 0 0; box-shadow: 0 -6px 30px rgba(40, 40, 60, .08); padding: 10px 14px calc(var(--safe-bottom) + 14px); }
 .mentions { max-width: 760px; margin: 0 auto 6px; display: flex; gap: 6px; overflow-x: auto; padding: 0 6px; }
 .at { flex: none; border: 0; border-radius: 999px; padding: 2px 10px; background: var(--bg); color: var(--text-2); font-size: 0.78rem; }
-.usage { flex: none; margin-left: auto; border: 0; background: none; color: var(--text-3); font-size: 0.72rem; padding: 2px 4px; }
+.usage { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; font-size: 0.7rem; color: var(--text-2); }
+.bar { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.bar b { display: block; height: 100%; background: #9cc5a1; border-radius: 2px; }
+.usage.mid .bar b { background: #f0c36a; }
+.usage.high .bar b { background: var(--danger); }
+.usage.high { color: var(--danger); }
 .row { display: flex; align-items: flex-end; gap: 4px; max-width: 760px; margin: 0 auto; }
 .tool { flex: none; width: 40px; height: 44px; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
 .tool:active { color: var(--ink); }

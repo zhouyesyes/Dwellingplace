@@ -14,14 +14,15 @@ const props = defineProps({ editing: Boolean });
 const now = new Date();
 const year = ref(now.getFullYear());
 const month = ref(now.getMonth()); // 0-11
-const selected = ref(null); // "YYYY-MM-DD"
 const today = todayYmd();
+// 和记忆一样：只看某一天的（默认今天），整个月的一长串太长了
+const selected = ref(today); // "YYYY-MM-DD"
 
 function shift(n) {
   const d = new Date(year.value, month.value + n, 1);
   year.value = d.getFullYear();
   month.value = d.getMonth();
-  selected.value = null;
+  selected.value = today.startsWith(monthPrefix.value) ? today : null;
 }
 
 const cells = computed(() => {
@@ -65,14 +66,14 @@ const dotsOf = date => [...new Set((byDate.value[date] || []).map(e => e.author)
 const monthPrefix = computed(() => `${year.value}-${String(month.value + 1).padStart(2, "0")}`);
 const shown = computed(() =>
   store.events
-    .filter(e => (selected.value ? e.date === selected.value : e.date.startsWith(monthPrefix.value)))
+    .filter(e => e.date === selected.value)
     .sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts),
 );
 const md = date => date.slice(5).replace("-", ".");
 
 function tapDay(date) {
   if (props.editing || !date) return;
-  selected.value = selected.value === date ? null : date;
+  selected.value = date;
 }
 
 // ---------- 记一笔 / 编辑 ----------
@@ -140,7 +141,8 @@ const colorsOpen = ref(false);
           <span class="whoname">{{ s.role.name }}</span>
         </div>
       </template>
-      <p v-if="!shown.length && !shownMems.length" class="none">{{ selected ? "这一天还没有记录" : "这个月还没有记录" }}</p>
+      <p v-if="!selected" class="none">点一个日期，看那天的记录</p>
+      <p v-else-if="!shown.length && !shownMems.length" class="none">{{ selected === today ? "今天" : md(selected) }}还没有记录</p>
       <button class="add" @click.stop="newEvent"><Icon name="plus" :size="15" /> {{ selected ? `在 ${md(selected)} 记一笔` : "记一笔" }}</button>
     </div>
   </div>
