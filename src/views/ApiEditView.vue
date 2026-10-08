@@ -2,7 +2,7 @@
 import { reactive, ref, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, apiById, today, fmtTokens } from "../store/index.js";
-import { API_TYPES, newApi, fetchModels, relayOk } from "../lib/providers.js";
+import { API_TYPES, newApi, fetchModels } from "../lib/providers.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -18,7 +18,6 @@ if (!isNew && !original) router.replace("/settings");
 const form = reactive(JSON.parse(JSON.stringify(original || newApi("anthropic"))));
 form.favModels ??= [];
 form.showThinking ??= false;
-form.viaRelay ??= false;
 form.contextLimit ??= 200000;
 const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === original?.id);
 const loading = ref(false);
@@ -209,10 +208,6 @@ function remove() {
       <label v-if="form.type === 'anthropic' || isOpenRouter" class="switch-row">
         <span>显示思考过程<small class="sub-note">{{ isOpenRouter ? "OpenRouter 要打开才会传回思考；GPT 只给思考摘要，有的模型不给" : "Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开" }}</small></span>
         <input v-model="form.showThinking" type="checkbox" />
-      </label>
-      <label class="switch-row">
-        <span>通过中转连接<small class="sub-note">{{ relayOk() ? "手机直连不上这个接口（比如 OpenRouter 不开梯子就连不上）时打开：请求先到你自己的 Cloudflare 中转再转过去，Key 只是经过、不会存下" : "要先在「工具」里填好中转地址和中转密码" }}</small></span>
-        <input v-model="form.viaRelay" type="checkbox" :disabled="!relayOk() && !form.viaRelay" />
       </label>
       <label class="switch-row">
         <span>设为全局默认</span>

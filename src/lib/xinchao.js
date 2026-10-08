@@ -122,8 +122,9 @@ export function xinchaoMemoryForAI(role, who, { inline = true } = {}) {
       : `你的长期记忆都在心潮记忆库里，所有对话共用。此刻自然浮现的几条附在最新消息前面的【此刻】里，聊天时自然地记得就好，不用刻意复述。`,
     inline ? text || "（这次还没取到，需要时可以用 breath 工具找）" : "",
     `想找更早的事，用 breath 工具带上关键词去找。`,
-    `这次聊天里有值得长久记住的事（关于${who}的喜好、经历、约定、重要的时刻），在回复末尾另起一行写：[记忆:标题|内容]，会存进记忆库。`,
+    `这次聊天里有值得长久记住的事（关于${who}的喜好、经历、约定、重要的时刻），在回复末尾另起一行写：[记忆:标题|内容]，会存进记忆库。想标重要度就写 [记忆:标题|内容|8]（1–10，不写是 6）。`,
     `要修改某条记忆写：[改记忆:#编号|新的内容]（编号是记忆库里那条的 id）。只记真正重要的事。`,
+    `存记忆、改记忆只用上面这两种标记，写了系统就会存好；不用、也不要为这个去调用 hold、trace 这些记忆工具。`,
   ].join("\n");
 }
 
@@ -138,10 +139,12 @@ export async function applyXinchaoMemoryTags(role, text) {
     const parts = body.split(/[|｜]/).map(s => s.trim());
     try {
       if (op === "记忆") {
+        // 最后一段是 1–10 的数字，就是重要度
+        const imp = parts.length > 2 && /^(10|[1-9])$/.test(parts.at(-1)) ? Number(parts.pop()) : 6;
         const title = parts.length > 1 ? parts[0] : "";
         const content = (parts.length > 1 ? parts.slice(1).join(" ") : parts[0]).trim();
         if (!content) continue;
-        await holdMemory(role, { content: title ? `${title}：${content}` : content, importance: 6 });
+        await holdMemory(role, { content: title ? `${title}：${content}` : content, importance: imp });
         notes.push(`${role.name} 在心潮里记下了：${title || content.slice(0, 16)}`);
       } else {
         const id = parts[0].replace(/^#/, "");

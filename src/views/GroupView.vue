@@ -6,12 +6,13 @@ import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, mes
 import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread, fileToAttachment } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
-import { pickAndCrop, deleteImage, useImage, pickFile, saveImage } from "../lib/images.js";
+import { pickAndCrop, deleteImage, useImage, pickFile, saveImage, CHAT_IMAGE } from "../lib/images.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
+import ImageViewer from "../components/ImageViewer.vue";
 import UsageSheet from "../components/UsageSheet.vue";
 
 const route = useRoute();
@@ -153,7 +154,7 @@ const plusOpen = ref(false);
 async function addImages() {
   plusOpen.value = false;
   for (const f of await pickFile("image/*", true)) {
-    try { attachments.value.push({ kind: "image", img: await saveImage(f), name: f.name }); }
+    try { attachments.value.push({ kind: "image", img: await saveImage(f, CHAT_IMAGE), name: f.name }); }
     catch { toast("这张图片读不了：" + f.name); }
   }
 }
@@ -170,7 +171,8 @@ function removeAttachment(i) {
 }
 const imgsOf = m => (m.attachments || []).filter(a => a.kind === "image");
 const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image");
-const gallery = ref(null);
+const gallery = ref(null); // { m, start }：全屏看图，左右滑
+const viewImgs = (m, start = 0) => (gallery.value = { m, start });
 function stop() {
   stopped = true;
   generating[thread.value.id]?.abort();
@@ -302,13 +304,13 @@ function clearBg() {
               <div v-if="it.from !== 'user'" class="speaker">{{ nameOf(it.who) }}</div>
               <template v-for="m in it.msgs" :key="m._key || m.id">
                 <template v-if="m.from === 'user'">
-                  <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)" @click="gallery = m">
-                    <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell">
+                  <div v-if="imgsOf(m).length > 1" class="img-grid" :class="'n' + Math.min(4, imgsOf(m).length)">
+                    <div v-for="(a, i) in imgsOf(m).slice(0, 4)" :key="i" class="cell" @click="viewImgs(m, i)">
                       <ImgThumb :id="a.img" />
                       <span v-if="i === 3 && imgsOf(m).length > 4" class="more">+{{ imgsOf(m).length - 4 }}</span>
                     </div>
                   </div>
-                  <div v-else-if="imgsOf(m).length" class="att" @click="actionMsg = m"><ImgThumb :id="imgsOf(m)[0].img" /></div>
+                  <div v-else-if="imgsOf(m).length" class="att one" @click="viewImgs(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
                   <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="actionMsg = m">
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
@@ -370,12 +372,8 @@ function clearBg() {
       </div>
     </Sheet>
 
-    <Sheet :open="!!gallery" :title="gallery ? `${imgsOf(gallery).length} 张图片` : ''" @close="gallery = null">
-      <div v-if="gallery" class="gallery">
-        <ImgThumb v-for="(a, i) in imgsOf(gallery)" :key="i" :id="a.img" />
-      </div>
-      <div v-if="gallery" class="gal-more"><button class="btn soft" @click="actionMsg = gallery; gallery = null">更多操作</button></div>
-    </Sheet>
+    <ImageViewer :open="!!gallery" :images="gallery ? imgsOf(gallery.m).map(a => a.img) : []" :start="gallery?.start || 0"
+      @close="gallery = null" @more="actionMsg = gallery.m; gallery = null" />
 
     <Sheet :open="!!actionMsg" @close="actionMsg = null">
       <div v-if="actionMsg" class="grid-actions">
@@ -472,9 +470,8 @@ function clearBg() {
 .img-grid .cell :deep(.thumb) { width: 100%; height: 100%; border-radius: 0; box-shadow: none; pointer-events: none; }
 .img-grid .cell :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .img-grid .more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .38); color: #fff; font-weight: 700; font-size: 1.1rem; }
-.gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.gallery :deep(.thumb) { width: 100%; max-width: none; }
-.gal-more { display: flex; justify-content: center; margin-top: 12px; }
+.att.one :deep(.thumb) { pointer-events: none; } /* 点图片打开看图，不是在新窗口打开 */
+.img-grid .cell { cursor: pointer; }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pending-atts { display: flex; gap: 8px; overflow-x: auto; max-width: 760px; margin: 0 auto 10px; padding: 6px 2px 2px; }
 .patt { position: relative; flex: none; }

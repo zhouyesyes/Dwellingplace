@@ -20,7 +20,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Relay-Token, X-Search-Key",
-  "Access-Control-Expose-Headers": "Mcp-Session-Id, cf-placement",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -739,16 +739,23 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     if (tc) {
       const name = tc[1].trim();
       const argsRaw = tc[2].trim() || "{}";
-      const show = /^(工具说明|tool_show)$/i.test(name.replace(/^.*\./, ""));
+      // 查说明：本来就是「工具说明」；或者拿某个服务自带的查参数工具去查别的服务的工具（它不认识，这里替它查）
+      let sa = {};
+      try { sa = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
+      let show = /^(工具说明|tool_show)$/i.test(name.replace(/^.*\./, ""));
+      if (!show && /schema|describe|tool_?info|tool_?help/i.test(name.replace(/^.*\./, ""))) {
+        const want = String(sa?.tool_name ?? sa?.name ?? sa?.tool ?? "").trim();
+        const owner = resolveTool(servers, name)?.server;
+        const f = want ? resolveTool(servers, want) : null;
+        if (want && ((f && f.server !== owner) || (!f && want.includes(".")))) { show = true; sa = { name: want }; }
+      }
       const found = show ? null : resolveTool(servers, name);
       let result;
       const note = { at: keepSaid(tc.index) };
       const docOf = f => f?.server.docs?.[f.tool] || "";
       if (show) {
         // 查说明：网页同步过来的时候带着完整说明
-        let a = {};
-        try { a = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
-        const want = String(a?.name || a?.tool || "").trim();
+        const want = String(sa?.name || sa?.tool || "").trim();
         const f = want ? resolveTool(servers, want) : null;
         result = !want ? `要查哪个工具？写成 {"name": "服务名.工具名"}。`
           : !f ? `没有叫「${want}」的工具，请对照目录里的名字再查。`
@@ -1058,11 +1065,7 @@ async function wakeRoute(path, req, env) {
 
 export default {
   async fetch(req, env) {
-    // 预检：模型接口要带 Authorization、x-api-key 这些头，按浏览器要的放行
-    if (req.method === "OPTIONS") {
-      const want = req.headers.get("Access-Control-Request-Headers");
-      return new Response(null, { status: 204, headers: { ...CORS, ...(want ? { "Access-Control-Allow-Headers": want } : {}) } });
-    }
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
     if (!env.RELAY_TOKEN) return json({ error: "中转还没有设置密码：请在 Worker 的「变量和机密」里添加 RELAY_TOKEN" }, 500);
     if (req.headers.get("X-Relay-Token") !== env.RELAY_TOKEN) return json({ error: "中转密码不对" }, 401);
@@ -1080,7 +1083,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 8, features: ["search", "mcp", "fetch", "llm", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 8, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
@@ -1120,40 +1123,6 @@ export default {
         });
       } catch (e) {
         return json({ error: "连不上 MCP 服务器：" + (e.message || e) }, 502);
-      }
-    }
-
-    // 模型请求：手机连不上的模型接口（OpenRouter 这类）从这里转过去，流式回复原样带回
-    // 目标地址放在 X-Target-Url 里；Key 只是经过，不存
-    if (path === "/llm" && req.method === "POST") {
-      const target = req.headers.get("X-Target-Url") || "";
-      const allowHttp = env.ALLOW_HTTP === "1";
-      if (!/^https:\/\//i.test(target) && !(allowHttp && /^http:\/\//i.test(target))) return json({ error: "模型地址必须以 https:// 开头" }, 400);
-      // 只转发模型接口要的头（Key、版本号、内容类型这些），别的都不带
-      const headers = new Headers();
-      for (const [k, v] of req.headers) {
-        if (/^(content-type|accept|authorization|x-api-key|anthropic-|x-stainless-|openai-|x-title|http-referer)/i.test(k)) headers.set(k, v);
-      }
-      try {
-        const r = await fetch(target, { method: "POST", headers, body: await req.arrayBuffer() });
-        const out = new Headers(CORS);
-        for (const k of ["content-type", "request-id", "x-request-id"]) if (r.headers.get(k)) out.set(k, r.headers.get(k));
-        return new Response(r.body, { status: r.status, headers: out });
-      } catch (e) {
-        return json({ error: "中转连不上模型接口：" + (e.message || e) }, 502);
-      }
-    }
-    // 拉模型列表（GET）
-    if (path === "/llm" && req.method === "GET") {
-      const target = req.headers.get("X-Target-Url") || "";
-      if (!/^https?:\/\//i.test(target)) return json({ error: "模型地址不对" }, 400);
-      const headers = new Headers();
-      for (const k of ["authorization", "x-api-key", "anthropic-version"]) if (req.headers.get(k)) headers.set(k, req.headers.get(k));
-      try {
-        const r = await fetch(target, { headers });
-        return new Response(r.body, { status: r.status, headers: { ...CORS, "content-type": r.headers.get("content-type") || "application/json" } });
-      } catch (e) {
-        return json({ error: "中转连不上模型接口：" + (e.message || e) }, 502);
       }
     }
 

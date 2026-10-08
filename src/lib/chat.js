@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, isToolShow, showTool, toolDoc } from "./mcp.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -316,12 +316,11 @@ export async function generate(thread, parentId, { speaker } = {}) {
         const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true, at: keepSaid(text, tc.index) });
         msg.notes.push(note);
         let result;
-        const found = isToolShow(name) ? null : resolveToolCall(servers, name);
-        if (isToolShow(name)) {
+        const showArgs = showRequest(servers, name, argsRaw);
+        const found = showArgs ? null : resolveToolCall(servers, name);
+        if (showArgs) {
           // 查说明：不用真的调用，网页这边就有完整说明
-          let args = {};
-          try { args = JSON.parse(argsRaw); } catch { /* 当成没写 */ }
-          const r = showTool(servers, args);
+          const r = showTool(servers, showArgs);
           result = r.text;
           note.text = `${role.name} 看了看工具说明${r.label ? "：" + r.label : ""}`;
           note.detail = result;
