@@ -90,14 +90,16 @@ export function buildSystem(role, messages, { wake = false } = {}) {
 async function contextNote(role, history, group) {
   const me = meName(role);
   const lastOther = [...history].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
-  const parts = [
+  const time = [
     `现在是 ${nowForAI()}。`,
     lastOther && Date.now() - lastOther.ts > 30 * 60_000 ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
-    hasXinchao(role) ? mindForAI(role) : "",
-    hasXinchao(role) ? surfacedForAI(role) : "",
-    group ? await privateForAI(role) : await groupsForAI(role),
-  ].filter(Boolean);
-  return `【此刻——系统附上的，不是${me}说的话】\n${parts.join("\n")}\n【以下是新消息】`;
+  ].filter(Boolean).join("\n");
+  const mind = hasXinchao(role) ? mindForAI(role) : "";
+  const mem = hasXinchao(role) ? surfacedForAI(role) : "";
+  const cross = group ? await privateForAI(role) : await groupsForAI(role);
+  const text = `【此刻——系统附上的，不是${me}说的话】\n${[time, mind, mem, cross].filter(Boolean).join("\n")}\n【以下是新消息】`;
+  // 各块多大（用量页「都花在哪」）
+  return { text, est: { mind: estTokens(mind) + estTokens(time), mem: estTokens(mem), cross: estTokens(cross) } };
 }
 
 // 群聊里给 TA 的说明
@@ -267,7 +269,9 @@ export async function generate(thread, parentId, { speaker } = {}) {
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversFor(role.id).filter(s => s.tools?.length))) };
     const messages = await buildMessages(history, group ? role.id : null);
-    messages[messages.length - 1].parts.unshift({ type: "text", text: await contextNote(role, history, group) });
+    const note = await contextNote(role, history, group);
+    messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
+    Object.assign(msg.est, note.est);
     all.push(msg);
     thread.sel[parent] = msg.id;
     const useRelaySearch = searchEnabled();

@@ -29,15 +29,23 @@ function partsOf(m) {
   const tools = m.est.tools || 0;
   const sys = Math.max(0, (m.est.system || 0) - tools);
   const total = ctxOf(m);
-  // 估出来的数和服务商算的不一样：按比例对到实际的数上
-  const est = sys + tools;
-  const k = est > total ? total / est : 1;
   const rows = [
-    { label: "设定、记忆、日历等", n: Math.round(sys * k) },
-    { label: "工具目录", n: Math.round(tools * k) },
+    { label: "设定、日历等", n: sys },
+    { label: "工具目录", n: tools },
   ];
-  rows.push({ label: `聊天记录和【此刻】`, n: Math.max(0, total - rows[0].n - rows[1].n) });
-  return rows.map(r => ({ ...r, pct: total ? Math.round((r.n / total) * 100) : 0 }));
+  // 【此刻】拆开：浮现的记忆、心境和时间、附带的私聊 / 群聊（老消息没记，就和聊天记录算在一起）
+  const split = m.est.mem != null;
+  if (split) {
+    rows.push({ label: "此刻浮现的记忆", n: m.est.mem || 0 });
+    rows.push({ label: "此刻的心境和时间", n: m.est.mind || 0 });
+    rows.push({ label: props.perMember ? "附带的私聊" : "附带的群聊", n: m.est.cross || 0 });
+  }
+  const est = rows.reduce((a, r) => a + r.n, 0);
+  // 估出来的数和服务商算的不一样：按比例对到实际的数上
+  const k = est > total ? total / est : 1;
+  rows.forEach(r => (r.n = Math.round(r.n * k)));
+  rows.push({ label: split ? "聊天记录" : "聊天记录和【此刻】", n: Math.max(0, total - rows.reduce((a, r) => a + r.n, 0)) });
+  return rows.filter(r => r.n > 0 || r.label === "工具目录").map(r => ({ ...r, pct: total ? Math.round((r.n / total) * 100) : 0 }));
 }
 const extraOf = m => (m?.ctx0 ? Math.max(0, (m.usage?.input || 0) - m.ctx0) : 0);
 const parts = computed(() => partsOf(last.value));
@@ -57,21 +65,24 @@ const pager = ref(null);
 const onScroll = () => { const el = pager.value; if (el) page.value = Math.round(el.scrollLeft / el.clientWidth); };
 const go = i => pager.value?.scrollTo({ left: i * pager.value.clientWidth, behavior: "smooth" });
 watch(() => props.open, v => { if (v) { page.value = 0; requestAnimationFrame(() => pager.value && (pager.value.scrollLeft = 0)); } });
+const SURFACED = { key: "surfacedLimit", label: "每轮附上几条浮现的记忆", sub: "接了心潮才有；每条大约几百字，少一点更省。0 就是不附（TA 还能自己用 breath 去找）", min: 0, max: 20, step: 1, def: 8 };
 const limits = computed(() => (props.perMember
   ? [
       { key: "groupHistoryLimit", label: "大家每次能看到群里最近多少条", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
       { key: "groupPrivateLimit", label: "群聊里看得到多少条私聊", sub: "轮到 TA 在群里说话时，附上 TA 和你最近的私聊；0 就是不附", min: 0, def: 40 },
+      SURFACED,
     ]
   : [
       { key: "historyLimit", label: "TA 每次能看到最近多少条消息", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
       { key: "privateGroupLimit", label: "私聊里看得到多少条群聊", sub: "私聊时附上 TA 在的群里最近聊的；0 就是不附", min: 0, def: 40 },
       { key: "wakeHistoryLimit", label: "TA 醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；不会超过第一项", min: 2, def: 30 },
+      SURFACED,
     ]));
 function setLimit(l, v) {
   const n = Math.round(Number(v));
-  store.settings[l.key] = Number.isFinite(n) ? Math.max(l.min, Math.min(1000, n)) : l.def;
+  store.settings[l.key] = Number.isFinite(n) ? Math.max(l.min, Math.min(l.max || 1000, n)) : l.def;
 }
-const step = (l, d) => setLimit(l, (Number(store.settings[l.key] ?? l.def) || 0) + d);
+const step = (l, d) => setLimit(l, (Number(store.settings[l.key] ?? l.def) || 0) + d * (l.step || 10));
 
 function sum(list) {
   const t = { replies: 0, input: 0, cached: 0, output: 0, extra: 0 };
@@ -167,9 +178,9 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
           <b>{{ l.label }}</b>
           <span class="sub">{{ l.sub }}</span>
           <div class="stepper">
-            <button aria-label="少 10 条" @click="step(l, -10)">−</button>
-            <input :value="store.settings[l.key] ?? l.def" type="number" inputmode="numeric" :min="l.min" max="1000" step="10" @change="setLimit(l, $event.target.value)" />
-            <button aria-label="多 10 条" @click="step(l, 10)">+</button>
+            <button aria-label="少一点" @click="step(l, -1)">−</button>
+            <input :value="store.settings[l.key] ?? l.def" type="number" inputmode="numeric" :min="l.min" :max="l.max || 1000" :step="l.step || 10" @change="setLimit(l, $event.target.value)" />
+            <button aria-label="多一点" @click="step(l, 1)">+</button>
           </div>
         </div>
       </div>

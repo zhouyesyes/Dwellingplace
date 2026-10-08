@@ -98,11 +98,14 @@ export const surfaced = reactive({}); // roleId -> { text, at, loading }
 export async function refreshSurfaced(role, force = false) {
   if (!hasXinchao(role)) return;
   const cur = surfaced[role.id];
-  if (cur?.loading || (!force && cur && Date.now() - cur.at < 10 * 60_000)) return;
+  // 浮现几条：用量页第二页里调（0 就是不附）
+  const n = Math.max(0, Math.min(20, Number(store.settings.surfacedLimit ?? 8)));
+  if (!n) { surfaced[role.id] = { text: "", at: Date.now(), n, loading: false }; return; }
+  if (cur?.loading || (!force && cur && cur.n === n && Date.now() - cur.at < 10 * 60_000)) return;
   surfaced[role.id] = { ...(cur || { text: "" }), loading: true };
   try {
-    const text = await breath(role, { maxResults: 8 });
-    surfaced[role.id] = { text: text.slice(0, 4000), at: Date.now(), loading: false };
+    const text = await breath(role, { maxResults: n });
+    surfaced[role.id] = { text: text.slice(0, n * 500), at: Date.now(), n, loading: false };
   } catch {
     surfaced[role.id] = { ...(cur || { text: "", at: 0 }), loading: false };
   }
