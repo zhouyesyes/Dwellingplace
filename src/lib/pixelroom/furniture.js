@@ -3,6 +3,7 @@ import { box, quad, sprite, dither, hex, mix, glow, shadow, floorQuad, floorGlow
 const T = tagId;
 import { litTop, sunOn } from "./light.js";
 import { cui, cuiDeck, rowan } from "./rooms.js";
+import { HEADS } from "./folk.js";
 
 const shade = (c, k) => "#" + hex(c).map(v => Math.max(0, Math.min(255, Math.round(v * k))).toString(16).padStart(2, "0")).join("");
 const wood = (c, line) => ({ top: shade(c, 1.12), left: c, right: shade(c, 0.78), line: line || shade(c, 0.55) });
@@ -60,6 +61,25 @@ function sheet(cv, x, y, w, d, ang, paint, win, L) {
     return win ? sunOn(col, win, x + u * w * c - v * d * s, y + u * w * s + v * d * c, 0, px, py) : col;
   }, L);
 }
+// 把一个小人图（folk.js 拼好的）底边居中放到 P(gx, gy, h)
+function drawBuilt(cv, s, gx, gy, h) {
+  const [px, py] = P(gx, gy, h), x0 = Math.round(px - s.w / 2), y0 = Math.round(py) - s.h;
+  for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) { const c = s.px(x, y); if (c) cv.set(x0 + x, y0 + y, c, gx + gy); }
+}
+// 铺开的被子：盖住整张床，上面鼓起一个人形，靠枕头那头翻过来一道被里
+function spreadQuilt(cv, { x, y, w, d, z }, { top, side, dark, fold, stripe }, L, win) {
+  const paint = (u, v, px, py) => {
+    let c = v < 0.1 ? fold : stripe && Math.abs((u * 4) % 1 - 0.5) < 0.04 ? stripe : top;
+    if (v >= 0.1 && Math.abs(Math.sin(u * 7 + v * 2)) < 0.12 && dither(px, py)) c = shade(top, 0.92); // 几道软软的褶
+    return c;
+  };
+  box(cv, { x, y, w, d, z, h: 0.16 }, { top: win ? litTop(paint, x, y, w, d, z + 0.16, win) : paint, left: side, right: dark, line: shade(dark, 0.75) }, L);
+  // 身体把被子顶起来一点
+  box(cv, { x: x + w * 0.25, y: y + 0.25, w: w * 0.5, d: d * 0.62, z: z + 0.16, h: 0.08 }, { top: win ? litTop(top, x + w * 0.25, y + 0.25, w * 0.5, d * 0.62, z + 0.24, win) : top, left: side, right: dark }, L);
+  // 被角垂到床边
+  quad(cv, [x + 0.2, y + d + 0.01, z - 0.3], [w - 0.4, 0, 0], [0, 0, 0.46], (u, v) => (v < 0.15 - Math.sin(u * 3.1) * 0.1 ? null : side), L);
+}
+
 // 门口漏进来的光
 function doorSpill(cv, a0, a1, reach, color, dir) {
   const spill = (d, a, px, py) => {
@@ -393,6 +413,11 @@ export function cuiFurnish(cv, L, state = {}) {
   box(cv, { x: bx + 0.05, y: by + 0.05, z: top + 0.28, w: bw - 0.1, d: bd - 0.1, h: 0.26 }, { top: "#FBF3E4", left: "#EDE1CB", right: "#D9CBB0", line: "#B7A688" }, L);
   box(cv, { x: bx + 0.3, y: by + 0.12, z: top + 0.54, w: 1.7, d: 0.62, h: 0.22 }, { top: litTop("#FFFFFF", bx + 0.3, by + 0.12, 1.7, 0.62, top + 0.76, win), left: "#F2ECE2", right: "#DDD5C8", line: "#B9AE9E" }, L);
   const qy = by + 1.0, qz = top + 0.54;
+  if (state.bed) { // 睡着了：顺着床躺好，被子铺开盖到下巴，暖暖窝在枕头边
+    drawBuilt(cv, HEADS.xq, bx + 1.15, by + 0.55, top + 0.6);
+    spreadQuilt(cv, { x: bx + 0.04, y: by + 0.78, w: bw - 0.08, d: bd - 0.82, z: top + 0.54 }, { top: "#F2B08A", side: "#E89A72", dark: "#C97E58", fold: "#FFE6D2" }, L, win);
+    drawBuilt(cv, HEADS.nn, bx + 1.95, by + 0.6, top + 0.72);
+  } else {
   box(cv, { x: bx + 0.02, y: qy, z: top + 0.28, w: bw - 0.04, d: bd - 0.95, h: 0.32 }, {
     top: litTop((u, v, x, y) => (Math.abs(Math.sin(u * 9 + v * 3)) < 0.18 ? "#D98E68" : (Math.floor(u * 6) + Math.floor(v * 8)) % 2 && dither(x, y) ? "#E7A07A" : "#F2B08A"), bx, qy, bw, bd - 0.95, top + 0.6, win),
     left: "#E89A72", right: "#C97E58", line: "#9A5638",
@@ -410,6 +435,7 @@ export function cuiFurnish(cv, L, state = {}) {
     "#ppppppppp##ppppppppp#",
     "#,,,,,,,,,##,,,,,,,,,#",
   ], { "#": "#1E3450", "@": "#3E6A9A", g: "#E2C27A", p: "#FFF8E8", ",": "#D9CDB0" }, L);
+  }
   // 床尾地台上：TA 的黑匣子（深木小箱子，铜包角、铜锁）
   cv.tag = T("blackbox");
   shadow(cv, 8.95, 4.05, 0.85, 0.6, 0.25, 0.06);
@@ -634,6 +660,10 @@ export function rowanFurnish(cv, L, state = {}) {
   }, L);
   box(cv, { x: 0.08, y: 0.08, z: kh, w: kw - 0.16, d: kd - 0.16, h: 0.22 }, { top: litTop("#D6CBB0", 0.08, 0.08, kw - 0.16, kd - 0.16, kh + 0.22, win), left: "#C4B89C", right: "#A99E84", line: "#7A705C" }, L);
   box(cv, { x: 0.15, y: 0.12, z: kh + 0.22, w: 1.6, d: 0.7, h: 0.2 }, { top: "#E9DFC4", left: "#D6CBB0", right: "#BDB196", line: "#8A8068" }, L); // 枕头靠墙角
+  if (state.bed) { // 躺下了：头枕在枕头上，深蓝毯子铺开盖好（看星星时睁着眼，睡着了闭眼）
+    drawBuilt(cv, state.bed === "gaze" ? HEADS.rwGaze : HEADS.rw, 0.95, 0.42, kh + 0.3);
+    spreadQuilt(cv, { x: 0.12, y: 0.78, w: 1.76, d: 2.6, z: kh + 0.22 }, { top: "#26305A", side: "#222A50", dark: "#1A2040", fold: "#D6CBB0", stripe: "#3A4A78" }, L, win);
+  } else
   box(cv, { x: 0.15, y: 2.1, z: kh + 0.22, w: 1.65, d: 1.15, h: 0.24 }, { top: (u, v) => (Math.abs(u - 0.2) < 0.04 || Math.abs(u - 0.8) < 0.04 ? "#3A4A78" : "#26305A"), left: (u, v) => (Math.abs(v - 0.5) < 0.08 ? "#1A2040" : "#222A50"), right: "#1A2040", line: "#10142A" }, L); // 叠好的深蓝毯子
   box(cv, { x: kw, y: 0.9, w: 0.55, d: 1.5, h: kh * 0.66 }, wood(WN), L); // 上一级（能坐）
   box(cv, { x: kw + 0.55, y: 0.9, w: 0.5, d: 1.5, h: kh * 0.33 }, wood(WN), L);

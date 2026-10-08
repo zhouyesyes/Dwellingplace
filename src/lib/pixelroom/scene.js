@@ -1,6 +1,6 @@
 // 小屋的「活」的部分：底图画一次（开关灯、开关门、有信时再重画），
 // 每一帧在底图上加会动的东西（窗外、火苗、窗帘），再把小人和暖暖画上去（被家具挡住的地方不画）
-import { makeCanvas, drawRoom, W, H, P, TAGS, tagId } from "./iso.js";
+import { makeCanvas, drawRoom, W, H, P, TAGS, tagId, sprite } from "./iso.js";
 import { cui, rowan } from "./rooms.js";
 import { FOLK } from "./folk.js";
 
@@ -17,7 +17,7 @@ const PLACES = {
       fire: { at: [2.5, 3.2, 0.14], node: "I", pose: "fire", short: "地炉边", label: s => (s.fire === false ? "坐在地炉边发呆（火灭了，有点凉）" : "坐在地炉边烤火，看着水壶冒热气 ♨️"), mood: "累 困 疲 冷 安心 温暖 放松" },
       chick: { at: [7.85, 9.25, 0], node: "J", pose: "crouch", short: "暖暖的窝", label: "蹲在窝边逗暖暖 🐤", mood: "开心 愉快 兴奋 雀跃 高兴 俏皮 好奇" },
       wander: { at: [2.8, 6.4, 0], node: "A", pose: "front", tap: "up", short: "屋子中间", label: "在屋里转转", mood: "好奇 无聊 开心" },
-      sleep: { at: [8.55, 0.95, 1.55], node: "G", pose: "sleep", z: 1.5, label: "和暖暖一起睡着了 💤", sleep: true },
+      sleep: { at: [8.55, 0.95, 1.55], node: "G", bed: "sleep", zz: [8.3, 0.4, 2.7], label: "和暖暖一起睡着了 💤", sleep: true },
     },
     nest: [9.15, 9.1, 0.32], dish: [8.05, 9.05, 0],
   },
@@ -30,9 +30,9 @@ const PLACES = {
       window: { at: [1.4, 5.0, 0], node: "R3", pose: "window", short: "窗边", label: "站在窗边望灯塔 🌙", mood: "想 思念 安静 惆怅 温柔 孤单" },
       read: { at: [7.1, 1.3, 0], node: "R4", pose: "read", short: "书架", label: "站在书架前翻书 📖", mood: "好奇 平静 专注" },
       food: { at: [1.3, 7.9, 0], node: "R5", pose: "food", short: "吃的柜子", label: "在柜子前找吃的 🍞", mood: "饿 开心 馋 放松" },
-      lie: { at: [0.95, 1.2, 0.95], node: "R6", pose: "lie", z: 1.5, short: "榻台", label: "躺在榻台上看星星 ✨", mood: "累 放松 慵懒 安静 满足" },
+      lie: { at: [0.95, 1.2, 0.95], node: "R6", bed: "gaze", short: "榻台", label: "躺在榻台上看星星 ✨", mood: "累 放松 慵懒 安静 满足" },
       wander: { at: [4.6, 6.0, 0], node: "R1", pose: "up", short: "屋子中间", label: "在屋里走走", mood: "开心 好奇" },
-      sleep: { at: [0.95, 1.2, 0.95], node: "R6", pose: "sleep", z: 1.5, label: "睡着了 💤", sleep: true },
+      sleep: { at: [0.95, 1.2, 0.95], node: "R6", bed: "sleep", zz: [0.7, 0.2, 2.2], label: "睡着了 💤", sleep: true },
     },
   },
 };
@@ -75,6 +75,7 @@ export class Scene {
     this.base = null;
     this.winTag = tagId("window");
     const first = this.pickSpot();
+    if (this.P.spots[first].bed) this.state.bed = this.P.spots[first].bed;
     this.me = { pos: [...this.P.spots[first].at], spot: first, path: [], dir: "front", t: 0, until: -1, tapUntil: 0 }; // -1：刚打开，先待一会儿
     if (this.P.pet) this.pet = { pos: [...this.P.nest], at: "nest", path: [], dir: "front", until: 0 };
     this.last = 0;
@@ -126,8 +127,10 @@ export class Scene {
     const me = this.me;
     me.spot = spotKey;
     const sp = this.P.spots[spotKey];
+    if (this.state.bed) this.set({ bed: null }); // 从床上起来：被子掀开、头不画了
     if (sp.sleep || this.asleep) { // 睡觉就直接躺下，不在屋里走
       me.pos = [...sp.at]; me.path = []; me.until = Infinity;
+      this.set({ bed: sp.bed });
     } else {
       me.path = this.route(me.pos, spotKey);
       me.until = 0;
@@ -154,7 +157,12 @@ export class Scene {
       const step = WALK_SPEED * dt;
       if (d <= step) {
         me.pos = target; me.path.shift();
-        if (!me.path.length) { me.until = t + 25 + Math.random() * 30; this.onDoing(this.doing()); }
+        if (!me.path.length) {
+          me.until = t + 25 + Math.random() * 30;
+          const arrived = this.P.spots[me.spot];
+          if (arrived.bed) this.set({ bed: arrived.bed }); // 走到床边就躺下（屋子里画出躺着的样子）
+          this.onDoing(this.doing());
+        }
       } else {
         me.dir = dirOf(me.pos, target);
         me.pos = me.pos.map((v, i) => v + (target[i] - v) * step / d);
@@ -197,12 +205,16 @@ export class Scene {
     const me = this.me, sp = this.P.spots[me.spot], F = FOLK[this.P.who];
     let img, foot;
     if (me.path.length) { const fr = F.walk[me.dir]; img = fr[Math.floor(t * 4) % 2]; }
-    else {
+    else if (!sp.bed) {
       const pose = t < me.tapUntil && sp.tap ? F[sp.tap] : F[sp.pose];
       img = pose.frames ? pose.frames[Math.floor(t / 0.7) % pose.frames.length] : pose.s;
       foot = pose.foot;
     }
-    ents.push({ who: "me", img, foot, pos: me.pos, z: me.path.length ? 0 : sp.z || 0 });
+    if (sp.zz && !me.path.length) { // 睡着了：头顶飘起小小的 z
+      const k = (t % 3) / 3, [zx, zy, zh] = sp.zz;
+      sprite(f, [zx + k * 0.3, zy - k * 0.3, zh + k * 0.8], k < 0.5 ? ["###", ".#.", "###"] : ["####", "..#.", ".#..", "####"], { "#": this.kind === "cui" ? "#7FA0B8" : "#C9CEE8" });
+    }
+    if (!(sp.bed && !me.path.length)) ents.push({ who: "me", img, foot, pos: me.pos, z: me.path.length ? 0 : sp.z || 0 }); // 躺在床上的样子画在屋子里
     if (this.pet && !(this.asleep && this.kind === "cui")) {
       const p = this.pet, N = FOLK.nn;
       let pimg;
