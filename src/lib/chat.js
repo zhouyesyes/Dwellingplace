@@ -287,6 +287,8 @@ export async function generate(thread, parentId, { speaker } = {}) {
       msg.text = said ? said + "\n\n" : "";
       return said.length;
     };
+    const done = new Set(); // 这次回复里已经调用过的工具 + 参数
+    let fixAsked = false; // 格式写错只提醒一次
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
       const base = msg.text.length;
@@ -298,7 +300,12 @@ export async function generate(thread, parentId, { speaker } = {}) {
         onThinking: d => { msg.thinking += d; },
       });
       text = res.text || msg.text.slice(base);
-      const fixed = normalizeToolCalls(text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
+      let fixed = normalizeToolCalls(text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
+      // 有时工具调用写进了「思考」里，正文是空的：从思考里捞出来
+      if (servers.length && !TOOL_CALL_RE.test(fixed) && !visibleText(fixed).trim() && res.thinking) {
+        const fromThink = normalizeToolCalls(res.thinking).match(TOOL_CALL_RE);
+        if (fromThink) fixed = `${fixed}${fromThink[0]}`;
+      }
       if (fixed !== text) { text = fixed; msg.text = msg.text.slice(0, base) + fixed; }
       if (res.thinking) msg.thinking = thinkingBefore + res.thinking;
       msg.ctx = res.usage.input; // 这一次 TA 看到的内容有多大
@@ -308,16 +315,29 @@ export async function generate(thread, parentId, { speaker } = {}) {
       msg.usage.cached = (msg.usage.cached || 0) + (res.usage.cached || 0);
       if (api) recordUsage(api.id, model, res.usage.input, res.usage.output);
 
-      if (round >= MAX_ROUNDS) break;
+      if (round >= MAX_ROUNDS) {
+        if (servers.length && TOOL_CALL_RE.test(text)) msg.notes.push({ text: `${role.name} 用工具来回了太多次，先停下了` });
+        break;
+      }
 
       // AI 要用 MCP 工具：网页去调用，再把结果交回给 AI
       const tc = servers.length ? text.match(TOOL_CALL_RE) : null;
+      // 看着像要用工具、但格式没写对（认不出来）：提醒 TA 照格式重写一次，别就这么空着
+      if (!tc && servers.length && !visibleText(text).trim() && /<\s*(tool_call|invoke|function)|"(name|tool)"\s*:/.test(text) && !fixAsked) {
+        fixAsked = true;
+        msg.notes.push({ text: `${role.name} 想用工具，但格式没写对，让 TA 重写一次` });
+        convo = [...convo,
+          { role: "assistant", parts: [{ type: "text", text: text.slice(0, 2000) }] },
+          { role: "user", parts: [{ type: "text", text: `（系统：上面的工具调用格式不对，没有执行。请只写一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>，参数是 JSON。）` }] }];
+        continue;
+      }
       if (tc) {
         const name = tc[1].trim();
         const argsRaw = tc[2].trim() || "{}";
         const note = reactive({ text: `${role.name} 正在使用 ${name}…`, before: true, at: keepSaid(text, tc.index) });
         msg.notes.push(note);
         let result;
+        const dupKey = name + "|" + argsRaw.replace(/\s+/g, "");
         const showArgs = showRequest(servers, name, argsRaw);
         const found = showArgs ? null : resolveToolCall(servers, name);
         if (showArgs) {
@@ -326,6 +346,10 @@ export async function generate(thread, parentId, { speaker } = {}) {
           result = r.text;
           note.text = `${role.name} 看了看工具说明${r.label ? "：" + r.label : ""}`;
           note.detail = result;
+        } else if (done.has(dupKey)) {
+          // 同一个工具、同样的参数，这次回复里已经调用过：不再真的去调用（比如同一封邮件读了两遍）
+          result = `（这个工具刚才已经用同样的参数调用过了，结果就在上面，不用再调用。直接接着做下一步，或者回复对方。）`;
+          note.text = `${role.name} 又想用一次 ${name}（同样的参数），没再调用`;
         } else if (!found) {
           result = `没有叫「${name}」的工具，请检查工具名。`;
           note.text = `${role.name} 想用的工具「${name}」不存在`;
@@ -344,6 +368,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
               note.text = `${role.name} 使用 ${found.server.name} · ${found.tool.name} 失败：${e.message}`;
             }
             note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 3000)}`;
+            done.add(dupKey);
           }
         }
         if (ctrl.signal.aborted) break;

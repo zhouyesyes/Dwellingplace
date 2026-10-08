@@ -301,14 +301,26 @@ export const TOOL_CALL_RE = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/tool_ca
 // 有的模型（比如 DeepSeek）不按约定写 <tool_call>，而是写成 <invoke name="…"><parameter name="…">…</parameter></invoke>
 // 外面可能还包着 <function_calls>、<｜DSML｜…> 之类。这里把它换成约定的 <tool_call name="…">{JSON}</tool_call>
 export function normalizeToolCalls(text) {
-  if (!text || !/<[^>]{0,20}invoke\s+name=/.test(text)) return text;
+  if (!text) return text;
+  // 还有一种：<tool_call>{"name": "…", "arguments": {…}}</tool_call>（不少模型习惯这样写）、名字用单引号
+  text = text.replace(/<tool_call\s+name='([^']+)'\s*>/g, '<tool_call name="$1">');
+  text = text.replace(/<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g, (all, body) => {
+    try {
+      const j = JSON.parse(body);
+      const name = j.name || j.tool || j.function?.name;
+      let args = j.arguments ?? j.parameters ?? j.args ?? j.input ?? j.function?.arguments ?? {};
+      if (typeof args === "string") { try { args = JSON.parse(args); } catch { /* 原样 */ } }
+      return name ? `<tool_call name="${name}">${JSON.stringify(args)}</tool_call>` : all;
+    } catch { return all; }
+  });
+  if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return text;
   const m = text.match(/<[^>]{0,20}invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/[^>]{0,20}invoke>|$)/);
   if (!m) return text;
   const args = {};
-  const re = /<[^>]{0,20}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?=<\/[^>]{0,20}parameter>|<[^>]{0,20}parameter\s+name=|$)/g;
-  for (const [, k, raw] of m[2].matchAll(re)) {
+  const re = /<[^>]{0,20}parameter\s+name="([^"]+)"([^>]*)>([\s\S]*?)(?=<\/[^>]{0,20}parameter>|<[^>]{0,20}parameter\s+name=|$)/g;
+  for (const [, k, attrs, raw] of m[2].matchAll(re)) {
     const v = raw.trim();
-    if (/^(true|false|null|-?\d{1,9}(\.\d+)?)$/.test(v) || /^[[{]/.test(v)) { try { args[k] = JSON.parse(v); continue; } catch { /* 当字符串 */ } }
+    if (!/string="true"/.test(attrs) && /^(true|false|null|-?\d{1,9}(\.\d+)?)$/.test(v) || /^[[{]/.test(v)) { try { args[k] = JSON.parse(v); continue; } catch { /* 当字符串 */ } }
     args[k] = v;
   }
   const call = `<tool_call name="${m[1]}">${JSON.stringify(args)}</tool_call>`;
