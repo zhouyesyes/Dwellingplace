@@ -515,6 +515,26 @@ export const roomActs = {
   rwDesk: build([[RW_BACK, 3, 2], [RW_DESK_BACK, 4, 16]], RWX, 24, 26),
 };
 
+
+// Rowan 侧身坐在书桌前写字（斜着朝书桌，腿垂在椅子边上），两帧：握笔的手一前一后
+const RW_SIT_SIDE = [
+  "...RRRWWR.......",
+  "..RRRRWWWR......",
+  ".RRRRRWoWR......",
+  ".RRRRRRWWRRRSS..",
+  ".RRrRRRWWRRR....",
+  ".RRrRRRWWR......",
+  "..RRRRRRRR......",
+  "..NNNNNNNNNNN...",
+  "..NNNNNNNNNNN...",
+  "........NNN.....",
+  "........NNN.....",
+  "........NNN.....",
+  "........NNNN....",
+  "........FFFFF...",
+];
+const RW_SIT_SIDE2 = RW_SIT_SIDE.map((r, j) => (j === 3 ? ".RRRRRRWWRRR...." : j === 4 ? ".RRrRRRWWRRRSS.." : r));
+
 // ================= 放进屋里用的帧 =================
 // foot：贴图里哪一行对准格子位置（站着就是脚底；坐着是屁股坐的那一行）
 const XQ_SIDE = paint(XQ_SIDE_HEAD, STREAK_SIDE);
@@ -531,7 +551,7 @@ export const FOLK = {
   rw: {
     front: { s: sprites.rw.s }, up: { s: sprites.rwIdle.s },
     walk: { front: turn.rw.walkFront, back: turn.rw.walkBack, right: turn.rw.walkSide, left: turn.rw.walkSide.map(mirror) },
-    desk: { frames: [roomActs.rwDesk, build([[RW_BACK, 3, 2], [RW_DESK_BACK2, 4, 16]], RWX, 24, 26)], foot: 25 },
+    desk: { frames: [build([[sideDown(RW_SIDE_HEAD), 4, 1], [RW_SIT_SIDE, 6, 15]], RWX, 24, 31), build([[sideDown(RW_SIDE_HEAD), 4, 1], [RW_SIT_SIDE2, 6, 15]], RWX, 24, 31)], foot: 23 },
     window: { s: mirror(turn.rw.side) },
     read: { s: build([[sideDown(RW_SIDE_HEAD), 4, 1], [[...RW_READ_TORSO, ...RL.stand], 6, 15]], RWX) },
     food: { s: mirror(turn.rw.side) },

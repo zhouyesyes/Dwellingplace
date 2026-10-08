@@ -66,6 +66,14 @@ const TALK = {
   },
 };
 
+// 气泡上的小标题
+const TITLE = {
+  window: "窗", chart: "海图", note: "便签", shells: "贝壳标本", plant: "绿植", hat: "草帽", cushion: "坐垫", kettle: "铁壶", cabinet: "矮柜", bag: "暖暖的粮袋",
+  deck: "地台", sill: "窗台", jars: "许愿瓶", pothos: "绿萝", bed: "床", table: "矮桌", net: "渔网", nest: "暖暖的窝", geta: "木屐", blackbox: "黑匣子",
+  starchart: "星图", manuscripts: "手稿", board: "告示板", compass: "罗盘", daybed: "观星榻台", desk: "书桌", notebook: "本子", chair: "椅子", bookshelf: "书架",
+  map: "海图", papers: "报纸", telescope: "望远镜", food: "吃的柜子", rug: "地毯", mailbox: "信箱", door: "门", fire: "地炉", lamp: "台灯", pet: "暖暖",
+};
+const say = (what, text, action) => emit("say", { title: TITLE[what] || "", text, action });
 function tap(e) {
   if (!scene) return;
   const r = canvas.value.getBoundingClientRect();
@@ -73,19 +81,19 @@ function tap(e) {
   const what = scene.hit(x, y);
   if (!what) return;
   if (what === "me") { scene.tapMe(performance.now()); emit("tap-me", scene.doing()); return; }
-  if (what === "pet") { emit("say", props.asleep ? "暖暖缩在被子边上，睡得圆滚滚的。" : "暖暖抬起头，「啾」了一声。"); sfx.chirp(); return; }
-  if (what === "mailbox") { sfx.paper(); return emit("open", "mailbox"); }
-  if (what === "blackbox") { emit("say", TALK[props.kind].blackbox(props.name)); return emit("open", "blackbox"); }
+  if (what === "pet") { say("pet", props.asleep ? "暖暖缩在被子边上，睡得圆滚滚的。" : "暖暖抬起头，「啾」了一声。"); sfx.chirp(); return; }
+  if (what === "mailbox") { sfx.paper(); return say("mailbox", props.mailLit ? `小旗竖着呢，里面有 ${props.name} 写给你的信。` : `小旗放平着，没有新信。也可以给 ${props.name} 写一封。`, "mailbox"); }
+  if (what === "blackbox") return say("blackbox", TALK[props.kind].blackbox(props.name), "blackbox");
   if (what === "door") return toggle("door", on => (on ? "门推开了，走廊的光漏进来一条。" : "门关上了，屋里安静下来。"));
   if (what === "fire" || (what === "kettle" && props.kind === "cui")) return toggle("fire", on => (on ? "往地炉里添了根柴，火又旺起来了。" : "把地炉的火压小了，只剩一点暗红的炭。"));
   if (what === "lamp") return toggle("lamp", on => (on ? "台灯「咔哒」亮了，桌上暖暖的一圈。" : "台灯关了，只剩月光照在桌上。"));
   const t = TALK[props.kind][what];
-  if (t) emit("say", typeof t === "function" ? t(props.name) : t);
+  if (t) say(what, typeof t === "function" ? t(props.name) : t);
 }
 function toggle(key, text) {
   const on = scene.state[key] === false;
   (key === "door" ? sfx.creak : sfx.pop)();
-  emit("say", text(on));
+  say(key, text(on));
   setTimeout(() => { scene.set({ [key]: on }); emit("doing", scene.doing()); }, 0); // 重画底图要一小会儿，先让字出来
 }
 

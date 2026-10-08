@@ -26,7 +26,7 @@ const PLACES = {
     nodes: { R1: [4.6, 6.0, 0], R2: [4.4, 3.0, 0], R3: [1.6, 5.4, 0], R4: [7.1, 1.8, 0], R5: [1.6, 7.9, 0], R6: [3.4, 2.9, 0] },
     edges: ["R1R2", "R1R3", "R1R4", "R1R5", "R3R5", "R2R6", "R2R4"],
     spots: {
-      desk: { at: [4.42, 2.1, 0.55], node: "R2", pose: "desk", short: "书桌", label: s => (s.lamp === false ? "坐在书桌前，借着月光写字 ✒️" : "坐在书桌前写航海日志 ✒️"), mood: "专注 认真 思考 平静 充实" },
+      desk: { at: [4.35, 1.95, 0.97], node: "R2", pose: "desk", z: 1, short: "书桌", label: s => (s.lamp === false ? "坐在书桌前，借着月光写字 ✒️" : "坐在书桌前写航海日志 ✒️"), mood: "专注 认真 思考 平静 充实" },
       window: { at: [1.4, 5.0, 0], node: "R3", pose: "window", short: "窗边", label: "站在窗边望灯塔 🌙", mood: "想 思念 安静 惆怅 温柔 孤单" },
       read: { at: [7.1, 1.3, 0], node: "R4", pose: "read", short: "书架", label: "站在书架前翻书 📖", mood: "好奇 平静 专注" },
       food: { at: [1.3, 7.9, 0], node: "R5", pose: "food", short: "吃的柜子", label: "在柜子前找吃的 🍞", mood: "饿 开心 馋 放松" },
@@ -235,7 +235,11 @@ export class Scene {
   hit(x, y) {
     for (const h of [...(this.hits || [])].reverse()) {
       const lx = Math.floor(x - h.x0), ly = Math.floor(y - h.y0);
-      if (lx >= -2 && ly >= -2 && lx < h.w + 2 && ly < h.h + 2) return h.who;
+      // 点到小人身上（或者紧挨着一两格）才算点到 TA，不然算点到后面的家具
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const X = lx + dx, Y = ly + dy;
+        if (X >= 0 && Y >= 0 && X < h.w && Y < h.h && h.sp.data[(Y * h.w + X) * 4 + 3]) return h.who;
+      }
     }
     if (!this.base || x < 0 || y < 0 || x >= W || y >= H) return "";
     return TAGS[this.base.tags[Math.floor(y) * W + Math.floor(x)]] || "";

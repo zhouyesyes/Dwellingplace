@@ -52,7 +52,7 @@ async function checkMail() {
   } catch { /* 取不到就不亮 */ }
 }
 function load() {
-  said.value = "";
+  said.value = null;
   card.value = null;
   if (!role.value) return;
   if (hasXinchao(role.value) && dashToken(role.value)) refreshMind(role.value);
@@ -62,13 +62,13 @@ onMounted(load);
 watch(() => route.params.roleId, load);
 
 // 下面那行字：平时说 TA 在做什么，点了东西就说那件东西
-const said = ref("");
+const said = ref(null); // { title, text, action }
 let sayTimer = 0;
-function say(text) {
-  said.value = text;
+function say(msg) {
+  said.value = msg;
   card.value = null;
   clearTimeout(sayTimer);
-  sayTimer = setTimeout(() => (said.value = ""), 6000);
+  sayTimer = setTimeout(() => (said.value = null), msg.action ? 12000 : 7000);
 }
 // TA 现在在干嘛（小屋里走到哪、做什么，由小屋告诉我们）
 const doing = ref("");
@@ -77,7 +77,7 @@ const idle = computed(() => `${role.value.name}${doing.value || (asleep.value ? 
 // 点了 TA：房间下面冒一个气泡，写着 TA 在干嘛，还有心潮的状态
 const card = ref(null);
 function tapMe(text) {
-  said.value = "";
+  said.value = null;
   card.value = { doing: text };
   if (status.value.tone === "off" || status.value.tone === "sync") refreshMind(role.value, { force: true });
 }
@@ -89,8 +89,8 @@ function retry() {
 const lettersOpen = ref(false);
 const boxOpen = ref(false);
 function open(what) {
-  if (what === "mailbox") { said.value = ""; card.value = null; lettersOpen.value = true; }
-  else if (what === "blackbox") boxOpen.value = true;
+  if (what === "mailbox") { said.value = null; card.value = null; lettersOpen.value = true; }
+  else if (what === "blackbox") { said.value = null; boxOpen.value = true; }
 }
 const goChat = () => router.push(`/chat/${role.value.id}`);
 </script>
@@ -129,8 +129,14 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
         <button class="btn small" @click="goChat">{{ asleep ? "轻轻叫醒" : "去说话" }}</button>
       </div>
     </div>
-    <div v-else class="caption">
-      <p class="line">{{ said || idle }}</p>
+    <div v-else class="bubble" :class="kind">
+      <div class="b-top">
+        <div class="grow">
+          <p v-if="said" class="b-doing"><b v-if="said.title">{{ said.title }}</b>{{ said.text }}</p>
+          <p v-else class="b-doing">{{ idle }}</p>
+        </div>
+        <button v-if="said?.action" class="btn small" @click="open(said.action)">{{ said.action === "mailbox" ? "打开信箱" : "看看" }}</button>
+      </div>
     </div>
     <p class="hint">左右拖动看整间屋～点 {{ role.name }} 看 TA 在干嘛；墙上的信箱竖起小旗，是 TA 给你写了信；火、灯、门都能点。</p>
 
@@ -153,7 +159,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 .bubble:before { content: ""; position: absolute; top: -11px; left: 50%; margin-left: -9px; border: 9px solid transparent; border-bottom-color: #3a2a1c; border-top: 0; }
 .bubble.rowan { background: #1e2a33; border-color: #c9b98a; color: #e9dfc4; box-shadow: 0 3px 0 #0e1418; }
 .bubble.rowan:before { border-bottom-color: #c9b98a; }
-.b-top { display: flex; align-items: center; gap: 10px; }
+.b-top { display: flex; align-items: center; gap: 10px; min-height: 30px; }
 .b-doing { margin: 0; font-size: 0.95rem; line-height: 1.6; }
 .b-doing b { margin-right: 8px; }
 .b-xc { margin: 4px 0 0; font-size: 0.8rem; opacity: 0.85; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -162,8 +168,6 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: #8a8a8a; }
 .dot.ok { background: #5fb86a; }
 .dot.sync { background: #e8b040; }
-.caption { margin-top: 12px; background: var(--card); border-radius: 18px; padding: 12px 16px; min-height: 58px; box-shadow: var(--shadow-soft); display: flex; align-items: center; }
-.line { margin: 0; font-size: 0.93rem; line-height: 1.7; color: var(--text-2); }
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .hint { font-size: 0.75rem; color: var(--text-3); text-align: center; margin: 12px 8px; line-height: 1.6; }
 </style>
