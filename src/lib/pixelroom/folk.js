@@ -567,6 +567,36 @@ export const FOLK = {
   },
 };
 
+// 躺下的样子：侧脸（闭眼）+ 上半身，转到和床一个方向（头朝右上、脚朝左下），被子由屋子盖在腰下面
+const closedSide = h => { const r = [...h]; r[9] = r[9].replace(/[Ee]/g, "S"); r[10] = r[10].replace(/e/g, "E"); return r; };
+// 转一个角度：每个新像素在原图里取 3×3 个点，哪个颜色多用哪个（像素画转起来不会碎）
+function rotate(s, deg) {
+  const a = (deg * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const R = Math.ceil(Math.hypot(s.w, s.h)), cx = s.w / 2, cy = s.h / 2, out = [];
+  for (let y = 0; y < R; y++) {
+    out.push([]);
+    for (let x = 0; x < R; x++) {
+      const votes = new Map();
+      for (const oy of [0.2, 0.5, 0.8]) for (const ox of [0.2, 0.5, 0.8]) {
+        const dx = x + ox - R / 2, dy = y + oy - R / 2;
+        const sx = Math.floor(ca * dx + sa * dy + cx), sy = Math.floor(-sa * dx + ca * dy + cy);
+        const c = sx >= 0 && sy >= 0 && sx < s.w && sy < s.h ? s.px(sx, sy) : null;
+        const k = c ? c.join(",") : "";
+        votes.set(k, (votes.get(k) || 0) + 1);
+      }
+      const best = [...votes].sort((p, q) => q[1] - p[1])[0][0];
+      out[y].push(best ? best.split(",").map(Number) : null);
+    }
+  }
+  return { w: R, h: R, px: (x, y) => out[y][x] };
+}
+const lying = (head, torso, pal) => rotate(mirror(build([[head, 1, 1], [torso.slice(0, 7), 3, 15]], pal, 18, 23)), 63.4);
+export const LYING = {
+  xq: lying(closedSide(XQ_SIDE), XQ_SIDE_TORSO, XQX),
+  rw: lying(closedSide(RW_SIDE_HEAD), RW_SIDE_TORSO, RWX),
+  rwGaze: lying(RW_SIDE_HEAD, RW_SIDE_TORSO, RWX),
+};
+
 // 躺在床上时只露一个头（被子由屋子画）：闭眼睡着 / 睁眼看星星
 export const HEADS = {
   xq: build([[closedXQ(XQ_HEAD), 1, 1]], XQX, 20, 16),
