@@ -17,6 +17,9 @@ import GroupView from "./views/GroupView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
+  // 换页回到顶上（返回时回到原来的位置）。也顺便把 iPhone 键盘收起后没复位的那点偏移归零，
+  // 不然底部导航会被顶上去一截
+  scrollBehavior: (to, from, saved) => saved || { top: 0 },
   routes: [
     { path: "/", component: HomeView, meta: { tab: "home" } },
     { path: "/chats", component: ChatsView, meta: { tab: "chats" } },
