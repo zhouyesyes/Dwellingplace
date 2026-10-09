@@ -113,7 +113,7 @@ onMounted(() => { loadPals(); loadMsgs(); });
           <p class="pal-sub">{{ p.last_subject || "（没有主题）" }} · 来 {{ p.received }} 封 / 回 {{ p.sent }} 封<template v-if="p.unread"> · {{ p.unread }} 封没读</template></p>
           <div v-if="open[p.email]" class="pal-more">
             <p class="addr">{{ p.email }}</p>
-            <p class="preview">{{ p.preview }}</p>
+            <p class="preview"><b>{{ p.last_from_me ? role.name : p.name }}：</b>{{ p.preview }}</p>
             <button class="btn soft small" :disabled="busy" @click.stop="ask(p)">让 {{ role.name }} 看看</button>
           </div>
         </div>

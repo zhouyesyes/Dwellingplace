@@ -70,6 +70,17 @@ const TOOLS = [
 
 // ---------- 工具的具体实现 ----------
 
+// 这个邮箱自己的地址。网页应用被别人（栖所）调用时 getActiveUser() 是空的，要用 getEffectiveUser()
+function myEmail_() {
+  return String(Session.getEffectiveUser().getEmail() || Session.getActiveUser().getEmail() || '').toLowerCase();
+}
+// 自己的地址，加上别名
+function myAddrs_() {
+  const list = [myEmail_()];
+  try { GmailApp.getAliases().forEach(function (a) { list.push(String(a).toLowerCase()); }); } catch (e) { /* 没有别名 */ }
+  return list.filter(Boolean);
+}
+
 function brief_(m) {
   return {
     id: m.getId(),
@@ -90,7 +101,7 @@ function message_(id) {
 
 const HANDLERS = {
   get_profile: function () {
-    return { email: Session.getActiveUser().getEmail(), unread_in_inbox: GmailApp.getInboxUnreadCount() };
+    return { email: myEmail_(), unread_in_inbox: GmailApp.getInboxUnreadCount() };
   },
   search_emails: function (a) {
     const max = Math.min(Math.max(Number(a.max) || 10, 1), MAX_RESULTS);
@@ -135,18 +146,19 @@ const HANDLERS = {
   },
   list_pen_pals: function (a) {
     const days = Math.min(Math.max(Number(a.days) || 90, 1), 365);
-    const me = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+    const mine = myAddrs_();
     const addr = function (s) { const m = String(s || '').match(/<([^>]+)>/); return (m ? m[1] : String(s || '')).trim().toLowerCase(); };
     const nameOf = function (s) { const m = String(s || '').match(/^\s*"?([^"<]*?)"?\s*</); return m && m[1] ? m[1].trim() : addr(s); };
     const pals = {};
     const threads = GmailApp.search('newer_than:' + days + 'd -in:spam -in:trash -in:chats', 0, 100);
     threads.forEach(function (t) {
       t.getMessages().forEach(function (m) {
-        const fromMe = addr(m.getFrom()) === me;
+        // 自己发的：发件人是自己（或自己的别名）
+        const fromMe = mine.indexOf(addr(m.getFrom())) >= 0;
         const others = fromMe ? String(m.getTo() || '').split(',') : [m.getFrom()];
         others.forEach(function (o) {
           const key = addr(o);
-          if (!key || key === me || /no-?reply|mailer-daemon|notification/i.test(key)) return;
+          if (!key || mine.indexOf(key) >= 0 || /no-?reply|mailer-daemon|notification/i.test(key)) return;
           const p = pals[key] || (pals[key] = { email: key, name: nameOf(o), sent: 0, received: 0, unread: 0 });
           if (!fromMe && nameOf(o) !== key) p.name = nameOf(o);
           if (fromMe) p.sent++; else { p.received++; if (m.isUnread()) p.unread++; }
@@ -173,7 +185,7 @@ function handle_(req) {
       return {
         protocolVersion: p.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'Gmail (栖所 Apps Script)', version: '1.1' },
+        serverInfo: { name: 'Gmail (栖所 Apps Script)', version: '1.2' },
       };
     case 'ping':
       return {};
