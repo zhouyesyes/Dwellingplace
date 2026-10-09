@@ -32,6 +32,18 @@ export const serversFor = roleId => {
   return list;
 };
 
+// 邮箱：有发信、回信工具的就是 TA 的邮箱（比如栖所的谷歌邮箱脚本）
+export const isMailServer = s => ["send_email", "reply_email"].every(n => (s.tools || []).some(t => t.name === n));
+// 记忆库：心潮
+export const isMemoryServer = s => (s.tools || []).some(t => /^(xinchao_|breath$|hold$|trace$)/.test(t.name));
+// 不同地方能用哪些工具：平时聊天不碰邮箱；邮箱页只有邮箱和记忆；醒来全都能用
+export function serversForMode(roleId, mode = "chat") {
+  const all = serversFor(roleId);
+  if (mode === "mail") return all.filter(s => isMailServer(s) || isMemoryServer(s));
+  if (mode === "chat") return all.filter(s => !isMailServer(s));
+  return all;
+}
+
 // 这个服务器里开着的工具
 export const enabledTools = s => (s.tools || []).filter(t => !(s.disabledTools || []).includes(t.name));
 

@@ -200,8 +200,14 @@ export function authorInfo(id) {
   return r ? { name: r.name, color: r.color } : { name: "（已删除）", color: "#c8c8d0" };
 }
 export const apiById = id => store.apis.find(a => a.id === id);
+// 邮箱页自己的小对话（mail: true）不算在聊天列表里
 export const threadsOf = roleId =>
-  store.threads.filter(t => t.roleId === roleId).sort((a, b) => b.updatedAt - a.updatedAt);
+  store.threads.filter(t => t.roleId === roleId && !t.mail).sort((a, b) => b.updatedAt - a.updatedAt);
+export function mailThreadOf(roleId) {
+  let t = store.threads.find(x => x.roleId === roleId && x.mail);
+  if (!t) { t = createThread(roleId); t.mail = true; t.title = "邮箱"; }
+  return t;
+}
 
 // 对话使用的 API：对话单独指定 > 角色指定 > 全局默认 > 第一个
 export function apiFor(thread, role) {

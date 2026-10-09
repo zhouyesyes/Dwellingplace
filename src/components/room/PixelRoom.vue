@@ -83,7 +83,7 @@ function tap(e) {
   if ((what === "bed" || what === "daybed") && scene.state.bed) what = "me"; // 躺在床上时点床就是点 TA
   if (what === "me") { scene.tapMe(performance.now()); emit("tap-me", scene.doing()); return; }
   if (what === "pet") { say("pet", props.asleep ? "暖暖缩在被子边上，睡得圆滚滚的。" : "暖暖抬起头，「啾」了一声。"); sfx.chirp(); return; }
-  if (what === "mailbox") { sfx.paper(); return say("mailbox", props.mailLit ? `小旗竖着呢，里面有 ${props.name} 写给你的信。` : `小旗放平着，没有新信。也可以给 ${props.name} 写一封。`, "mailbox"); }
+  if (what === "mailbox") { sfx.paper(); return say("mailbox", props.mailLit ? `小旗竖着呢，有 ${props.name} 写给你的信。「打开邮箱」是 ${props.name} 自己的邮箱和笔友；「书信」是你们俩的信。` : `${props.name} 的信箱。「打开邮箱」看 TA 的笔友来信；「书信」是你们俩的信。`, "mailbox"); }
   if (what === "blackbox") return say("blackbox", TALK[props.kind].blackbox(props.name), "blackbox");
   if (what === "door") return toggle("door", on => (on ? "门推开了，走廊的光漏进来一条。" : "门关上了，屋里安静下来。"));
   if (what === "fire" || (what === "kettle" && props.kind === "cui")) return toggle("fire", on => (on ? "往地炉里添了根柴，火又旺起来了。" : "把地炉的火压小了，只剩一点暗红的炭。"));

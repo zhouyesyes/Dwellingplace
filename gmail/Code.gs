@@ -57,6 +57,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, read: { type: 'boolean' } }, required: ['id'] },
   },
   {
+    name: 'list_pen_pals',
+    description: '按人整理最近来往的笔友：每个人来往了几封、最后一封是谁发的（有没有等着回）、最后一封的主题和日期',
+    inputSchema: { type: 'object', properties: { days: { type: 'number' } } },
+  },
+  {
     name: 'archive_email',
     description: '把一封邮件所在的对话归档（移出收件箱，不会删除）',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
@@ -128,6 +133,31 @@ const HANDLERS = {
     else m.markRead();
     return { ok: true };
   },
+  list_pen_pals: function (a) {
+    const days = Math.min(Math.max(Number(a.days) || 90, 1), 365);
+    const me = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+    const addr = function (s) { const m = String(s || '').match(/<([^>]+)>/); return (m ? m[1] : String(s || '')).trim().toLowerCase(); };
+    const nameOf = function (s) { const m = String(s || '').match(/^\s*"?([^"<]*?)"?\s*</); return m && m[1] ? m[1].trim() : addr(s); };
+    const pals = {};
+    const threads = GmailApp.search('newer_than:' + days + 'd -in:spam -in:trash -in:chats', 0, 100);
+    threads.forEach(function (t) {
+      t.getMessages().forEach(function (m) {
+        const fromMe = addr(m.getFrom()) === me;
+        const others = fromMe ? String(m.getTo() || '').split(',') : [m.getFrom()];
+        others.forEach(function (o) {
+          const key = addr(o);
+          if (!key || key === me || /no-?reply|mailer-daemon|notification/i.test(key)) return;
+          const p = pals[key] || (pals[key] = { email: key, name: nameOf(o), sent: 0, received: 0, unread: 0 });
+          if (!fromMe && nameOf(o) !== key) p.name = nameOf(o);
+          if (fromMe) p.sent++; else { p.received++; if (m.isUnread()) p.unread++; }
+          const d = m.getDate();
+          if (!p.last || d > p.last) { p.last = d; p.last_from_me = fromMe; p.last_subject = m.getSubject(); p.last_id = m.getId(); p.preview = m.getPlainBody().replace(/\s+/g, ' ').slice(0, 120); }
+        });
+      });
+    });
+    return Object.keys(pals).map(function (k) { const p = pals[k]; p.last = p.last.toISOString(); return p; })
+      .sort(function (x, y) { return x.last < y.last ? 1 : -1; });
+  },
   archive_email: function (a) {
     message_(a.id).getThread().moveToArchive();
     return { archived: true };
@@ -143,7 +173,7 @@ function handle_(req) {
       return {
         protocolVersion: p.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'Gmail (栖所 Apps Script)', version: '1.0' },
+        serverInfo: { name: 'Gmail (栖所 Apps Script)', version: '1.1' },
       };
     case 'ping':
       return {};

@@ -26,6 +26,7 @@ export const router = createRouter({
     { path: "/chat/:roleId/:threadId?", component: ChatView },
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
     { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
+    { path: "/mail/:roleId", component: () => import("./views/MailView.vue") },
     { path: "/group/:id", component: GroupView },
     { path: "/settings", component: SettingsView, meta: { tab: "settings" } },
     { path: "/settings/role/:id", component: RoleEditView },

@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
+import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -54,7 +54,7 @@ function canChangeSignature(role) {
 }
 
 // wake：给唤醒用（同步到中转）。时间、今天的日期、闹钟列表留成占位符，醒来时由中转填上
-export function buildSystem(role, messages, { wake = false } = {}) {
+export function buildSystem(role, messages, { wake = false, mail = false } = {}) {
   const me = meOf(role);
   const who = me.name ? `「${me.name}」` : "对方";
   const lines = [
@@ -74,7 +74,8 @@ export function buildSystem(role, messages, { wake = false } = {}) {
     hasXinchao(role) ? xinchaoMemoryForAI(role, who, { inline: wake }) : memoryForAI(role, who),
     calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
     alarmForAI(role, who, wake),
-    toolsForAI(serversFor(role.id)),
+    toolsForAI(serversForMode(role.id, wake ? "all" : mail ? "mail" : "chat")),
+    mail ? mailForAI(who) : "",
     searchEnabled()
       ? [
           `\n# 联网搜索`,
@@ -86,6 +87,16 @@ export function buildSystem(role, messages, { wake = false } = {}) {
     store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
   ];
   return lines.filter(Boolean).join("\n");
+}
+
+// 邮箱页：这里是 TA 打理自己邮箱的地方
+function mailForAI(who) {
+  return [
+    `\n# 邮箱`,
+    `现在是在你自己的邮箱这里，${who}陪着你一起看信。你的笔友都是你自己认识的人。`,
+    `可以看信、回信、写新信；拿不准要不要回、怎么回，可以问问${who}。回信用你自己的口吻，像给朋友写信一样。`,
+    `笔友的事值得记住的（是谁、聊到哪了、约定了什么），照平常那样记进记忆库。`,
+  ].join("\n");
 }
 
 // 「此刻」附注：每次都会变的东西（时间、心境、浮现的记忆、私聊 / 群聊里最近的事），附在最新那条消息前面。
@@ -314,9 +325,10 @@ export async function generate(thread, parentId, { speaker } = {}) {
       if (m && !xcCache[role.id]?.snap) waits.push(m);
       if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
     }
-    const system = buildSystem(role, history) + (group ? groupForAI(role, group) : "");
+    const mode = thread.mail ? "mail" : "chat"; // 邮箱页：只有邮箱和记忆的工具；平时聊天：没有邮箱
+    const system = buildSystem(role, history, { mail: !!thread.mail }) + (group ? groupForAI(role, group) : "");
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
-    msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversFor(role.id).filter(s => s.tools?.length))) };
+    msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
     const messages = await buildMessages(history, group ? role.id : null);
     const note = await contextNote(role, history, group);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
@@ -326,7 +338,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
     all.push(msg);
     thread.sel[parent] = msg.id;
     const useRelaySearch = searchEnabled();
-    const servers = serversFor(role.id).filter(s => s.tools?.length);
+    const servers = serversForMode(role.id, mode).filter(s => s.tools?.length);
     let convo = messages;
     let text = "";
     // 用工具 / 搜索之前 TA 已经说出口的话：留着，后面接着往下写（提示条按 at 插在这些话中间）
@@ -580,7 +592,7 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}) };
   all.push(m);
   thread.sel[parent] = m.id;
-  if (role) role.lastThreadId = thread.id;
+  if (role && !thread.mail) role.lastThreadId = thread.id;
   touchThread(thread, all);
   saveMessages(thread.id);
   if (reply && !thread.groupId) await generate(thread, m.id);
