@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { roleById, newWake, fmtTokens } from "../store/index.js";
-import { fetchState, cancelAlarm, wakeNow, whenLabel, everyText, syncNow, scheduleSync, MAX_ALARMS } from "../lib/wake.js";
+import { fetchState, cancelAlarm, wakeNow, whenLabel, everyText, syncNow, MAX_ALARMS } from "../lib/wake.js";
 import { stamp } from "../lib/time.js";
 import { relayCall } from "../lib/search.js";
 import { hasXinchao, xinchaoBase } from "../lib/xinchao.js";
@@ -17,7 +17,24 @@ if (!role.value) router.replace("/settings/wake");
 else role.value.wake ??= newWake();
 const w = computed(() => role.value.wake);
 // 改了设置很快同步上去
-watch(() => role.value && JSON.stringify(role.value.wake) + (role.value.xinchao?.bridgeToken || ""), () => scheduleSync(2000));
+// 改了就自动存：停手 1.5 秒后同步到中转，再刷新「下次醒来」
+let saveTimer = 0;
+const saved = ref("");
+watch(() => role.value && JSON.stringify(role.value.wake) + (role.value.xinchao?.bridgeToken || ""), () => {
+  saved.value = "";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 1500);
+});
+async function saveNow(manual = false) {
+  clearTimeout(saveTimer);
+  if (manual) document.activeElement?.blur?.(); // 让正在输入的数字先生效
+  await new Promise(r => setTimeout(r, 0));
+  await syncNow();
+  if (role.value?.wake.enabled) await loadState();
+  saved.value = "已保存";
+  if (manual) toast(state.value?.nextAt && w.value.intervalOn ? `保存好了，下次大约${whenLabel(state.value.nextAt)}醒` : "保存好了");
+}
+onBeforeUnmount(() => { if (saveTimer) { clearTimeout(saveTimer); syncNow(); } });
 
 // 间隔：存的是分钟，显示可以按小时
 const everyShown = computed({
@@ -182,6 +199,10 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <input v-model.number="w.jitter" class="num-input" type="number" min="0" step="5" inputmode="numeric" />
           </div>
           <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" placeholder="备注（可选）：醒了想让 TA 做什么" maxlength="1000" />
+          <div class="row">
+            <span class="grow saved">{{ saved }}</span>
+            <button class="btn soft small" @click="saveNow(true)">保存</button>
+          </div>
           <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。碰上免打扰时间就跳过。最短 10 分钟。</p>
         </template>
       </div>
@@ -299,6 +320,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 </template>
 
 <style scoped>
+.saved { font-size: 0.75rem; color: var(--text-2); }
 .body { padding: 14px 18px; }
 .row { display: flex; align-items: center; gap: 10px; min-height: 40px; }
 .row + .row { margin-top: 6px; }
