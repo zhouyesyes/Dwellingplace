@@ -455,7 +455,7 @@ async function callAnthropic(api, system, messages, webSearch) {
     headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
   }
   let text = "";
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, cached: 0 };
   for (let round = 0; round < 4; round++) {
     const r = await fetch(`${base}/v1/messages`, { method: "POST", headers, body: JSON.stringify(body) });
     const raw = await r.text();
@@ -465,6 +465,7 @@ async function callAnthropic(api, system, messages, webSearch) {
     text += (j.content || []).filter(b => b.type === "text").map(b => b.text).join("");
     usage.input += (j.usage?.input_tokens ?? 0) + (j.usage?.cache_read_input_tokens ?? 0) + (j.usage?.cache_creation_input_tokens ?? 0);
     usage.output += j.usage?.output_tokens ?? 0;
+    usage.cached += j.usage?.cache_read_input_tokens ?? 0;
     if (j.stop_reason !== "pause_turn") break;
     body.messages = [...body.messages, { role: "assistant", content: j.content }];
   }
@@ -490,7 +491,9 @@ async function callOpenAI(api, system, messages) {
   const text = (typeof content === "string" ? content : content.map(c => c.text || "").join(""))
     .replace(/<(think|thought|thinking)>[\s\S]*?(<\/\1>|$)/g, "")
     .trim();
-  return { text, usage: { input: j.usage?.prompt_tokens ?? 0, output: j.usage?.completion_tokens ?? 0 } };
+  // 命中缓存的输入：OpenAI / OpenRouter 写在 prompt_tokens_details 里，DeepSeek 叫 prompt_cache_hit_tokens
+  const u = j.usage || {};
+  return { text, usage: { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0 } };
 }
 
 function callModel(api, system, messages, webSearch) {
@@ -768,7 +771,10 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     if (!x.silent && x.text) history.push({ from: "ai", text: visible(x.text), ts: x.ts });
   }
   // 栖所还没取走的那几次醒来里，最后用工具拿到的结果（比如刚看过的游戏状态）：这次也看得见
-  const lastDetails = box.flatMap(x => (x.notes || []).filter(n => n.detail && !/工具说明/.test(n.text || "")).map(n => ({ ...n, ts: x.ts }))).slice(-2);
+  const boxNotes = box.flatMap(x => (x.notes || []).filter(n => n.detail).map(n => ({ ...n, ts: x.ts })));
+  const isDoc = n => /工具说明|schema/i.test(n.text || "");
+  const lastDoc = boxNotes.filter(isDoc).slice(-1); // 最近查过的工具说明（比如出牌怎么写）：带着，不用每次再查
+  const lastDetails = [...lastDoc, ...boxNotes.filter(n => !isDoc(n)).slice(-2)];
   if (lastDetails.length) history.push({ from: "user", ts: lastDetails[lastDetails.length - 1].ts, text: [
     `【你最近用工具拿到的结果——系统附上的，不是${me}说的话；状态可能已经变了，要行动前需要的话再看一眼】`,
     ...lastDetails.map(n => `· ${String(n.text).replace(/\s+/g, " ")}\n${String(n.detail).slice(0, 4000)}`),
@@ -804,7 +810,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     `（系统通知，不是${me}发的消息）${nowLine}\n你醒来了：${reasonText}。`,
     mind ? `\n你此刻的内在状态（心潮，这是你自己的心境，不是要说给${me}听的数据；让它自然地影响你想做什么、想说什么，不用报数字）：\n${mind}\n` : "",
     game
-      ? `这是游戏轮到你了：先用工具看局面，然后马上把你这一步交上去（每步有时限，拖久了系统会替你走）。做完这一步再决定要不要给${me}发消息。`
+      ? `这是游戏轮到你了：先用工具看局面，然后马上把你这一步交上去（每步有时限，拖久了系统会替你走）。交上去、工具说成功了就算做完，不用再查一遍状态确认；只有还要接着走（比如摸完牌还要出牌）才再看。做完这一步再决定要不要给${me}发消息。`
       : `${me}现在不一定在看手机。你可以给${me}发消息，也可以先用工具做点自己的事（看看邮箱、逛逛别的地方……），做什么都随你的心意。`,
     `上面是你们最近的聊天和你醒来的记录。别重复已经说过的意思（同样的问候、道歉、同一句惦记）；没有新的想说，就去做点自己的事，或者不发消息。`,
     `要发消息就像平时聊天一样直接写，可以分成几条，每条之间空一行。用了工具的话，等拿到结果再决定要不要发。`,
@@ -813,7 +819,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
 
   const search = cfg.search || {};
   const notes = [];
-  const usage = { input: 0, output: 0 };
+  const usage = { input: 0, output: 0, cached: 0 };
   let convo = addTurn(toConvo(history), "user", notice);
   let text = "";
   // 用工具之前 TA 已经写下的话留着；提示条记下插在哪（at）
@@ -828,6 +834,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     const r = await callModel(role.api, system, convo, !!cfg.webSearch && !search.enabled && role.api?.type !== "openai");
     usage.input += r.usage.input;
     usage.output += r.usage.output;
+    usage.cached += r.usage.cached || 0;
     usage.ctx = r.usage.input; // 这一次 TA 看到的内容有多大（上面的 input 是来回几次加起来的）
     if (round === 0) usage.ctx0 = r.usage.input;
     text = normalizeToolCalls(r.text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
@@ -1227,7 +1234,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 16, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 17, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
