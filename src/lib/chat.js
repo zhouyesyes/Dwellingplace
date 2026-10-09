@@ -376,7 +376,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
       // 看着像要用工具、但格式没写对（认不出来）：提醒 TA 照格式重写一次，别就这么空着
       if (!tc && servers.length && !visibleText(text).trim() && /<\s*(tool_call|invoke|function)|"(name|tool)"\s*:/.test(text) && !fixAsked) {
         fixAsked = true;
-        msg.notes.push({ text: `${role.name} 想用工具，但格式没写对，让 TA 重写一次` });
+        msg.notes.push({ text: `${role.name} 想用工具，但格式没写对，让 TA 重写一次`, detail: `TA 写的是：\n${text.slice(0, 1500)}` }); // 点开能看到写成了什么
         convo = [...convo,
           { role: "assistant", parts: [{ type: "text", text: text.slice(0, 2000) }] },
           { role: "user", parts: [{ type: "text", text: `（系统：上面的工具调用格式不对，没有执行。请只写一段：<tool_call name="服务名.工具名">{"参数名": 参数值}</tool_call>，参数是 JSON。）` }] }];

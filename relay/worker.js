@@ -608,6 +608,39 @@ function normalizeToolCalls(text) {
       return name ? `<tool_call name="${name}">${JSON.stringify(args)}</tool_call>` : all;
     } catch { return all; }
   });
+  // 更多写法，都换成约定的 <tool_call name="…">{JSON}</tool_call>：
+  const asCall = (name, raw) => {
+    let args = raw;
+    if (typeof raw === "string") {
+      const body = raw.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
+      try { args = body ? JSON.parse(body) : {}; } catch { return null; }
+    }
+    if (args && typeof args === "object" && !Array.isArray(args) && (args.arguments || args.parameters) && Object.keys(args).length <= 2) {
+      args = args.arguments ?? args.parameters;
+      if (typeof args === "string") { try { args = JSON.parse(args); } catch { return null; } }
+    }
+    return `<tool_call name="${String(name).trim()}">${JSON.stringify(args ?? {})}</tool_call>`;
+  };
+  // DeepSeek 自己的标记：<｜tool▁call▁begin｜>function<｜tool▁sep｜>名字 ```json {…}``` <｜tool▁call▁end｜>
+  text = text.replace(/<[｜|]tool[▁_ ]call[▁_ ]begin[｜|]>\s*(?:function\s*)?(?:<[｜|]tool[▁_ ]sep[｜|]>)?\s*([\w.\-一-鿿]+)\s*(?:<[｜|]tool[▁_ ]sep[｜|]>)?([\s\S]*?)<[｜|]tool[▁_ ]call[▁_ ]end[｜|]>/g, (all, name, body) => asCall(name, body) || all)
+    .replace(/<[｜|]tool[▁_ ]calls?[▁_ ](begin|end)[｜|]>/g, "");
+  // <function=名字>{…}</function>、<function name="名字">{…}</function>
+  text = text.replace(/<function(?:=|\s+name=)["']?([\w.\-一-鿿]+)["']?\s*>([\s\S]*?)<\/function>/g, (all, name, body) => asCall(name, body) || all);
+  // <tool_call>名字\n{…}</tool_call>、<tool_call name=名字>（名字没加引号）
+  text = text.replace(/<tool_call\s+name=([^"'\s>]+)\s*>/g, '<tool_call name="$1">');
+  text = text.replace(/<tool_call>\s*([\w.\-一-鿿]+)\s*\n?\s*(\{[\s\S]*?\})\s*<\/tool_call>/g, (all, name, body) => asCall(name, body) || all);
+  // 整段只是一个 JSON：{"name": "…", "arguments": {…}}（可能包在 ```json 里）
+  if (!/<tool_call\s+name="/.test(text)) {
+    const bare = text.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
+    if (/^\{[\s\S]*\}$/.test(bare)) {
+      try {
+        const j = JSON.parse(bare);
+        const name = j.name || j.tool || j.function?.name;
+        const args = j.arguments ?? j.parameters ?? j.args ?? j.input ?? j.function?.arguments;
+        if (name && args !== undefined) text = asCall(name, typeof args === "string" ? args : JSON.stringify(args)) || text;
+      } catch { /* 不是 */ }
+    }
+  }
   if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return stripCallJunk(text);
   const m = text.match(/<[^>]{0,20}invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/[^>]{0,20}invoke>|$)/);
   if (!m) return text;
@@ -1242,7 +1275,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 18, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 19, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
