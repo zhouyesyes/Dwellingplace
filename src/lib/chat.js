@@ -190,6 +190,27 @@ export function noteRecord(notes) {
   return `【系统记录，不是对方说的话】${keep.join("；")}`;
 }
 
+// TA 最近一次用工具拿到的结果（最近 6 条消息里，最后 2 次；查说明的不算）：
+// 下一轮还看得见，玩游戏时不用每次从头查状态。只放在最新消息前面，旧的不跟着越积越多
+export function recentToolResults(list, selfId = null, n = 2) {
+  const real = list.filter(m => m.from !== "event" && !m.pending && !m.error).slice(-6);
+  const found = [];
+  for (const m of [...real].reverse()) {
+    if (m.from !== "ai" || (selfId && m.speaker !== selfId)) continue;
+    for (const note of [...(m.notes || [])].reverse()) {
+      if (!note.detail || /工具说明/.test(note.text || "")) continue;
+      found.push({ text: note.text, detail: note.detail, ts: m.ts });
+      if (found.length >= n) break;
+    }
+    if (found.length >= n) break;
+  }
+  if (!found.length) return "";
+  return [
+    `【你最近用工具拿到的结果——系统附上的，不是对方说的话；状态可能已经变了，要行动前需要的话再看一眼】`,
+    ...found.reverse().map(f => `· ${String(f.text).replace(/\s+/g, " ")}（${new Date(f.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}）\n${String(f.detail).slice(0, 4000)}`),
+  ].join("\n");
+}
+
 // selfId：群聊里「我是谁」——自己说过的是 assistant，别人说的都当成带名字的 user 消息
 async function buildMessages(list, selfId = null) {
   const out = [];
@@ -293,6 +314,8 @@ export async function generate(thread, parentId, { speaker } = {}) {
     const messages = await buildMessages(history, group ? role.id : null);
     const note = await contextNote(role, history, group);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
+    const recent = recentToolResults(history, group ? role.id : null);
+    if (recent) messages[messages.length - 1].parts.unshift({ type: "text", text: recent });
     Object.assign(msg.est, note.est);
     all.push(msg);
     thread.sel[parent] = msg.id;
@@ -400,7 +423,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
               result = `调用失败：${e.message}`;
               note.text = `${role.name} 使用 ${found.server.name} · ${found.tool.name} 失败：${e.message}`;
             }
-            note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 3000)}`;
+            note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 6000)}`;
             done.add(dupKey);
           }
         }
