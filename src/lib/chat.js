@@ -194,16 +194,19 @@ export function noteRecord(notes) {
 // 下一轮还看得见，玩游戏时不用每次从头查状态。只放在最新消息前面，旧的不跟着越积越多
 export function recentToolResults(list, selfId = null, n = 2) {
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error).slice(-6);
+  const isDoc = note => /工具说明|schema/i.test(note.text || "");
   const found = [];
+  let doc = null; // 最近查过的一份工具说明（比如出牌要怎么写）：也带着，不用每轮都再查
   for (const m of [...real].reverse()) {
     if (m.from !== "ai" || (selfId && m.speaker !== selfId)) continue;
     for (const note of [...(m.notes || [])].reverse()) {
-      if (!note.detail || /工具说明/.test(note.text || "")) continue;
-      found.push({ text: note.text, detail: note.detail, ts: m.ts });
-      if (found.length >= n) break;
+      if (!note.detail) continue;
+      if (isDoc(note)) { doc ??= { text: note.text, detail: note.detail, ts: m.ts }; continue; }
+      if (found.length < n) found.push({ text: note.text, detail: note.detail, ts: m.ts });
     }
-    if (found.length >= n) break;
+    if (found.length >= n && doc) break;
   }
+  if (doc) found.push(doc); // 反过来排之后在最前面
   if (!found.length) return "";
   return [
     `【你最近用工具拿到的结果——系统附上的，不是对方说的话；状态可能已经变了，要行动前需要的话再看一眼】`,
