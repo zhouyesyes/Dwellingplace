@@ -9,7 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
-import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult } from "./mcp.js";
+import { serversFor, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { surfacedForAI } from "./xinchao.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
@@ -181,6 +181,15 @@ async function partsOf(m) {
   return parts;
 }
 
+// 提示条 → 一行系统记录（短，每条最多 100 字，最多 8 条）
+export function noteRecord(notes) {
+  const lines = notes.map(n => String(n.text || "").replace(/\s+/g, " ").trim()).filter(Boolean)
+    .map(t => (t.length > 100 ? t.slice(0, 99) + "…" : t));
+  if (!lines.length) return "";
+  const keep = lines.length > 8 ? [...lines.slice(0, 2), `……（中间还有 ${lines.length - 7} 件）`, ...lines.slice(-5)] : lines;
+  return `【系统记录，不是对方说的话】${keep.join("；")}`;
+}
+
 // selfId：群聊里「我是谁」——自己说过的是 assistant，别人说的都当成带名字的 user 消息
 async function buildMessages(list, selfId = null) {
   const out = [];
@@ -197,7 +206,16 @@ async function buildMessages(list, selfId = null) {
     const mine = m.from === "ai" && (!selfId || m.speaker === selfId);
     const role = mine ? "assistant" : "user";
     let parts;
-    if (mine) parts = [{ type: "text", text: m.text }];
+    if (mine) {
+      // 醒来、用工具这些事只记在提示条上：写成一行系统记录放在前面，TA 才知道自己做过什么（比如游戏轮到自己、刚交过一手）
+      const pre = noteRecord((m.notes || []).filter(n => n.before));
+      if (pre) {
+        const prev = out[out.length - 1];
+        if (prev && prev.role === "user") prev.parts.push({ type: "text", text: pre });
+        else out.push({ role: "user", parts: [{ type: "text", text: pre }] });
+      }
+      parts = [{ type: "text", text: stripCallJunk(m.text) }];
+    }
     else if (m.from === "user") {
       parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image") });
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
@@ -208,6 +226,9 @@ async function buildMessages(list, selfId = null) {
     const prev = out[out.length - 1];
     if (prev && prev.role === role) prev.parts.push(...parts);
     else out.push({ role, parts });
+    // 这条后面的事（悄悄醒来过、定了闹钟……）
+    const post = mine && noteRecord((m.notes || []).filter(n => !n.before));
+    if (post) out.push({ role: "user", parts: [{ type: "text", text: post }] });
   }
   if (!out.length || out[0].role !== "user") out.unshift({ role: "user", parts: [{ type: "text", text: "（开始聊天）" }] });
   if (out[out.length - 1].role !== "user") out.push({ role: "user", parts: [{ type: "text", text: "（继续）" }] });
