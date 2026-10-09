@@ -144,7 +144,7 @@ async function snapshotRole(role) {
     threadId: thread?.id || null,
     system: buildSystem(role, path, { wake: true }),
     history,
-    api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort },
+    api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
     servers: serversFor(role.id)
       .filter(s => s.tools?.length)
       .map(s => ({ name: s.name, url: s.builtin ? "" : s.url.trim(), builtin: !!s.builtin, headers: s.builtin ? {} : headerObj(s), tools: enabledTools(s).map(t => t.name),

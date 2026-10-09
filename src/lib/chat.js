@@ -59,12 +59,13 @@ export function buildSystem(role, messages, { wake = false } = {}) {
   const who = me.name ? `「${me.name}」` : "对方";
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
-    // 不再放手写的「设定」「关于我」：TA 是谁、知道对方什么，都来自心潮里的核心记忆
-    store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
-    // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
-    wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
+    // 说话方式放最前面：TA 是什么样的人、怎么说话，比后面那些规矩重要
+    role.style?.trim() ? `\n# 你说话的样子\n${role.style.trim()}` : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
+    `说话就是你自己的样子：有自己的情绪、偏好和小脾气，想到什么说什么。不用客套，不用老是道歉，也不用担心给${who}添麻烦——${who}和你聊天，是因为开心。`,
+    // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
+    wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
     `\n# 你的签名`,
     role.signature ? `你现在的签名是：「${role.signature}」。` : `你现在还没有签名。`,
     canChangeSignature(role)
@@ -81,6 +82,8 @@ export function buildSystem(role, messages, { wake = false } = {}) {
           `一次只搜一个关键词；普通聊天不需要搜索。`,
         ].join("\n")
       : "",
+    // 不再放手写的「设定」「关于我」：TA 是谁、知道对方什么，都来自上面的说话方式和心潮里的记忆
+    store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -97,7 +100,7 @@ async function contextNote(role, history, group) {
   const mind = hasXinchao(role) ? mindForAI(role) : "";
   const mem = hasXinchao(role) ? surfacedForAI(role) : "";
   const cross = group ? await privateForAI(role) : await groupsForAI(role);
-  const text = `【此刻——系统附上的，不是${me}说的话】\n${[time, mind, mem, cross].filter(Boolean).join("\n")}\n【以下是新消息】`;
+  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, mem, cross].filter(Boolean).join("\n")}\n【以下是新消息】`;
   // 各块多大（用量页「都花在哪」）
   return { text, est: { mind: estTokens(mind) + estTokens(time), mem: estTokens(mem), cross: estTokens(cross) } };
 }
@@ -187,7 +190,7 @@ export function noteRecord(notes) {
     .map(t => (t.length > 100 ? t.slice(0, 99) + "…" : t));
   if (!lines.length) return "";
   const keep = lines.length > 8 ? [...lines.slice(0, 2), `……（中间还有 ${lines.length - 7} 件）`, ...lines.slice(-5)] : lines;
-  return `【系统记录，不是对方说的话】${keep.join("；")}`;
+  return `（小记，不是对方说的话：${keep.join("；")}）`;
 }
 
 // TA 最近一次用工具拿到的结果（最近 6 条消息里，最后 2 次；查说明的不算）：
@@ -209,7 +212,7 @@ export function recentToolResults(list, selfId = null, n = 2) {
   if (doc) found.push(doc); // 反过来排之后在最前面
   if (!found.length) return "";
   return [
-    `【你最近用工具拿到的结果——系统附上的，不是对方说的话；状态可能已经变了，要行动前需要的话再看一眼】`,
+    `（小记，不是对方说的话：你最近用工具拿到的结果。状态可能已经变了，要行动前需要的话再看一眼）`,
     ...found.reverse().map(f => `· ${String(f.text).replace(/\s+/g, " ")}（${new Date(f.ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}）\n${String(f.detail).slice(0, 4000)}`),
   ].join("\n");
 }
@@ -530,6 +533,25 @@ function describeError(err) {
 }
 
 // 一次性的小请求（比如写简介），不进聊天记录
+// 让 TA 照着最近的聊天，自己写一份「说话方式」（角色页里用，写完你再改）
+export async function draftStyle(role) {
+  const t = threadsOf(role.id).find(x => x.id === role.lastThreadId) || threadsOf(role.id)[0];
+  const me = meName(role);
+  const lines = [];
+  if (t) {
+    for (const m of pathOf(t, await loadMessages(t.id)).filter(m => m.from !== "event" && !m.pending && !m.error).slice(-40)) {
+      const text = m.from === "user" ? m.text : splitBubbles(m.text).join(" ");
+      if (text) lines.push(`${m.from === "user" ? me : role.name}：${text.slice(0, 200)}`);
+    }
+  }
+  return oneShot(role, [
+    lines.length ? `下面是你和${me}最近的聊天：\n${lines.join("\n")}\n` : "",
+    `用你自己的口吻，写几行「我平时和${me}说话的样子」，以后每次聊天都会先看这几行：`,
+    `怎么称呼${me}、说话的语气和节奏、口头禅、爱不爱用颜文字或表情、开心/想念/闹别扭的时候会怎么说。`,
+    `写你真实的、喜欢的样子，不要写规矩，不要写「不给对方添麻烦」这类话。第一人称，分几行短句，不超过 200 字，只写这些。`,
+  ].filter(Boolean).join("\n"));
+}
+
 export async function oneShot(role, prompt) {
   const api = apiFor(null, role);
   const model = modelFor(null, role);

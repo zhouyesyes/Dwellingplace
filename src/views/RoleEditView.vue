@@ -1,9 +1,10 @@
 <script setup>
-import { reactive, computed } from "vue";
+import { reactive, computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, newRole, roleById, deleteRole, PALETTE, BUBBLE_COLORS } from "../store/index.js";
 import { deleteImage, pickAndCrop } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
+import { draftStyle } from "../lib/chat.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
 import Avatar from "../components/Avatar.vue";
@@ -36,6 +37,21 @@ const apiPick = computed({
 });
 
 form.me ??= { name: "", avatar: null, about: "" };
+form.style ??= "";
+// 说话方式：让 TA 照着最近的聊天自己写一份，写完你再改
+const drafting = ref(false);
+async function draft() {
+  if (!original) return;
+  drafting.value = true;
+  try {
+    const t = await draftStyle(original);
+    if (t) form.style = t.slice(0, 800);
+  } catch (e) {
+    toast(e.message, 4000);
+  } finally {
+    drafting.value = false;
+  }
+}
 
 async function changeMyAvatar() {
   const id = await pickAndCrop({ aspect: 1, round: true, title: "我在 TA 面前的头像", maxSize: 500 });
@@ -124,6 +140,15 @@ async function remove() {
       <button v-if="form.me.avatar" class="btn soft small" @click="form.me.avatar = null">头像改回主页的</button>
     </div>
 
+    <div class="section-label">说话方式</div>
+    <div class="card body">
+      <textarea v-model="form.style" class="input style-box" rows="5" maxlength="800" placeholder="几行就够：TA 怎么叫你、说话的语气、口头禅、爱不爱用颜文字……每次聊天都会先看这几行" />
+      <div class="style-row">
+        <small>放在 TA 看到的最前面，比记忆稳定。可以让 TA 自己写，你再改。</small>
+        <button class="btn soft small" :disabled="!original || drafting" @click="draft">{{ drafting ? "TA 在写…" : "让 TA 自己写" }}</button>
+      </div>
+    </div>
+
     <div class="section-label">签名</div>
     <div class="card body">
       <label class="field">
@@ -151,6 +176,9 @@ async function remove() {
 </template>
 
 <style scoped>
+.style-box { width: 100%; min-height: 110px; resize: vertical; line-height: 1.6; }
+.style-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.style-row small { flex: 1; color: var(--text-2); font-size: 0.75rem; }
 .field-hint { display: block; font-size: 0.75rem; color: var(--text-3); margin-top: 4px; }
 .body { padding: 18px; }
 .ava-row { display: flex; justify-content: center; margin-bottom: 14px; }
