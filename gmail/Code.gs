@@ -70,9 +70,20 @@ const TOOLS = [
 
 // ---------- 工具的具体实现 ----------
 
-// 这个邮箱自己的地址。网页应用被别人（栖所）调用时 getActiveUser() 是空的，要用 getEffectiveUser()
+// 这个邮箱自己的地址：看自己发过信的几个对话，每个对话里都出现的那个发件人就是自己（只用邮箱权限，不用另外授权）
 function myEmail_() {
-  return String(Session.getEffectiveUser().getEmail() || Session.getActiveUser().getEmail() || '').toLowerCase();
+  try {
+    const addr = function (f) { const m = String(f || '').match(/<([^>]+)>/); return (m ? m[1] : String(f || '')).trim().toLowerCase(); };
+    let common = null;
+    GmailApp.search('from:me', 0, 10).forEach(function (t) {
+      const here = {};
+      t.getMessages().forEach(function (m) { here[addr(m.getFrom())] = true; });
+      common = common === null ? here : Object.keys(common).reduce(function (o, k) { if (here[k]) o[k] = true; return o; }, {});
+    });
+    const left = common ? Object.keys(common).filter(Boolean) : [];
+    if (left.length === 1) return left[0];
+  } catch (e) { /* 读不到就算了 */ }
+  try { return String(Session.getActiveUser().getEmail() || '').toLowerCase(); } catch (e) { return ''; }
 }
 // 自己的地址，加上别名
 function myAddrs_() {
@@ -185,7 +196,7 @@ function handle_(req) {
       return {
         protocolVersion: p.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'Gmail (栖所 Apps Script)', version: '1.2' },
+        serverInfo: { name: 'Gmail (栖所 Apps Script)', version: '1.3' },
       };
     case 'ping':
       return {};
