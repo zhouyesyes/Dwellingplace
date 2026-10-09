@@ -23,7 +23,7 @@ const makeDefault = ref(isNew ? !store.apis.length : store.defaultApiId === orig
 const loading = ref(false);
 const showKey = ref(false);
 const valid = computed(() => form.name.trim() && form.baseUrl.trim() && form.model.trim());
-const isOpenRouter = computed(() => form.type === "openai" && /openrouter\.ai/i.test(form.baseUrl || ""));
+const isOpenRouter = computed(() => form.type === "openai" && /openrouter\.ai|\/openrouter(\/|$)/i.test(form.baseUrl || ""));
 
 function switchType(type) {
   if (form.type === type) return;

@@ -4,7 +4,9 @@ import { ref, computed, onMounted } from "vue";
 import { store, fmtTokens } from "../store/index.js";
 import SubHeader from "../components/SubHeader.vue";
 
-const kindOf = a => (/deepseek\.com/i.test(a.baseUrl || "") ? "deepseek" : /openrouter\.ai/i.test(a.baseUrl || "") ? "openrouter" : "");
+// OpenRouter 的查询地址跟着接口地址走（自己服务器转发的也行）
+const orBase = a => (/\/openrouter(\/|$)/i.test(a.baseUrl || "") && !/openrouter\.ai/i.test(a.baseUrl || "") ? String(a.baseUrl).replace(/\/+$/, "").replace(/\/v1$/, "") + "/v1" : "https://openrouter.ai/api/v1");
+const kindOf = a => (/deepseek\.com/i.test(a.baseUrl || "") ? "deepseek" : /openrouter\.ai|\/openrouter(\/|$)/i.test(a.baseUrl || "") ? "openrouter" : "");
 const account = ref({}); // apiId -> { loading, error, lines: [] }
 
 async function getJSON(url, key) {
@@ -25,7 +27,7 @@ async function check(a) {
       lines = (r.balance_infos || []).map(b => `余额 ${b.currency === "CNY" ? "¥" : b.currency + " "}${b.total_balance}（充值 ${b.topped_up_balance}，赠送 ${b.granted_balance}）`);
       if (!r.is_available) lines.push("余额不够了，调用会失败");
     } else {
-      const [c, kinfo] = await Promise.all([getJSON("https://openrouter.ai/api/v1/credits", a.key).catch(() => null), getJSON("https://openrouter.ai/api/v1/key", a.key)]);
+      const [c, kinfo] = await Promise.all([getJSON(`${orBase(a)}/credits`, a.key).catch(() => null), getJSON(`${orBase(a)}/key`, a.key)]);
       const d = kinfo.data || {};
       if (c?.data) lines.push(`账户余额 ${usd(c.data.total_credits - c.data.total_usage)}（一共充了 ${usd(c.data.total_credits)}）`);
       if (d.usage_daily != null) lines.push(`今天花了 ${usd(d.usage_daily)} · 这周 ${usd(d.usage_weekly)} · 这个月 ${usd(d.usage_monthly)}`);
