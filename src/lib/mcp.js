@@ -356,6 +356,10 @@ export function normalizeToolCalls(text) {
       } catch { /* 不是 */ }
     }
   }
+  // 最后一个 <tool_call name="…">{…} 忘了写 </tool_call>（写到这里就停了）：JSON 是完整的就补上
+  text = text.replace(/<tool_call\s+name="([^"]+)"\s*>\s*(\{[\s\S]*\})\s*$/, (all, name, body) => {
+    try { JSON.parse(body); return `<tool_call name="${name}">${body}</tool_call>`; } catch { return all; }
+  });
   if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return stripCallJunk(text);
   const m = text.match(/<[^>]{0,20}invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/[^>]{0,20}invoke>|$)/);
   if (!m) return text;
