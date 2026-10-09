@@ -3,13 +3,14 @@
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, groupById, groupThread, deleteGroup, loadMessages, messageCache, saveMessages, fmtTokens, apiFor } from "../store/index.js";
-import { generating, generate, sendMessage, pathOf, splitBubbles, touchThread, fileToAttachment } from "../lib/chat.js";
+import { generating, generate, sendMessage, pathOf, splitBubbles, isCodeBubble, touchThread, fileToAttachment } from "../lib/chat.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { pickAndCrop, deleteImage, useImage, pickFile, saveImage, CHAT_IMAGE } from "../lib/images.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
+import HtmlBlock from "../components/HtmlBlock.vue";
 import Sheet from "../components/Sheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
 import ImageViewer from "../components/ImageViewer.vue";
@@ -325,7 +326,7 @@ function clearBg() {
                   <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="actionMsg = src(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="actionMsg = src(m)">{{ b }}</div>
+                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="actionMsg = src(m)" /><div v-else class="bubble" @click="actionMsg = src(m)">{{ b }}</div></template>
                 </template>
               </template>
               <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
