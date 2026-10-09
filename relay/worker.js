@@ -767,6 +767,12 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     history.push({ from: "user", text: rec, ts: x.ts });
     if (!x.silent && x.text) history.push({ from: "ai", text: visible(x.text), ts: x.ts });
   }
+  // 栖所还没取走的那几次醒来里，最后用工具拿到的结果（比如刚看过的游戏状态）：这次也看得见
+  const lastDetails = box.flatMap(x => (x.notes || []).filter(n => n.detail && !/工具说明/.test(n.text || "")).map(n => ({ ...n, ts: x.ts }))).slice(-2);
+  if (lastDetails.length) history.push({ from: "user", ts: lastDetails[lastDetails.length - 1].ts, text: [
+    `【你最近用工具拿到的结果——系统附上的，不是${me}说的话；状态可能已经变了，要行动前需要的话再看一眼】`,
+    ...lastDetails.map(n => `· ${String(n.text).replace(/\s+/g, " ")}\n${String(n.detail).slice(0, 4000)}`),
+  ].join("\n") });
   // 同样的原因只说一次（心潮那边可能一下子递过来好几条一样的）
   const seen = new Map();
   for (const r of reasons) seen.set(r.text, (seen.get(r.text) || 0) + 1);
@@ -885,7 +891,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
             result = `调用失败：${e.message || e}`;
             note.text = `${role.name} 使用 ${found.server.name} · ${found.tool} 失败：${e.message || e}`;
           }
-          note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 3000)}`;
+          note.detail = `参数：${JSON.stringify(args, null, 1)}\n\n结果：\n${String(result).slice(0, 6000)}`;
         }
       }
       notes.push(note);
@@ -1221,7 +1227,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 15, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 16, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
