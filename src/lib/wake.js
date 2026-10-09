@@ -270,7 +270,9 @@ export async function checkInbox(force = false) {
       await syncNow(); // 先让中转知道这些消息已经在聊天里了，再把收件箱清掉
       await relayCall("/wake/ack", { ids: r.items.map(x => x.id) });
     }
-    wakeStatus.latest = r.latest;
+    // 中转那边「有新东西」的时间有时比信箱里的东西先到（KV 要过一会儿才一致）：
+    // 说有新的、却一条都没取到，就先不往前挪，下次再取一遍，免得这条一直看不到
+    if (r.items.length || r.latest <= wakeStatus.latest) wakeStatus.latest = r.latest;
     return r.items.length;
   } catch (e) {
     wakeStatus.error = e.message;

@@ -1059,7 +1059,20 @@ async function wakeRoute(path, req, env) {
   if (path === "/wake/sync") {
     if (!Array.isArray(body.roles)) return json({ error: "请求格式不对" }, 400);
     await env.KV.put("cfg", JSON.stringify({ ...body, syncedAt: Date.now() }));
-    return json({ ok: true, at: Date.now() });
+    // 间隔改了：马上按新的间隔排下一次（不用等定时任务，栖所里立刻能看到新的「下次醒来」）
+    const now = Date.now();
+    for (const role of body.roles) {
+      const w = role.wake;
+      if (!w?.enabled || !w.intervalOn) continue;
+      const key = `sched:${role.id}`;
+      const sched = (await env.KV.get(key, "json")) || {};
+      const ih = [w.intervalOn, w.every, w.jitter].join("|");
+      if (sched.ih === ih && sched.nextAt) continue;
+      sched.nextAt = nextInterval(w, now);
+      sched.ih = ih;
+      await env.KV.put(key, JSON.stringify(sched));
+    }
+    return json({ ok: true, at: now });
   }
 
   if (path === "/wake/state") {
@@ -1183,7 +1196,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 13, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 14, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
