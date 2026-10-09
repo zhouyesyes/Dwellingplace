@@ -163,7 +163,7 @@ function splitThink(raw) {
   return { text, thinking };
 }
 
-const isOpenRouter = api => /openrouter\.ai/i.test(api.baseUrl || "");
+const isOpenRouter = api => /openrouter\.ai|\/openrouter(\/|$)/i.test(api.baseUrl || ""); // 也认自己服务器转发的 …/openrouter/v1
 
 // 温度：自己填了就用；没填时 DeepSeek 用官方建议的聊天温度 1.3，其他交给模型默认
 export function tempFor(api, model) {
