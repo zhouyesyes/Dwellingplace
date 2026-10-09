@@ -10,7 +10,7 @@ import { store, uid, roleById, threadsOf, createThread, loadMessages, saveMessag
 import { relayCall, searchEnabled } from "./search.js";
 import { serversFor, enabledTools, headerObj, toolDoc } from "./mcp.js";
 import { ROOT } from "./tree.js";
-import { buildSystem, pathOf, touchThread, applyReplyTags, meName } from "./chat.js";
+import { buildSystem, pathOf, touchThread, applyReplyTags, meName, noteRecord } from "./chat.js";
 import { applyXinchaoMemoryTags, hasXinchao, xinchaoBase } from "./xinchao.js";
 
 export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
@@ -123,7 +123,13 @@ async function snapshotRole(role) {
   const history = path
     .filter(m => m.from !== "event" && !m.pending && !m.error)
     .slice(-limit)
-    .map(m => ({ from: m.from === "user" ? "user" : "ai", text: textOf(m), ts: m.ts }));
+    .flatMap(m => {
+      if (m.from === "user") return [{ from: "user", text: textOf(m), ts: m.ts }];
+      // 醒来、用工具的提示条：变成系统记录，TA 才知道之前醒来做过什么
+      const pre = noteRecord((m.notes || []).filter(n => n.before));
+      const post = noteRecord((m.notes || []).filter(n => !n.before));
+      return [pre && { from: "user", text: pre, ts: m.ts }, { from: "ai", text: textOf(m), ts: m.ts }, post && { from: "user", text: post, ts: m.ts }].filter(Boolean);
+    });
   const api = apiFor(thread, role);
   return {
     id: role.id,
@@ -230,6 +236,7 @@ async function ingest(item) {
       id: uid(), parentId: parent, from: "ai", text: item.text, ts: item.ts,
       notes: [{ text: `${role.name} 醒来了 · ${item.reasons.join("；")}`, before: true, wakeId: item.id }, ...before],
       apiId: item.apiId, model: item.model, usage: item.usage, wakeId: item.id,
+      ctx: item.usage?.ctx, ctx0: item.usage?.ctx0, // 上下文多大（usage.input 是用工具来回几次加起来的，不是上下文）
     };
     const xm = await applyXinchaoMemoryTags(role, msg.text);
     msg.text = xm.text;

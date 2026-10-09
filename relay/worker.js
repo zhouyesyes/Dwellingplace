@@ -597,7 +597,7 @@ function normalizeToolCalls(text) {
       return name ? `<tool_call name="${name}">${JSON.stringify(args)}</tool_call>` : all;
     } catch { return all; }
   });
-  if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return text;
+  if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return stripCallJunk(text);
   const m = text.match(/<[^>]{0,20}invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/[^>]{0,20}invoke>|$)/);
   if (!m) return text;
   const args = {};
@@ -609,9 +609,15 @@ function normalizeToolCalls(text) {
   }
   const call = `<tool_call name="${m[1]}">${JSON.stringify(args)}</tool_call>`;
   // 去掉包在外面的 <function_calls> / DSML 标记
-  return (text.slice(0, m.index) + call + text.slice(m.index + m[0].length))
-    .replace(/<\/?[^>]{0,20}function_calls>/g, "")
-    .replace(/<\/?｜DSML｜[^>]*>/g, "");
+  return stripCallJunk(text.slice(0, m.index) + call + text.slice(m.index + m[0].length));
+}
+
+// 去掉包在工具调用外面、没用的标记：<function_calls>、<｜DSML｜tool_calls>、<｜｜DSML｜｜calls> 之类
+function stripCallJunk(text) {
+  if (!text) return text;
+  return text
+    .replace(/<\/?[^<>]{0,24}(function|tool)_calls>/g, "")
+    .replace(/<\/?[｜|\s]*DSML[｜|\s]*[\w-]*>/g, "");
 }
 
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
@@ -624,11 +630,20 @@ const visible = t => String(t || "")
   .replace(/\n{3,}/g, "\n\n")
   .trim();
 
+// 提示条 → 一行系统记录（和网页那边的 noteRecord 一样）
+function noteRecord(notes) {
+  const lines = notes.map(n => String(n.text || "").replace(/\s+/g, " ").trim()).filter(Boolean)
+    .map(t => (t.length > 100 ? t.slice(0, 99) + "…" : t));
+  if (!lines.length) return "";
+  const keep = lines.length > 8 ? [...lines.slice(0, 2), `……（中间还有 ${lines.length - 7} 件）`, ...lines.slice(-5)] : lines;
+  return `【系统记录，不是对方说的话】${keep.join("；")}`;
+}
+
 function toConvo(history) {
   const out = [];
   for (const m of history) {
     const role = m.from === "user" ? "user" : "assistant";
-    const content = String(m.text || "").trim();
+    const content = String(role === "assistant" ? stripCallJunk(m.text || "") : m.text || "").trim();
     if (!content) continue;
     const prev = out[out.length - 1];
     if (prev && prev.role === role) prev.content += "\n\n" + content;
@@ -720,15 +735,26 @@ function bridgeReason(d) {
 
 async function runWake(env, cfg, role, reasons, now = Date.now()) {
   const me = role.meName || "对方";
-  const box = (await pendingBox(env)).filter(x => x.roleId === role.id && !x.silent);
-  const history = [...(role.history || []), ...box.map(x => ({ from: "ai", text: visible(x.text), ts: x.ts }))];
+  // 栖所还没取走的：说过的话，还有悄悄醒来过、用过的工具（写成系统记录，TA 才知道自己刚做过什么）
+  const box = (await pendingBox(env)).filter(x => x.roleId === role.id);
+  const history = [...(role.history || [])];
+  for (const x of box) {
+    const rec = noteRecord([{ text: `你醒来了（${(x.reasons || []).join("；")}）${x.silent ? "，这次没发消息" : ""}` }, ...(x.notes || [])]);
+    history.push({ from: "user", text: rec, ts: x.ts });
+    if (!x.silent && x.text) history.push({ from: "ai", text: visible(x.text), ts: x.ts });
+  }
+  // 同样的原因只说一次（心潮那边可能一下子递过来好几条一样的）
+  const seen = new Map();
+  for (const r of reasons) seen.set(r.text, (seen.get(r.text) || 0) + 1);
+  const reasonText = [...seen].map(([t, n]) => (n > 1 ? `${t}（${n} 次）` : t)).join("；");
+  const game = reasons.some(r => r.kind === "garden" && /game|turn|游戏|轮到/i.test(r.text));
   const lastTs = history.length ? history[history.length - 1].ts : 0;
   const alarms = await listAlarms(env, role.id);
 
   const nowLine = `现在是 ${nowText(now)}（北京时间）。` + (lastTs && now - lastTs > 30 * 60_000 ? `\n距离你们上一条消息已经过去了 ${gapText(now - lastTs)}。` : "");
   const alarmList = alarms.length ? alarms.map(a => `#${a.id} ${whenLabel(a.at, now)}${a.note ? " · " + a.note : ""}`).join("；") : "（没有）";
   const system = String(role.system || `你是「${role.name}」。`)
-    .replaceAll("{{NOW}}", nowLine)
+    .replaceAll("{{NOW}}", "现在的时间写在最后那条系统通知里。") // 时间放在最后：系统提示每次醒来都一样，才能被缓存
     .replaceAll("{{TODAY}}", ymd(now))
     .replaceAll("{{ALARMS}}", alarmList);
 
@@ -745,9 +771,12 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
   }
 
   const notice = [
-    `（系统通知，不是${me}发的消息）现在是 ${nowText(now)}，你醒来了：${reasons.map(r => r.text).join("；")}。`,
+    `（系统通知，不是${me}发的消息）${nowLine}\n你醒来了：${reasonText}。`,
     mind ? `\n你此刻的内在状态（心潮，这是你自己的心境，不是要说给${me}听的数据；让它自然地影响你想做什么、想说什么，不用报数字）：\n${mind}\n` : "",
-    `${me}现在不一定在看手机。你可以给${me}发消息，也可以先用工具做点自己的事（看看邮箱、逛逛别的地方……），做什么都随你的心意。`,
+    game
+      ? `这是游戏轮到你了：先用工具看局面，然后马上把你这一步交上去（每步有时限，拖久了系统会替你走）。做完这一步再决定要不要给${me}发消息。`
+      : `${me}现在不一定在看手机。你可以给${me}发消息，也可以先用工具做点自己的事（看看邮箱、逛逛别的地方……），做什么都随你的心意。`,
+    `上面是你们最近的聊天和你醒来的记录。别重复已经说过的意思（同样的问候、道歉、同一句惦记）；没有新的想说，就去做点自己的事，或者不发消息。`,
     `要发消息就像平时聊天一样直接写，可以分成几条，每条之间空一行。用了工具的话，等拿到结果再决定要不要发。`,
     `如果这次不想发消息，就只回复：[不发消息]`,
   ].filter(Boolean).join("\n");
@@ -769,6 +798,8 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     const r = await callModel(role.api, system, convo, !!cfg.webSearch && !search.enabled && role.api?.type !== "openai");
     usage.input += r.usage.input;
     usage.output += r.usage.output;
+    usage.ctx = r.usage.input; // 这一次 TA 看到的内容有多大（上面的 input 是来回几次加起来的）
+    if (round === 0) usage.ctx0 = r.usage.input;
     text = normalizeToolCalls(r.text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
     if (round >= MAX_ROUNDS) break;
 
@@ -892,7 +923,7 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
     roleId: role.id,
     threadId: role.threadId || null,
     ts: Date.now(),
-    reasons: reasons.map(r => r.text),
+    reasons: [...seen].map(([t, n]) => (n > 1 ? `${t}（${n} 次）` : t)),
     silent,
     text,
     notes,
@@ -1152,7 +1183,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 12, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 13, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

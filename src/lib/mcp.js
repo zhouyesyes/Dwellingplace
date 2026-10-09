@@ -323,7 +323,7 @@ export function normalizeToolCalls(text) {
       return name ? `<tool_call name="${name}">${JSON.stringify(args)}</tool_call>` : all;
     } catch { return all; }
   });
-  if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return text;
+  if (!/<[^>]{0,20}invoke\s+name=/.test(text)) return stripCallJunk(text);
   const m = text.match(/<[^>]{0,20}invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?:<\/[^>]{0,20}invoke>|$)/);
   if (!m) return text;
   const args = {};
@@ -335,9 +335,16 @@ export function normalizeToolCalls(text) {
   }
   const call = `<tool_call name="${m[1]}">${JSON.stringify(args)}</tool_call>`;
   // 去掉包在外面的 <function_calls> / DSML 标记
-  return (text.slice(0, m.index) + call + text.slice(m.index + m[0].length))
-    .replace(/<\/?[^>]{0,20}function_calls>/g, "")
-    .replace(/<\/?｜DSML｜[^>]*>/g, "");
+  return stripCallJunk(text.slice(0, m.index) + call + text.slice(m.index + m[0].length));
+}
+
+// 去掉包在工具调用外面、没用的标记：<function_calls>、<｜DSML｜tool_calls>、<｜｜DSML｜｜calls> 之类
+// （不去掉的话会变成一个只写着「<｜｜DSML｜｜calls>」的气泡，TA 下次还会照着学）
+export function stripCallJunk(text) {
+  if (!text) return text;
+  return text
+    .replace(/<\/?[^<>]{0,24}(function|tool)_calls>/g, "")
+    .replace(/<\/?[｜|\s]*DSML[｜|\s]*[\w-]*>/g, "");
 }
 
 
