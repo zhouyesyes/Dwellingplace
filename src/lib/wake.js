@@ -17,7 +17,7 @@ export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
 export const MAX_ALARMS = 5;
 
 // 同步、收件箱的状态（不存）
-export const wakeStatus = reactive({ syncedAt: 0, syncing: false, error: "", latest: 0, checking: false });
+export const wakeStatus = reactive({ syncedAt: 0, syncing: false, error: "", latest: 0, checking: false, busy: {} }); // busy：正在醒来的 TA
 
 const relayReady = () => !!(store.tools.relay?.url && store.tools.relay?.token);
 export const wakeReady = () => !!store.wake?.enabled && relayReady();
@@ -265,6 +265,7 @@ export async function checkInbox(force = false) {
   wakeStatus.checking = true;
   try {
     const r = await relayCall(`/wake/inbox?since=${force ? 0 : wakeStatus.latest}`);
+    wakeStatus.busy = r.busy || {};
     for (const item of r.items) await ingest(item);
     if (r.items.length) {
       await syncNow(); // 先让中转知道这些消息已经在聊天里了，再把收件箱清掉
@@ -348,7 +349,15 @@ export function startWake(router) {
     if (document.visibilityState === "visible") checkInbox(true);
     else syncNow(); // 离开栖所时立刻同步，TA 醒来时看到的才是最新的
   });
-  setInterval(() => { if (document.visibilityState === "visible") checkInbox(false); }, 60_000);
+  // 开着栖所时常去看看：TA 被花园叫醒、正在行动，这边很快就能看到；有人正在醒来时看得更勤
+  let lastPoll = 0;
+  setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    const gap = Object.keys(wakeStatus.busy).length ? 8_000 : 20_000;
+    if (Date.now() - lastPoll < gap) return;
+    lastPoll = Date.now();
+    checkInbox(false);
+  }, 4_000);
   // 点了通知：打开对应的对话
   navigator.serviceWorker?.addEventListener("message", e => {
     if (e.data?.type === "open") {

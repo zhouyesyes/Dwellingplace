@@ -21,10 +21,13 @@ import ColorSwatches from "../components/ColorSwatches.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import { openEditor } from "../lib/editor.js";
 import { runCalendarOp, opButton } from "../lib/calendarTags.js";
+import { wakeStatus } from "../lib/wake.js";
 
 const route = useRoute();
 const router = useRouter();
 const role = computed(() => roleById(route.params.roleId));
+// TA 正被叫醒、在中转那边行动（比如花园说游戏轮到 TA 了）
+const wakeBusy = computed(() => role.value && wakeStatus.busy?.[role.value.id]);
 
 // ---------- 当前对话 ----------
 const threadId = ref(null);
@@ -152,6 +155,11 @@ async function send(reply = true) {
   if (busy.value) return;
   const text = draft.value.trim();
   if (!text && !attachments.value.length) return;
+  // TA 正被叫醒、在行动：先只把话放过去，不另外叫 TA 回（不然两边一起动，就重复了）
+  if (reply && wakeBusy.value) {
+    reply = false;
+    toast(`${role.value.name} 正在行动，话先放在这儿；等 TA 做完，需要的话再让 TA 回你`, 4000);
+  }
   const atts = attachments.value;
   draft.value = "";
   attachments.value = [];
@@ -474,6 +482,7 @@ async function changeAvatarOf(who) {
             </div>
           </div>
         </template>
+        <div v-if="wakeBusy" class="event wake-busy"><span>{{ role.name }} 刚被叫醒，正在行动（{{ wakeBusy.text.length > 40 ? wakeBusy.text.slice(0, 40) + "…" : wakeBusy.text }}）…做完会出现在这里</span></div>
       </div>
     </main>
 
@@ -642,6 +651,8 @@ async function changeAvatarOf(who) {
 
 .event { text-align: center; }
 .event span.link { cursor: pointer; }
+.wake-busy span { animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .55; } }
 .ver { display: inline-flex; align-items: center; gap: 2px; font-size: 0.8rem; color: var(--text-2); background: rgba(255, 255, 255, .85); border-radius: 999px; padding: 0 2px; box-shadow: 0 1px 3px rgba(40, 40, 60, .08); }
 .ver button { border: 0; background: none; color: var(--ink); font-size: 1.4rem; font-weight: 600; line-height: 1; min-width: 44px; height: 38px; padding: 0 0 3px; }
 .ver button:disabled { opacity: .2; }

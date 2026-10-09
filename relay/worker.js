@@ -733,7 +733,31 @@ function bridgeReason(d) {
   return { kind: "bridge", text: `心潮那边传来：${msg}`, deliveryId: d.id };
 }
 
+// 正在醒来的 TA：栖所看得到「正在醒来」，免得你以为没叫醒、又去推一遍（一个 key，十分钟没结束就当结束了）
+async function setBusy(env, roleId, text) {
+  const busy = (await env.KV.get("busy", "json")) || {};
+  const now = Date.now();
+  for (const [id, b] of Object.entries(busy)) if (now - b.at > 600_000) delete busy[id];
+  if (text) busy[roleId] = { at: now, text: String(text).slice(0, 120) };
+  else delete busy[roleId];
+  await env.KV.put("busy", JSON.stringify(busy));
+}
+async function getBusy(env) {
+  const busy = (await env.KV.get("busy", "json")) || {};
+  const now = Date.now();
+  return Object.fromEntries(Object.entries(busy).filter(([, b]) => now - b.at < 600_000));
+}
+
 async function runWake(env, cfg, role, reasons, now = Date.now()) {
+  await setBusy(env, role.id, reasons.map(r => r.text).join("；")).catch(() => {});
+  try {
+    return await runWakeInner(env, cfg, role, reasons, now);
+  } finally {
+    await setBusy(env, role.id, "").catch(() => {});
+  }
+}
+
+async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   const me = role.meName || "对方";
   // 栖所还没取走的：说过的话，还有悄悄醒来过、用过的工具（写成系统记录，TA 才知道自己刚做过什么）
   const box = (await pendingBox(env)).filter(x => x.roleId === role.id);
@@ -1141,9 +1165,10 @@ async function wakeRoute(path, req, env) {
   if (path === "/wake/inbox") {
     const latest = Number(await env.KV.get("boxlatest")) || 0;
     const since = Number(url.searchParams.get("since")) || 0;
-    if (since && latest <= since) return json({ latest, items: [] });
+    const busy = await getBusy(env);
+    if (since && latest <= since) return json({ latest, items: [], busy });
     const items = (await pendingBox(env)).map(({ key, ...x }) => x);
-    return json({ latest, items });
+    return json({ latest, items, busy });
   }
 
   if (path === "/wake/ack") {
@@ -1196,7 +1221,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 14, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 15, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
