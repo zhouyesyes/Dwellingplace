@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, HUG_TEXT, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, fileToAttachment } from "../lib/chat.js";
+import { generating, generate, sendMessage, HUG_TEXT, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment } from "../lib/chat.js";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
@@ -13,6 +13,7 @@ import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
+import HtmlBlock from "../components/HtmlBlock.vue";
 import Sheet from "../components/Sheet.vue";
 import UsageSheet from "../components/UsageSheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
@@ -470,7 +471,7 @@ async function changeAvatarOf(who) {
                   <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <div v-for="(b, i) in splitBubbles(m.text)" v-else :key="i" class="bubble" @click="openActions(src(m))">{{ b }}</div>
+                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><div v-else class="bubble" @click="openActions(src(m))">{{ b }}</div></template>
                   <div v-if="(!m._src || m._last) && vers(src(m)).list.length > 1" class="ver">
                     <button :disabled="vers(src(m)).index === 0" aria-label="上一个版本" @click="switchVersion(src(m), -1)">‹</button>
                     {{ vers(src(m)).index + 1 }} / {{ vers(src(m)).list.length }}

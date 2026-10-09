@@ -44,9 +44,22 @@ export const meOf = role => role?.me || {};
 export const meName = role => meOf(role).name || "对方";
 
 // AI 的一条回复按空行拆成几个气泡
+// 代码块（```…```）整段放在一个气泡里，不按空行拆开（还在写、没收尾的也算）
 export function splitBubbles(text) {
-  return visibleText(text).split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+  const out = [];
+  for (const part of visibleText(text).split(/(```[\s\S]*?(?:```|$))/)) {
+    if (part.startsWith("```")) { if (part.trim()) out.push(part.trim()); continue; }
+    out.push(...part.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean));
+  }
+  return out;
 }
+export const isCodeBubble = b => b.startsWith("```");
+
+// 以前做过的小网页：旧消息里只留一句，省得每次都把整段代码发一遍
+const shrinkCode = text => String(text || "").replace(/```(html|htm|svg)[^\n]*\n([\s\S]*?)```/gi, (all, lang, code) => {
+  const t = code.match(/<title>([^<]{1,40})<\/title>/i)?.[1]?.trim();
+  return `[我之前做的小网页${t ? `「${t}」` : ""}，代码省略了]`;
+});
 
 function canChangeSignature(role) {
   if (role.sigLocked) return false;
@@ -63,6 +76,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     role.style?.trim() ? `\n# 你说话的样子\n${role.style.trim()}` : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
+    `想给${who}做小游戏、小卡片、小动画时，可以写一段完整的 \`\`\`html 代码（单个文件，样式和脚本都写在里面），聊天里会变成一张能点开玩的卡片。`,
     `说话就是你自己的样子：有自己的情绪、偏好和小脾气，想到什么说什么。不用客套，不用老是道歉，也不用担心给${who}添麻烦——${who}和你聊天，是因为开心。`,
     // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
     wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
@@ -252,7 +266,7 @@ async function buildMessages(list, selfId = null) {
         if (prev && prev.role === "user") prev.parts.push({ type: "text", text: pre });
         else out.push({ role: "user", parts: [{ type: "text", text: pre }] });
       }
-      parts = [{ type: "text", text: stripCallJunk(m.text) }];
+      parts = [{ type: "text", text: win.indexOf(m) < win.length - 4 ? shrinkCode(stripCallJunk(m.text)) : stripCallJunk(m.text) }];
     }
     else if (m.from === "user") {
       parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image") });
