@@ -89,7 +89,8 @@ function retry() {
 const lettersOpen = ref(false);
 const boxOpen = ref(false);
 function open(what) {
-  if (what === "mailbox") { said.value = null; card.value = null; lettersOpen.value = true; }
+  if (what === "mailbox") router.push(`/mail/${role.value.id}`); // 墙上的信箱：TA 自己的邮箱
+  else if (what === "letters") { said.value = null; card.value = null; lettersOpen.value = true; } // 你们俩的书信
   else if (what === "blackbox") { said.value = null; boxOpen.value = true; }
 }
 const goChat = () => router.push(`/chat/${role.value.id}`);
@@ -135,7 +136,8 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
           <p v-if="said" class="b-doing"><b v-if="said.title">{{ said.title }}</b>{{ said.text }}</p>
           <p v-else class="b-doing">{{ idle }}</p>
         </div>
-        <button v-if="said?.action" class="btn small" @click="open(said.action)">{{ said.action === "mailbox" ? "打开信箱" : "看看" }}</button>
+        <button v-if="said?.action === 'mailbox'" class="btn soft small" @click="open('letters')">书信</button>
+        <button v-if="said?.action" class="btn small" @click="open(said.action)">{{ said.action === "mailbox" ? "打开邮箱" : "看看" }}</button>
       </div>
     </div>
     <p class="hint">左右拖动看整间屋～点 {{ role.name }} 看 TA 在干嘛；墙上的信箱竖起小旗，是 TA 给你写了信；火、灯、门都能点。</p>
