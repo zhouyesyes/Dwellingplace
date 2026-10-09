@@ -472,6 +472,13 @@ async function callAnthropic(api, system, messages, webSearch) {
   return { text, usage };
 }
 
+// 温度：自己填了就用；没填时 DeepSeek 用 1.3（和网页那边一样）
+function tempFor(api) {
+  const t = api.temperature;
+  if (t !== "" && t != null && Number.isFinite(Number(t))) return Number(t);
+  return /deepseek/i.test(`${api.model || ""} ${api.baseUrl || ""}`) ? 1.3 : undefined;
+}
+
 async function callOpenAI(api, system, messages) {
   const r = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
@@ -479,6 +486,7 @@ async function callOpenAI(api, system, messages) {
     body: JSON.stringify({
       model: api.model,
       max_tokens: Number(api.maxTokens) || undefined,
+      temperature: tempFor(api),
       messages: [{ role: "system", content: system }, ...messages],
       // OpenRouter：思考强度跟着栖所里设的走（醒来时不用看思考，不让它传回来）
       ...(/openrouter\.ai/i.test(api.baseUrl || "") && api.effort ? { reasoning: { effort: api.effort, exclude: true } } : {}),
@@ -639,7 +647,7 @@ function noteRecord(notes) {
     .map(t => (t.length > 100 ? t.slice(0, 99) + "…" : t));
   if (!lines.length) return "";
   const keep = lines.length > 8 ? [...lines.slice(0, 2), `……（中间还有 ${lines.length - 7} 件）`, ...lines.slice(-5)] : lines;
-  return `【系统记录，不是对方说的话】${keep.join("；")}`;
+  return `（小记，不是对方说的话：${keep.join("；")}）`;
 }
 
 function toConvo(history) {
@@ -776,7 +784,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   const lastDoc = boxNotes.filter(isDoc).slice(-1); // 最近查过的工具说明（比如出牌怎么写）：带着，不用每次再查
   const lastDetails = [...lastDoc, ...boxNotes.filter(n => !isDoc(n)).slice(-2)];
   if (lastDetails.length) history.push({ from: "user", ts: lastDetails[lastDetails.length - 1].ts, text: [
-    `【你最近用工具拿到的结果——系统附上的，不是${me}说的话；状态可能已经变了，要行动前需要的话再看一眼】`,
+    `（小记，不是${me}说的话：你最近用工具拿到的结果。状态可能已经变了，要行动前需要的话再看一眼）`,
     ...lastDetails.map(n => `· ${String(n.text).replace(/\s+/g, " ")}\n${String(n.detail).slice(0, 4000)}`),
   ].join("\n") });
   // 同样的原因只说一次（心潮那边可能一下子递过来好几条一样的）
@@ -790,7 +798,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   const nowLine = `现在是 ${nowText(now)}（北京时间）。` + (lastTs && now - lastTs > 30 * 60_000 ? `\n距离你们上一条消息已经过去了 ${gapText(now - lastTs)}。` : "");
   const alarmList = alarms.length ? alarms.map(a => `#${a.id} ${whenLabel(a.at, now)}${a.note ? " · " + a.note : ""}`).join("；") : "（没有）";
   const system = String(role.system || `你是「${role.name}」。`)
-    .replaceAll("{{NOW}}", "现在的时间写在最后那条系统通知里。") // 时间放在最后：系统提示每次醒来都一样，才能被缓存
+    .replaceAll("{{NOW}}", "现在的时间写在最后那条消息里。") // 时间放在最后：系统提示每次醒来都一样，才能被缓存
     .replaceAll("{{TODAY}}", ymd(now))
     .replaceAll("{{ALARMS}}", alarmList);
 
@@ -807,7 +815,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   }
 
   const notice = [
-    `（系统通知，不是${me}发的消息）${nowLine}\n你醒来了：${reasonText}。`,
+    `（这条不是${me}发的消息）${nowLine}\n你醒来了：${reasonText}。`,
     mind ? `\n你此刻的内在状态（心潮，这是你自己的心境，不是要说给${me}听的数据；让它自然地影响你想做什么、想说什么，不用报数字）：\n${mind}\n` : "",
     game
       ? `这是游戏轮到你了：先用工具看局面，然后马上把你这一步交上去（每步有时限，拖久了系统会替你走）。交上去、工具说成功了就算做完，不用再查一遍状态确认；只有还要接着走（比如摸完牌还要出牌）才再看。做完这一步再决定要不要给${me}发消息。`
@@ -1234,7 +1242,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 17, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 18, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

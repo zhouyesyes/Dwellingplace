@@ -165,6 +165,13 @@ function splitThink(raw) {
 
 const isOpenRouter = api => /openrouter\.ai/i.test(api.baseUrl || "");
 
+// 温度：自己填了就用；没填时 DeepSeek 用官方建议的聊天温度 1.3，其他交给模型默认
+export function tempFor(api, model) {
+  const t = api.temperature;
+  if (t !== "" && t != null && Number.isFinite(Number(t))) return Number(t);
+  return /deepseek/i.test(`${model || ""} ${api.model || ""} ${api.baseUrl || ""}`) ? 1.3 : undefined;
+}
+
 async function openaiStream({ api, model, system, messages, signal, onText, onThinking }) {
   const stream = streaming();
   const body = {
@@ -172,6 +179,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     stream,
     ...(stream ? { stream_options: { include_usage: true } } : {}),
     max_tokens: Number(api.maxTokens) || undefined,
+    temperature: tempFor(api, model),
     messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
   };
   // OpenRouter：要明说才会把思考（GPT 是思考摘要）传回来；思考强度也走这里

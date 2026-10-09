@@ -28,7 +28,7 @@ const searchState = ref(null); // { ok, text, results }
 const testQuery = ref("今天的新闻");
 const busy = ref("");
 
-const LATEST_RELAY = 17; // relay/worker.js 里的 version
+const LATEST_RELAY = 18; // relay/worker.js 里的 version
 async function testRelay() {
   busy.value = "ping";
   pingState.value = null;

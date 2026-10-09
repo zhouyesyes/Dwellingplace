@@ -71,6 +71,7 @@ export function newRole(over = {}) {
     bubbleColor: DEFAULT_BUBBLE,
     avatar: null,
     persona: "",
+    style: "", // 说话方式：放在系统提示最前面
     signature: "",
     sigUpdatedAt: 0,
     sigCooldownHours: 12,

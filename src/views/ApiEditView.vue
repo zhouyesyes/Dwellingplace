@@ -190,6 +190,11 @@ function remove() {
         <input v-model.number="form.maxTokens" class="input" type="number" min="256" step="1000" />
         <small>如果接口报错说 max_tokens 太大，就把它调小一点。</small>
       </label>
+      <label v-if="form.type === 'openai'" class="field">
+        <span>温度（temperature）</span>
+        <input v-model="form.temperature" class="input" type="number" min="0" max="2" step="0.1" inputmode="decimal" placeholder="不填：DeepSeek 用 1.3，其他用模型默认" />
+        <small>越高说话越活、越不像模板。DeepSeek 官方建议聊天 1.3。接口报错说不支持 temperature 的话就清空。</small>
+      </label>
       <label v-if="form.type === 'anthropic' || isOpenRouter" class="field">
         <span>思考强度（effort）</span>
         <select v-model="form.effort" class="input">
