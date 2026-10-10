@@ -49,7 +49,12 @@ export function splitBubbles(text) {
   const out = [];
   for (const part of visibleText(text).split(/(```[\s\S]*?(?:```|$))/)) {
     if (part.startsWith("```")) { if (part.trim()) out.push(part.trim()); continue; }
-    out.push(...part.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean));
+    for (const b of part.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)) {
+      // 一行只有一两个字、连着好几行（学人一个字一个字地发）：每行当成一条
+      const lines = b.split("\n").map(s => s.trim()).filter(Boolean);
+      if (lines.length >= 3 && lines.every(l => [...l.replace(/[。，！？、.!?~～…]+$/, "")].length <= 3)) out.push(...lines);
+      else out.push(b);
+    }
   }
   return out;
 }
