@@ -38,6 +38,11 @@ const apiPick = computed({
 
 form.me ??= { name: "", avatar: null, about: "" };
 form.style ??= "";
+// 以前的「设定」「关于我」还存着：可以放进来当底稿
+const oldPersona = computed(() => [form.persona?.trim(), form.me?.about?.trim() && `（以前写的关于${form.me.name || "你"}）\n${form.me.about.trim()}`].filter(Boolean).join("\n\n"));
+function useOld() {
+  form.style = [form.style.trim(), oldPersona.value].filter(Boolean).join("\n\n").slice(0, 2000);
+}
 // 说话方式：让 TA 照着最近的聊天自己写一份，写完你再改
 const drafting = ref(false);
 async function draft() {
@@ -45,7 +50,7 @@ async function draft() {
   drafting.value = true;
   try {
     const t = await draftStyle(original);
-    if (t) form.style = t.slice(0, 800);
+    if (t) form.style = t.slice(0, 2000);
   } catch (e) {
     toast(e.message, 4000);
   } finally {
@@ -140,11 +145,15 @@ async function remove() {
       <button v-if="form.me.avatar" class="btn soft small" @click="form.me.avatar = null">头像改回主页的</button>
     </div>
 
-    <div class="section-label">说话方式</div>
+    <div class="section-label">我是谁 · 说话的样子</div>
     <div class="card body">
-      <textarea v-model="form.style" class="input style-box" rows="5" maxlength="800" placeholder="几行就够：TA 怎么叫你、说话的语气、口头禅、爱不爱用颜文字……每次聊天都会先看这几行" />
+      <textarea v-model="form.style" class="input style-box" rows="8" maxlength="2000" placeholder="用 TA 自己的口吻写：我是什么样的人、在意什么，我和你是什么关系，我平时怎么说话，再加几句例句。每次聊天 TA 都会先看这里，记起自己是谁" />
       <div class="style-row">
-        <small>放在 TA 看到的最前面，比记忆稳定。可以让 TA 自己写，你再改。</small>
+        <small>放在 TA 看到的最前面，每次都带上（几乎都能命中缓存）。可以让 TA 自己写，你再改；TA 变了就一起改。</small>
+      </div>
+      <div class="style-row">
+        <button v-if="oldPersona" class="btn soft small" @click="useOld">放进以前的设定</button>
+        <span class="grow" />
         <button class="btn soft small" :disabled="!original || drafting" @click="draft">{{ drafting ? "TA 在写…" : "让 TA 自己写" }}</button>
       </div>
     </div>
@@ -178,6 +187,7 @@ async function remove() {
 <style scoped>
 .style-box { width: 100%; min-height: 110px; resize: vertical; line-height: 1.6; }
 .style-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.style-row .grow { flex: 1; }
 .style-row small { flex: 1; color: var(--text-2); font-size: 0.75rem; }
 .field-hint { display: block; font-size: 0.75rem; color: var(--text-3); margin-top: 4px; }
 .body { padding: 18px; }
