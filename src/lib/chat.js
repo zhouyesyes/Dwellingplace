@@ -248,6 +248,7 @@ async function buildMessages(list, selfId = null) {
   const limit = Math.max(2, Number(selfId ? store.settings.groupHistoryLimit : store.settings.historyLimit) || 80);
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
+  const bubbles = new Set(); // 你发的一条条文字（合并前），用来认出「连着发了好几条」
   const self = selfId && roleById(selfId);
   // 窗口每 10 条才往前挪一次（不是每条都挪）：开头那段聊天记录能连着好几轮保持一样，缓存才用得上
   const cut = Math.max(0, real.length - limit);
@@ -273,6 +274,7 @@ async function buildMessages(list, selfId = null) {
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
       if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
       if (selfId) parts = [{ type: "text", text: `【${meName(self)}】` }, ...parts];
+      else { const tp = parts.find(p => p.type === "text" && p.text === m.text); if (tp) bubbles.add(tp); }
     } else parts = [{ type: "text", text: `【${roleById(m.speaker)?.name || "群友"}】${visibleText(m.text)}` }];
     if (!parts.length) continue;
     const prev = out[out.length - 1];
@@ -281,6 +283,22 @@ async function buildMessages(list, selfId = null) {
     // 这条后面的事（悄悄醒来过、定了闹钟……）
     const post = mine && noteRecord((m.notes || []).filter(n => !n.before));
     if (post) out.push({ role: "user", parts: [{ type: "text", text: post }] });
+  }
+  // 连着发的好几条（比如一个字一个字地发）：告诉 TA 是一条一条发的，不然只会看到合在一起的一句话
+  for (const turn of out) {
+    if (turn.role !== "user") continue;
+    const next = [];
+    for (let i = 0; i < turn.parts.length; ) {
+      let j = i;
+      while (j < turn.parts.length && bubbles.has(turn.parts[j])) j++;
+      if (j - i >= 2) {
+        const run = turn.parts.slice(i, j).map(p => p.text);
+        const tiny = run.every(t => [...t.trim()].length <= 2);
+        next.push({ type: "text", text: `（连着发了 ${run.length} 条消息${tiny ? "，一个字一个字地发" : ""}）\n${run.map(t => `「${t}」`).join("\n")}` });
+        i = j;
+      } else { next.push(turn.parts[i]); i = Math.max(j, i + 1); }
+    }
+    turn.parts = next;
   }
   if (!out.length || out[0].role !== "user") out.unshift({ role: "user", parts: [{ type: "text", text: "（开始聊天）" }] });
   if (out[out.length - 1].role !== "user") out.push({ role: "user", parts: [{ type: "text", text: "（继续）" }] });
