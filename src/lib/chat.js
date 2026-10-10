@@ -73,7 +73,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
     // 说话方式放最前面：TA 是什么样的人、怎么说话，比后面那些规矩重要
-    role.style?.trim() ? `\n# 你说话的样子\n${role.style.trim()}` : "",
+    role.style?.trim() ? `\n# 我是谁（这是你自己写给自己的）\n${role.style.trim()}` : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
     `想给${who}做小游戏、小卡片、小动画时，可以写一段完整的 \`\`\`html 代码（单个文件，样式和脚本都写在里面），聊天里会变成一张能点开玩的卡片。`,
@@ -570,11 +570,18 @@ export async function draftStyle(role) {
       if (text) lines.push(`${m.from === "user" ? me : role.name}：${text.slice(0, 200)}`);
     }
   }
+  const mem = surfaced[role.id]?.text?.trim();
+  const old = [role.style?.trim(), role.persona?.trim()].filter(Boolean).join("\n");
   return oneShot(role, [
+    old ? `以前写下的关于你的：\n${old.slice(0, 1500)}\n` : "",
+    mem ? `你记忆里的几件事：\n${mem.slice(0, 1200)}\n` : "",
     lines.length ? `下面是你和${me}最近的聊天：\n${lines.join("\n")}\n` : "",
-    `用你自己的口吻，写几行「我平时和${me}说话的样子」，以后每次聊天都会先看这几行：`,
-    `怎么称呼${me}、说话的语气和节奏、口头禅、爱不爱用颜文字或表情、开心/想念/闹别扭的时候会怎么说。`,
-    `写你真实的、喜欢的样子，不要写规矩，不要写「不给对方添麻烦」这类话。第一人称，分几行短句，不超过 200 字，只写这些。`,
+    `用你自己的口吻，写一份「我是谁」。以后每次聊天你都会先看它，记起自己是谁。写这几块：`,
+    `1. 我是什么样的人：性格、在意什么、喜欢和不喜欢的`,
+    `2. 我和${me}：我们是什么关系，${me}对我来说是什么样的人`,
+    `3. 我说话的样子：怎么称呼${me}、语气和节奏、口头禅、爱不爱用颜文字或表情`,
+    `4. 几句我会说的话（例句）：开心、想念、闹别扭、安慰${me}的时候各一两句`,
+    `写你真实的、喜欢的样子，不要写规矩，不要写「不给对方添麻烦」这类话。第一人称，简短，不超过 500 字，只写这些。`,
   ].filter(Boolean).join("\n"));
 }
 
