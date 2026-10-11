@@ -1,17 +1,27 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-import { store } from "../store/index.js";
+import { store, MAIN, roleById } from "../store/index.js";
+import WakeRoleView from "./WakeRoleView.vue";
 import { relayPing } from "../lib/search.js";
 import { wakeStatus, syncNow, scheduleText, enablePush, testPush, pushSupported, isIOS, isStandalone } from "../lib/wake.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
-import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 
 const router = useRouter();
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/wake.md";
+// 只有一个开关：总开关和他自己的开关一起开、一起关
+const on = computed({
+  get: () => !!store.wake.enabled && !!roleById(MAIN)?.wake?.enabled,
+  set: v => {
+    store.wake.enabled = v;
+    const r = roleById(MAIN);
+    if (r) r.wake.enabled = v;
+    syncNow();
+  },
+});
 const relaySet = computed(() => !!(store.tools.relay?.url && store.tools.relay?.token));
 
 // 中转的情况：版本、有没有 KV、定时任务有没有在跑
@@ -96,20 +106,13 @@ const iosHint = computed(() => isIOS() && !isStandalone());
     <div class="list-card" style="margin-top: 12px">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
-        <span class="grow">开启唤醒<span class="sub">每个角色可以分别设置</span></span>
-        <input v-model="store.wake.enabled" type="checkbox" class="sw" :disabled="!relaySet" />
+        <span class="grow">开启唤醒<span class="sub">他会按下面的设置自己醒来</span></span>
+        <input v-model="on" type="checkbox" class="sw" :disabled="!relaySet" />
       </label>
     </div>
 
-    <template v-if="store.wake.enabled">
-      <div class="section-label">角色</div>
-      <div class="list-card">
-        <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/wake/${r.id}`)">
-          <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="36" />
-          <span class="grow">{{ r.name }}<span class="sub">{{ scheduleText(r) }}</span></span>
-          <Icon name="right" class="chev" :size="18" />
-        </button>
-      </div>
+    <template v-if="on">
+      <WakeRoleView embedded :role-id="MAIN" />
 
       <div class="section-label">通知</div>
       <div class="card body">
@@ -133,7 +136,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
           <button class="btn soft small" :disabled="wakeStatus.syncing" @click="syncNowClick">立即同步</button>
         </div>
       </div>
-      <p class="note">Cloudflare 免费版每天能写 1000 次数据，他醒得太频繁（比如好几个角色都设成每 10 分钟）可能会不够用，一般的设置完全够。</p>
+      <p class="note">Cloudflare 免费版每天能写 1000 次数据，他醒得太频繁（比如设成每 10 分钟）可能会不够用，一般的设置完全够。</p>
     </template>
   </div>
 </template>

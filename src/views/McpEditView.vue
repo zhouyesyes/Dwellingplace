@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, ref, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store } from "../store/index.js";
+import { store, MAIN } from "../store/index.js";
 import { newServer, parseMcpJson, refreshTools } from "../lib/mcp.js";
 import { goBack } from "../lib/nav.js";
 import { toast } from "../lib/toast.js";
@@ -16,7 +16,7 @@ const isNew = route.params.id === "new";
 const original = isNew ? null : store.mcpServers.find(s => s.id === route.params.id);
 if (!isNew && !original) router.replace("/settings/tools");
 
-const form = reactive(JSON.parse(JSON.stringify(original || newServer())));
+const form = reactive(JSON.parse(JSON.stringify(original || newServer({ roleIds: [MAIN] })))); // 只有一个 AI：新加的都给他用
 form.disabledTools ??= [];
 const onCount = computed(() => form.tools.length - form.disabledTools.filter(n => form.tools.some(t => t.name === n)).length);
 function toggleTool(name) {
@@ -112,16 +112,6 @@ function remove() {
         <input v-model="form.viaRelay" type="checkbox" />
       </label>
     </div>
-
-    <div class="section-label">哪些角色可以用</div>
-    <div class="list-card">
-      <button v-for="r in store.roles" :key="r.id" class="list-row" @click="toggleRole(r.id)">
-        <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="32" />
-        <span class="grow">{{ r.name }}</span>
-        <span class="check" :class="{ on: form.roleIds.includes(r.id) }"><Icon v-if="form.roleIds.includes(r.id)" name="check" :size="16" /></span>
-      </button>
-    </div>
-    <p v-if="!form.roleIds.length" class="hint warn">还没有勾选角色：没有勾的角色用不了这个 MCP。</p>
 
     <div class="section-label">测试</div>
     <div class="card body">

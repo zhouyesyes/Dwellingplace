@@ -1,26 +1,18 @@
 <script setup>
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
-import { store, roleById } from "../store/index.js";
+import { store, MAIN } from "../store/index.js";
 import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
-import Avatar from "../components/Avatar.vue";
 
 const router = useRouter();
-const rolesText = s => (s.roleIds || []).map(id => roleById(id)?.name).filter(Boolean).join("、") || "还没选角色";
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/cloudflare-relay.md";
 
 // 搜索服务的设置平时收起来（不常改）
 const searchOpen = ref(false);
-// MCP 按人物分组：点一个人展开他的 MCP
-const openRole = ref("");
-const mcpGroups = computed(() => {
-  const groups = store.roles.map(r => ({ id: r.id, role: r, list: store.mcpServers.filter(s => (s.roleIds || []).includes(r.id)) }));
-  const none = store.mcpServers.filter(s => !(s.roleIds || []).some(id => roleById(id)));
-  if (none.length) groups.push({ id: "_none", role: null, list: none });
-  return groups;
-});
+// 他的 MCP（旧居里那两位的不列在这里）
+const mine = computed(() => store.mcpServers.filter(s => (s.roleIds || []).includes(MAIN)));
 const toolsText = s => (s.tools?.length ? `工具 ${s.tools.length - (s.disabledTools?.length || 0)}/${s.tools.length}` : "还没读取工具");
 
 const pingState = ref(null); // { ok, text }
@@ -130,7 +122,7 @@ async function testSearch() {
     <div class="list-card">
       <label class="list-row">
         <Icon name="file" :size="20" />
-        <span class="grow">开启网页读取<span class="sub">发链接给他，他能打开读全文；所有角色都能用</span></span>
+        <span class="grow">开启网页读取<span class="sub">发链接给他，他能打开读全文</span></span>
         <input v-model="store.tools.fetch.enabled" type="checkbox" class="sw" />
       </label>
     </div>
@@ -149,27 +141,17 @@ async function testSearch() {
 
     <div class="section-label">MCP</div>
     <div class="list-card">
-      <template v-for="g in mcpGroups" :key="g.id">
-        <button class="list-row" @click="openRole = openRole === g.id ? '' : g.id">
-          <Avatar v-if="g.role" :img="g.role.avatar" :name="g.role.name" :color="g.role.color" :size="28" />
-          <Icon v-else name="tool" :size="20" />
-          <span class="grow">{{ g.role ? g.role.name : "还没选角色的" }}<span class="sub">{{ g.list.length ? `${g.list.length} 个 MCP · 开着 ${g.list.filter(s => s.enabled).length} 个` : "还没有 MCP" }}</span></span>
-          <span class="caret">{{ openRole === g.id ? "▴" : "▾" }}</span>
+      <div v-for="s in mine" :key="s.id" class="list-row">
+        <Icon name="tool" :size="20" />
+        <button class="grow plain" @click="router.push(`/settings/mcp/${s.id}`)">
+          {{ s.name }}<span v-if="!s.enabled" class="off">（关着）</span>
+          <span class="sub">{{ toolsText(s) }} · 点进去设置</span>
         </button>
-        <template v-if="openRole === g.id">
-          <button v-for="s in g.list" :key="s.id" class="list-row inner" @click="router.push(`/settings/mcp/${s.id}`)">
-            <Icon name="tool" :size="18" />
-            <span class="grow">
-              {{ s.name }}<span v-if="!s.enabled" class="off">（已停用）</span>
-              <span class="sub">{{ rolesText(s) }} · {{ toolsText(s) }}</span>
-            </span>
-            <input v-model="s.enabled" type="checkbox" class="sw" @click.stop />
-          </button>
-        </template>
-      </template>
+        <input v-model="s.enabled" type="checkbox" class="sw" />
+      </div>
       <button class="list-row add" @click="router.push('/settings/mcp/new')"><Icon name="plus" :size="20" /><span class="grow">添加 MCP</span></button>
     </div>
-    <p class="note">每个 MCP 可以选择哪些角色能用；同一个平台不同 AI 的账号，就各添加一个。MCP 通过上面的中转连接。</p>
+    <p class="note">开关打开，他就能用这个 MCP。MCP 通过上面的中转连接。</p>
   </div>
 </template>
 
@@ -190,8 +172,7 @@ async function testSearch() {
 .test-row { display: flex; gap: 8px; }
 .test-row .btn { flex: none; }
 .add { color: var(--text-2); }
-.inner { padding-left: 34px; background: var(--card-2); }
-.caret { color: var(--text-3); font-size: 0.8rem; }
+.plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; }
 .fold { display: block; width: 100%; margin-top: 8px; border: 0; background: none; color: var(--text-2); font-size: 0.85rem; padding: 8px; text-align: center; }
 .off { color: var(--text-3); font-size: 0.8rem; }
 .note { font-size: 0.8rem; color: var(--text-3); line-height: 1.7; margin: 10px 8px 0; }

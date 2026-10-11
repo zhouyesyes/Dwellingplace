@@ -57,7 +57,7 @@ function bars(limits) {
 const untilText = s => (s < 3600 ? `${Math.ceil(s / 60)} 分钟后恢复` : s < 86400 ? `${Math.round(s / 3600)} 小时后恢复` : `${Math.round(s / 86400)} 天后恢复`);
 const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : `${Math.round(m / 60)} 小时前`; };
 const todayCalls = a => store.usage[today()]?.[a.id]?.calls || 0;
-const rawOpen = ref({});
+
 
 // OpenRouter 的查询地址跟着接口地址走（自己服务器转发的也行）
 const orBase = a => (/\/openrouter(\/|$)/i.test(a.baseUrl || "") && !/openrouter\.ai/i.test(a.baseUrl || "") ? String(a.baseUrl).replace(/\/+$/, "").replace(/\/v1$/, "") + "/v1" : "https://openrouter.ai/api/v1");
@@ -123,24 +123,13 @@ const short = d => d.slice(5).replace("-", "/");
           <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
           <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
         </div>
-        <p v-if="!plan[a.id].st.limits" class="muted small">服务器更新以后还没聊过：和他聊一句再来看。</p>
-        <p v-else-if="!bars(plan[a.id].st.limits).length" class="muted small">OpenAI 回复时没带剩多少，准确的数字在 ChatGPT 里看：</p>
-        <p v-if="plan[a.id].st.limits" class="muted small">（{{ ago(plan[a.id].st.limits.at) }}聊天时 OpenAI 带回来的）</p>
+        <p v-if="!bars(plan[a.id].st.limits).length" class="muted small">OpenAI 不告诉栖所还剩多少，准确的数字在 ChatGPT 里看：</p>
+        <p v-if="bars(plan[a.id].st.limits).length" class="muted small">（{{ ago(plan[a.id].st.limits.at) }}聊天时 OpenAI 带回来的）</p>
       </template>
       <div class="plan-foot">
         <span>今天在这台设备上聊了 {{ todayCalls(a) }} 次</span>
         <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT 里看用量 ›</a>
       </div>
-      <template v-if="plan[a.id]?.st?.limits">
-        <button class="raw-btn" @click="rawOpen[a.id] = !rawOpen[a.id]">{{ rawOpen[a.id] ? "收起原始数据" : "原始数据" }}</button>
-        <div v-if="rawOpen[a.id]" class="raw">
-          <div v-for="(v, k) in plan[a.id].st.limits.headers" :key="k">{{ k }}: {{ v }}</div>
-          <div v-if="!Object.keys(plan[a.id].st.limits.headers || {}).length">（没有带额度信息）</div>
-          <div v-if="plan[a.id].st.limits.names" class="names">带回来的：{{ plan[a.id].st.limits.names.join("、") }}</div>
-          <div v-if="plan[a.id].st.limits.events" class="names">流里的事件：{{ Object.keys(plan[a.id].st.limits.events).join("、") || "（没有别的）" }}</div>
-          <div v-for="(v, k) in plan[a.id].st.limits.events || {}" :key="k"><template v-if="v">{{ k }}: {{ v }}</template></div>
-        </div>
-      </template>
     </div>
 
     <button v-if="planApis.length && otherApis.length" class="others-btn" @click="showOthers = !showOthers">
@@ -194,9 +183,6 @@ const short = d => d.slice(5).replace("-", "/");
 .bar i.low { background: var(--danger); }
 .plan-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.82rem; color: var(--text-2); }
 .plan-foot a { color: var(--ink); white-space: nowrap; }
-.raw-btn { border: 0; background: none; color: var(--text-3); font-size: 0.75rem; padding: 6px 0 0; }
-.raw .names { margin-top: 6px; color: var(--text-3); }
-.raw { margin-top: 4px; font-size: 0.72rem; color: var(--text-2); font-family: ui-monospace, Menlo, monospace; word-break: break-all; line-height: 1.6; }
 .others-btn { display: flex; justify-content: space-between; width: 100%; margin: 18px 0 0; border: 0; background: var(--card); border-radius: 16px; padding: 12px 16px; box-shadow: var(--shadow-soft); color: var(--text-2); font-size: 0.9rem; }
 .acc-title { margin: 0 0 4px; font-weight: 600; font-size: 0.9rem; }
 .acc { margin: 2px 0; font-size: 0.88rem; line-height: 1.6; }
