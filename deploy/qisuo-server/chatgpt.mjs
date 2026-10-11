@@ -234,6 +234,8 @@ function toInput(messages) {
 const USAGE_CODES = { subscription_sharing_usage_limit_exceeded: "ChatGPT 会员这阵子的用量用完了（Plus 每 5 小时、每周都有上限），过一会儿再试，或者在 ChatGPT 设置 → 用量里调高栖所的上限", subscription_sharing_usage_unavailable: "现在用不了会员额度，过一会儿再试" };
 const errMsg = err => USAGE_CODES[err?.code] || err?.message || err?.code || "出错了";
 
+let noCacheKey = false; // prompt_cache_key 被拒过一次就不再发
+
 async function chat(body, res, CORS) {
   const { instructions, input } = toInput(body.messages);
   const req = {
@@ -243,11 +245,20 @@ async function chat(body, res, CORS) {
     stream: true,
     ...(instructions ? { instructions } : {}),
     ...(body.max_tokens ? { max_output_tokens: Number(body.max_tokens) } : {}),
+    ...(body.prompt_cache_key && !noCacheKey ? { prompt_cache_key: String(body.prompt_cache_key).slice(0, 64) } : {}),
     ...(body.reasoning?.effort ? { reasoning: { effort: body.reasoning.effort, ...(body.reasoning.enabled ? { summary: "auto" } : {}) } } : body.reasoning?.enabled ? { reasoning: { summary: "auto" } } : {}),
   };
   const ctrl = new AbortController();
   res.on("close", () => { if (!res.writableEnded) ctrl.abort(); });
-  const up = await openai("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal: ctrl.signal });
+  let up = await openai("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal: ctrl.signal });
+  if (up.status === 400 && req.prompt_cache_key) {
+    const raw = await up.clone().text();
+    if (/prompt_cache_key/i.test(raw)) { // 会员额度这条路不认：记住，去掉再发一次
+      noCacheKey = true;
+      delete req.prompt_cache_key;
+      up = await openai("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal: ctrl.signal });
+    }
+  }
   if (!up.ok || !up.body) {
     const j = await up.json().catch(() => ({}));
     res.writeHead(up.status === 401 ? 401 : up.status || 502, { ...CORS, "Content-Type": "application/json" });

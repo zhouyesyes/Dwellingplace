@@ -394,6 +394,7 @@ export async function generate(thread, parentId, { speaker } = {}) {
       const base = msg.text.length;
       const res = await streamChat({
         api, model, system, messages: convo, signal: ctrl.signal,
+        cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
         // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
         webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
         onText: d => { msg.text += d; },
@@ -613,7 +614,7 @@ export async function oneShot(role, prompt) {
   const model = modelFor(null, role);
   const system = `你是「${role.name}」。`;
   const { text, usage } = await streamChat({
-    api, model, system,
+    api, model, system, cacheKey: `qisuo-${role.id}`,
     messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
     onText: () => {},
   });
