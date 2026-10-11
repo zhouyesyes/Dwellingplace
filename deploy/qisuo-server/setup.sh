@@ -50,6 +50,7 @@ WORKDIR /app
 COPY --from=build /src/dist /app/dist
 COPY --from=build /src/deploy/qisuo-server/server.mjs /app/server.mjs
 COPY --from=build /src/deploy/qisuo-server/chatgpt.mjs /app/chatgpt.mjs
+COPY --from=build /src/deploy/qisuo-server/sync.mjs /app/sync.mjs
 ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data
 CMD ["node", "/app/server.mjs"]
 DOCKER
@@ -104,6 +105,9 @@ cat > "$INFO" <<INFO_EOF
   Claude：    https://$DOMAIN/p/$TOKEN/anthropic
   ChatGPT 会员：https://$DOMAIN/p/$TOKEN/chatgpt/v1（Key 随便填，比如 plan；填好后在这条 API 里点「用 ChatGPT 登录」）
   Key 不用改。地址里那串是转发口令，别发给别人。
+
+【多设备同步：每台设备的栖所「设置 → 同步」里填】
+  https://$DOMAIN/p/$TOKEN/sync
 
 【把数据搬过来】
   1. 在旧的栖所（zhouyesyes.github.io）：设置 → 备份 → 导出

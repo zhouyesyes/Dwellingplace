@@ -1,6 +1,6 @@
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
-import { get, set } from "idb-keyval";
+import { get, set } from "./kv.js";
 import { store, uid, roleById, groupById, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";

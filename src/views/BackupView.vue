@@ -69,7 +69,7 @@ async function doImport() {
     <SubHeader title="备份" />
 
     <div class="card body">
-      <p class="lead">所有数据都只存在这台设备的浏览器里。换手机、清理浏览器之前，记得先导出一份备份。</p>
+      <p class="lead">数据存在这台设备的浏览器里（开了「同步」的话服务器上也有一份）。换手机、清理浏览器之前，记得先导出一份备份。</p>
       <p v-if="usage" class="usage">现在大约占用 {{ usage }}</p>
     </div>
 

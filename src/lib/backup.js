@@ -21,6 +21,7 @@ function base64ToBlob(b64, type) {
 export async function exportAll({ includeKeys = true } = {}) {
   const data = {};
   for (const [k, v] of await entries()) {
+    if (String(k).startsWith("sync:")) continue; // 同步的记账只属于这台设备
     data[k] = v instanceof Blob ? { __blob: await blobToBase64(v), type: v.type } : v;
   }
   // 用内存里最新的数据（磁盘上的可能还没来得及写）
