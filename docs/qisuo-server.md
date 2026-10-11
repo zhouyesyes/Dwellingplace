@@ -44,6 +44,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/mai
 
 口令不对就拒绝，别的网站也转不了，不会被别人拿去当跳板。Key 只是路过，服务器不存。
 
+## 他的浏览器（`/p/<口令>/chrome/`）
+
+安装时问「要给他装一个浏览器吗」选 y，就会多一个 `qisuo-chrome` 容器：没有屏幕的 Chromium + [chrome-mcp-bridge](https://github.com/AZHi-xinxin/chrome-mcp-bridge)（固定在 2.4.1）。
+
+- 只在 docker 内部网络 `qisuo-net` 里，不开端口；bridge 自己没有口令，只能经过栖所服务器带口令的 `/p/<口令>/chrome/` 转发
+- 登录状态存在 `~/qisuo-server/chrome-profile/`；内存上限 1.5G
+- 栖所「设置 → 工具 → 浏览器」点「接上浏览器」；「登录小红书」会打开登录页截图给你扫码
+- 工具返回的图片会交给模型看（要支持看图的模型），聊天里点开小记能看到他看了什么
+- 不想要了：settings.env 里 `CHROME=n`，再运行一次安装
+
 ## 多设备同步（`/p/<口令>/sync`）
 
 手机、iPad、电脑在「设置 → 同步」里填同一个地址 `https://app.你的域名/p/口令/sync`，就共用一份栖所。

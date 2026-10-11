@@ -175,7 +175,9 @@ export async function callTool(server, name, args) {
     return { text: `${head}\n\n${r.text || "（网页里没有读到文字）"}`, isError: false };
   }
   const result = await callToolRaw(server, name, args);
-  return { text: resultText(result), isError: !!result?.isError };
+  // 工具返回的图片（比如浏览器截图、网页里的图）：原样交给他看（最多 12 张）
+  const images = (result?.content || []).filter(c => c.type === "image" && c.data).slice(0, 12).map(c => ({ data: c.data, mime: c.mimeType || "image/jpeg" }));
+  return { text: resultText(result), isError: !!result?.isError, images };
 }
 
 export function resultText(result) {

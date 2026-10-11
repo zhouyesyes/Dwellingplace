@@ -3,10 +3,65 @@ import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, MAIN } from "../store/index.js";
 import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
+import { newServer, refreshTools, callToolRaw } from "../lib/mcp.js";
+import { get as idbGet } from "idb-keyval";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
 
 const router = useRouter();
+
+// ---------- 他的浏览器（自己服务器上的 chrome-mcp-bridge，经 …/p/口令/chrome/ 转发） ----------
+const browser = computed(() => store.mcpServers.find(s => s.browser));
+const bState = ref(null); // { ok, text }
+const bBusy = ref("");
+const qr = ref(""); // 小红书登录页截图
+// 服务器地址（带口令）：从同步地址、或者走自己服务器的 API 地址里找
+async function serverBase() {
+  const conf = await idbGet("sync:conf").catch(() => null);
+  const urls = [conf?.url, ...store.apis.map(a => a.baseUrl)].filter(Boolean);
+  for (const u of urls) { const m = String(u).match(/^(https?:\/\/[^/]+\/p\/[^/]+)\//); if (m) return m[1]; }
+  return "";
+}
+async function connectBrowser() {
+  bBusy.value = "connect";
+  bState.value = null;
+  try {
+    const base = await serverBase();
+    if (!base) throw new Error("找不到你服务器的地址：先在「设置 → 同步」里连上服务器");
+    let s = browser.value;
+    if (!s) {
+      s = newServer({ name: "浏览器", url: `${base}/chrome/`, viaRelay: false, roleIds: [MAIN], headers: [], browser: true });
+      store.mcpServers.push(s);
+      s = store.mcpServers[store.mcpServers.length - 1];
+    }
+    const r = await refreshTools(s);
+    bState.value = { ok: true, text: `接上了：${r.tools.map(t => t.name).join("、")}` };
+  } catch (e) {
+    bState.value = { ok: false, text: /404|不认识/.test(e.message) ? "服务器上还没装浏览器：再运行一次安装那一行，问到浏览器时选 y" : e.message };
+  } finally {
+    bBusy.value = "";
+  }
+}
+// 小红书：打开登录页截个图，你用手机小红书扫码
+async function xhsLogin() {
+  bBusy.value = "xhs";
+  qr.value = "";
+  bState.value = null;
+  try {
+    const nav = await callToolRaw(browser.value, "chrome_navigate", { url: "https://www.xiaohongshu.com/explore", include_note: false });
+    const pageId = JSON.parse(nav?.content?.[0]?.text || "{}").page_id;
+    await new Promise(r => setTimeout(r, 2500));
+    const shot = await callToolRaw(browser.value, "chrome_view", { mode: "screenshot", ...(pageId ? { page_id: pageId } : {}) });
+    const im = (shot?.content || []).find(c => c.type === "image");
+    if (!im) throw new Error("没截到图：" + JSON.stringify(shot?.content?.[0] || {}).slice(0, 120));
+    qr.value = `data:${im.mimeType || "image/jpeg"};base64,${im.data}`;
+    bState.value = { ok: true, text: "截到了。有二维码就用手机小红书扫码登录；没有二维码（已经登录、或者页面没弹登录框），再点一次看看。登录状态存在服务器的浏览器里，以后不用再登。" };
+  } catch (e) {
+    bState.value = { ok: false, text: e.message };
+  } finally {
+    bBusy.value = "";
+  }
+}
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/cloudflare-relay.md";
 
 // 搜索服务的设置平时收起来（不常改）
@@ -139,9 +194,22 @@ async function testSearch() {
     </div>
     <p class="note">开了上面的「通过中转搜索」时，会优先用中转，这个开关就不起作用。</p>
 
+    <div class="section-label">浏览器（他自己上网看）</div>
+    <div class="card body">
+      <p class="desc">装在你自己的服务器上的浏览器（chrome-mcp-bridge）。他能打开网页、读文字、<b>看网页里的图片和截图</b>；小红书笔记会带回正文、评论和图片。比上面的网页读取慢一些，但看得全。</p>
+      <button class="btn soft wide" :disabled="!!bBusy" @click="connectBrowser">{{ bBusy === "connect" ? "连接中…" : browser ? "重新连接" : "接上浏览器" }}</button>
+      <template v-if="browser">
+        <label class="switch-row"><span>他可以用浏览器</span><input v-model="browser.enabled" type="checkbox" class="sw" /></label>
+        <button class="btn soft wide" :disabled="!!bBusy" @click="xhsLogin">{{ bBusy === "xhs" ? "打开中…（要等几秒）" : "登录小红书（截图扫码）" }}</button>
+      </template>
+      <p v-if="bState" class="result" :class="{ bad: !bState.ok }">{{ bState.text }}</p>
+      <img v-if="qr" :src="qr" alt="" class="qr" />
+    </div>
+    <p class="note">要先在服务器上装好：运行安装那一行，问到「要给他装一个浏览器吗」选 y。浏览器只在你服务器内部，经过带口令的地址才能用。</p>
+
     <div class="section-label">MCP</div>
     <div class="list-card">
-      <div v-for="s in mine" :key="s.id" class="list-row">
+      <div v-for="s in mine.filter(x => !x.browser)" :key="s.id" class="list-row">
         <Icon name="tool" :size="20" />
         <button class="grow plain" @click="router.push(`/settings/mcp/${s.id}`)">
           {{ s.name }}<span v-if="!s.enabled" class="off">（关着）</span>
@@ -172,6 +240,8 @@ async function testSearch() {
 .test-row { display: flex; gap: 8px; }
 .test-row .btn { flex: none; }
 .add { color: var(--text-2); }
+.qr { display: block; width: 100%; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); }
+.switch-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 2px; font-size: 0.93rem; }
 .plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; }
 .fold { display: block; width: 100%; margin-top: 8px; border: 0; background: none; color: var(--text-2); font-size: 0.85rem; padding: 8px; text-align: center; }
 .off { color: var(--text-3); font-size: 0.8rem; }

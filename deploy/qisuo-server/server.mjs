@@ -24,6 +24,8 @@ const TARGETS = {
   deepseek: "https://api.deepseek.com",
   gemini: "https://generativelanguage.googleapis.com",
 };
+// 他的浏览器（chrome-mcp-bridge，在 docker 内部网络里，自己没有口令，只能经过这里的口令转发）
+if (process.env.CHROME_URL) TARGETS.chrome = process.env.CHROME_URL;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
