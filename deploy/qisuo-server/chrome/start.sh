@@ -4,6 +4,7 @@ rm -f /profile/SingletonLock /profile/SingletonSocket /profile/SingletonCookie
 browser() {
   while true; do
     chromium --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+      --no-first-run --disable-sync --disable-background-networking --disable-component-update --disable-features=PushMessaging,Translate \
       --user-data-dir=/profile --lang=zh-CN --window-size=1280,1600 \
       --remote-debugging-address=127.0.0.1 --remote-debugging-port=9223 \
       --remote-allow-origins=http://127.0.0.1:9223 \
