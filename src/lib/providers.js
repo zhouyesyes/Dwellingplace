@@ -164,6 +164,8 @@ function splitThink(raw) {
 }
 
 const isOpenRouter = api => /openrouter\.ai|\/openrouter(\/|$)/i.test(api.baseUrl || ""); // 也认自己服务器转发的 …/openrouter/v1
+// 自己服务器上的 ChatGPT 会员额度（…/chatgpt/v1）
+export const isPlan = api => /\/chatgpt\/v1\/?$/i.test(api?.baseUrl || "");
 
 // 温度：自己填了就用；没填时 DeepSeek 用官方建议的聊天温度 1.3，其他交给模型默认
 export function tempFor(api, model) {
@@ -179,11 +181,11 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     stream,
     ...(stream ? { stream_options: { include_usage: true } } : {}),
     max_tokens: Number(api.maxTokens) || undefined,
-    temperature: tempFor(api, model),
+    temperature: isPlan(api) ? undefined : tempFor(api, model),
     messages: [{ role: "system", content: system }, ...messages.map(m => ({ role: m.role, content: toOpenAIContent(m.parts) }))],
   };
   // OpenRouter：要明说才会把思考（GPT 是思考摘要）传回来；思考强度也走这里
-  if (isOpenRouter(api) && (api.showThinking || api.effort)) {
+  if ((isOpenRouter(api) || isPlan(api)) && (api.showThinking || api.effort)) {
     body.reasoning = { ...(api.effort ? { effort: api.effort } : {}), ...(api.showThinking ? { enabled: true } : { exclude: true }) };
   }
   const res = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
@@ -240,8 +242,11 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       if (!line.startsWith("data:")) continue;
       const data = line.slice(5).trim();
       if (data === "[DONE]") continue;
-      try {
-        const j = JSON.parse(data);
+      let j;
+      try { j = JSON.parse(data); } catch { continue; } // 不完整的行，忽略
+      // 流到一半出错（比如会员额度用完了）
+      if (j.error && !j.choices) throw new Error(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`);
+      {
         const delta = j.choices?.[0]?.delta || {};
         // OpenRouter 还会把思考放在 reasoning_details 里（GPT 给的是摘要；加密的那种看不了）
         const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text
@@ -251,7 +256,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
         if (r || delta.content) emit();
         // 命中缓存的输入：OpenAI / Gemini 写在 prompt_tokens_details 里，DeepSeek 叫 prompt_cache_hit_tokens
         if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0, cached: j.usage.prompt_tokens_details?.cached_tokens ?? j.usage.prompt_cache_hit_tokens ?? j.usage.cached_tokens ?? 0 };
-      } catch { /* 不完整的行，忽略 */ }
+      }
     }
   }
   return { text, thinking, usage };

@@ -20,7 +20,7 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少 $1，请先安装"; e
 need docker; need curl; need openssl
 SUDO=""; docker ps >/dev/null 2>&1 || SUDO="sudo"
 
-mkdir -p "$DIR"; cd "$DIR"
+mkdir -p "$DIR/data"; chmod 700 "$DIR/data"; cd "$DIR"
 if [ -f settings.env ]; then
   # shellcheck disable=SC1091
   . ./settings.env
@@ -49,7 +49,8 @@ FROM node:22-slim
 WORKDIR /app
 COPY --from=build /src/dist /app/dist
 COPY --from=build /src/deploy/qisuo-server/server.mjs /app/server.mjs
-ENV PORT=8080 DIST=/app/dist
+COPY --from=build /src/deploy/qisuo-server/chatgpt.mjs /app/chatgpt.mjs
+ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data
 CMD ["node", "/app/server.mjs"]
 DOCKER
 
@@ -59,7 +60,7 @@ $SUDO docker build --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" 
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker run -d --name qisuo-server --restart unless-stopped \
-  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" qisuo-server >/dev/null
+  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" -v "$DIR/data:/app/data" qisuo-server >/dev/null
 
 ok=""
 for _ in $(seq 1 20); do
@@ -101,6 +102,7 @@ cat > "$INFO" <<INFO_EOF
   OpenAI：    https://$DOMAIN/p/$TOKEN/openai/v1
   DeepSeek：  https://$DOMAIN/p/$TOKEN/deepseek/v1
   Claude：    https://$DOMAIN/p/$TOKEN/anthropic
+  ChatGPT 会员：https://$DOMAIN/p/$TOKEN/chatgpt/v1（Key 随便填，比如 plan；填好后在这条 API 里点「用 ChatGPT 登录」）
   Key 不用改。地址里那串是转发口令，别发给别人。
 
 【把数据搬过来】

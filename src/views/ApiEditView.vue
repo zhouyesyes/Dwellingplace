@@ -1,8 +1,8 @@
 <script setup>
-import { reactive, ref, computed } from "vue";
+import { reactive, ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, apiById, today, fmtTokens } from "../store/index.js";
-import { API_TYPES, newApi, fetchModels } from "../lib/providers.js";
+import { API_TYPES, newApi, fetchModels, isPlan } from "../lib/providers.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -24,6 +24,43 @@ const loading = ref(false);
 const showKey = ref(false);
 const valid = computed(() => form.name.trim() && form.baseUrl.trim() && form.model.trim());
 const isOpenRouter = computed(() => form.type === "openai" && /openrouter\.ai|\/openrouter(\/|$)/i.test(form.baseUrl || ""));
+const plan = computed(() => form.type === "openai" && isPlan(form));
+const hasEffort = computed(() => form.type === "anthropic" || isOpenRouter.value || plan.value);
+
+// ---------- ChatGPT 会员（自己服务器上的 …/chatgpt/v1）：登录信息只存在服务器上 ----------
+const planState = ref(null); // { connected, email, planUsage }
+const planBusy = ref(false);
+const planUrl = ref(""); // 授权链接
+const planPaste = ref("");
+const planBase = () => form.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
+async function planCall(path, body) {
+  const r = await fetch(planBase() + path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || `服务器返回 ${r.status}`);
+  return j;
+}
+async function planDo(fn) {
+  planBusy.value = true;
+  try { await fn(); } catch (e) { toast((e?.message || String(e)).slice(0, 120), 5000); } finally { planBusy.value = false; }
+}
+const planRefresh = () => planDo(async () => { planState.value = await planCall("/status"); });
+const planStart = () => planDo(async () => {
+  planUrl.value = (await planCall("/login/start", {})).url;
+  planPaste.value = "";
+  window.open(planUrl.value, "_blank");
+});
+const planFinish = () => planDo(async () => {
+  planState.value = await planCall("/login/finish", { url: planPaste.value.trim() });
+  planUrl.value = planPaste.value = "";
+  if (!form.key) form.key = "plan";
+  toast("登录好了");
+  await pullModels();
+});
+const planLogout = () => {
+  if (!confirm("退出 ChatGPT 登录？之后要重新登录才能用会员额度。")) return;
+  planDo(async () => { planState.value = await planCall("/logout", {}); });
+};
+watch(plan, on => { if (on) planRefresh(); }, { immediate: true });
 
 function switchType(type) {
   if (form.type === type) return;
@@ -136,6 +173,33 @@ function remove() {
 
       <label class="field"><span>接口地址</span><input v-model="form.baseUrl" class="input" inputmode="url" autocapitalize="off" /></label>
 
+      <div v-if="plan" class="plan">
+        <div class="plan-top">
+          <b>ChatGPT 会员额度</b>
+          <span class="tag" :class="{ on: planState?.connected }">{{ planState == null ? "…" : planState.connected ? "已登录" : "没登录" }}</span>
+        </div>
+        <template v-if="planState?.connected">
+          <p class="plan-sub">{{ planState.email || "已登录" }}<template v-if="!planState.planUsage"> · 没有允许用会员额度，重新登录一次</template></p>
+          <p class="plan-sub">用的是你 ChatGPT 会员的额度（和 ChatGPT 本身共用，Plus 每 5 小时、每周有上限）。用了多少、给栖所设上限：<a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT 设置 → 用量</a></p>
+          <div class="plan-btns">
+            <button class="btn soft small" :disabled="planBusy" @click="planRefresh">刷新</button>
+            <button class="btn soft small" :disabled="planBusy" @click="planStart">重新登录</button>
+            <button class="btn soft small danger" :disabled="planBusy" @click="planLogout">退出登录</button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="plan-sub">1. 点下面的按钮，在打开的页面里登录 ChatGPT、点同意。<br />2. 最后会跳到一个打不开的页面（地址以 127.0.0.1 开头），这是正常的：把<b>地址栏里整串地址</b>复制下来。<br />3. 粘到下面，点「完成」。</p>
+          <div class="plan-btns">
+            <button class="btn small" :disabled="planBusy" @click="planStart">用 ChatGPT 登录</button>
+            <a v-if="planUrl" class="plan-link" :href="planUrl" target="_blank" rel="noopener">没自动打开？点这里</a>
+          </div>
+        </template>
+        <template v-if="planUrl">
+          <textarea v-model="planPaste" class="input plan-paste" rows="3" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocapitalize="off" autocorrect="off" />
+          <button class="btn small" :disabled="planBusy || !planPaste.trim()" @click="planFinish">完成</button>
+        </template>
+      </div>
+
       <label class="field">
         <span>密钥</span>
         <div class="key-row">
@@ -190,12 +254,12 @@ function remove() {
         <input v-model.number="form.maxTokens" class="input" type="number" min="256" step="1000" />
         <small>如果接口报错说 max_tokens 太大，就把它调小一点。</small>
       </label>
-      <label v-if="form.type === 'openai'" class="field">
+      <label v-if="form.type === 'openai' && !plan" class="field">
         <span>温度（temperature）</span>
         <input v-model="form.temperature" class="input" type="number" min="0" max="2" step="0.1" inputmode="decimal" placeholder="不填：DeepSeek 用 1.3，其他用模型默认" />
         <small>越高说话越活、越不像模板。DeepSeek 官方建议聊天 1.3。接口报错说不支持 temperature 的话就清空。</small>
       </label>
-      <label v-if="form.type === 'anthropic' || isOpenRouter" class="field">
+      <label v-if="hasEffort" class="field">
         <span>思考强度（effort）</span>
         <select v-model="form.effort" class="input">
           <option value="">不设置（用模型默认）</option>
@@ -210,8 +274,8 @@ function remove() {
         <input v-model.number="form.contextLimit" class="input" type="number" min="1000" step="1000" inputmode="numeric" />
         <small>模型一次最多能看多少内容，用来在聊天页显示「上下文」用了多少。不确定就填 200000。</small>
       </label>
-      <label v-if="form.type === 'anthropic' || isOpenRouter" class="switch-row">
-        <span>显示思考过程<small class="sub-note">{{ isOpenRouter ? "OpenRouter 要打开才会传回思考；GPT 只给思考摘要，有的模型不给" : "Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开" }}</small></span>
+      <label v-if="hasEffort" class="switch-row">
+        <span>显示思考过程<small class="sub-note">{{ plan ? "会员额度的 GPT 只给思考摘要" : isOpenRouter ? "OpenRouter 要打开才会传回思考；GPT 只给思考摘要，有的模型不给" : "Claude 4.6 及以后的模型；反代的 thinking 模型一般会自动返回，不用开" }}</small></span>
         <input v-model="form.showThinking" type="checkbox" />
       </label>
       <label class="switch-row">
@@ -243,6 +307,16 @@ function remove() {
 
 <style scoped>
 .body { padding: 18px; }
+.plan { margin: -4px 0 16px; padding: 12px 14px; border-radius: 14px; background: var(--bg-deep); display: flex; flex-direction: column; gap: 8px; }
+.plan-top { display: flex; align-items: center; gap: 8px; }
+.plan-top b { flex: 1; }
+.plan .tag { font-size: 0.72rem; padding: 1px 8px; border-radius: 999px; background: var(--card); color: var(--text-2); }
+.plan .tag.on { background: #dcefdc; color: #2f6b34; }
+.plan-sub { margin: 0; font-size: 0.8rem; line-height: 1.6; color: var(--text-2); }
+.plan-sub a, .plan-link { color: var(--ink); font-size: 0.8rem; }
+.plan-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.plan-paste { resize: vertical; font-size: 0.8rem; }
+.plan .danger { color: var(--danger); }
 .seg { display: flex; background: var(--bg-deep); border-radius: 14px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; font-size: 0.867rem; color: var(--text-2); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
