@@ -172,3 +172,13 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.6; }
 .bubble em, .b em { font-style: italic; font-weight: 600; }
 .bubble code, .b code { font-family: ui-monospace, Menlo, monospace; font-size: 0.88em; background: rgba(0, 0, 0, .06); padding: 1px 5px; border-radius: 5px; }
 .bubble del, .b del { opacity: .6; }
+
+/* 聊天里点消息弹出的一列小选项 */
+.ctx-mask { position: fixed; inset: 0; z-index: 900; background: rgba(30, 30, 40, .08); }
+.ctx-menu { position: fixed; width: 188px; background: rgba(255, 255, 255, .98); border-radius: 16px; box-shadow: 0 10px 34px rgba(40, 40, 60, .18), 0 0 0 1px rgba(0, 0, 0, .04); overflow: hidden; animation: ctx-in .14s ease-out; }
+.ctx-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 11px 16px; font-size: 0.93rem; color: var(--text); text-align: left; }
+.ctx-menu button + button { border-top: 1px solid var(--line); }
+.ctx-menu button:active { background: var(--bg); transform: none; }
+.ctx-menu button:disabled { opacity: .4; }
+.ctx-menu button.danger { color: var(--danger); }
+@keyframes ctx-in { from { opacity: 0; transform: scale(.96); } }

@@ -335,8 +335,19 @@ function tokensOf(group) {
 const actionMsg = ref(null);
 const editing = ref(null); // { msg, text }
 
+// 点哪条，就在手指旁边弹出一列小选项
+if (!window.__tapAt) { // 只挂一次
+  window.__tapAt = { x: innerWidth / 2, y: innerHeight / 2 };
+  addEventListener("pointerdown", e => { window.__tapAt.x = e.clientX; window.__tapAt.y = e.clientY; }, { passive: true });
+}
+const lastPt = window.__tapAt;
+const menuPos = ref({});
 function openActions(m) {
   if (m.pending) return;
+  const w = 188, x = Math.min(Math.max(lastPt.x - w / 2, 12), innerWidth - w - 12);
+  menuPos.value = lastPt.y > innerHeight * 0.55
+    ? { left: x + "px", bottom: innerHeight - lastPt.y + 10 + "px" }
+    : { left: x + "px", top: lastPt.y + 10 + "px" };
   actionMsg.value = m;
 }
 async function copyMsg() {
@@ -590,17 +601,19 @@ async function changeAvatarOf(who) {
       <p v-else class="tip">在「设置 → API」里给模型点星标，就会出现在这里</p>
     </Sheet>
 
-    <!-- 消息操作 -->
-    <Sheet :open="!!actionMsg" @close="actionMsg = null">
-      <div v-if="actionMsg" class="grid-actions">
-        <button v-if="!actionMsg.error" @click="copyMsg"><span><Icon name="copy" :size="24" /></span>复制</button>
-        <button v-if="!actionMsg.error" @click="favMsg"><span><Icon name="star" :size="24" /></span>{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
-        <button v-if="!actionMsg.error" @click="startEdit"><span><Icon name="edit" :size="24" /></span>修改</button>
-        <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><span><Icon name="refresh" :size="24" /></span>重新生成</button>
-        <button @click="removeMsg"><span><Icon name="trash" :size="24" /></span>{{ vers(actionMsg).list.length > 1 ? "删除这个版本" : "删除" }}</button>
-        <button v-if="vers(actionMsg).list.length > 1" @click="removeAll"><span><Icon name="trash" :size="24" /></span>删除全部 {{ vers(actionMsg).list.length }} 个</button>
+    <!-- 消息操作：手指旁边一列小选项 -->
+    <Teleport to="body">
+      <div v-if="actionMsg" class="ctx-mask" @click="actionMsg = null" @contextmenu.prevent>
+        <div class="ctx-menu" :style="menuPos" @click.stop>
+          <button v-if="!actionMsg.error" @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
+          <button v-if="!actionMsg.error" @click="favMsg"><Icon name="star" :size="17" />{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
+          <button v-if="!actionMsg.error" @click="startEdit"><Icon name="edit" :size="17" />修改</button>
+          <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><Icon name="refresh" :size="17" />重新生成</button>
+          <button class="danger" @click="removeMsg"><Icon name="trash" :size="17" />{{ vers(actionMsg).list.length > 1 ? "删除这个版本" : "删除" }}</button>
+          <button v-if="vers(actionMsg).list.length > 1" class="danger" @click="removeAll"><Icon name="trash" :size="17" />删除全部 {{ vers(actionMsg).list.length }} 个</button>
+        </div>
       </div>
-    </Sheet>
+    </Teleport>
 
     <!-- 一组图片 -->
     <ImageViewer :open="!!gallery" :images="gallery ? imgsOf(gallery.m).map(a => a.img) : []" :start="gallery?.start || 0"
