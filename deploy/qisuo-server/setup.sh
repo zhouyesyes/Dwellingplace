@@ -36,6 +36,15 @@ else
   chmod 600 settings.env
 fi
 
+# 他的浏览器：第一次问一下装不装（以后不再问；想改就编辑 settings.env 里的 CHROME=y / n）
+if [ -z "${CHROME:-}" ]; then
+  ask CHROME "要给他装一个浏览器吗？能打开网页、看网页里的图（大约多占 500MB 内存）y / n" "y"
+  case "$CHROME" in [Yy]*) CHROME=y ;; *) CHROME=n ;; esac
+  echo "CHROME=$CHROME" >> settings.env
+fi
+BRIDGE_REF="8db89c1a3c516a8ae7ddeb7adb070c98caafe3f2" # chrome-mcp-bridge 2.4.1
+$SUDO docker network create qisuo-net >/dev/null 2>&1 || true
+
 cat > Dockerfile <<'DOCKER'
 FROM node:22-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -58,10 +67,27 @@ DOCKER
 say "下载最新的栖所并构建（第一次要几分钟）…"
 $SUDO docker build --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" -t qisuo-server .
 
+CHROME_ENV=""
+if [ "$CHROME" = "y" ]; then
+  say "装他的浏览器（第一次要几分钟）…"
+  mkdir -p chrome "$DIR/chrome-profile"
+  RAW="https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main/deploy/qisuo-server/chrome"
+  curl -fsSL "$RAW/Dockerfile" -o chrome/Dockerfile && curl -fsSL "$RAW/start.sh" -o chrome/start.sh
+  $SUDO docker build --build-arg BRIDGE_REF="$BRIDGE_REF" -t qisuo-chrome chrome
+  $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
+  # 不开任何端口：只有栖所服务器在内部网络里能连到它
+  $SUDO docker run -d --name qisuo-chrome --restart unless-stopped --network qisuo-net \
+    --memory 1500m --shm-size 512m -v "$DIR/chrome-profile:/profile" qisuo-chrome >/dev/null
+  CHROME_ENV="-e CHROME_URL=http://qisuo-chrome:9224"
+else
+  $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
+fi
+
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
-$SUDO docker run -d --name qisuo-server --restart unless-stopped \
-  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" -v "$DIR/data:/app/data" qisuo-server >/dev/null
+# shellcheck disable=SC2086
+$SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
+  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV -v "$DIR/data:/app/data" qisuo-server >/dev/null
 
 ok=""
 for _ in $(seq 1 20); do
@@ -87,6 +113,8 @@ for d in "$HOME"/xinchao-*/; do
   (cd "$d" && $SUDO docker compose up -d) || echo "  重启没成功：之后在 $d 里运行 $SUDO docker compose up -d"
 done
 
+if [ "$CHROME" = "y" ]; then CHROME_INFO="已安装：在栖所「设置 → 工具 → 浏览器」点「接上浏览器」"
+else CHROME_INFO="没装（想装：把 settings.env 里的 CHROME=n 改成 y，再运行一次安装那一行）"; fi
 INFO="$DIR/栖所服务器信息.txt"
 cat > "$INFO" <<INFO_EOF
 【还差一步：在 Cloudflare 隧道里加一条】
@@ -108,6 +136,9 @@ cat > "$INFO" <<INFO_EOF
 
 【多设备同步：每台设备的栖所「设置 → 同步」里填】
   https://$DOMAIN/p/$TOKEN/sync
+
+【他的浏览器】
+  $CHROME_INFO
 
 【把数据搬过来】
   1. 在旧的栖所（zhouyesyes.github.io）：设置 → 备份 → 导出

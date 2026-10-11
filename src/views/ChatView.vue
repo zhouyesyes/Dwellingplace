@@ -499,10 +499,11 @@ async function changeAvatarOf(who) {
 
         <template v-for="it in items" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
-            <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
-              {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
+            <span :class="{ link: it.m.sources?.length || it.m.detail || it.m.imgs?.length }" @click="(it.m.sources?.length || it.m.detail || it.m.imgs?.length) && (openSources[it.key] = !openSources[it.key])">
+              {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail || it.m.imgs?.length"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
+            <div v-if="openSources[it.key] && it.m.imgs?.length" class="note-imgs"><ImgThumb v-for="id in it.m.imgs" :key="id" :id="id" /></div>
             <pre v-if="openSources[it.key] && it.m.detail" class="detail">{{ it.m.detail }}</pre>
             <div v-if="openSources[it.key] && it.m.sources?.length" class="sources">
               <a v-for="s in it.m.sources" :key="s.url" :href="s.url" target="_blank" rel="noopener">{{ s.title || s.url }}</a>
@@ -896,6 +897,8 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; padding: 0; }
 
 /* 弹出面板 */
+.note-imgs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 6px auto 0; max-width: 92%; }
+.note-imgs :deep(.thumb) { width: 90px; border-radius: 10px; }
 .rec-bar { display: flex; align-items: center; gap: 8px; max-width: 760px; margin: 0 auto; padding: 6px 4px; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
 .rec-bar .grow { flex: 1; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: breathe 1.2s ease-in-out infinite; }
