@@ -78,7 +78,7 @@ if [ "$CHROME" = "y" ]; then
   # 不开任何端口：只有栖所服务器在内部网络里能连到它
   $SUDO docker run -d --name qisuo-chrome --restart unless-stopped --network qisuo-net \
     --memory 1500m --shm-size 512m -v "$DIR/chrome-profile:/profile" qisuo-chrome >/dev/null
-  CHROME_ENV="-e CHROME_URL=http://qisuo-chrome:9224"
+  CHROME_ENV="-e CHROME_URL=http://qisuo-chrome:9224 -e CHROME_PROFILE=/chrome-profile -v $DIR/chrome-profile:/chrome-profile"
 else
   $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
 fi

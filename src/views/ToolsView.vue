@@ -69,6 +69,24 @@ async function connectBrowser() {
     bBusy.value = "";
   }
 }
+// 清空他的浏览器：退出所有网站的登录（换账号用），浏览器会重开
+async function resetBrowser() {
+  if (!confirm("清空他的浏览器？所有网站（包括小红书）都会退出登录，之后可以用别的账号重新扫码登录。")) return;
+  bBusy.value = "reset";
+  bState.value = null;
+  qr.value = qrBig.value = "";
+  try {
+    const r = await fetch(browser.value.url.replace(/\/$/, "") + "/__reset", { method: "POST" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error?.message || `服务器返回 ${r.status}`);
+    await new Promise(res => setTimeout(res, 6000)); // 等浏览器清空、重开
+    bState.value = { ok: true, text: "清空了，所有登录都退出了。要登新账号就点「登录小红书」。" };
+  } catch (e) {
+    bState.value = { ok: false, text: /404|没装浏览器/.test(e.message) ? "服务器还是旧版本：再运行一次安装那一行，再来清空" : e.message };
+  } finally {
+    bBusy.value = "";
+  }
+}
 // 小红书：打开登录页截个图，你用手机小红书扫码
 async function xhsLogin() {
   bBusy.value = "xhs";
@@ -232,6 +250,7 @@ async function testSearch() {
       <template v-if="browser">
         <label class="switch-row"><span>他可以用浏览器</span><input v-model="browser.enabled" type="checkbox" class="sw" /></label>
         <button class="btn soft wide" :disabled="!!bBusy" @click="xhsLogin">{{ bBusy === "xhs" ? "打开中…（要等几秒）" : "登录小红书（截图扫码）" }}</button>
+        <button class="btn soft wide gap" :disabled="!!bBusy" @click="resetBrowser">{{ bBusy === "reset" ? "清空中…" : "清空浏览器（退出所有登录、换账号）" }}</button>
       </template>
       <p v-if="bState" class="result" :class="{ bad: !bState.ok }">{{ bState.text }}</p>
       <img v-if="qrBig" :src="qrBig" alt="小红书登录二维码" class="qr-big" />
@@ -272,6 +291,7 @@ async function testSearch() {
 .test-row { display: flex; gap: 8px; }
 .test-row .btn { flex: none; }
 .add { color: var(--text-2); }
+.gap { margin-top: 8px; }
 .qr-big { display: block; width: min(100%, 300px); margin: 12px auto 0; image-rendering: pixelated; border-radius: 8px; }
 .shot { margin-top: 10px; font-size: 0.82rem; color: var(--text-2); }
 .qr { display: block; width: 100%; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); }
