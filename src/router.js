@@ -13,7 +13,6 @@ import McpEditView from "./views/McpEditView.vue";
 import WakeView from "./views/WakeView.vue";
 import WakeRoleView from "./views/WakeRoleView.vue";
 
-import GroupView from "./views/GroupView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -27,7 +26,6 @@ export const router = createRouter({
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
     { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
     { path: "/mail/:roleId", component: () => import("./views/MailView.vue") },
-    { path: "/group/:id", component: GroupView },
     { path: "/settings", component: SettingsView, meta: { tab: "settings" } },
     { path: "/settings/role/:id", component: RoleEditView },
     { path: "/settings/api/:id", component: ApiEditView },

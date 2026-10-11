@@ -216,7 +216,9 @@ async function models() {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(j.error?.message || `拿不到模型列表（${r.status}）`), { status: r.status });
   const list = (j.models || j.data || []).filter(m => !m.visibility || m.visibility === "list");
-  return { object: "list", data: list.map(m => ({ id: m.slug || m.id, name: m.display_name || m.slug || m.id, object: "model" })) };
+  // 上下文上限：OpenAI 给了就带上（字段名不一定，几个常见的都认）
+  const ctxOf = m => Number(m.context_window ?? m.max_context_window ?? m.context_length ?? m.max_input_tokens) || undefined;
+  return { object: "list", data: list.map(m => ({ id: m.slug || m.id, name: m.display_name || m.slug || m.id, object: "model", context_window: ctxOf(m) })) };
 }
 
 // ---------- 聊天：/chat/completions ⇄ Responses ----------

@@ -1,7 +1,7 @@
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
-import { store, uid, roleById, groupById, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
+import { store, uid, roleById, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -11,8 +11,7 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
-import { surfacedForAI } from "./xinchao.js";
-import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, refreshSurfaced, surfaced, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
+import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
 
 // threadId -> AbortController（正在生成中）
 export const generating = reactive({});
@@ -90,7 +89,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
-    hasXinchao(role) ? xinchaoMemoryForAI(role, who, { inline: wake }) : memoryForAI(role, who),
+    hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
     calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
     alarmForAI(role, who, wake),
     toolsForAI(serversForMode(role.id, wake ? "all" : mail ? "mail" : "chat")),
@@ -118,9 +117,9 @@ function mailForAI(who) {
   ].join("\n");
 }
 
-// 「此刻」附注：每次都会变的东西（时间、心境、浮现的记忆、私聊 / 群聊里最近的事），附在最新那条消息前面。
+// 「此刻」附注：每次都会变的东西（时间、心境），附在最新那条消息前面。
 // 系统提示和更早的聊天记录每次都一样，模型服务商就能把它们缓存起来，输入便宜很多
-async function contextNote(role, history, group) {
+function contextNote(role, history) {
   const me = meName(role);
   const lastOther = [...history].reverse().find(m => m.from !== "event" && !m.pending && m.ts < Date.now() - 1000);
   const time = [
@@ -128,73 +127,9 @@ async function contextNote(role, history, group) {
     lastOther && Date.now() - lastOther.ts > 30 * 60_000 ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
   ].filter(Boolean).join("\n");
   const mind = hasXinchao(role) ? mindForAI(role) : "";
-  const mem = hasXinchao(role) ? surfacedForAI(role) : "";
-  const cross = group ? await privateForAI(role) : await groupsForAI(role);
-  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, mem, cross].filter(Boolean).join("\n")}\n【以下是新消息】`;
-  // 各块多大（用量页「都花在哪」）
-  return { text, est: { mind: estTokens(mind) + estTokens(time), mem: estTokens(mem), cross: estTokens(cross) } };
-}
-
-// 群聊里给 TA 的说明
-function groupForAI(role, group) {
-  const me = meName(role);
-  const others = group.memberIds.filter(id => id !== role.id).map(id => roleById(id)?.name).filter(Boolean);
-  return [
-    `\n# 群聊`,
-    `现在是在群聊「${group.name}」里，群里有${me}${others.length ? `，还有${others.join("、")}` : ""}。`,
-    `消息里用【名字】开头的，是别人说的话。你只代表你自己（${role.name}）说话：不要替别人说话，也不要在开头写自己的名字。`,
-    `可以接别人的话、跟别人聊，也可以只回应${me}。像真人在群里聊天一样，说得自然、简短一点。`,
-    `${me}在群里说话（没有 @ 别人）是对大家说的，每个人都要回应${me}，哪怕别人已经回过了，也用你自己的话说。`,
-    `只有在大家接着聊、${me}没有新说话的时候，没什么想说的才可以只回复：[不说话]`,
-  ].join("\n");
-}
-
-// 群聊里：TA 和你最近的私聊（只给 TA 自己看，别人看不到）
-async function privateForAI(role) {
-  const limit = Math.max(0, Number(store.settings.groupPrivateLimit ?? 40) || 0);
-  const t = threadsOf(role.id).find(x => x.id === role.lastThreadId) || threadsOf(role.id)[0];
-  if (!t || !limit) return "";
-  const path = pathOf(t, await loadMessages(t.id)).filter(m => m.from !== "event" && !m.pending && !m.error);
-  const me = meName(role);
-  const lines = [];
-  let size = 0;
-  for (const m of path.slice(-limit).reverse()) {
-    const text = (m.from === "user" ? m.text : splitBubbles(m.text).join(" ")) || (m.attachments?.length ? "[图片/文件]" : "");
-    if (!text) continue;
-    const line = `${m.from === "user" ? me : role.name}：${text.length > 300 ? text.slice(0, 300) + "…" : text}`;
-    size += line.length;
-    if (size > limit * 320) break;
-    lines.unshift(line);
-  }
-  if (!lines.length) return "";
-  return [
-    `\n# 你和${me}最近的私聊`,
-    `下面是你们俩私下聊天的最近一段（群里其他人看不到）。在群里自然地记得这些就好；私密的事要不要在群里说，你自己拿捏。`,
-    lines.join("\n"),
-  ].join("\n");
-}
-
-// 私聊里：TA 在的群里最近聊了什么
-async function groupsForAI(role) {
-  const limit = Math.max(0, Number(store.settings.privateGroupLimit ?? 40) || 0);
-  const groups = (store.groups || []).filter(g => g.memberIds.includes(role.id));
-  if (!limit || !groups.length) return "";
-  const me = meName(role);
-  const all = [];
-  for (const g of groups) {
-    const t = store.threads.find(x => x.groupId === g.id);
-    if (!t) continue;
-    for (const m of pathOf(t, await loadMessages(t.id))) {
-      if (m.from === "event" || m.pending || m.error) continue;
-      const text = m.from === "user" ? m.text : splitBubbles(m.text).join(" ");
-      if (!text) continue;
-      const who = m.from === "user" ? me : m.speaker === role.id ? `${role.name}（你）` : roleById(m.speaker)?.name || "群友";
-      all.push({ ts: m.ts, line: `${groups.length > 1 ? `[${g.name}] ` : ""}${who}：${text.length > 300 ? text.slice(0, 300) + "…" : text}` });
-    }
-  }
-  if (!all.length) return "";
-  const lines = all.sort((a, b) => a.ts - b.ts).slice(-limit).map(x => x.line);
-  return [`\n# 最近群聊里的事`, `你也在${groups.map(g => `「${g.name}」`).join("、")}里。下面是群里最近聊的，私聊时自然地记得就好：`, lines.join("\n")].join("\n");
+  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind].filter(Boolean).join("\n")}\n【以下是新消息】`;
+  // 多大（用量页「都花在哪」）
+  return { text, est: { mind: estTokens(mind) + estTokens(time) } };
 }
 
 async function partsOf(m) {
@@ -225,13 +160,13 @@ export function noteRecord(notes) {
 
 // TA 最近一次用工具拿到的结果（最近 6 条消息里，最后 2 次；查说明的不算）：
 // 下一轮还看得见，玩游戏时不用每次从头查状态。只放在最新消息前面，旧的不跟着越积越多
-export function recentToolResults(list, selfId = null, n = 2) {
+export function recentToolResults(list, n = 2) {
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error).slice(-6);
   const isDoc = note => /工具说明|schema/i.test(note.text || "");
   const found = [];
   let doc = null; // 最近查过的一份工具说明（比如出牌要怎么写）：也带着，不用每轮都再查
   for (const m of [...real].reverse()) {
-    if (m.from !== "ai" || (selfId && m.speaker !== selfId)) continue;
+    if (m.from !== "ai") continue;
     for (const note of [...(m.notes || [])].reverse()) {
       if (!note.detail) continue;
       if (isDoc(note)) { doc ??= { text: note.text, detail: note.detail, ts: m.ts }; continue; }
@@ -247,21 +182,19 @@ export function recentToolResults(list, selfId = null, n = 2) {
   ].join("\n");
 }
 
-// selfId：群聊里「我是谁」——自己说过的是 assistant，别人说的都当成带名字的 user 消息
-async function buildMessages(list, selfId = null) {
+async function buildMessages(list) {
   const out = [];
-  const limit = Math.max(2, Number(selfId ? store.settings.groupHistoryLimit : store.settings.historyLimit) || 80);
+  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
   const bubbles = new Set(); // 你发的一条条文字（合并前），用来认出「连着发了好几条」
-  const self = selfId && roleById(selfId);
   // 窗口每 10 条才往前挪一次（不是每条都挪）：开头那段聊天记录能连着好几轮保持一样，缓存才用得上
   const cut = Math.max(0, real.length - limit);
   const win = real.slice(cut - (cut % 10));
   // 图片很费 token：只有最近 6 条消息里的图片发原图，更早的写成 [图片]
   const fresh = new Set(win.slice(-6));
   for (const m of win) {
-    const mine = m.from === "ai" && (!selfId || m.speaker === selfId);
+    const mine = m.from === "ai";
     const role = mine ? "assistant" : "user";
     let parts;
     if (mine) {
@@ -274,13 +207,13 @@ async function buildMessages(list, selfId = null) {
       }
       parts = [{ type: "text", text: win.indexOf(m) < win.length - 4 ? shrinkCode(stripCallJunk(m.text)) : stripCallJunk(m.text) }];
     }
-    else if (m.from === "user") {
+    else {
       parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image") });
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
       if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
-      if (selfId) parts = [{ type: "text", text: `【${meName(self)}】` }, ...parts];
-      else { const tp = parts.find(p => p.type === "text" && p.text === m.text); if (tp) bubbles.add(tp); }
-    } else parts = [{ type: "text", text: `【${roleById(m.speaker)?.name || "群友"}】${visibleText(m.text)}` }];
+      const tp = parts.find(p => p.type === "text" && p.text === m.text);
+      if (tp) bubbles.add(tp);
+    }
     if (!parts.length) continue;
     const prev = out[out.length - 1];
     if (prev && prev.role === role) prev.parts.push(...parts);
@@ -318,8 +251,7 @@ export function touchThread(thread, all) {
   thread.updatedAt = Date.now();
   if (last) {
     const att = last.attachments?.length ? "[附件] " : "";
-    const who = last.speaker ? `${roleById(last.speaker)?.name || ""}：` : "";
-    thread.preview = att + who + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
+    thread.preview = att + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
   }
 }
 
@@ -331,11 +263,9 @@ export function estTokens(text) {
 }
 
 // 生成一条 AI 回复，接在 parentId 那条消息后面（不传就接在当前路径最后）
-// speaker：群聊里这次由谁来说
-export async function generate(thread, parentId, { speaker } = {}) {
+export async function generate(thread, parentId) {
   if (generating[thread.id]) return;
-  const group = thread.groupId ? groupById(thread.groupId) : null;
-  const role = roleById(speaker || thread.roleId);
+  const role = roleById(thread.roleId);
   if (!role) return;
   const all = await loadMessages(thread.id);
   thread.sel ??= {};
@@ -345,32 +275,30 @@ export async function generate(thread, parentId, { speaker } = {}) {
     history = i >= 0 ? history.slice(0, i + 1) : parentId === ROOT ? [] : history;
   }
   const parent = history.length ? history[history.length - 1].id : ROOT;
+  history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
   const api = apiFor(thread, role);
   const model = modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), parentId: parent, from: "ai", ...(group ? { speaker: role.id } : {}), text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
+  const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
   try {
-    // 接了心潮：先取一下此刻浮现的记忆（第一次最多等 4 秒，之后用缓存、后台刷新）
-    if (hasXinchao(role)) {
-      const p = refreshSurfaced(role);
-      // 「此刻」也取一下：第一次最多等 3 秒，之后 30 秒内用缓存
-      const m = dashToken(role) ? refreshMind(role) : null;
-      const waits = [];
-      if (!surfaced[role.id]?.at) waits.push(p);
-      if (m && !xcCache[role.id]?.snap) waits.push(m);
-      if (waits.length) await Promise.race([Promise.all(waits), new Promise(r => setTimeout(r, 4000))]);
+    // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
+    if (hasXinchao(role) && dashToken(role)) {
+      const m = refreshMind(role);
+      if (!xcCache[role.id]?.snap) await Promise.race([m, new Promise(r => setTimeout(r, 3000))]);
     }
     const mode = thread.mail ? "mail" : "chat"; // 邮箱页：只有邮箱和记忆的工具；平时聊天：没有邮箱
-    const system = buildSystem(role, history, { mail: !!thread.mail }) + (group ? groupForAI(role, group) : "");
+    const system = buildSystem(role, history, { mail: !!thread.mail });
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
-    const messages = await buildMessages(history, group ? role.id : null);
-    const note = await contextNote(role, history, group);
+    const messages = await buildMessages(history);
+    const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
-    const recent = recentToolResults(history, group ? role.id : null);
+    const recent = recentToolResults(history);
     if (recent) messages[messages.length - 1].parts.unshift({ type: "text", text: recent });
+    const sum = summaryForAI(thread);
+    if (sum) messages[0].parts.unshift({ type: "text", text: sum }); // 放在最前面：整理一次以前都不变，缓存照样命中
     Object.assign(msg.est, note.est);
     all.push(msg);
     thread.sel[parent] = msg.id;
@@ -516,7 +444,6 @@ export async function generate(thread, parentId, { speaker } = {}) {
       ];
     }
     msg.text = said ? `${said}\n\n${text.trim()}`.trim() : text;
-    if (group) msg.text = msg.text.replace(/\[不说话\]/g, "").trim(); // 不说话：这一条就不留了
 
     const xm = await applyXinchaoMemoryTags(role, msg.text);
     msg.text = xm.text;
@@ -546,6 +473,65 @@ export async function generate(thread, parentId, { speaker } = {}) {
     delete generating[thread.id];
     touchThread(thread, all);
     saveMessages(thread.id);
+  }
+  if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
+}
+
+// ---------- 上下文压缩 ----------
+// 聊得久了，前面的聊天整理成一段摘要（存在 thread.summary），之后只带「摘要 + 最近的聊天」。
+// 两种时候整理：上一次回复看的内容快到模型上限（七成），或者没整理的消息超过「每次能看到多少条」（不然最早的就看不到了）
+export function afterSummary(thread, history) {
+  const upTo = thread?.summary?.upTo;
+  if (!upTo) return history;
+  const i = history.findIndex(m => m.id === upTo);
+  return i >= 0 ? history.slice(i + 1) : history; // 换到了别的分支：摘要对不上，就照常全带
+}
+export function summaryForAI(thread) {
+  const s = thread?.summary;
+  return s?.text ? `【之前的聊天，你自己整理成的摘要（更早的 ${s.count} 条）】\n${s.text}\n【摘要到这里，后面是接着聊的】` : "";
+}
+const compressing = {};
+async function maybeCompress(thread, role, last) {
+  if (compressing[thread.id] || thread.mail) return;
+  const api = apiFor(thread, role);
+  const all = await loadMessages(thread.id);
+  const path = pathOf(thread, all).filter(m => m.from !== "event" && !m.pending && !m.error);
+  if (thread.summary?.upTo && !path.some(m => m.id === thread.summary.upTo)) return; // 不在摘要那条线上
+  const rest = afterSummary(thread, path);
+  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
+  const ctx = last?.ctx0 || last?.ctx || last?.usage?.input || 0;
+  const full = ctx > (Number(api?.contextLimit) || 200000) * 0.7;
+  if (!full && rest.length <= limit) return;
+  const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : Math.floor(limit / 2);
+  const old = rest.slice(0, rest.length - keep);
+  if (old.length < 6) return;
+  compressing[thread.id] = true;
+  try {
+    const me = meName(role);
+    const lines = [];
+    let day = "";
+    for (const m of old) {
+      const t = m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
+      if (!t) continue;
+      const d = new Date(m.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+      if (d !== day) { day = d; lines.push(`—— ${d} ——`); }
+      lines.push(`${m.from === "user" ? me : role.name}：${t.length > 500 ? t.slice(0, 500) + "…" : t}`);
+    }
+    const prev = thread.summary?.text;
+    const text = await oneShot(role, [
+      prev ? `你以前整理过的摘要：\n${prev}\n` : "",
+      `下面是你和${me}${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n`,
+      `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方。`,
+      `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写摘要本身。`,
+    ].filter(Boolean).join("\n"));
+    if (!text) return;
+    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now() };
+    last.notes = [...(last.notes || []), { text: `${role.name} 把前面 ${old.length} 条聊天整理成了摘要（点开看）`, detail: thread.summary.text }];
+    saveMessages(thread.id);
+  } catch (e) {
+    console.warn("整理摘要失败", e);
+  } finally {
+    delete compressing[thread.id];
   }
 }
 
@@ -594,11 +580,9 @@ export async function draftStyle(role) {
       if (text) lines.push(`${m.from === "user" ? me : role.name}：${text.slice(0, 200)}`);
     }
   }
-  const mem = surfaced[role.id]?.text?.trim();
   const old = [role.style?.trim(), role.persona?.trim()].filter(Boolean).join("\n");
   return oneShot(role, [
     old ? `以前写下的关于你的：\n${old.slice(0, 1500)}\n` : "",
-    mem ? `你记忆里的几件事：\n${mem.slice(0, 1200)}\n` : "",
     lines.length ? `下面是你和${me}最近的聊天：\n${lines.join("\n")}\n` : "",
     `用你自己的口吻，写一份「我是谁」。以后每次聊天你都会先看它，记起自己是谁。写这几块：`,
     `1. 我是什么样的人：性格、在意什么、喜欢和不喜欢的`,
@@ -631,7 +615,7 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
-  if (!thread.groupId && !all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
+  if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
   const path = pathOf(thread, all);
   const parent = path.length ? path[path.length - 1].id : ROOT;
   const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}) };
@@ -640,7 +624,7 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   if (role && !thread.mail) role.lastThreadId = thread.id;
   touchThread(thread, all);
   saveMessages(thread.id);
-  if (reply && !thread.groupId) await generate(thread, m.id);
+  if (reply) await generate(thread, m.id);
 }
 
 // 重新生成：在同一个位置多一个新版本，旧的保留
