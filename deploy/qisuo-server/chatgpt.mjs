@@ -44,7 +44,8 @@ const creds = () => readJSON(CRED_FILE);
 // ---------- 登录 ----------
 function startLogin() {
   const s = hostState();
-  const c = creds() || s.lastClient; // 退出过也沿用之前发下来的 client_id
+  // 退出过、或者上次换通行证没成功：也沿用之前发下来的 client_id，不重新注册
+  const c = creds() || s.lastClient || (s.issuedClient ? { client_id: s.issuedClient } : null);
   const verifier = b64url(randomBytes(48));
   const state = b64url(randomBytes(24));
   const nonce = b64url(randomBytes(24));
@@ -119,7 +120,16 @@ async function finishLogin(pasted) {
   if (!code) throw new Error("地址里没有授权码");
   if (!clientId || clientId === "dynamic_agent_client") throw new Error("地址里没有发下来的 client_id，注册没完成，重新登录一次");
   if (p.clientId && q.get("client_id") && q.get("client_id") !== p.clientId) throw new Error("返回的 client_id 和之前的不一样，没有保存");
-  const t = await tokenRequest({ grant_type: "authorization_code", client_id: clientId, code, code_verifier: p.verifier, redirect_uri: REDIRECT, resource: API });
+  if (!p.clientId) { s.issuedClient = clientId; writeJSON(STATE_FILE, s); } // 新注册发下来的 client_id 先记住，这次没成功下次也用它
+  let t;
+  try {
+    t = await tokenRequest({ grant_type: "authorization_code", client_id: clientId, code, code_verifier: p.verifier, redirect_uri: REDIRECT, resource: API });
+  } catch (e) {
+    // 授权码只能用一次、几分钟就过期：这个作废，重新来一次
+    delete s.pending; writeJSON(STATE_FILE, s);
+    if (e.code === "invalid_grant") throw new Error("授权码失效了（多半是从登录完到点「完成」隔得太久，授权码几分钟就过期）。重新点「用 ChatGPT 登录」，这次登录完马上复制地址、粘贴、点完成。");
+    throw e;
+  }
   const claims = await checkIdToken(t.id_token, clientId, p.nonce);
   const scopes = String(t.scope || q.get("scope") || "").split(/[\s+]+/).filter(Boolean);
   const old = creds();
@@ -131,7 +141,7 @@ async function finishLogin(pasted) {
     expires_at: Date.now() + (Number(t.expires_in) || 3600) * 1000,
   };
   writeJSON(CRED_FILE, rec);
-  delete s.pending; writeJSON(STATE_FILE, s);
+  delete s.pending; delete s.issuedClient; writeJSON(STATE_FILE, s);
   return status();
 }
 
