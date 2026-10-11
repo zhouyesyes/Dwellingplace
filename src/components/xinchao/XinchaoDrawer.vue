@@ -86,7 +86,7 @@ async function respond() {
   }
 }
 
-// 留下一次拥抱：送进心潮；开了「自己来找你」的话，TA 几分钟内会醒来回应
+// 留下一次拥抱：送进心潮；开了「自己来找你」的话，他几分钟内会醒来回应
 const hugging = ref(false);
 async function leaveHug() {
   if (hugging.value) return;
@@ -207,7 +207,7 @@ async function togglePin() {
   if (await doTrace({ pinned: s.pinned ? 0 : 1 }, s.pinned ? "取消了核心" : "钉成了核心")) s.pinned = !s.pinned;
 }
 async function archive() {
-  if (!confirm("把这条记忆放进档案？放进去以后 TA 平时不会再想起，但不会真的删掉。")) return;
+  if (!confirm("把这条记忆放进档案？放进去以后他平时不会再想起，但不会真的删掉。")) return;
   const v = viewing.value;
   const d = starDate(v);
   // 心潮那边不能列出、也不能直接恢复放进档案的记忆，所以在这台设备上留一份，想拿回来的时候能重新写回去
@@ -243,7 +243,7 @@ async function saveEdit() {
   const c = editing.value.content.trim();
   if (c && c !== (preview.value?.preview || "").trim()) f.content = c;
   if (editing.value.importance !== (Number(viewing.value.importance) || 5)) f.importance = editing.value.importance;
-  // 日期：OB 不能改写下的时间，就存成一个标签（各个设备、TA 都看得到）
+  // 日期：OB 不能改写下的时间，就存成一个标签（各个设备、他都看得到）
   let newTags = null;
   if (editing.value.date && editing.value.date !== editing.value.date0) {
     newTags = withDateTag(viewing.value.tags, editing.value.date);
@@ -268,7 +268,7 @@ const draft = ref(null);
 // ---------- 档案 ----------
 const archiveOpen = ref(false);
 const archived = computed(() => role.value.xinchao?.archive || []);
-// 心潮档案区里的：TA 自己放进去的、在别处放进去的，这台设备上没有留底
+// 心潮档案区里的：他自己放进去的、在别处放进去的，这台设备上没有留底
 const serverArchived = ref(null);
 const archiveErr = ref("");
 const serverOnly = computed(() => (serverArchived.value || []).filter(x => !archived.value.some(a => a.id === x.id)));
@@ -405,7 +405,7 @@ if (props.openId) {
     <!-- 还没填看板口令 -->
     <div v-if="needToken" class="card setup">
       <h3>连上 {{ role.name }} 的心潮</h3>
-      <p>{{ role.name }} 已经接上了心潮。填上「看板口令」，这里就能看到 TA 此刻的样子、记忆和梦。</p>
+      <p>{{ role.name }} 已经接上了心潮。填上「看板口令」，这里就能看到他此刻的样子、记忆和梦。</p>
       <p class="small">口令在服务器上的连接信息里（【栖所里看数据】那一段）。只存在这台设备上。</p>
       <div class="row">
         <input v-model="tokenDraft" class="input" type="password" autocomplete="off" placeholder="看板口令" />
@@ -464,7 +464,7 @@ if (props.openId) {
         </div>
 
         <div v-if="signals.length" class="card">
-          <h4>你不在的时候 <small>TA 心里冒出来的</small></h4>
+          <h4>你不在的时候 <small>他心里冒出来的</small></h4>
           <ul class="signals">
             <li v-for="(s, i) in signals" :key="i"><span>{{ s.text }}</span><small>{{ s.at ? stamp(Date.parse(s.at)) : "" }}</small></li>
           </ul>
@@ -523,13 +523,13 @@ if (props.openId) {
           <p v-else class="hint">做了一个梦{{ d.mood ? (d.mood.valence > 0.55 ? "，醒来心情不错" : d.mood.valence < 0.45 ? "，醒来有点低落" : "") : "" }}。</p>
           <p v-if="d.residue" class="residue">余韵：{{ d.residue }}</p>
         </div>
-        <p v-if="dreams.length && !privateDreams" class="note">梦的内容默认只有 TA 自己看得到。想在这里看，在服务器上把 .env 里的 DASHBOARD_INCLUDE_PRIVATE_TEXT 改成 true，再运行 docker compose up -d。</p>
+        <p v-if="dreams.length && !privateDreams" class="note">梦的内容默认只有他自己看得到。想在这里看，在服务器上把 .env 里的 DASHBOARD_INCLUDE_PRIVATE_TEXT 改成 true，再运行 docker compose up -d。</p>
       </section>
 
       <!-- 星核 -->
       <section v-if="sub === 'core' && snap">
         <div v-if="!personality.available" class="card">
-          <p class="hint">星核还没长出来：TA 每个月会做一次性格回顾，做过以后这里会亮起来。</p>
+          <p class="hint">星核还没长出来：他每个月会做一次性格回顾，做过以后这里会亮起来。</p>
         </div>
         <div v-else class="card">
           <div class="eyebrow">{{ personality.month }} · {{ personality.constellation || "星核" }}</div>
@@ -623,7 +623,7 @@ if (props.openId) {
       </template>
     </Sheet>
       <Sheet :open="archiveOpen" title="档案里的记忆" @close="archiveOpen = false">
-      <p class="small">在栖所里放进档案的记忆。TA 平时不会想起它们；「放回去」会把它重新写进记忆库（是一条新的记忆，日期和重要度照旧）。</p>
+      <p class="small">在栖所里放进档案的记忆。他平时不会想起它们；「放回去」会把它重新写进记忆库（是一条新的记忆，日期和重要度照旧）。</p>
       <div class="archive-list">
         <article v-for="a in archived" :key="a.id" class="star">
           <div class="star-meta"><span>{{ a.date || "没有日期" }}</span><span class="imp">重要度 {{ a.importance }}</span></div>
@@ -636,7 +636,7 @@ if (props.openId) {
         </article>
         <template v-if="serverOnly.length">
           <div class="arch-sec">心潮档案区里的（{{ serverOnly.length }}）</div>
-          <p class="small">TA 自己放进去的，或者在别的地方放进去的。心潮不让读档案里的正文，这里只看得到标题。</p>
+          <p class="small">他自己放进去的，或者在别的地方放进去的。心潮不让读档案里的正文，这里只看得到标题。</p>
           <article v-for="x in serverOnly" :key="x.id" class="star">
             <div class="star-meta"><span>{{ dayOf(x) || "没有日期" }}</span><span class="imp">重要度 {{ x.importance }}</span></div>
             <h3>{{ x.title }}</h3>

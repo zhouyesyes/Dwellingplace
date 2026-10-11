@@ -2,16 +2,15 @@
 // 小组件桌面：长按进入编辑；编辑时可以拖动排序、删除、换大小、添加
 import { ref, computed, nextTick, onBeforeUnmount } from "vue";
 import { store, uid } from "../../store/index.js";
-import ChickWidget from "../widgets/ChickWidget.vue";
 import AnnivWidget from "../widgets/AnnivWidget.vue";
 import CalendarWidget from "../widgets/CalendarWidget.vue";
 import Sheet from "../Sheet.vue";
 import Icon from "../Icon.vue";
 
 const TYPES = {
-  chick: { label: "小鸡", desc: "我们一起养的小鸡，点一下会换个样子", comp: ChickWidget, sizes: ["small", "large"] },
+  // 小鸡（暖暖）收起来了：组件还在 widgets/ChickWidget.vue，数据也没删
   anniv: { label: "纪念日", desc: "在一起第几天，下一个纪念日还有多久", comp: AnnivWidget, sizes: ["small", "large"] },
-  calendar: { label: "日历", desc: "和 TA 们一起记录的小事", comp: CalendarWidget, sizes: ["large"] },
+  calendar: { label: "日历", desc: "和他一起记录的小事", comp: CalendarWidget, sizes: ["large"] },
 };
 
 const editing = ref(false);
@@ -176,9 +175,9 @@ function add(type) {
 .widget.small { aspect-ratio: 1; }
 .widget.large { grid-column: span 2; }
 .widget.large.chick, .widget.large.anniv { aspect-ratio: 2 / 1; }
-/* 平板：一行四格，小组件不再被撑得很大 */
+/* 平板：一行三格，小组件不再被撑得很大 */
 @media (min-width: 760px) {
-  .desk { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .desk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* 编辑模式 */

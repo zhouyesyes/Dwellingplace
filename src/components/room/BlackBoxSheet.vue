@@ -1,5 +1,5 @@
 <script setup>
-// TA 的黑匣子：现在还打不开，先放一个上着锁的页面，以后再往里放东西
+// 他的黑匣子：现在还打不开，先放一个上着锁的页面，以后再往里放东西
 import Sheet from "../Sheet.vue";
 defineProps({ role: { type: Object, required: true }, open: Boolean });
 const emit = defineEmits(["close"]);
@@ -10,7 +10,7 @@ const emit = defineEmits(["close"]);
     <div class="box">
       <div class="lock">🔒</div>
       <p class="t">{{ role.name }} 的黑匣子还上着锁。</p>
-      <p class="s">这是 TA 自己的箱子，只有 TA 能打开。<br />里面会放什么，以后再说～</p>
+      <p class="s">这是他自己的箱子，只有他能打开。<br />里面会放什么，以后再说～</p>
     </div>
   </Sheet>
 </template>

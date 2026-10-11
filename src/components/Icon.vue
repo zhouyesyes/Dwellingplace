@@ -12,6 +12,7 @@ const P = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   threads: '<rect x="4.5" y="7" width="12" height="11" rx="2.5"/><path d="M8 4.5h8.5A3 3 0 0 1 19.5 7.5V15"/>',
   send: '<path d="M12 18.5v-13M6.5 11 12 5.5l5.5 5.5"/>',
+  mail: '<rect x="4" y="6" width="16" height="12" rx="2.5"/><path d="m4.8 7.5 7.2 5.5 7.2-5.5"/>',
   stop: '<rect x="7.5" y="7.5" width="9" height="9" rx="1.8" fill="currentColor"/>',
   image: '<rect x="4" y="5" width="16" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m5 17 4.5-4.5 3.5 3.5 2.5-2.5L20 17"/>',
   file: '<path d="M7 3.8h6.5L18 8.3V19a1.2 1.2 0 0 1-1.2 1.2H7A1.2 1.2 0 0 1 5.8 19V5A1.2 1.2 0 0 1 7 3.8Z"/><path d="M13.3 4v4.5H18"/>',

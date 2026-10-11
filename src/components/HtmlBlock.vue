@@ -1,5 +1,5 @@
 <script setup>
-// TA 写的 ```html 小网页：在聊天里变成一张卡片，点开就能玩（关在沙盒里，碰不到栖所的数据）
+// 他写的 ```html 小网页：在聊天里变成一张卡片，点开就能玩（关在沙盒里，碰不到栖所的数据）
 import { ref, computed } from "vue";
 
 const props = defineProps({ block: { type: String, required: true } });

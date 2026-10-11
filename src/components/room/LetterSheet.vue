@@ -1,5 +1,5 @@
 <script setup>
-// 小屋的信箱：心潮小屋里的信。TA 写给你的、你写给 TA 的都在这里（和心潮小屋网页上的是同一份）
+// 小屋的信箱：心潮小屋里的信。他写给你的、你写给他的都在这里（和心潮小屋网页上的是同一份）
 import { ref, computed, watch } from "vue";
 import { hasXinchao, dashToken, fetchCabin, sendLetter, markLettersRead, unlockLetter } from "../../lib/xinchao.js";
 import { stamp } from "../../lib/time.js";
@@ -56,7 +56,7 @@ async function send() {
   }
 }
 async function unlock(n) {
-  if (!confirm("给这封信开锁？开锁以后 TA 就能读到了。")) return;
+  if (!confirm("给这封信开锁？开锁以后他就能读到了。")) return;
   try {
     await unlockLetter(props.role, n.id);
     n.locked = false;
@@ -91,12 +91,12 @@ const when = n => stamp(Date.parse(n.createdAt));
         <div class="compose">
           <textarea v-model="draft" class="input" rows="4" :placeholder="`写给 ${role.name} 的信…`" />
           <div class="row">
-            <label class="lock"><input v-model="locked" type="checkbox" /> 上锁<small>（TA 只知道有这封信，你开锁后才能读）</small></label>
+            <label class="lock"><input v-model="locked" type="checkbox" /> 上锁<small>（他只知道有这封信，你开锁后才能读）</small></label>
             <button class="btn small" :disabled="busy || !draft.trim()" @click="send">{{ busy ? "放进去…" : "放进信箱" }}</button>
           </div>
         </div>
         <article v-for="n in mine" :key="n.id" class="letter mine">
-          <div class="meta">{{ when(n) }}<template v-if="n.locked"> · 🔒 上着锁</template><template v-else-if="n.aiReadAt"> · TA 读过了</template></div>
+          <div class="meta">{{ when(n) }}<template v-if="n.locked"> · 🔒 上着锁</template><template v-else-if="n.aiReadAt"> · 他读过了</template></div>
           <p>{{ n.content }}</p>
           <button v-if="n.locked" class="btn soft small" @click="unlock(n)">开锁</button>
         </article>

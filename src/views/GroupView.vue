@@ -129,7 +129,7 @@ async function round(text = "") {
       scrollToBottom(true);
       const before = messages.value.length;
       await generate(thread.value, undefined, { speaker: r.id });
-      // 选了 [不说话] 的那条不会留下：告诉你一声，不然看起来像 TA 没被叫到
+      // 选了 [不说话] 的那条不会留下：告诉你一声，不然看起来像他没被叫到
       if (!stopped && messages.value.length === before) toast(`${r.name} 这次没说话`, 2000);
     }
   } finally {
@@ -289,7 +289,7 @@ function clearBg() {
         <div v-if="!messages.length" class="hello">
           <div class="avas"><Avatar v-for="r in members" :key="r.id" :img="r.avatar" :name="r.name" :color="r.color" :size="46" /></div>
           <p>和 {{ members.map(r => r.name).join("、") }} 的群聊</p>
-          <small>说点什么，大家会轮流接话；想只让某个人说，就 @TA</small>
+          <small>说点什么，大家会轮流接话；想只让某个人说，就 @他</small>
         </div>
         <template v-for="it in items" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
@@ -363,7 +363,7 @@ function clearBg() {
     </footer>
 
     <UsageSheet :open="usageOpen" title="这个群的用量" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" per-member @close="usageOpen = false">
-      群里每个人每次说话，都要把群聊记录、TA 和你的私聊（设置里调条数）一起看一遍，人越多、轮得越多就越费。
+      群里每个人每次说话，都要把群聊记录、他和你的私聊（设置里调条数）一起看一遍，人越多、轮得越多就越费。
     </UsageSheet>
 
     <Sheet :open="plusOpen" @close="plusOpen = false">

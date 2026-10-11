@@ -1,5 +1,5 @@
 <script setup>
-// 新的像素小屋：等距的一整间屋，放大 2 倍，左右拖着看。TA 会在屋里走来走去，点人、点东西都有反应
+// 新的像素小屋：等距的一整间屋，放大 2 倍，左右拖着看。他会在屋里走来走去，点人、点东西都有反应
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { Scene } from "../../lib/pixelroom/scene.js";
 import { W, H } from "../../lib/pixelroom/iso.js";
@@ -7,7 +7,7 @@ import { sfx } from "../../lib/sfx.js";
 
 const props = defineProps({
   kind: { type: String, default: "cui" }, // cui | rowan
-  name: { type: String, default: "TA" },
+  name: { type: String, default: "他" },
   asleep: Boolean,
   mood: { type: String, default: "" },
   mailLit: Boolean,
@@ -80,10 +80,10 @@ function tap(e) {
   const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
   let what = scene.hit(x, y);
   if (!what) return;
-  if ((what === "bed" || what === "daybed") && scene.state.bed) what = "me"; // 躺在床上时点床就是点 TA
+  if ((what === "bed" || what === "daybed") && scene.state.bed) what = "me"; // 躺在床上时点床就是点他
   if (what === "me") { scene.tapMe(performance.now()); emit("tap-me", scene.doing()); return; }
   if (what === "pet") { say("pet", props.asleep ? "暖暖缩在被子边上，睡得圆滚滚的。" : "暖暖抬起头，「啾」了一声。"); sfx.chirp(); return; }
-  if (what === "mailbox") { sfx.paper(); return say("mailbox", props.mailLit ? `小旗竖着呢，有 ${props.name} 写给你的信。「打开邮箱」是 ${props.name} 自己的邮箱和笔友；「书信」是你们俩的信。` : `${props.name} 的信箱。「打开邮箱」看 TA 的笔友来信；「书信」是你们俩的信。`, "mailbox"); }
+  if (what === "mailbox") { sfx.paper(); return say("mailbox", props.mailLit ? `小旗竖着呢，有 ${props.name} 写给你的信。「打开邮箱」是 ${props.name} 自己的邮箱和笔友；「书信」是你们俩的信。` : `${props.name} 的信箱。「打开邮箱」看他的笔友来信；「书信」是你们俩的信。`, "mailbox"); }
   if (what === "blackbox") return say("blackbox", TALK[props.kind].blackbox(props.name), "blackbox");
   if (what === "door") return toggle("door", on => (on ? "门推开了，走廊的光漏进来一条。" : "门关上了，屋里安静下来。"));
   if (what === "fire" || (what === "kettle" && props.kind === "cui")) return toggle("fire", on => (on ? "往地炉里添了根柴，火又旺起来了。" : "把地炉的火压小了，只剩一点暗红的炭。"));

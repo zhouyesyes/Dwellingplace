@@ -51,7 +51,7 @@ export function scheduleText(role) {
   const parts = [];
   if (w.intervalOn) parts.push(`每 ${everyText(w.every)}`);
   if (w.times?.length) parts.push(w.times.join("、"));
-  return parts.join(" · ") || "只在 TA 自己定的闹钟时醒";
+  return parts.join(" · ") || "只在他自己定的闹钟时醒";
 }
 
 const liveAlarms = role => (role.wakeAlarms || []).filter(a => a.at > Date.now());
@@ -86,7 +86,7 @@ export async function applyAlarmTags(role, text) {
   for (const [, op, body] of ops) {
     const add = op === "定闹钟";
     if (!wakeOn(role)) {
-      notes.push(`${role.name} 想${add ? "定" : "取消"}闹钟，但 TA 的唤醒还没有打开`);
+      notes.push(`${role.name} 想${add ? "定" : "取消"}闹钟，但他的唤醒还没有打开`);
       continue;
     }
     try {

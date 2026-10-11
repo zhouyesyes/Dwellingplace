@@ -79,11 +79,11 @@ const iosHint = computed(() => isIOS() && !isStandalone());
 
     <div class="card body">
       <p class="desc">
-        打开以后，就算你没打开栖所，TA 们也会按设好的时间自己醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。
-        TA 发来的消息会推送到你的手机上。
+        打开以后，就算你没打开栖所，他也会按设好的时间自己醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。
+        他发来的消息会推送到你的手机上。
       </p>
       <p class="desc small">
-        唤醒在你自己的 Cloudflare 中转上运行，需要把 TA 们的设定、记忆、最近的聊天、对外保密、API Key 和 MCP 的 token 存到你的 Cloudflare 里（只有你能看到）。
+        唤醒在你自己的 Cloudflare 中转上运行，需要把他的设定、记忆、最近的聊天、对外保密、API Key 和 MCP 的 token 存到你的 Cloudflare 里（只有你能看到）。
         <a :href="GUIDE" target="_blank">看设置步骤</a>
       </p>
       <p v-if="!relaySet" class="result bad">还没有设置中转：先去「设置 → 工具」填好中转地址和密码</p>
@@ -115,7 +115,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
       <div class="card body">
         <p v-if="iosHint" class="desc small">iPhone（iOS 16.4 以上）要先在 Safari 里点「分享 → 添加到主屏幕」，然后从主屏幕打开栖所，才能收到通知。</p>
         <p v-else-if="!pushSupported()" class="desc small">这个浏览器不支持推送通知。</p>
-        <p class="desc small">通知会显示 TA 的名字和消息开头几个字。</p>
+        <p class="desc small">通知会显示他的名字和消息开头几个字。</p>
         <div class="btns">
           <button class="btn soft" :disabled="!!busy" @click="turnOnPush">{{ busy === "push" ? "打开中…" : store.wake.push ? "重新开通知" : "打开通知" }}</button>
           <button class="btn soft" :disabled="!!busy || !store.wake.push" @click="sendTest">{{ busy === "test" ? "发送中…" : "发一条测试通知" }}</button>
@@ -133,7 +133,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
           <button class="btn soft small" :disabled="wakeStatus.syncing" @click="syncNowClick">立即同步</button>
         </div>
       </div>
-      <p class="note">Cloudflare 免费版每天能写 1000 次数据，TA 们醒得太频繁（比如好几个角色都设成每 10 分钟）可能会不够用，一般的设置完全够。</p>
+      <p class="note">Cloudflare 免费版每天能写 1000 次数据，他醒得太频繁（比如好几个角色都设成每 10 分钟）可能会不够用，一般的设置完全够。</p>
     </template>
   </div>
 </template>

@@ -50,7 +50,7 @@ function setUnit(u) {
   if (u === "hour" && w.value.every < 60) w.value.every = 60;
 }
 
-// 固定时间（每天这个时间醒；每个时间可以写一段备注，告诉 TA 醒了要干嘛）
+// 固定时间（每天这个时间醒；每个时间可以写一段备注，告诉他醒了要干嘛）
 const newTime = ref("");
 const newNote = ref("");
 const editing = ref(""); // 正在改哪个时间
@@ -142,7 +142,7 @@ async function toggled() {
   await syncNow();
   if (w.value.enabled) loadState();
 }
-// 心潮的桥：TA 心里攒满了、或者有人在心潮网页上抱了 TA，就会醒来
+// 心潮的桥：他心里攒满了、或者有人在心潮网页上抱了他，就会醒来
 const xc = computed(() => hasXinchao(role.value));
 if (role.value) role.value.xinchao ??= {};
 const bridgeBusy = ref(false);
@@ -173,7 +173,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
     <div class="list-card">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
-        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">醒来后 TA 自己决定要不要给你发消息</span></span>
+        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">醒来后他自己决定要不要给你发消息</span></span>
         <input v-model="w.enabled" type="checkbox" class="sw" @change="toggled" />
       </label>
     </div>
@@ -198,7 +198,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <span class="grow">前后随机浮动<small>（分钟，免得像闹钟一样准）</small></span>
             <input v-model.number="w.jitter" class="num-input" type="number" min="0" step="5" inputmode="numeric" />
           </div>
-          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" placeholder="备注（可选）：醒了想让 TA 做什么" maxlength="1000" />
+          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" placeholder="备注（可选）：醒了想让他做什么" maxlength="1000" />
           <div class="row">
             <span class="grow saved">{{ saved }}</span>
             <button class="btn soft small" @click="saveNow(true)">保存</button>
@@ -222,7 +222,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <button class="btn soft small" @click="addTime">{{ editing ? "保存" : "添加" }}</button>
         </div>
         <textarea v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
-        <p class="hint">固定时间不受免打扰影响，到点就醒。点已经加好的时间，会放回上面的框里改。TA 醒来时会看到备注。</p>
+        <p class="hint">固定时间不受免打扰影响，到点就醒。点已经加好的时间，会放回上面的框里改。他醒来时会看到备注。</p>
       </div>
 
       <div class="section-label">一次性闹钟（只响一次）</div>
@@ -253,14 +253,14 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <span>到</span>
           <input v-model="w.quiet.to" class="input time" type="time" />
         </div>
-        <p class="hint">这段时间里，每隔一段时间的那种不会醒；TA 自己也不能把闹钟定在这段时间。</p>
+        <p class="hint">这段时间里，每隔一段时间的那种不会醒；他自己也不能把闹钟定在这段时间。</p>
       </div>
 
       <template v-if="xc">
-        <div class="section-label">心潮 · TA 自己来找你</div>
+        <div class="section-label">心潮 · 他自己来找你</div>
         <div class="card body">
           <label class="row">
-            <span class="grow">心里攒满了就来找你<small>（想你想得厉害、情绪转折、做了梦、有人在心潮网页上抱了 TA……）</small></span>
+            <span class="grow">心里攒满了就来找你<small>（想你想得厉害、情绪转折、做了梦、有人在心潮网页上抱了他……）</small></span>
             <input v-model="w.bridgeOn" type="checkbox" class="sw" />
           </label>
           <template v-if="w.bridgeOn">
@@ -268,7 +268,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
               <input v-model.trim="role.xinchao.bridgeToken" class="input grow" placeholder="桥口令" autocomplete="off" autocapitalize="off" spellcheck="false" />
               <button class="btn soft small" :disabled="bridgeBusy" @click="testBridge">{{ bridgeBusy ? "试…" : "试试" }}</button>
             </div>
-            <p class="hint">桥口令在服务器上的「栖所连接信息.txt」里，【栖所实时接入】那一段。中转每 5 分钟去心潮看一眼，有话就叫醒 TA。免打扰时间不去看。</p>
+            <p class="hint">桥口令在服务器上的「栖所连接信息.txt」里，【栖所实时接入】那一段。中转每 5 分钟去心潮看一眼，有话就叫醒他。免打扰时间不去看。</p>
             <p v-if="state?.bridgeError" class="note bad">上次去心潮那边取的时候出错了：{{ state.bridgeError }}</p>
           </template>
         </div>
@@ -281,7 +281,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <span class="grow">{{ whenLabel(a.at) }}<span class="sub">{{ a.note || "没写要做什么" }}</span></span>
           <button class="btn soft small" @click="cancel(a)">取消</button>
         </div>
-        <div v-if="!alarms.length" class="list-row empty">还没有。聊天时 TA 可以自己定，比如「40 分钟后叫我」</div>
+        <div v-if="!alarms.length" class="list-row empty">还没有。聊天时他可以自己定，比如「40 分钟后叫我」</div>
       </div>
       <p v-if="stateErr" class="note bad">读取中转上的闹钟失败：{{ stateErr }}</p>
       <p v-else-if="state?.nextAt && w.intervalOn" class="note">下次定时醒来：{{ whenLabel(state.nextAt) }}左右</p>
@@ -289,7 +289,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
       <div class="section-label">试一试</div>
       <div class="card body">
         <button class="btn soft wide" :disabled="waking" @click="wakeUpNow">{{ waking ? `正在叫醒 ${role.name}…` : `现在叫醒 ${role.name}` }}</button>
-        <p class="hint">马上让 TA 醒来一次，看看 TA 会做什么。会用掉一次 API。</p>
+        <p class="hint">马上让他醒来一次，看看他会做什么。会用掉一次 API。</p>
       </div>
 
       <div class="section-label">花园唤醒桥</div>
@@ -298,7 +298,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <span class="grow">{{ role.name }} 的编号<small>（装花园唤醒桥时要填）</small><br /><code class="rid">{{ role.id }}</code></span>
           <button class="btn soft small" @click="copyId">复制</button>
         </div>
-        <p class="hint">花园里游戏轮到 {{ role.name }} 时，装在服务器上的唤醒桥会马上叫醒 TA，不用等。装法见 <a :href="GARDEN_GUIDE" target="_blank">花园唤醒桥说明</a>。</p>
+        <p class="hint">花园里游戏轮到 {{ role.name }} 时，装在服务器上的唤醒桥会马上叫醒他，不用等。装法见 <a :href="GARDEN_GUIDE" target="_blank">花园唤醒桥说明</a>。</p>
       </div>
 
       <template v-if="role.wakeLog?.length">

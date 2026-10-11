@@ -70,7 +70,7 @@ export function describeOp(role, op) {
   if (op.op === "del") return `${role.name} 想删掉日历上的${name}`;
   return `${role.name} 想把日历上的${name}改成：${op.text || ""}`;
 }
-export const opButton = op => (op.op === "add" ? "帮 TA 记上" : op.op === "del" ? "帮 TA 删掉" : "帮 TA 改上");
+export const opButton = op => (op.op === "add" ? "帮他记上" : op.op === "del" ? "帮他删掉" : "帮他改上");
 
 function parse(op, body) {
   const parts = body.split(/[|｜]/).map(s => s.trim());

@@ -27,7 +27,7 @@ import { wakeStatus } from "../lib/wake.js";
 const route = useRoute();
 const router = useRouter();
 const role = computed(() => roleById(route.params.roleId));
-// TA 正被叫醒、在中转那边行动（比如花园说游戏轮到 TA 了）
+// 他正被叫醒、在中转那边行动（比如花园说游戏轮到他了）
 const wakeBusy = computed(() => role.value && wakeStatus.busy?.[role.value.id]);
 
 // ---------- 当前对话 ----------
@@ -70,7 +70,7 @@ onMounted(async () => {
 });
 
 // ---------- 消息分组：同一个人 5 分钟内连续的消息算一组 ----------
-// TA 一边说话一边用工具：提示条（带 at）插在说到一半的地方，前后的话都留着
+// 他一边说话一边用工具：提示条（带 at）插在说到一半的地方，前后的话都留着
 const items = computed(() => {
   const out = [];
   let group = null;
@@ -156,10 +156,10 @@ async function send(reply = true) {
   if (busy.value) return;
   const text = draft.value.trim();
   if (!text && !attachments.value.length) return;
-  // TA 正被叫醒、在行动：先只把话放过去，不另外叫 TA 回（不然两边一起动，就重复了）
+  // 他正被叫醒、在行动：先只把话放过去，不另外叫他回（不然两边一起动，就重复了）
   if (reply && wakeBusy.value) {
     reply = false;
-    toast(`${role.value.name} 正在行动，话先放在这儿；等 TA 做完，需要的话再让 TA 回你`, 4000);
+    toast(`${role.value.name} 正在行动，话先放在这儿；等他做完，需要的话再让他回你`, 4000);
   }
   const atts = attachments.value;
   draft.value = "";
@@ -168,20 +168,20 @@ async function send(reply = true) {
   scrollToBottom(true);
   await sendMessage(thread.value, text, atts, { reply });
 }
-// 抱抱 TA：发一个小拥抱，TA 马上回应（接了心潮的话，心潮也会知道）
+// 抱抱他：发一个小拥抱，他马上回应（接了心潮的话，心潮也会知道）
 async function hug() {
   plusOpen.value = false;
   if (busy.value) return;
   scrollToBottom(true);
   await sendMessage(thread.value, HUG_TEXT, [], { hug: true, reply: !!currentApi.value });
 }
-// 最后一条是自己的、TA 还没回：可以让 TA 回复
+// 最后一条是自己的、他还没回：可以让他回复
 const needReply = computed(() => {
   if (busy.value || !currentApi.value) return false;
   const last = messages.value[messages.value.length - 1];
   return !!last && last.from === "user";
 });
-// 让 TA 回复：输入框里有字就先发出去
+// 让他回复：输入框里有字就先发出去
 async function askReply() {
   if (busy.value) return;
   if (draft.value.trim() || attachments.value.length) return send(true);
@@ -190,7 +190,7 @@ async function askReply() {
   await generate(thread.value);
 }
 
-// 心潮：名字旁边显示 TA 此刻的心情小脸
+// 心潮：名字旁边显示他此刻的心情小脸
 const mind = computed(() => snapOf(role.value));
 const moodFace = computed(() => {
   const s = mind.value;
@@ -304,7 +304,7 @@ const openThink = reactive({});
 
 // 超出整理次数的日历操作：你点了才执行
 function confirmCal(ev) {
-  ev.text = runCalendarOp(role.value, ev.calAction) + "（你帮 TA 记的）";
+  ev.text = runCalendarOp(role.value, ev.calAction) + "（你帮他记的）";
   ev.calAction.done = true;
   saveMessages(thread.value.id);
 }
@@ -383,7 +383,7 @@ async function removeMsg() {
 const smallWorld = () => router.push(`/room/${role.value.id}`);
 const back = () => goBack(router, "/");
 
-// 点聊天里的头像：换自己的（只在 TA 面前用）或 TA 的头像
+// 点聊天里的头像：换自己的（只在他面前用）或他的头像
 async function changeAvatarOf(who) {
   const r = role.value, mine = who === "user";
   if (!confirm(mine ? `换一个你在 ${r.name} 面前的头像？` : `换 ${r.name} 的头像？`)) return;
@@ -522,7 +522,7 @@ async function changeAvatarOf(who) {
       <div class="grid-actions">
         <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片</button>
         <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
-        <button :disabled="busy" @click="hug"><span class="hug-ic"><Icon name="heart" :size="26" /></span>抱抱 TA</button>
+        <button :disabled="busy" @click="hug"><span class="hug-ic"><Icon name="heart" :size="26" /></span>抱抱他</button>
       </div>
     </Sheet>
 
@@ -559,7 +559,7 @@ async function changeAvatarOf(who) {
 
     <!-- 上下文 -->
     <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" @close="ctxOpen = false">
-      对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息 TA 就不再看到（记忆卡片里的事 TA 一直记得）。想让 TA 记得更久、或者想省一点，往左滑就能改这个数字；模型的上限在「设置 → API」里改。
+      对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息他就不再看到（记忆卡片里的事他一直记得）。想让他记得更久、或者想省一点，往左滑就能改这个数字；模型的上限在「设置 → API」里改。
     </UsageSheet>
 
     <!-- 模型切换 -->

@@ -55,7 +55,7 @@ function rename() {
         <p v-for="b in aiBios" :key="b.role.id" class="ai" :style="{ '--c': b.role.color }">
           {{ b.text.replace(/\n\s*\n/g, "\n") }}<span class="by">— {{ b.role.name }}</span>
         </p>
-        <p v-if="!store.profile.bioSelf && !aiBios.length" class="placeholder">点这里写简介，或者让 TA 们帮你写一段 ✎</p>
+        <p v-if="!store.profile.bioSelf && !aiBios.length" class="placeholder">点这里写简介，或者让他帮你写一段 ✎</p>
       </div>
 
       <WidgetDesk />

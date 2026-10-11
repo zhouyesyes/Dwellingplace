@@ -62,7 +62,7 @@ function removeBio(id) {
 <template>
   <Sheet :open="open" title="简介" @close="emit('close')">
     <button class="btn soft wide" :disabled="!store.roles.length" @click="writeAll">
-      <Icon name="refresh" :size="16" /> 让 TA 们都写一段
+      <Icon name="refresh" :size="16" /> 让他写一段
     </button>
 
     <div class="item">
@@ -90,7 +90,7 @@ function removeBio(id) {
         <div class="ops">
           <button v-if="store.profile.bios[r.id]" class="btn soft small" @click="removeBio(r.id)">删除</button>
           <button v-if="store.profile.bios[r.id]" class="btn soft small" @click="startEdit(r.id)">编辑</button>
-          <button class="btn small" :disabled="loading[r.id]" @click="write(r)">{{ store.profile.bios[r.id] ? "重写" : "让 TA 写" }}</button>
+          <button class="btn small" :disabled="loading[r.id]" @click="write(r)">{{ store.profile.bios[r.id] ? "重写" : "让他写" }}</button>
         </div>
       </template>
     </div>

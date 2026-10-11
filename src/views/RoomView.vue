@@ -1,8 +1,9 @@
 <script setup>
-// 小世界：TA 的像素小屋。点点房间里的东西，TA 和小东西们会有反应
+// 小世界：他的像素小屋。点点房间里的东西，他和小东西们会有反应
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById } from "../store/index.js";
+import { store, roleById, archivedRole } from "../store/index.js";
+import { serversForMode, isMailServer } from "../lib/mcp.js";
 import { hasXinchao, dashToken, refreshMind, snapOf, fetchCabin, xinchaoStatus } from "../lib/xinchao.js";
 import Icon from "../components/Icon.vue";
 import Avatar from "../components/Avatar.vue";
@@ -12,13 +13,17 @@ import BlackBoxSheet from "../components/room/BlackBoxSheet.vue";
 
 const route = useRoute();
 const router = useRouter();
-const role = computed(() => roleById(route.params.roleId));
+// 旧居里的人：还住在以前的像素小屋里；现在的他：小世界里先只有邮箱
+const archived = computed(() => !roleById(route.params.roleId) && !!archivedRole(route.params.roleId));
+const role = computed(() => roleById(route.params.roleId) || archivedRole(route.params.roleId));
 if (!role.value) router.replace("/");
+const people = computed(() => (archived.value ? store.archive.roles : store.roles));
+const hasMail = computed(() => !archived.value && role.value && !!serversForMode(role.value.id, "mail").find(isMailServer));
 
 // 每个人住自己的房间（没设过就按名字认）
 const kind = computed(() => (["cui", "rowan"].includes(role.value?.room) ? role.value.room : /rowan/i.test(role.value?.name || "") ? "rowan" : "cui"));
 
-// 换人：房间、名字、TA 都跟着换
+// 换人：房间、名字、他都跟着换
 const switchOpen = ref(false);
 function switchTo(r) {
   switchOpen.value = false;
@@ -26,6 +31,7 @@ function switchTo(r) {
 }
 // 退出：回到现在这个人的聊天
 function exit() {
+  if (archived.value) return router.replace(`/archive/${role.value.id}`);
   const target = `/chat/${role.value.id}`;
   const back = window.history.state?.back;
   if (back === target) return router.back();
@@ -41,7 +47,7 @@ const snap = computed(() => snapOf(role.value));
 const asleep = computed(() => /sleep|asleep|dream|睡/i.test(snap.value?.runtime?.consciousness || ""));
 const mood = computed(() => snap.value?.emotion?.shown || snap.value?.emotion?.label || "");
 
-// 信箱：心潮小屋里有 TA 写来、你还没读的信，就亮
+// 信箱：心潮小屋里有他写来、你还没读的信，就亮
 const unreadLetters = ref(0);
 async function checkMail() {
   unreadLetters.value = 0;
@@ -61,7 +67,7 @@ function load() {
 onMounted(load);
 watch(() => route.params.roleId, load);
 
-// 下面那行字：平时说 TA 在做什么，点了东西就说那件东西
+// 下面那行字：平时说他在做什么，点了东西就说那件东西
 const said = ref(null); // { title, text, action }
 let sayTimer = 0;
 function say(msg) {
@@ -70,11 +76,11 @@ function say(msg) {
   clearTimeout(sayTimer);
   sayTimer = setTimeout(() => (said.value = null), msg.action ? 12000 : 7000);
 }
-// TA 现在在干嘛（小屋里走到哪、做什么，由小屋告诉我们）
+// 他现在在干嘛（小屋里走到哪、做什么，由小屋告诉我们）
 const doing = ref("");
 const idle = computed(() => `${role.value.name}${doing.value || (asleep.value ? "睡着了" : "在屋里待着")}。`);
 
-// 点了 TA：房间下面冒一个气泡，写着 TA 在干嘛，还有心潮的状态
+// 点了他：房间下面冒一个气泡，写着他在干嘛，还有心潮的状态
 const card = ref(null);
 function tapMe(text) {
   said.value = null;
@@ -89,7 +95,7 @@ function retry() {
 const lettersOpen = ref(false);
 const boxOpen = ref(false);
 function open(what) {
-  if (what === "mailbox") router.push(`/mail/${role.value.id}`); // 墙上的信箱：TA 自己的邮箱
+  if (what === "mailbox") { if (!archived.value) router.push(`/mail/${role.value.id}`); } // 墙上的信箱：他自己的邮箱（旧居里的不再收信）
   else if (what === "letters") { said.value = null; card.value = null; lettersOpen.value = true; } // 你们俩的书信
   else if (what === "blackbox") { said.value = null; boxOpen.value = true; }
 }
@@ -97,7 +103,22 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 </script>
 
 <template>
-  <div v-if="role" class="page">
+  <div v-if="role && !archived" class="page">
+    <header class="head">
+      <button class="icon-btn" aria-label="返回" @click="exit"><Icon name="back" /></button>
+      <h1>{{ role.name }} 的小世界</h1>
+    </header>
+    <div class="list-card">
+      <button class="list-row" :disabled="!hasMail" @click="router.push(`/mail/${role.id}`)">
+        <span class="mail-ico"><Icon name="mail" :size="20" /></span>
+        <span class="grow">邮箱<span class="sub">{{ hasMail ? `${role.name} 的信，和笔友们` : "还没接上邮箱，之后再说" }}</span></span>
+        <Icon v-if="hasMail" name="right" class="chev" :size="18" />
+      </button>
+    </div>
+    <p class="hint">这里以后会慢慢热闹起来。</p>
+  </div>
+
+  <div v-else-if="role" class="page">
     <header class="head">
       <button class="icon-btn" aria-label="返回" @click="exit"><Icon name="back" /></button>
       <h1>{{ role.name }} 的小屋</h1>
@@ -107,7 +128,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
           <i class="caret">{{ switchOpen ? "▴" : "▾" }}</i>
         </button>
         <div v-if="switchOpen" class="who-menu">
-          <button v-for="r in store.roles" :key="r.id" :class="{ on: r.id === role.id }" @click="switchTo(r)">
+          <button v-for="r in people" :key="r.id" :class="{ on: r.id === role.id }" @click="switchTo(r)">
             <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="26" /> {{ r.name }} 的小屋
           </button>
         </div>
@@ -127,7 +148,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
             <i class="dot" :class="status.tone" />心潮 · {{ status.text }}<span>{{ status.detail }}</span>
           </p>
         </div>
-        <button class="btn small" @click="goChat">{{ asleep ? "轻轻叫醒" : "去说话" }}</button>
+        <button v-if="!archived" class="btn small" @click="goChat">{{ asleep ? "轻轻叫醒" : "去说话" }}</button>
       </div>
     </div>
     <div v-else class="bubble" :class="kind">
@@ -140,7 +161,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
         <button v-if="said?.action" class="btn small" @click="open(said.action)">{{ said.action === "mailbox" ? "打开邮箱" : "看看" }}</button>
       </div>
     </div>
-    <p class="hint">左右拖动看整间屋～点 {{ role.name }} 看 TA 在干嘛；墙上的信箱竖起小旗，是 TA 给你写了信；火、灯、门都能点。</p>
+    <p class="hint">左右拖动看整间屋～点 {{ role.name }} 看他在干嘛；墙上的信箱竖起小旗，是他给你写了信；火、灯、门都能点。</p>
 
     <LetterSheet :role="role" :open="lettersOpen" @close="lettersOpen = false; checkMail()" @changed="unreadLetters = $event" />
     <BlackBoxSheet :role="role" :open="boxOpen" @close="boxOpen = false" />
@@ -171,5 +192,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 .dot.ok { background: #5fb86a; }
 .dot.sync { background: #e8b040; }
 .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mail-ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--blue); color: var(--ink); flex: none; }
+.list-row:disabled { opacity: 1; cursor: default; }
 .hint { font-size: 0.75rem; color: var(--text-3); text-align: center; margin: 12px 8px; line-height: 1.6; }
 </style>

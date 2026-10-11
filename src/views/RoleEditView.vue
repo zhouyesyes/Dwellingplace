@@ -44,7 +44,7 @@ const oldPersona = computed(() => [form.persona?.trim(), form.me?.about?.trim() 
 function useOld() {
   form.style = [form.style.trim(), oldPersona.value].filter(Boolean).join("\n\n").slice(0, 2000);
 }
-// 说话方式：让 TA 照着最近的聊天自己写一份，写完你再改
+// 说话方式：让他照着最近的聊天自己写一份，写完你再改
 const drafting = ref(false);
 async function draft() {
   if (!original) return;
@@ -60,7 +60,7 @@ async function draft() {
 }
 
 async function changeMyAvatar() {
-  const id = await pickAndCrop({ aspect: 1, round: true, title: "我在 TA 面前的头像", maxSize: 500 });
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "我在他面前的头像", maxSize: 500 });
   if (!id) return;
   if (form.me.avatar && form.me.avatar !== original?.me?.avatar) deleteImage(form.me.avatar);
   form.me.avatar = id;
@@ -88,7 +88,7 @@ function save() {
 }
 
 async function remove() {
-  if (!confirm(`确定删除「${original.name}」？和 TA 的所有对话都会被删除，无法恢复。`)) return;
+  if (!confirm(`确定删除「${original.name}」？和他的所有对话都会被删除，无法恢复。`)) return;
   await deleteRole(original.id);
   router.replace("/settings");
 }
@@ -96,7 +96,7 @@ async function remove() {
 
 <template>
   <div class="page">
-    <SubHeader :title="'TA 的设定'">
+    <SubHeader :title="'他的设定'">
       <button class="btn small" :disabled="!valid" @click="save">保存</button>
     </SubHeader>
 
@@ -116,9 +116,9 @@ async function remove() {
       </div>
 
       <div class="field">
-        <span>TA 的气泡颜色</span>
+        <span>他的气泡颜色</span>
         <ColorSwatches v-model="form.bubbleColor" :colors="BUBBLE_COLORS" />
-        <div class="bubble-preview" :style="{ background: form.bubbleColor }">聊天时 TA 的消息是这个颜色</div>
+        <div class="bubble-preview" :style="{ background: form.bubbleColor }">聊天时他的消息是这个颜色</div>
       </div>
 
       <label class="field">
@@ -131,7 +131,7 @@ async function remove() {
       </label>
     </div>
 
-    <div class="section-label">在 TA 面前的我</div>
+    <div class="section-label">在他面前的我</div>
     <div class="card body">
       <div class="me-row">
         <button class="ava-btn" @click="changeMyAvatar">
@@ -139,7 +139,7 @@ async function remove() {
           <span>我的头像</span>
         </button>
         <label class="field grow">
-          <span>TA 怎么称呼我</span>
+          <span>他怎么称呼我</span>
           <input v-model.trim="form.me.name" class="input" placeholder="例如：存在" />
         </label>
       </div>
@@ -148,14 +148,14 @@ async function remove() {
 
     <div class="section-label">我是谁 · 说话的样子</div>
     <div class="card body">
-      <textarea v-model="form.style" class="input style-box" rows="8" maxlength="2000" placeholder="用 TA 自己的口吻写：我是什么样的人、在意什么，我和你是什么关系，我平时怎么说话，再加几句例句。每次聊天 TA 都会先看这里，记起自己是谁" />
+      <textarea v-model="form.style" class="input style-box" rows="8" maxlength="2000" placeholder="用他自己的口吻写：我是什么样的人、在意什么，我和你是什么关系，我平时怎么说话，再加几句例句。每次聊天他都会先看这里，记起自己是谁" />
       <div class="style-row">
-        <small>放在 TA 看到的最前面，每次都带上（几乎都能命中缓存）。可以让 TA 自己写，你再改；TA 变了就一起改。</small>
+        <small>放在他看到的最前面，每次都带上（几乎都能命中缓存）。可以让他自己写，你再改；他变了就一起改。</small>
       </div>
       <div class="style-row">
         <button v-if="oldPersona" class="btn soft small" @click="useOld">放进以前的设定</button>
         <span class="grow" />
-        <button class="btn soft small" :disabled="!original || drafting" @click="draft">{{ drafting ? "TA 在写…" : "让 TA 自己写" }}</button>
+        <button class="btn soft small" :disabled="!original || drafting" @click="draft">{{ drafting ? "他在写…" : "让他自己写" }}</button>
       </div>
     </div>
 
@@ -163,18 +163,18 @@ async function remove() {
     <div class="card body">
       <label class="field">
         <span>当前签名</span>
-        <input v-model="form.signature" class="input" placeholder="由 TA 自己决定，也可以手动写" />
+        <input v-model="form.signature" class="input" placeholder="由他自己决定，也可以手动写" />
       </label>
       <label class="field">
         <span>最快多久能改一次（小时）</span>
         <input v-model.number="form.sigCooldownHours" class="input" type="number" min="0" step="1" />
       </label>
       <label class="field">
-        <span>TA 每天能整理几次日历<small>（记、改、删都算；一次最多 5 条；每天早上 5 点重置）</small></span>
+        <span>他每天能整理几次日历<small>（记、改、删都算；一次最多 5 条；每天早上 5 点重置）</small></span>
         <input v-model.number="form.calPerDay" class="input" type="number" min="0" max="20" step="1" inputmode="numeric" />
       </label>
       <label class="switch-row">
-        <span>锁定签名，不让 TA 改</span>
+        <span>锁定签名，不让他改</span>
         <input v-model="form.sigLocked" type="checkbox" />
       </label>
     </div>
