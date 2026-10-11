@@ -1,7 +1,6 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 // 所有页面都打包在一起：GitHub Pages 在国内经常很慢，按需下载会让「点了没反应」
 import HomeView from "./views/HomeView.vue";
-import ChatsView from "./views/ChatsView.vue";
 import ChatView from "./views/ChatView.vue";
 import MemoryView from "./views/MemoryView.vue";
 import SettingsView from "./views/SettingsView.vue";
@@ -23,7 +22,7 @@ export const router = createRouter({
   scrollBehavior: (to, from, saved) => saved || { top: 0 },
   routes: [
     { path: "/", component: HomeView, meta: { tab: "home" } },
-    { path: "/chats", component: ChatsView, meta: { tab: "chats" } },
+    { path: "/chats", redirect: "/chat/main" }, // 只有一个 AI：通讯直接就是和 TA 的对话
     { path: "/chat/:roleId/:threadId?", component: ChatView },
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
     { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
@@ -33,6 +32,9 @@ export const router = createRouter({
     { path: "/settings/role/:id", component: RoleEditView },
     { path: "/settings/api/:id", component: ApiEditView },
     { path: "/settings/backup", component: BackupView },
+    { path: "/archive", component: () => import("./views/archive/ArchiveView.vue") },
+    { path: "/archive/thread/:tid", component: () => import("./views/archive/ArchiveThreadView.vue") },
+    { path: "/archive/:id", component: () => import("./views/archive/ArchiveRoleView.vue") },
     { path: "/settings/sync", component: SyncView },
     { path: "/settings/billing", component: () => import("./views/BillingView.vue") },
     { path: "/settings/tools", component: ToolsView },

@@ -176,6 +176,10 @@ function add(type) {
 .widget.small { aspect-ratio: 1; }
 .widget.large { grid-column: span 2; }
 .widget.large.chick, .widget.large.anniv { aspect-ratio: 2 / 1; }
+/* 平板：一行四格，小组件不再被撑得很大 */
+@media (min-width: 760px) {
+  .desk { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 
 /* 编辑模式 */
 .editing .widget { touch-action: none; animation: wiggle .32s ease-in-out infinite alternate; cursor: grab; }

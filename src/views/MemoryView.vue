@@ -98,7 +98,7 @@ function remove() {
 
     <!-- 换角色：右上角展开 -->
     <p v-if="role" class="drawer-name">{{ role.name }} 的抽屉</p>
-    <div v-if="role" class="who-switch">
+    <div v-if="role && store.roles.length > 1" class="who-switch">
       <button class="who-btn" @click="switchOpen = !switchOpen">
         <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="26" />
         <i class="caret">{{ switchOpen ? "▴" : "▾" }}</i>
@@ -226,6 +226,9 @@ function remove() {
 .search input { flex: 1; border: 0; outline: none; background: none; font-size: 0.93rem; color: var(--text); }
 
 .cards { display: flex; flex-direction: column; gap: 14px; }
+@media (min-width: 760px) {
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); align-items: start; }
+}
 .mcard {
   border-radius: 20px;
   padding: 14px 16px 12px;
@@ -250,7 +253,7 @@ function remove() {
 
 .fab {
   position: fixed;
-  right: max(20px, calc((100vw - 680px) / 2 + 20px));
+  right: max(20px, calc((100vw - 820px) / 2 + 20px));
   bottom: calc(var(--safe-bottom) + 80px);
   width: 52px;
   height: 52px;

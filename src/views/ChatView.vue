@@ -58,7 +58,7 @@ async function openThread(id) {
 }
 
 onMounted(async () => {
-  if (!role.value) return router.replace("/chats");
+  if (!role.value) return router.replace("/");
   const list = threadsOf(role.value.id);
   const pick =
     list.find(t => t.id === route.params.threadId) ||
@@ -381,7 +381,7 @@ async function removeMsg() {
 }
 
 const smallWorld = () => router.push(`/room/${role.value.id}`);
-const back = () => goBack(router, "/chats");
+const back = () => goBack(router, "/");
 
 // 点聊天里的头像：换自己的（只在 TA 面前用）或 TA 的头像
 async function changeAvatarOf(who) {
@@ -760,6 +760,9 @@ async function changeAvatarOf(who) {
   padding: 14px 14px calc(var(--safe-bottom) + 14px);
 }
 .row { display: flex; align-items: flex-end; gap: 4px; max-width: 760px; margin: 0 auto; }
+@media (min-width: 760px) {
+  .composer { width: calc(100% - 40px); max-width: 800px; margin: 0 auto calc(var(--safe-bottom) + 14px); border-radius: 28px; padding-bottom: 14px; box-shadow: 0 6px 30px rgba(40, 40, 60, .1); }
+}
 .tool { flex: none; width: 40px; height: 44px; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
 .tool:active { color: var(--ink); }
 textarea {

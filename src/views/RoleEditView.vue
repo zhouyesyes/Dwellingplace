@@ -12,9 +12,10 @@ import ColorSwatches from "../components/ColorSwatches.vue";
 
 const route = useRoute();
 const router = useRouter();
-const isNew = route.params.id === "new";
-const original = isNew ? null : roleById(route.params.id);
-if (!isNew && !original) router.replace("/settings");
+// 只有一个 AI：不再新建角色
+const isNew = false;
+const original = roleById(route.params.id);
+if (!original) router.replace("/settings");
 
 const form = reactive(JSON.parse(JSON.stringify(original || newRole({ color: PALETTE[store.roles.length % PALETTE.length] }))));
 const valid = computed(() => form.name.trim().length > 0);
@@ -95,7 +96,7 @@ async function remove() {
 
 <template>
   <div class="page">
-    <SubHeader :title="isNew ? '添加角色' : '编辑角色'">
+    <SubHeader :title="'TA 的设定'">
       <button class="btn small" :disabled="!valid" @click="save">保存</button>
     </SubHeader>
 
@@ -178,7 +179,7 @@ async function remove() {
       </label>
     </div>
 
-    <div v-if="!isNew" class="danger-zone">
+    <div v-if="false" class="danger-zone">
       <button class="btn danger" @click="remove">删除这个角色</button>
     </div>
   </div>

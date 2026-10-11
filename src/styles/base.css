@@ -58,6 +58,14 @@ html { font-size: 0.933rem; }
   margin: 0 auto;
 }
 
+/* 平板：内容区宽一点；横屏时导航在左边，底下不用留那么多空 */
+@media (min-width: 760px) {
+  .page { max-width: 820px; padding-left: 28px; padding-right: 28px; }
+}
+@media (min-width: 1000px) {
+  .page { padding-bottom: calc(var(--safe-bottom) + 40px); }
+}
+
 .page-title {
   font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
   font-size: 1.73rem;
