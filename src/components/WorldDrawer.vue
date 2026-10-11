@@ -1,7 +1,7 @@
 <script setup>
 // 小世界：聊天页右上角点开，从右边滑出来的半边（后面的聊天虚掉）。
-// 上面是他；下面是对话和背景、信箱（只露半截，点开是整个信箱）、邮箱、表情包
-import { computed } from "vue";
+// 上面是他；下面是对话和背景、信箱（点一下盒子往左探出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { store, threadsOf, today } from "../store/index.js";
 import { lettersOf } from "../lib/letters.js";
@@ -20,6 +20,12 @@ const unread = computed(() => letters.value.filter(l => l.from !== "me" && !l.re
 const todayCalls = computed(() => Object.values(store.usage[today()] || {}).reduce((a, u) => a + (u.calls || 0), 0));
 const hasMail = computed(() => props.role && !!serversForMode(props.role.id, "mail").find(isMailServer));
 const go = path => { emit("close"); router.push(path); };
+const rackOut = ref(false);
+watch(() => props.open, o => { if (!o) rackOut.value = false; });
+function tapRack() {
+  if (rackOut.value || !letters.value.length) go("/letters");
+  else rackOut.value = true;
+}
 </script>
 
 <template>
@@ -53,11 +59,11 @@ const go = path => { emit("close"); router.push(path); };
           </button>
 
           <p class="sec">信箱 <em>letters</em></p>
-          <div class="rack-card" @click="go('/letters')">
-            <LetterRack :letters="letters" half @open="go('/letters')" />
+          <div class="rack-card" :class="{ out: rackOut }" @click="tapRack">
+            <LetterRack :letters="letters" half :active="rackOut" />
             <div class="rack-foot">
               <span>{{ letters.length ? `${letters.length} 封信${unread ? `，${unread} 封没拆` : ""}` : "还没有信" }}</span>
-              <span class="link">打开信箱 ›</span>
+              <span class="link">{{ rackOut ? "再点一下，打开信箱 ›" : "打开信箱 ›" }}</span>
             </div>
           </div>
 
@@ -102,7 +108,8 @@ const go = path => { emit("close"); router.push(path); };
 .row.dim { opacity: .55; }
 .grow { flex: 1; min-width: 0; }
 .chev { color: var(--text-3); }
-.rack-card { border-radius: 18px; padding: 10px 10px 8px; cursor: pointer; }
+.rack-card { border-radius: 18px; padding: 10px 10px 8px; cursor: pointer; transition: box-shadow .3s; }
+.rack-card.out { box-shadow: 0 10px 28px rgba(60, 40, 20, .16); }
 .rack-foot { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-2); padding: 6px 6px 0; }
 .link { color: var(--ink); }
 .world-enter-active, .world-leave-active { transition: opacity .25s; }
