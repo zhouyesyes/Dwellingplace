@@ -26,4 +26,5 @@ browser() {
 }
 browser &
 sleep 3
+python /remote.py & # 遥控（给你登录网站用）
 cd /bridge && exec python chrome_mcp_bridge.py

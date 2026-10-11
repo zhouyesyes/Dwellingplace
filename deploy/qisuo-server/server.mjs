@@ -26,6 +26,7 @@ const TARGETS = {
 };
 // 他的浏览器（chrome-mcp-bridge，在 docker 内部网络里，自己没有口令，只能经过这里的口令转发）
 if (process.env.CHROME_URL) TARGETS.chrome = process.env.CHROME_URL;
+if (process.env.CHROME_CTL_URL) TARGETS.chromectl = process.env.CHROME_CTL_URL; // 遥控：你登录网站用
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",

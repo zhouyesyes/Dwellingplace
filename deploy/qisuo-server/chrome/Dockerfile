@@ -7,6 +7,7 @@ ARG BRIDGE_REF=main
 RUN git clone https://github.com/AZHi-xinxin/chrome-mcp-bridge /bridge && cd /bridge && git checkout "$BRIDGE_REF" \
   && pip install --no-cache-dir -r requirements.txt
 COPY start.sh /start.sh
+COPY remote.py /remote.py
 RUN chmod +x /start.sh
 ENV CHROME_MCP_HOST=0.0.0.0 CHROME_MCP_PORT=9224 CHROME_CDP_PORT=9223 PYTHONUNBUFFERED=1
 VOLUME /profile
