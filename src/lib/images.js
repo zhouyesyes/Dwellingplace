@@ -1,6 +1,6 @@
 // 图片：压缩后以 Blob 存进 IndexedDB，显示时生成临时 URL。
 import { ref, watchEffect } from "vue";
-import { get, set, del } from "idb-keyval";
+import { get, set, del } from "./kv.js";
 import { uid } from "../store/index.js";
 import { cropImage } from "./crop.js";
 

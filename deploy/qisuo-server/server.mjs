@@ -10,6 +10,7 @@ import { createReadStream, statSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { handleChatGPT } from "./chatgpt.mjs";
+import { handleSync } from "./sync.mjs";
 
 const PORT = Number(process.env.PORT) || 8080;
 const DIST = process.env.DIST || "/app/dist";
@@ -105,6 +106,7 @@ http.createServer(async (req, res) => {
     if (m) {
       if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
       if (!sameToken(m[1])) { res.writeHead(401, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: "转发口令不对" } })); }
+      if (m[2] === "sync") return await handleSync(req, res, m[3] || "", url.searchParams, CORS); // 多设备同步
       if (m[2] === "chatgpt") return await handleChatGPT(req, res, m[3] || "", CORS); // ChatGPT 会员额度（登录信息只存在服务器上）
       const target = TARGETS[m[2]];
       if (!target) { res.writeHead(404, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: `不认识「${m[2]}」，只能转发：${Object.keys(TARGETS).join("、")}` } })); }

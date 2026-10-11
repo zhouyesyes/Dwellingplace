@@ -8,6 +8,7 @@ import SettingsView from "./views/SettingsView.vue";
 import RoleEditView from "./views/RoleEditView.vue";
 import ApiEditView from "./views/ApiEditView.vue";
 import BackupView from "./views/BackupView.vue";
+import SyncView from "./views/SyncView.vue";
 import ToolsView from "./views/ToolsView.vue";
 import McpEditView from "./views/McpEditView.vue";
 import WakeView from "./views/WakeView.vue";
@@ -32,6 +33,7 @@ export const router = createRouter({
     { path: "/settings/role/:id", component: RoleEditView },
     { path: "/settings/api/:id", component: ApiEditView },
     { path: "/settings/backup", component: BackupView },
+    { path: "/settings/sync", component: SyncView },
     { path: "/settings/billing", component: () => import("./views/BillingView.vue") },
     { path: "/settings/tools", component: ToolsView },
     { path: "/settings/mcp/:id", component: McpEditView },

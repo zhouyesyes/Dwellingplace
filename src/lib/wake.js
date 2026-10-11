@@ -236,7 +236,7 @@ async function ingest(item) {
   if (!item.silent && item.text) {
     const parent = last ? last.id : ROOT;
     const msg = {
-      id: uid(), parentId: parent, from: "ai", text: item.text, ts: item.ts,
+      id: `w${item.id}`, parentId: parent, from: "ai", text: item.text, ts: item.ts, // 固定的 id：两台设备都取到了，同步时也只算一条
       notes: [{ text: `${role.name} 醒来了 · ${item.reasons.join("；")}`, before: true, wakeId: item.id }, ...before],
       apiId: item.apiId, model: item.model, usage: item.usage, wakeId: item.id,
       ctx: item.usage?.ctx, ctx0: item.usage?.ctx0, // 上下文多大（usage.input 是用工具来回几次加起来的，不是上下文）

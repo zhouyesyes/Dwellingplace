@@ -3,7 +3,7 @@
 //   msgs:<id>     某个对话的全部消息
 //   img:<id>      压缩后的图片（Blob）
 import { reactive, watch } from "vue";
-import { get, set, del } from "idb-keyval";
+import { get, set, del } from "../lib/kv.js";
 import { migrateFlat } from "../lib/tree.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -124,6 +124,12 @@ export async function loadStore() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") { flush(); flushMessages(); }
   });
+}
+
+// 别的设备同步过来的 meta：整份换上（再补上新字段）
+export function applyRemoteMeta(val) {
+  Object.assign(store, defaults(), val);
+  migrate();
 }
 
 // 旧版本数据补上新字段
