@@ -111,8 +111,8 @@ async function send(callHim) {
 .compose input:not([type=checkbox]), .compose textarea { font-family: inherit; color: inherit; background: none; border: 0; outline: none; width: 100%; }
 .c-title { font-size: 1.8rem; text-align: center; margin-bottom: 14px; }
 .c-body { font-size: 1.4rem; line-height: 38px; min-height: 300px; resize: vertical; }
-.foot { display: flex; justify-content: flex-end; gap: 10px; align-items: baseline; margin-top: 8px; }
-.c-sign { font-size: 1.4rem; text-align: right; max-width: 50%; }
+.foot { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-top: 8px; } /* 署名在上、日期在下，都靠右下 */
+.c-sign { font-size: 1.4rem; text-align: right; width: 60%; }
 .c-date { font-size: 1rem; max-width: 9.5em; text-align: right; }
 .lock input { width: 18px; height: 18px; accent-color: #3b3b43; flex: none; }
 .lock { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-family: -apple-system, "PingFang SC", sans-serif; font-size: 0.85rem; color: #6c665f; }
