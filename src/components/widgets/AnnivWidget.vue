@@ -120,12 +120,6 @@ function removeEdit() {
   <Sheet :open="!!draft" :title="draft?._isNew ? '新的纪念日' : '编辑纪念日'" @close="draft = null">
     <template v-if="draft">
       <label class="field">
-        <span>是谁的纪念日</span>
-        <select v-model="draft.roleId" class="input">
-          <option v-for="r in store.roles" :key="r.id" :value="r.id">{{ r.name }}</option>
-        </select>
-      </label>
-      <label class="field">
         <span>名字</span>
         <input v-model="draft.title" class="input" :placeholder="roleById(draft.roleId) ? `和${roleById(draft.roleId).name}相遇` : '纪念日'" />
       </label>

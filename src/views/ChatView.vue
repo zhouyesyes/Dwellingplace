@@ -13,6 +13,8 @@ import { toast } from "../lib/toast.js";
 import { isFav, toggleFav } from "../lib/recall.js";
 import { inlineMd } from "../lib/inlineMd.js";
 import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
+import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
+import VoiceBubble from "../components/VoiceBubble.vue";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -216,7 +218,51 @@ watch(() => messages.value.length, () => setTimeout(refreshMood, 4000));
 
 // 多张图片：缩成一格，点开看全部
 const imgsOf = m => (m.attachments || []).filter(a => a.kind === "image");
-const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image");
+const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "audio");
+const voicesOf = m => (m.attachments || []).filter(a => a.kind === "audio");
+const VOICE_ONLY = /^\s*\[语音[:：]\s*([^\]\n]{1,500})\]\s*$/;
+const voiceText = b => b.match(VOICE_ONLY)?.[1]?.trim() || "";
+
+// ---------- 你的语音消息 ----------
+const recording = ref(null); // { ctl, secs }
+let recTimer = 0;
+async function startRec() {
+  if (recording.value || busy.value) return;
+  try {
+    const ctl = await startRecording();
+    recording.value = { ctl, secs: 0 };
+    recTimer = setInterval(() => { if (recording.value) recording.value.secs = Math.round((Date.now() - ctl.startedAt) / 1000); }, 300);
+  } catch (e) {
+    toast(/denied|NotAllowed/i.test(e?.name + e?.message) ? "没有麦克风权限：在系统设置里允许栖所（或浏览器）用麦克风" : (e?.message || String(e)), 4000);
+  }
+}
+function cancelRec() {
+  clearInterval(recTimer);
+  recording.value?.ctl.cancel();
+  recording.value = null;
+}
+async function sendRec() {
+  const r = recording.value;
+  if (!r) return;
+  clearInterval(recTimer);
+  recording.value = null;
+  const res = await r.ctl.stop();
+  if (res.dur < 1 || !res.blob.size) return toast("太短了");
+  const att = await voiceAttachment(res);
+  if (att.sttError) toast("语音发出去了，但没转成文字：" + att.sttError.slice(0, 60), 4000);
+  scrollToBottom(true);
+  await sendMessage(thread.value, "", [att], { reply: false });
+}
+// 朗读他的一条回复
+async function readAloud() {
+  const m = actionMsg.value;
+  actionMsg.value = null;
+  if (!ttsReady()) return toast("先在「设置 → 语音和画画」里设置他的声音", 3500);
+  try {
+    const a = new Audio(await speak(splitBubbles(m.text).map(b => voiceText(b) || b).join("\n")));
+    await a.play();
+  } catch (e) { toast((e?.message || String(e)).slice(0, 100), 4000); }
+}
 const gallery = ref(null); // { m, start }：全屏看图，左右滑
 const viewImgs = (m, start = 0) => (gallery.value = { m, start });
 
@@ -478,6 +524,7 @@ async function changeAvatarOf(who) {
                     </div>
                   </div>
                   <div v-else-if="imgsOf(m).length" class="att one" @click="viewImgs(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
+                  <VoiceBubble v-for="a in voicesOf(m)" :key="a.file" :file="a.file" :dur="a.dur" :transcript="a.text" mine @contextmenu.prevent="openActions(m)" />
                   <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="openActions(m)">
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
@@ -499,7 +546,11 @@ async function changeAvatarOf(who) {
                   <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><div v-else class="bubble" @click="openActions(src(m))" v-html="withStickers(inlineMd(b))" /></template>
+                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><div v-else class="bubble" @click="openActions(src(m))" v-html="withStickers(inlineMd(b))" /></template>
+                  <template v-if="!m._src || m._last">
+                    <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
+                    <div v-if="imgsOf(src(m)).length" class="att one" @click="viewImgs(src(m))"><ImgThumb :id="imgsOf(src(m))[0].img" /></div>
+                  </template>
                   <div v-if="(!m._src || m._last) && vers(src(m)).list.length > 1" class="ver">
                     <button :disabled="vers(src(m)).index === 0" aria-label="上一个版本" @click="switchVersion(src(m), -1)">‹</button>
                     {{ vers(src(m)).index + 1 }} / {{ vers(src(m)).list.length }}
@@ -532,9 +583,16 @@ async function changeAvatarOf(who) {
         <button v-else class="ctx" @click="ctxOpen = true">用量</button>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
-      <div class="row">
+      <div v-if="recording" class="rec-bar">
+        <span class="rec-dot" /> 录音中 {{ Math.floor(recording.secs / 60) }}:{{ String(recording.secs % 60).padStart(2, "0") }}
+        <span class="grow" />
+        <button class="btn soft small" @click="cancelRec">取消</button>
+        <button class="btn small" @click="sendRec">发送</button>
+      </div>
+      <div v-else class="row">
         <button class="tool" aria-label="添加图片或文件" @click="plusOpen = true"><Icon name="plus" :size="26" /></button>
         <button class="tool" aria-label="切换对话" @click="threadsOpen = true"><Icon name="threads" :size="22" /></button>
+        <button class="tool" aria-label="发语音" @click="startRec"><Icon name="mic" :size="22" /></button>
         <textarea ref="inputEl" v-model="draft" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <div class="sends">
@@ -626,6 +684,7 @@ async function changeAvatarOf(who) {
       <div v-if="actionMsg" class="ctx-mask" @click="actionMsg = null" @contextmenu.prevent>
         <div class="ctx-menu" :style="menuPos" @click.stop>
           <button v-if="!actionMsg.error" @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
+          <button v-if="actionMsg.from === 'ai' && !actionMsg.error" @click="readAloud"><Icon name="volume" :size="17" />朗读</button>
           <button v-if="!actionMsg.error" @click="favMsg"><Icon name="star" :size="17" />{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
           <button v-if="!actionMsg.error" @click="startEdit"><Icon name="edit" :size="17" />修改</button>
           <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><Icon name="refresh" :size="17" />重新生成</button>
@@ -837,6 +896,10 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; padding: 0; }
 
 /* 弹出面板 */
+.rec-bar { display: flex; align-items: center; gap: 8px; max-width: 760px; margin: 0 auto; padding: 6px 4px; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
+.rec-bar .grow { flex: 1; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: breathe 1.2s ease-in-out infinite; }
+.bubble.drawing { color: var(--text-2); font-size: 0.85rem; animation: breathe 1.6s ease-in-out infinite; }
 .sticker { display: block; max-width: 140px; max-height: 140px; object-fit: contain; border-radius: 10px; cursor: pointer; }
 .st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; max-height: 50vh; overflow-y: auto; }
 .st-grid button { border: 0; background: var(--bg); border-radius: 14px; padding: 8px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
