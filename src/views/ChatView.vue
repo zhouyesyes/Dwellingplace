@@ -10,6 +10,7 @@ import { versionsOf } from "../lib/tree.js";
 import { saveImage, CHAT_IMAGE, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
 import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
+import { isFav, toggleFav } from "../lib/recall.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -344,6 +345,11 @@ async function copyMsg() {
   try { await navigator.clipboard.writeText(text); toast("已复制"); }
   catch { toast("复制失败，浏览器不允许"); }
 }
+function favMsg() {
+  const m = actionMsg.value;
+  actionMsg.value = null;
+  toast(toggleFav(thread.value, m) ? "收藏好了，在「记忆 → 收藏」里" : "取消收藏了");
+}
 function startEdit() {
   const m = actionMsg.value;
   actionMsg.value = null;
@@ -587,6 +593,7 @@ async function changeAvatarOf(who) {
     <Sheet :open="!!actionMsg" @close="actionMsg = null">
       <div v-if="actionMsg" class="grid-actions">
         <button v-if="!actionMsg.error" @click="copyMsg"><span><Icon name="copy" :size="24" /></span>复制</button>
+        <button v-if="!actionMsg.error" @click="favMsg"><span><Icon name="star" :size="24" /></span>{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
         <button v-if="!actionMsg.error" @click="startEdit"><span><Icon name="edit" :size="24" /></span>修改</button>
         <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><span><Icon name="refresh" :size="24" /></span>重新生成</button>
         <button @click="removeMsg"><span><Icon name="trash" :size="24" /></span>{{ vers(actionMsg).list.length > 1 ? "删除这个版本" : "删除" }}</button>
@@ -796,7 +803,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; padding: 0; }
 
 /* 弹出面板 */
-.grid-actions { display: flex; justify-content: space-around; padding: 6px 0 4px; }
+.grid-actions { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 12px 4px; padding: 6px 0 4px; }
 .grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .grid-actions button:disabled { opacity: .4; }
 .grid-actions span.hug-ic { color: #d9789a; background: #fbe7ee; }

@@ -8,6 +8,7 @@ import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
+import { recallForAI } from "./recall.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
@@ -19,6 +20,7 @@ export const generating = reactive({});
 // 签名标记写在哪里都认（取最后一个）
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
+const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
 const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
@@ -31,6 +33,7 @@ export function visibleText(text) {
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
     .replace(new RegExp(SEARCH_RE.source, "g"), "")
+    .replace(new RegExp(RECALL_RE.source, "g"), "")
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
@@ -90,6 +93,11 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
+    hasXinchao(role) || wake ? "" : [ // 醒来时（中转那边）翻不了
+      `\n# 翻记忆`,
+      `想不起以前的事（聊过什么、哪天说过什么、某张记忆卡片的细节），或者${who}问起以前的事，只回复一行：[翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录、摘要和记忆卡片里找，把找到的给你，你再回复。`,
+      `关键词短一点（一两个词，空格隔开表示都要有）；找不到就换个说法再找一次。平常聊天不用翻。`,
+    ].join("\n"),
     calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
     alarmForAI(role, who, wake),
     toolsForAI(serversForMode(role.id, wake ? "all" : mail ? "mail" : "chat")),
@@ -416,6 +424,24 @@ export async function generate(thread, parentId) {
           ...convo,
           { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, tc.index)}<tool_call name="${name}">${argsRaw}</tool_call>` }] },
           { role: "user", parts: [{ type: "text", text: `【工具结果：${name}】\n${clipResult(result)}\n\n（以上是工具返回的结果，不是对方说的话。需要的话可以再调用工具，否则就自然地回复对方。）` }] },
+        ];
+        continue;
+      }
+
+      // 翻记忆：在自己的聊天记录和记忆卡片里找
+      const rm = !hasXinchao(role) ? text.match(RECALL_RE) : null;
+      const rq = rm?.[1]?.trim();
+      if (rq) {
+        const ev = reactive({ text: `${role.name} 在翻记忆「${rq}」…`, before: true, at: keepSaid(text, rm.index) });
+        msg.notes.push(ev);
+        const r = await recallForAI(role, rq, meName(role));
+        ev.text = `${role.name} 翻了翻记忆「${rq}」· 找到 ${r.count} 条`;
+        ev.detail = r.text;
+        if (ctrl.signal.aborted) break;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, rm.index)}[翻记忆:${rq}]` }] },
+          { role: "user", parts: [{ type: "text", text: `【翻到的记忆：${rq}】\n${r.text}\n\n（以上是你自己的聊天记录和记忆，系统帮你找出来的，不是对方说的话。自然地接着回复对方。）` }] },
         ];
         continue;
       }
