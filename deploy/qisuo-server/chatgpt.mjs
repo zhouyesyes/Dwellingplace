@@ -158,6 +158,14 @@ function noteLimits(headers) {
   limits = { at: Date.now(), headers: h, names };
 }
 
+// 流里其他的事件：记下有哪些类型；像「额度」的整条留着（Codex 那边是放在流里的事件里告诉的）
+const KNOWN = /^response\.(created|in_progress|output_item|content_part|output_text|reasoning|completed|incomplete|failed)/;
+function noteEvent(ev) {
+  if (!limits || !ev?.type || KNOWN.test(ev.type)) return;
+  limits.events ??= {};
+  limits.events[ev.type] = /rate|limit|usage|quota|credit/i.test(JSON.stringify(ev)) ? JSON.stringify(ev).slice(0, 1500) : "";
+}
+
 function status() {
   const c = creds();
   if (!c) return { connected: false };
@@ -302,6 +310,7 @@ async function chat(body, res, CORS) {
         else if (ev.type === "response.incomplete") { done = true; usage = ev.response?.usage; }
         else if (ev.type === "response.failed") failed = ev.response?.error || { message: "回复失败" };
         else if (ev.type === "error") failed = ev.error || ev;
+        else noteEvent(ev);
       }
     }
   } catch (e) { if (!failed && !ctrl.signal.aborted) failed = { message: `连接断了：${e.message}` }; }

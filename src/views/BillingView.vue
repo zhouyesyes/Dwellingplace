@@ -26,6 +26,23 @@ async function checkPlan(a) {
 function bars(limits) {
   const h = limits?.headers || {};
   const out = [];
+  // 流里的额度事件：找带 used_percent 的（primary 一般是 5 小时，secondary 是每周）
+  for (const raw of Object.values(limits?.events || {})) {
+    let ev; try { ev = JSON.parse(raw); } catch { continue; }
+    const walk = (o, name) => {
+      if (!o || typeof o !== "object") return;
+      if (o.used_percent != null) {
+        const mins = Number(o.window_minutes);
+        const label = mins ? (mins <= 600 ? `${Math.round(mins / 60)} 小时` : mins >= 7 * 1440 - 60 ? "每周" : `${Math.round(mins / 1440)} 天`) : /primary/i.test(name) ? "5 小时" : /secondary/i.test(name) ? "每周" : name;
+        const secs = Number(o.resets_in_seconds ?? o.reset_after_seconds ?? (o.resets_at ? o.resets_at - Date.now() / 1000 : NaN));
+        out.push({ label, left: Math.round(100 - Math.max(0, Math.min(100, Number(o.used_percent)))), reset: Number.isFinite(secs) && secs > 0 ? untilText(secs) : "" });
+        return;
+      }
+      for (const [k, v] of Object.entries(o)) walk(v, k);
+    };
+    walk(ev, "");
+  }
+  if (out.length) return out;
   for (const [k, v] of Object.entries(h)) {
     if (!/percent/i.test(k)) continue;
     const used = Math.max(0, Math.min(100, Number(v)));
@@ -120,6 +137,8 @@ const short = d => d.slice(5).replace("-", "/");
           <div v-for="(v, k) in plan[a.id].st.limits.headers" :key="k">{{ k }}: {{ v }}</div>
           <div v-if="!Object.keys(plan[a.id].st.limits.headers || {}).length">（没有带额度信息）</div>
           <div v-if="plan[a.id].st.limits.names" class="names">带回来的：{{ plan[a.id].st.limits.names.join("、") }}</div>
+          <div v-if="plan[a.id].st.limits.events" class="names">流里的事件：{{ Object.keys(plan[a.id].st.limits.events).join("、") || "（没有别的）" }}</div>
+          <div v-for="(v, k) in plan[a.id].st.limits.events || {}" :key="k"><template v-if="v">{{ k }}: {{ v }}</template></div>
         </div>
       </template>
     </div>
