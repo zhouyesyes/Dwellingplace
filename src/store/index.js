@@ -27,6 +27,7 @@ function defaults() {
     chick: { state: "idle" },
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
     events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
+    favorites: [], // 收藏的聊天：{ id, msgId, threadId, roleId, from, text, ts, savedAt }
     memories: [], // 记忆卡片：{ id, roleId, title, content, img, date, author: "me" | roleId, ts }
     tools: defaultTools(),
     mcpServers: [], // 见 lib/mcp.js
@@ -199,6 +200,7 @@ function migrate() {
   store.anniversaries ??= [];
   store.events ??= [];
   store.memories ??= [];
+  store.favorites ??= [];
   store.groups ??= [];
   store.mcpServers ??= [];
   store.wake ??= { enabled: false, synced: false };

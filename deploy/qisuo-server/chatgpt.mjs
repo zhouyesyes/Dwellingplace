@@ -150,8 +150,12 @@ let limits = null; // { at, headers: { 名字: 值 } }
 const LIMIT_HEADER = /ratelimit|rate-limit|limit|usage|percent|reset|quota|credit|remaining|plan/i;
 function noteLimits(headers) {
   const h = {};
-  for (const [k, v] of headers) if (LIMIT_HEADER.test(k) && !/authorization|cookie|token/i.test(k)) h[k] = String(v).slice(0, 200);
-  if (Object.keys(h).length) limits = { at: Date.now(), headers: h };
+  const names = [];
+  for (const [k, v] of headers) {
+    names.push(k); // 都有哪些头（只记名字），看看 OpenAI 到底带了什么
+    if (LIMIT_HEADER.test(k) && !/authorization|cookie|token/i.test(k)) h[k] = String(v).slice(0, 200);
+  }
+  limits = { at: Date.now(), headers: h, names };
 }
 
 function status() {

@@ -106,7 +106,8 @@ const short = d => d.slice(5).replace("-", "/");
           <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
           <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
         </div>
-        <p v-if="!bars(plan[a.id].st.limits).length" class="muted small">OpenAI 还没把剩多少告诉栖所。准确的数字在 ChatGPT 里看：</p>
+        <p v-if="!plan[a.id].st.limits" class="muted small">服务器更新以后还没聊过：和他聊一句再来看。</p>
+        <p v-else-if="!bars(plan[a.id].st.limits).length" class="muted small">OpenAI 回复时没带剩多少，准确的数字在 ChatGPT 里看：</p>
         <p v-if="plan[a.id].st.limits" class="muted small">（{{ ago(plan[a.id].st.limits.at) }}聊天时 OpenAI 带回来的）</p>
       </template>
       <div class="plan-foot">
@@ -115,7 +116,11 @@ const short = d => d.slice(5).replace("-", "/");
       </div>
       <template v-if="plan[a.id]?.st?.limits">
         <button class="raw-btn" @click="rawOpen[a.id] = !rawOpen[a.id]">{{ rawOpen[a.id] ? "收起原始数据" : "原始数据" }}</button>
-        <div v-if="rawOpen[a.id]" class="raw"><div v-for="(v, k) in plan[a.id].st.limits.headers" :key="k">{{ k }}: {{ v }}</div></div>
+        <div v-if="rawOpen[a.id]" class="raw">
+          <div v-for="(v, k) in plan[a.id].st.limits.headers" :key="k">{{ k }}: {{ v }}</div>
+          <div v-if="!Object.keys(plan[a.id].st.limits.headers || {}).length">（没有带额度信息）</div>
+          <div v-if="plan[a.id].st.limits.names" class="names">带回来的：{{ plan[a.id].st.limits.names.join("、") }}</div>
+        </div>
       </template>
     </div>
 
@@ -171,6 +176,7 @@ const short = d => d.slice(5).replace("-", "/");
 .plan-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.82rem; color: var(--text-2); }
 .plan-foot a { color: var(--ink); white-space: nowrap; }
 .raw-btn { border: 0; background: none; color: var(--text-3); font-size: 0.75rem; padding: 6px 0 0; }
+.raw .names { margin-top: 6px; color: var(--text-3); }
 .raw { margin-top: 4px; font-size: 0.72rem; color: var(--text-2); font-family: ui-monospace, Menlo, monospace; word-break: break-all; line-height: 1.6; }
 .others-btn { display: flex; justify-content: space-between; width: 100%; margin: 18px 0 0; border: 0; background: var(--card); border-radius: 16px; padding: 12px 16px; box-shadow: var(--shadow-soft); color: var(--text-2); font-size: 0.9rem; }
 .acc-title { margin: 0 0 4px; font-weight: 600; font-size: 0.9rem; }
