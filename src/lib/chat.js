@@ -10,6 +10,7 @@ import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
+import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
@@ -23,6 +24,7 @@ const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
 const AVATAR_RE = /\[头像[:：]\s*([^\]\n]{1,30})\]/g;
+const DRAW_RE = /\[画[:：]\s*([^\]]{1,1000})\]/g; // 他想画一张图
 const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
@@ -30,6 +32,7 @@ export function visibleText(text) {
   return text
     .replace(SIG_RE, "")
     .replace(AVATAR_RE, "")
+    .replace(DRAW_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(ALARM_RE, "")
@@ -40,7 +43,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -52,7 +55,9 @@ export const meName = role => meOf(role).name || "对方";
 // 代码块（```…```）整段放在一个气泡里，不按空行拆开（还在写、没收尾的也算）
 export function splitBubbles(text) {
   const out = [];
-  for (const part of visibleText(text).split(/(```[\s\S]*?(?:```|$))/)) {
+  // 语音、表情各自单独一个气泡
+  const vt = visibleText(text).replace(/[ \t]*\n?(\[(?:语音|表情)[:：][^\]\n]*\])\n?[ \t]*/g, "\n\n$1\n\n");
+  for (const part of vt.split(/(```[\s\S]*?(?:```|$))/)) {
     if (part.startsWith("```")) { if (part.trim()) out.push(part.trim()); continue; }
     for (const b of part.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)) {
       // 一行只有一两个字、连着好几行（学人一个字一个字地发）：每行当成一条
@@ -110,6 +115,8 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       : `现在不能更改签名。`,
     avatarForAI(role),
     stickersForAI(),
+    ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
+    imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
     hasXinchao(role) || wake ? "" : [ // 醒来时（中转那边）翻不了
       `\n# 翻记忆`,
@@ -169,6 +176,8 @@ async function partsOf(m) {
       if (blob) parts.push({ type: "pdf", name: a.name, data: await blobToBase64(blob) });
     } else if (a.kind === "text") {
       parts.push({ type: "text", text: `【文件：${a.name}】\n${a.text}` });
+    } else if (a.kind === "audio") {
+      parts.push({ type: "text", text: a.text ? `（发来一条 ${a.dur} 秒的语音，说的是：）${a.text}` : `（发来一条 ${a.dur} 秒的语音，没能转成文字，听不到内容）` });
     }
   }
   if (m.text) parts.push({ type: "text", text: m.text });
@@ -494,6 +503,12 @@ export async function generate(thread, parentId) {
     const alarm = await applyAlarmTags(role, msg.text);
     msg.text = alarm.text;
     msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
+    // 他想画画：先把文字发出来，图在后台画，画好了放进这条消息里
+    const draws = imageReady() ? [...msg.text.matchAll(DRAW_RE)] : [];
+    if (draws.length) {
+      msg.text = msg.text.replace(DRAW_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+      drawInto(thread, msg, role, draws[0][1].trim());
+    }
     // 告诉心潮刚才这一轮聊了什么
     if (hasXinchao(role) && msg.text && !ctrl.signal.aborted) {
       const lastUser = [...history].reverse().find(m => m.from === "user");
@@ -509,7 +524,7 @@ export async function generate(thread, parentId) {
     if (!all.includes(msg)) { all.push(msg); thread.sel[parent] = msg.id; }
   } finally {
     delete msg.pending;
-    if (!msg.text && !msg.error) {
+    if (!msg.text && !msg.error && !msg.drawing) {
       // 什么都没生成：去掉这个空版本
       all.splice(all.indexOf(msg), 1);
       if (thread.sel[parent] === msg.id) delete thread.sel[parent];
@@ -519,6 +534,21 @@ export async function generate(thread, parentId) {
     saveMessages(thread.id);
   }
   if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
+}
+
+async function drawInto(thread, msg, role, prompt) {
+  msg.drawing = prompt;
+  try {
+    const id = await drawImage(prompt);
+    msg.attachments = [...(msg.attachments || []), { kind: "image", img: id, drawn: true }];
+    msg.notes = [...(msg.notes || []), { text: `${role.name} 画了一张图：${prompt.slice(0, 60)}${prompt.length > 60 ? "…" : ""}` }];
+  } catch (e) {
+    msg.notes = [...(msg.notes || []), { text: `${role.name} 想画一张图，没画成`, detail: `画的是：${prompt}\n\n${e.message}` }];
+  } finally {
+    delete msg.drawing;
+    if (!msg.text && !msg.attachments?.length) msg.text = "（想画一张图，没画成）";
+    saveMessages(thread.id);
+  }
 }
 
 // ---------- 上下文压缩 ----------
@@ -550,7 +580,7 @@ async function maybeCompress(thread, role, last) {
   if (!full && rest.length < early) return;
   const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : Math.floor(limit / 2);
   const old = rest.slice(0, rest.length - keep);
-  if (old.length < 6) return;
+  if (old.length < 2) return;
   compressing[thread.id] = true;
   try {
     const me = meName(role);

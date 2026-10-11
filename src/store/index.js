@@ -5,6 +5,7 @@
 import { reactive, watch } from "vue";
 import { get, set, del } from "../lib/kv.js";
 import { migrateFlat } from "../lib/tree.js";
+import { defaultMedia } from "../lib/media.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -27,6 +28,7 @@ function defaults() {
     chick: { state: "idle" },
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
     events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
+    media: defaultMedia(), // 语音转文字、他的声音、画画（见 lib/media.js）
     stickers: [], // 表情包：{ id, name, img }
     favorites: [], // 收藏的聊天：{ id, msgId, threadId, roleId, from, text, ts, savedAt }
     memories: [], // 记忆卡片：{ id, roleId, title, content, img, date, author: "me" | roleId, ts }
@@ -203,6 +205,7 @@ function migrate() {
   store.memories ??= [];
   store.favorites ??= [];
   store.stickers ??= [];
+  { const d = defaultMedia(), m = store.media || {}; store.media = { stt: { ...d.stt, ...m.stt }, tts: { ...d.tts, ...m.tts }, image: { ...d.image, ...m.image } }; }
   store.groups ??= [];
   store.mcpServers ??= [];
   store.wake ??= { enabled: false, synced: false };
