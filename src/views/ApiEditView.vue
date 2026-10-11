@@ -32,6 +32,7 @@ const planState = ref(null); // { connected, email, planUsage }
 const planBusy = ref(false);
 const planUrl = ref(""); // 授权链接
 const planPaste = ref("");
+const planErr = ref(""); // 登录出错的话留在卡片上，不一闪就没
 const planBase = () => form.baseUrl.trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
 async function planCall(path, body) {
   const r = await fetch(planBase() + path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -41,7 +42,8 @@ async function planCall(path, body) {
 }
 async function planDo(fn) {
   planBusy.value = true;
-  try { await fn(); } catch (e) { toast((e?.message || String(e)).slice(0, 120), 5000); } finally { planBusy.value = false; }
+  planErr.value = "";
+  try { await fn(); } catch (e) { planErr.value = e?.message || String(e); } finally { planBusy.value = false; }
 }
 const planRefresh = () => planDo(async () => { planState.value = await planCall("/status"); });
 const planStart = () => planDo(async () => {
@@ -50,7 +52,12 @@ const planStart = () => planDo(async () => {
   window.open(planUrl.value, "_blank");
 });
 const planFinish = () => planDo(async () => {
-  planState.value = await planCall("/login/finish", { url: planPaste.value.trim() });
+  try {
+    planState.value = await planCall("/login/finish", { url: planPaste.value.trim() });
+  } catch (e) {
+    planUrl.value = planPaste.value = ""; // 这次的作废了，要重新点登录
+    throw e;
+  }
   planUrl.value = planPaste.value = "";
   if (!form.key) form.key = "plan";
   toast("登录好了");
@@ -194,6 +201,7 @@ function remove() {
             <a v-if="planUrl" class="plan-link" :href="planUrl" target="_blank" rel="noopener">没自动打开？点这里</a>
           </div>
         </template>
+        <p v-if="planErr" class="plan-err">{{ planErr }}</p>
         <template v-if="planUrl">
           <textarea v-model="planPaste" class="input plan-paste" rows="3" placeholder="http://127.0.0.1:1455/auth/callback?code=…" autocapitalize="off" autocorrect="off" />
           <button class="btn small" :disabled="planBusy || !planPaste.trim()" @click="planFinish">完成</button>
@@ -316,6 +324,7 @@ function remove() {
 .plan-sub a, .plan-link { color: var(--ink); font-size: 0.8rem; }
 .plan-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .plan-paste { resize: vertical; font-size: 0.8rem; }
+.plan-err { margin: 0; font-size: 0.8rem; line-height: 1.6; color: var(--danger); }
 .plan .danger { color: var(--danger); }
 .seg { display: flex; background: var(--bg-deep); border-radius: 14px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; font-size: 0.867rem; color: var(--text-2); }
