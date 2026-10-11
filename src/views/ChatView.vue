@@ -12,6 +12,7 @@ import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { isFav, toggleFav } from "../lib/recall.js";
 import { inlineMd } from "../lib/inlineMd.js";
+import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -169,6 +170,14 @@ async function send(reply = true) {
   nextTick(autoGrow);
   scrollToBottom(true);
   await sendMessage(thread.value, text, atts, { reply });
+}
+// 表情包：发出去就是一条 [表情:名字]
+const stickerOpen = ref(false);
+async function sendSticker(s) {
+  stickerOpen.value = false;
+  if (busy.value) return;
+  scrollToBottom(true);
+  await sendMessage(thread.value, `[表情:${s.name}]`, [], { reply: false });
 }
 // 抱抱他：发一个小拥抱，他马上回应（接了心潮的话，心潮也会知道）
 async function hug() {
@@ -473,6 +482,7 @@ async function changeAvatarOf(who) {
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
                   <div v-if="m.hug" class="bubble hug" @click="openActions(m)"><Icon name="heart" :size="16" />抱了抱 {{ role.name }}</div>
+                  <img v-else-if="onlySticker(m.text)" :src="stickerUrl(onlySticker(m.text))" :alt="onlySticker(m.text).name" class="sticker" @click="openActions(m)" />
                   <div v-else-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
                   <div v-if="vers(m).list.length > 1" class="ver">
                     <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
@@ -489,7 +499,7 @@ async function changeAvatarOf(who) {
                   <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><div v-else class="bubble" @click="openActions(src(m))" v-html="inlineMd(b)" /></template>
+                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><div v-else class="bubble" @click="openActions(src(m))" v-html="withStickers(inlineMd(b))" /></template>
                   <div v-if="(!m._src || m._last) && vers(src(m)).list.length > 1" class="ver">
                     <button :disabled="vers(src(m)).index === 0" aria-label="上一个版本" @click="switchVersion(src(m), -1)">‹</button>
                     {{ vers(src(m)).index + 1 }} / {{ vers(src(m)).list.length }}
@@ -540,8 +550,18 @@ async function changeAvatarOf(who) {
       <div class="grid-actions">
         <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片</button>
         <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
+        <button @click="plusOpen = false; stickerOpen = true"><span><Icon name="smile" :size="26" /></span>表情</button>
         <button :disabled="busy" @click="hug"><span class="hug-ic"><Icon name="heart" :size="26" /></span>抱抱他</button>
       </div>
+    </Sheet>
+
+    <!-- 表情包 -->
+    <Sheet :open="stickerOpen" title="表情包" @close="stickerOpen = false">
+      <div v-if="store.stickers?.length" class="st-grid">
+        <button v-for="s in store.stickers" :key="s.id" @click="sendSticker(s)"><img v-if="stickerUrl(s)" :src="stickerUrl(s)" :alt="s.name" /><span>{{ s.name }}</span></button>
+      </div>
+      <p v-else class="tip">还没有表情包。去「设置 → 表情包」上传几张。</p>
+      <button class="btn soft small st-manage" @click="stickerOpen = false; router.push('/settings/stickers')">管理表情包</button>
     </Sheet>
 
     <!-- 对话切换 -->
@@ -817,6 +837,12 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; padding: 0; }
 
 /* 弹出面板 */
+.sticker { display: block; max-width: 140px; max-height: 140px; object-fit: contain; border-radius: 10px; cursor: pointer; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; max-height: 50vh; overflow-y: auto; }
+.st-grid button { border: 0; background: var(--bg); border-radius: 14px; padding: 8px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.st-grid img { width: 56px; height: 56px; object-fit: contain; }
+.st-grid span { font-size: 0.72rem; color: var(--text-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-manage { display: block; margin: 12px auto 0; }
 .grid-actions { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 12px 4px; padding: 6px 0 4px; }
 .grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .grid-actions button:disabled { opacity: .4; }
