@@ -12,7 +12,9 @@ import Icon from "../components/Icon.vue";
 
 const route = useRoute();
 const router = useRouter();
-const role = computed(() => roleById(route.params.id));
+// embedded：放在「唤醒」页里（只有一个 AI，开关在外面那一个）
+const props = defineProps({ roleId: String, embedded: Boolean });
+const role = computed(() => roleById(props.roleId || route.params.id));
 if (!role.value) router.replace("/settings/wake");
 else role.value.wake ??= newWake();
 const w = computed(() => role.value.wake);
@@ -167,10 +169,10 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 </script>
 
 <template>
-  <div v-if="role" class="page">
-    <SubHeader :title="`${role.name} 的唤醒`" />
+  <div v-if="role" :class="{ page: !embedded }">
+    <SubHeader v-if="!embedded" :title="`${role.name} 的唤醒`" />
 
-    <div class="list-card">
+    <div v-if="!embedded" class="list-card">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
         <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">醒来后他自己决定要不要给你发消息</span></span>

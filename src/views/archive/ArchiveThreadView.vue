@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { store, archivedRole, loadMessages } from "../../store/index.js";
 import { pathOf, splitBubbles } from "../../lib/chat.js";
 import { shortTime } from "../../lib/time.js";
+import { inlineMd } from "../../lib/inlineMd.js";
 import Avatar from "../../components/Avatar.vue";
 import ImgThumb from "../../components/ImgThumb.vue";
 import SubHeader from "../../components/SubHeader.vue";
@@ -38,7 +39,7 @@ const imgs = m => (m.attachments || []).filter(a => a.kind === "image");
         <div class="col">
           <span v-if="group && who(m)" class="name">{{ who(m).name }}</span>
           <div v-for="a in imgs(m)" :key="a.img" class="img"><ImgThumb :id="a.img" /></div>
-          <p v-for="(b, i) in bubbles(m)" :key="i" class="b" :style="m.from !== 'user' ? { background: who(m)?.bubbleColor } : {}">{{ b }}</p>
+          <p v-for="(b, i) in bubbles(m)" :key="i" class="b" :style="m.from !== 'user' ? { background: who(m)?.bubbleColor } : {}" v-html="inlineMd(b)" />
           <span class="time">{{ shortTime(m.ts) }}</span>
         </div>
       </div>

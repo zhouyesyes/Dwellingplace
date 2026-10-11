@@ -166,3 +166,9 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.6; }
 
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* 聊天气泡里的小效果（v-html 出来的，不受组件样式作用域限制） */
+.bubble strong, .b strong { font-weight: 700; }
+.bubble em, .b em { font-style: italic; font-weight: 600; }
+.bubble code, .b code { font-family: ui-monospace, Menlo, monospace; font-size: 0.88em; background: rgba(0, 0, 0, .06); padding: 1px 5px; border-radius: 5px; }
+.bubble del, .b del { opacity: .6; }
