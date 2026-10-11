@@ -50,7 +50,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/mai
 
 - 只在 docker 内部网络 `qisuo-net` 里，不开端口；bridge 自己没有口令，只能经过栖所服务器带口令的 `/p/<口令>/chrome/` 转发
 - 登录状态存在 `~/qisuo-server/chrome-profile/`；内存上限 1.5G
-- 栖所「设置 → 工具 → 浏览器」点「接上浏览器」；「登录小红书」会打开登录页截图给你扫码
+- 栖所「设置 → 工具 → 浏览器」点「接上浏览器」；「登录小红书」打开登录页，下面是他浏览器的画面：点截图 = 点网页，能填字、按回车（填短信验证码用）。这部分是 `chrome/remote.py`（内部 9225 端口，经 `/p/口令/chromectl/` 转发）
 - 工具返回的图片会交给模型看（要支持看图的模型），聊天里点开小记能看到他看了什么
 - 不想要了：settings.env 里 `CHROME=n`，再运行一次安装
 

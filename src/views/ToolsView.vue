@@ -87,30 +87,53 @@ async function resetBrowser() {
     bBusy.value = "";
   }
 }
-// 小红书：打开登录页截个图，你用手机小红书扫码
-async function xhsLogin() {
-  bBusy.value = "xhs";
-  qr.value = "";
-  qrBig.value = "";
-  bState.value = null;
-  try {
-    const nav = await callToolRaw(browser.value, "chrome_navigate", { url: "https://www.xiaohongshu.com/explore", include_note: false });
-    const pageId = JSON.parse(nav?.content?.[0]?.text || "{}").page_id;
-    await new Promise(r => setTimeout(r, 2500));
-    const shot = await callToolRaw(browser.value, "chrome_view", { mode: "screenshot", max_dimension: 1600, ...(pageId ? { page_id: pageId } : {}) });
-    const im = (shot?.content || []).find(c => c.type === "image");
-    if (!im) throw new Error("没截到图：" + JSON.stringify(shot?.content?.[0] || {}).slice(0, 120));
-    qr.value = `data:${im.mimeType || "image/jpeg"};base64,${im.data}`;
-    qrBig.value = await cropQr(qr.value).catch(() => "");
-    bState.value = qrBig.value
-      ? { ok: true, text: "找到二维码了。在这台手机上扫：长按下面的二维码「存储到照片」→ 打开小红书 →「扫一扫」→ 右下角选相册里这张 → 在手机上确认登录。二维码一两分钟就过期，过期了再点一次。登录状态存在服务器的浏览器里，以后不用再登。" }
-      : { ok: true, text: "没能自动找出二维码。点开下面的完整截图看看：有二维码的话，长按截图「存储到照片」，在小红书「扫一扫」里选相册这张（存下来的是原图，比屏幕上看着清楚）；没有二维码可能是已经登录了。" };
-  } catch (e) {
-    bState.value = { ok: false, text: e.message };
-  } finally {
-    bBusy.value = "";
-  }
+// ---------- 遥控他的浏览器：给你登录网站用（看画面、点一下、打字、回车） ----------
+const rPage = ref(""); // 现在操作的页面
+const rTitle = ref("");
+const typed = ref("");
+const ctlUrl = () => browser.value.url.replace(/\/chrome\/?$/, "/chromectl/");
+async function ctl(body) {
+  const r = await fetch(ctlUrl(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 404 && /不认识/.test(j.error?.message || "")) throw new Error("服务器还是旧版本：再运行一次安装那一行");
+  if (!r.ok) throw new Error(j.error?.message || `服务器返回 ${r.status}`);
+  return j;
 }
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function remote(what, fn) {
+  bBusy.value = what;
+  bState.value = null;
+  try { await fn(); } catch (e) { bState.value = { ok: false, text: e.message }; } finally { bBusy.value = ""; }
+}
+async function look() {
+  const j = await ctl({ action: "screenshot", ...(rPage.value ? { page_id: rPage.value } : {}) });
+  rPage.value = j.page_id;
+  rTitle.value = j.title || j.url || "";
+  qr.value = `data:image/jpeg;base64,${j.image}`;
+  qrBig.value = await cropQr(qr.value).catch(() => "");
+}
+const openSite = url => remote("open", async () => {
+  qr.value = qrBig.value = "";
+  rPage.value = (await ctl({ action: "open", url })).page_id;
+  await wait(3500);
+  await look();
+});
+const refreshShot = () => remote("look", look);
+// 点截图上的位置 = 点网页上的这个位置
+function tapShot(e) {
+  const img = e.currentTarget;
+  const r = img.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (img.naturalWidth / r.width), y = (e.clientY - r.top) * (img.naturalHeight / r.height);
+  remote("tap", async () => { await ctl({ action: "click", page_id: rPage.value, x, y }); await wait(1500); await look(); });
+}
+const typeIn = () => remote("type", async () => {
+  if (!typed.value) return;
+  await ctl({ action: "type", page_id: rPage.value, text: typed.value });
+  typed.value = "";
+  await wait(600);
+  await look();
+});
+const pressKey = key => remote("key", async () => { await ctl({ action: "key", page_id: rPage.value, key }); await wait(1500); await look(); });
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/cloudflare-relay.md";
 
 // 搜索服务的设置平时收起来（不常改）
@@ -249,12 +272,27 @@ async function testSearch() {
       <button class="btn soft wide" :disabled="!!bBusy" @click="connectBrowser">{{ bBusy === "connect" ? "连接中…" : browser ? "重新连接" : "接上浏览器" }}</button>
       <template v-if="browser">
         <label class="switch-row"><span>他可以用浏览器</span><input v-model="browser.enabled" type="checkbox" class="sw" /></label>
-        <button class="btn soft wide" :disabled="!!bBusy" @click="xhsLogin">{{ bBusy === "xhs" ? "打开中…（要等几秒）" : "登录小红书（截图扫码）" }}</button>
+        <button class="btn soft wide" :disabled="!!bBusy" @click="openSite('https://www.xiaohongshu.com/explore')">{{ bBusy === "open" ? "打开中…（要等几秒）" : "登录小红书" }}</button>
         <button class="btn soft wide gap" :disabled="!!bBusy" @click="resetBrowser">{{ bBusy === "reset" ? "清空中…" : "清空浏览器（退出所有登录、换账号）" }}</button>
       </template>
       <p v-if="bState" class="result" :class="{ bad: !bState.ok }">{{ bState.text }}</p>
-      <img v-if="qrBig" :src="qrBig" alt="小红书登录二维码" class="qr-big" />
-      <details v-if="qr" class="shot"><summary>看完整截图</summary><img :src="qr" alt="" class="qr" /></details>
+      <template v-if="qr">
+        <p v-if="qrBig" class="tip-sm">有二维码：长按下面的二维码「存储到照片」→ 小红书「扫一扫」选相册这张 → 手机上确认。确认完点「刷新画面」看看，要填验证码就在下面填。</p>
+        <img v-if="qrBig" :src="qrBig" alt="登录二维码" class="qr-big" />
+        <div class="remote">
+          <div class="r-top"><span class="r-title">{{ rTitle }}</span><button class="btn soft small" :disabled="!!bBusy" @click="refreshShot">{{ bBusy && bBusy !== "reset" ? "…" : "刷新画面" }}</button></div>
+          <img :src="qr" alt="" class="qr" @click="tapShot" />
+          <p class="tip-sm">这是他浏览器现在的样子。点截图上的地方 = 点网页上的那里（比如先点验证码的框）。</p>
+          <div class="r-type">
+            <input v-model="typed" class="input" placeholder="要填进去的字（比如短信验证码）" autocomplete="one-time-code" inputmode="text" @keydown.enter.prevent="typeIn" />
+            <button class="btn small" :disabled="!!bBusy || !typed" @click="typeIn">填进去</button>
+          </div>
+          <div class="r-keys">
+            <button class="btn soft small" :disabled="!!bBusy" @click="pressKey('Enter')">回车</button>
+            <button class="btn soft small" :disabled="!!bBusy" @click="pressKey('Backspace')">删一个字</button>
+          </div>
+        </div>
+      </template>
     </div>
     <p class="note">要先在服务器上装好：运行安装那一行，问到「要给他装一个浏览器吗」选 y。浏览器只在你服务器内部，经过带口令的地址才能用。</p>
 
@@ -292,6 +330,13 @@ async function testSearch() {
 .test-row .btn { flex: none; }
 .add { color: var(--text-2); }
 .gap { margin-top: 8px; }
+.tip-sm { font-size: 0.8rem; color: var(--text-2); line-height: 1.6; margin: 10px 2px 0; }
+.remote { margin-top: 12px; }
+.r-top { display: flex; align-items: center; gap: 8px; }
+.r-title { flex: 1; min-width: 0; font-size: 0.8rem; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-type { display: flex; gap: 8px; margin-top: 10px; }
+.r-type .btn { flex: none; }
+.r-keys { display: flex; gap: 8px; margin-top: 8px; }
 .qr-big { display: block; width: min(100%, 300px); margin: 12px auto 0; image-rendering: pixelated; border-radius: 8px; }
 .shot { margin-top: 10px; font-size: 0.82rem; color: var(--text-2); }
 .qr { display: block; width: 100%; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); }

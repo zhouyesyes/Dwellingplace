@@ -72,13 +72,13 @@ if [ "$CHROME" = "y" ]; then
   say "装他的浏览器（第一次要几分钟）…"
   mkdir -p chrome "$DIR/chrome-profile"
   RAW="https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main/deploy/qisuo-server/chrome"
-  curl -fsSL "$RAW/Dockerfile" -o chrome/Dockerfile && curl -fsSL "$RAW/start.sh" -o chrome/start.sh
+  curl -fsSL "$RAW/Dockerfile" -o chrome/Dockerfile && curl -fsSL "$RAW/start.sh" -o chrome/start.sh && curl -fsSL "$RAW/remote.py" -o chrome/remote.py
   $SUDO docker build --build-arg BRIDGE_REF="$BRIDGE_REF" -t qisuo-chrome chrome
   $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
   # 不开任何端口：只有栖所服务器在内部网络里能连到它
   $SUDO docker run -d --name qisuo-chrome --restart unless-stopped --network qisuo-net \
     --memory 1500m --shm-size 512m -v "$DIR/chrome-profile:/profile" qisuo-chrome >/dev/null
-  CHROME_ENV="-e CHROME_URL=http://qisuo-chrome:9224 -e CHROME_PROFILE=/chrome-profile -v $DIR/chrome-profile:/chrome-profile"
+  CHROME_ENV="-e CHROME_URL=http://qisuo-chrome:9224 -e CHROME_CTL_URL=http://qisuo-chrome:9225 -e CHROME_PROFILE=/chrome-profile -v $DIR/chrome-profile:/chrome-profile"
 else
   $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
 fi
