@@ -326,10 +326,10 @@ export function driveStory(drive, timeline = []) {
 export function xinchaoStatus(role) {
   if (!hasXinchao(role) || !dashToken(role)) return { tone: "none", text: "还没接上心潮", detail: "在设置里接上心潮、填好看板口令以后，这里会显示 TA 的状态" };
   const c = cacheOf(role);
-  if (c.loading) return { tone: "sync", text: "正在同步…", detail: "在取 TA 此刻的状态" };
+  if (c.loading) return { tone: "sync", text: "正在同步…", detail: "在取他此刻的状态" };
   if (!c.snap || c.snap._saved) {
     if (c.error) return { tone: "off", text: "没连上", detail: `${c.at ? `上次连上是 ${ago(Date.now() - c.at)} · ` : ""}点一下重连` };
-    return { tone: "sync", text: "正在同步…", detail: "在取 TA 此刻的状态" };
+    return { tone: "sync", text: "正在同步…", detail: "在取他此刻的状态" };
   }
   const last = [...(c.timeline || [])].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
   const mood = c.snap.emotion?.shown || c.snap.emotion?.label;

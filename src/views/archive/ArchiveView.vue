@@ -19,7 +19,7 @@ const membersOf = t => (groupOf(t)?.memberIds || []).map(archivedRole).filter(Bo
 <template>
   <div class="page">
     <SubHeader title="旧居" />
-    <p class="lead">以前住在栖所里的 TA 们。设定、聊天、记忆都好好留着，只是不再醒来。</p>
+    <p class="lead">以前住在栖所里的他。设定、聊天、记忆都好好留着，只是不再醒来。</p>
 
     <div class="list-card">
       <button v-for="r in a.roles" :key="r.id" class="list-row" @click="router.push(`/archive/${r.id}`)">

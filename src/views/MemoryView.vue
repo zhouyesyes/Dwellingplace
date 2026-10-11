@@ -13,7 +13,7 @@ import BigTextarea from "../components/BigTextarea.vue";
 import XinchaoDrawer from "../components/xinchao/XinchaoDrawer.vue";
 import { hasXinchao } from "../lib/xinchao.js";
 
-// 记住上次看的是谁，下次进来还是 TA
+// 记住上次看的是谁，下次进来还是他
 const LAST = "memory-last-role";
 const saved = (() => { try { return localStorage.getItem(LAST); } catch { return null; } })();
 // 从日历点进来会带上 ?role=…&open=…：直接打开那一条
@@ -135,7 +135,7 @@ function remove() {
 
     <p v-if="!store.roles.length" class="empty-hint">还没有角色，先去「设置」里添加一个吧</p>
     <p v-else-if="!cards.length" class="empty-hint">
-      {{ query ? "没有找到相关的记忆" : `${role?.name} 的抽屉还是空的。聊天时 TA 会自己写下记忆，你也可以点右下角 ＋ 自己写。` }}
+      {{ query ? "没有找到相关的记忆" : `${role?.name} 的抽屉还是空的。聊天时他会自己写下记忆，你也可以点右下角 ＋ 自己写。` }}
     </p>
 
     <button v-if="role" class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="26" /></button>
@@ -162,7 +162,7 @@ function remove() {
           </select>
         </label>
         <label class="field"><span>标题</span><input v-model="draft.title" class="input" placeholder="例如：第一次给小鸡起名字" /></label>
-        <label class="field"><span>内容</span><BigTextarea v-model="draft.content" rows="5" title="记忆内容" placeholder="想让 TA 一直记得的事" /></label>
+        <label class="field"><span>内容</span><BigTextarea v-model="draft.content" rows="5" title="记忆内容" placeholder="想让他一直记得的事" /></label>
         <label class="field"><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
         <div class="field">
           <span>图片（可选）</span>

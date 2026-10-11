@@ -8,7 +8,7 @@ const props = defineProps({ drives: { type: Array, default: () => [] }, selected
 const emit = defineEmits(["select"]);
 
 // 窗外的天色跟着时间走
-// 清晨 5–8 点、白天、夕阳 17–19 点半、夜里（TA 睡着了也是夜里）
+// 清晨 5–8 点、白天、夕阳 17–19 点半、夜里（他睡着了也是夜里）
 const now = new Date();
 const hm = now.getHours() + now.getMinutes() / 60;
 const sky = props.asleep || hm < 5 || hm >= 19.5 ? "night" : hm < 8 ? "dawn" : hm >= 17 ? "dusk" : "day";

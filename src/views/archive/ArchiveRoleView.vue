@@ -35,8 +35,8 @@ const sections = computed(() => {
     ["我是谁 · 说话的样子", r.style],
     ["以前的设定", r.persona],
     ["签名", r.signature],
-    ["TA 怎么称呼我", r.me?.name],
-    ["我在 TA 面前", r.me?.about],
+    ["他怎么称呼我", r.me?.name],
+    ["我在他面前", r.me?.about],
   ].filter(([, v]) => v && String(v).trim());
 });
 </script>
@@ -51,6 +51,7 @@ const sections = computed(() => {
         <h2>{{ role.name }}</h2>
         <p>{{ role.signature || "（没有签名）" }}</p>
       </div>
+      <button class="btn soft small" @click="router.push(`/room/${role.id}`)">小屋</button>
     </div>
 
     <div class="seg">
@@ -88,7 +89,7 @@ const sections = computed(() => {
           </article>
         </div>
         <p v-if="!cards.length" class="empty-hint">
-          没有记忆卡片。<template v-if="(store.mcpServers || []).some(s => s.roleIds?.includes(role.id))">TA 的心潮现在连不上（在「设置 → 工具 → MCP」里看看还开着没有）。</template>
+          没有记忆卡片。<template v-if="(store.mcpServers || []).some(s => s.roleIds?.includes(role.id))">他的心潮现在连不上（在「设置 → 工具 → MCP」里看看还开着没有）。</template>
         </p>
       </template>
     </template>

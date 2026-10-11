@@ -1,6 +1,6 @@
 <script setup>
 // 用量：上一次回复都花在哪（设定和记忆、工具目录、聊天记录）、累计用了多少、命中缓存多少、用工具来回多花了多少
-// 单聊和群聊共用；群聊还按人分开算。往左滑是第二页：TA 们每次看得到多少条（随时能调）
+// 单聊和群聊共用；群聊还按人分开算。往左滑是第二页：他每次看得到多少条（随时能调）
 import { computed, ref, watch } from "vue";
 import { store, roleById, fmtTokens } from "../store/index.js";
 import Sheet from "./Sheet.vue";
@@ -20,7 +20,7 @@ const last = computed(() => [...props.path].reverse().find(m => m.from === "ai" 
 const ctx = computed(() => (last.value ? last.value.ctx0 || last.value.ctx || last.value.usage.input : 0));
 const pct = computed(() => Math.min(100, Math.round((ctx.value / props.limit) * 100)));
 const level = computed(() => (pct.value >= 85 ? "high" : pct.value >= 60 ? "mid" : ""));
-const lastName = computed(() => roleById(last.value?.speaker)?.name || "TA");
+const lastName = computed(() => roleById(last.value?.speaker)?.name || "他");
 
 // 一次回复：系统提示里的设定 / 记忆 / 日历、工具目录，剩下的是聊天记录和【此刻】
 const ctxOf = m => m.ctx0 || m.ctx || m.usage?.input || 0;
@@ -56,7 +56,7 @@ const lastRound = computed(() => {
   if (!props.perMember) return [];
   const i = props.path.map(m => m.from).lastIndexOf("user");
   return props.path.slice(i + 1).filter(m => m.from === "ai" && !m.error && m.usage?.input)
-    .map(m => ({ m, name: roleById(m.speaker)?.name || "TA", ctx: ctxOf(m), parts: partsOf(m), extra: extraOf(m) }));
+    .map(m => ({ m, name: roleById(m.speaker)?.name || "他", ctx: ctxOf(m), parts: partsOf(m), extra: extraOf(m) }));
 });
 
 // ---------- 第二页：看得到多少条 ----------
@@ -65,17 +65,17 @@ const pager = ref(null);
 const onScroll = () => { const el = pager.value; if (el) page.value = Math.round(el.scrollLeft / el.clientWidth); };
 const go = i => pager.value?.scrollTo({ left: i * pager.value.clientWidth, behavior: "smooth" });
 watch(() => props.open, v => { if (v) { page.value = 0; requestAnimationFrame(() => pager.value && (pager.value.scrollLeft = 0)); } });
-const SURFACED = { key: "surfacedLimit", label: "每轮附上几条浮现的记忆", sub: "接了心潮才有；每条大约几百字，少一点更省。0 就是不附（TA 还能自己用 breath 去找）", min: 0, max: 20, step: 1, def: 8 };
+const SURFACED = { key: "surfacedLimit", label: "每轮附上几条浮现的记忆", sub: "接了心潮才有；每条大约几百字，少一点更省。0 就是不附（他还能自己用 breath 去找）", min: 0, max: 20, step: 1, def: 8 };
 const limits = computed(() => (props.perMember
   ? [
       { key: "groupHistoryLimit", label: "大家每次能看到群里最近多少条", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
-      { key: "groupPrivateLimit", label: "群聊里看得到多少条私聊", sub: "轮到 TA 在群里说话时，附上 TA 和你最近的私聊；0 就是不附", min: 0, def: 40 },
+      { key: "groupPrivateLimit", label: "群聊里看得到多少条私聊", sub: "轮到他在群里说话时，附上他和你最近的私聊；0 就是不附", min: 0, def: 40 },
       SURFACED,
     ]
   : [
-      { key: "historyLimit", label: "TA 每次能看到最近多少条消息", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
-      { key: "privateGroupLimit", label: "私聊里看得到多少条群聊", sub: "私聊时附上 TA 在的群里最近聊的；0 就是不附", min: 0, def: 40 },
-      { key: "wakeHistoryLimit", label: "TA 醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；不会超过第一项", min: 2, def: 30 },
+      { key: "historyLimit", label: "他每次能看到最近多少条消息", sub: "越多记得越久，也越费 tokens", min: 2, def: 80 },
+      { key: "privateGroupLimit", label: "私聊里看得到多少条群聊", sub: "私聊时附上他在的群里最近聊的；0 就是不附", min: 0, def: 40 },
+      { key: "wakeHistoryLimit", label: "他醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；不会超过第一项", min: 2, def: 30 },
       SURFACED,
     ]));
 function setLimit(l, v) {
@@ -113,7 +113,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
     </nav>
     <div ref="pager" class="pager" @scroll.passive="onScroll">
     <section class="pg">
-    <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。往左滑可以调 TA 们每次看得到多少条消息。</p>
+    <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。往左滑可以调他每次看得到多少条消息。</p>
     <template v-else>
       <div v-if="last" class="ctx-big">
         <div class="ctx-num">{{ fmtTokens(ctx) }}<small> / {{ fmtTokens(limit) }} tokens</small></div>
@@ -165,7 +165,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
       </template>
 
       <p class="tip">
-        命中缓存的部分服务商一般只收一到两折的钱（中转平台要看它自己怎么算）。「工具来回」：TA 每用一次工具，都要带着整段内容再问一次模型，多出来的这些输入就算在这里；没用工具就是 0。
+        命中缓存的部分服务商一般只收一到两折的钱（中转平台要看它自己怎么算）。「工具来回」：他每用一次工具，都要带着整段内容再问一次模型，多出来的这些输入就算在这里；没用工具就是 0。
         缓存和工具来回是这次更新以后才开始记的，以前的回复算不进去。「都花在哪」是按字数估的，看比例就好。
         <slot />
       </p>
@@ -184,7 +184,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
           </div>
         </div>
       </div>
-      <p class="tip">所有{{ perMember ? "群聊" : "私聊" }}通用，改了马上生效。记忆库里的事不受这个影响，TA 一直记得。</p>
+      <p class="tip">所有{{ perMember ? "群聊" : "私聊" }}通用，改了马上生效。记忆库里的事不受这个影响，他一直记得。</p>
     </section>
     </div>
   </Sheet>

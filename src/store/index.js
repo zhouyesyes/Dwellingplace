@@ -59,7 +59,6 @@ function defaultTools() {
 
 function defaultWidgets() {
   return [
-    { id: uid(), type: "chick", size: "small" },
     { id: uid(), type: "anniv", size: "small" },
     { id: uid(), type: "calendar", size: "large" },
   ];
@@ -187,6 +186,7 @@ function migrate() {
     store.version = 7;
   }
   store.archive ??= emptyArchive();
+  store.widgets = (store.widgets || []).filter(w => w.type !== "chick"); // 主页不再放小鸡
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
   store.settings.groupHistoryLimit ??= 80; // 群聊里大家每次看群里最近多少条

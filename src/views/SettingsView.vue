@@ -21,7 +21,7 @@ function usageLine(api) {
   <div class="page">
     <h1 class="page-title">设置</h1>
 
-    <div class="section-label">TA</div>
+    <div class="section-label">他</div>
     <div class="list-card">
       <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/role/${r.id}`)">
         <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="36" />
@@ -54,17 +54,17 @@ function usageLine(api) {
     </div>
 
     <div class="section-label">聊天</div>
-    <p class="hint moved">TA 们每次看得到多少条消息，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调。</p>
+    <p class="hint moved">他每次看得到多少条消息，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调。</p>
 
     <div class="section-label">对外保密</div>
     <div class="card body privacy">
-      <p class="hint">所有 AI 通用。TA 们发邮件、在花园等地方发东西时，都不会说出这里写的事。</p>
+      <p class="hint">所有 AI 通用。他发邮件、在花园等地方发东西时，都不会说出这里写的事。</p>
       <BigTextarea v-model="store.settings.privacy" rows="3" title="对外保密" placeholder="比如：我的真名、住在哪里、在哪个平台写小说、笔名是什么" />
     </div>
 
     <div class="section-label">更多</div>
     <div class="list-card">
-      <button class="list-row" @click="router.push('/settings/wake')"><Icon name="bell" :size="20" /><span class="grow">唤醒<span class="sub">{{ store.wake?.enabled ? "已开启：TA 们会自己醒来" : "让 TA 们按时间自己醒来，给你发消息" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button class="list-row" @click="router.push('/settings/wake')"><Icon name="bell" :size="20" /><span class="grow">唤醒<span class="sub">{{ store.wake?.enabled ? "已开启：他会自己醒来" : "让他按时间自己醒来，给你发消息" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>

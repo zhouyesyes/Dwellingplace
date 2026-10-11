@@ -1,5 +1,5 @@
 <script setup>
-// TA 自己的邮箱：笔友列表 + 下面一个小对话框（只在这里能用邮箱工具）
+// 他自己的邮箱：笔友列表 + 下面一个小对话框（只在这里能用邮箱工具）
 import { ref, computed, onMounted, nextTick, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { roleById, mailThreadOf, threadsOf, loadMessages, saveMessages, messageCache } from "../store/index.js";
@@ -39,7 +39,7 @@ async function loadPals() {
     loading.value = false;
   }
 }
-const waiting = p => !p.last_from_me && p.received > 0; // 最后一封是对方发的：等 TA 回
+const waiting = p => !p.last_from_me && p.received > 0; // 最后一封是对方发的：等他回
 const day = iso => { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; };
 
 // ---------- 小对话框 ----------
@@ -47,7 +47,7 @@ const thread = computed(() => role.value && mailThreadOf(role.value.id));
 const draft = ref("");
 const list = ref(null);
 const busy = computed(() => !!(thread.value && generating[thread.value.id]));
-// 跟着消息缓存走：TA 一边写，这里一边出字
+// 跟着消息缓存走：他一边写，这里一边出字
 const msgs = computed(() => (thread.value && messageCache[thread.value.id] ? pathOf(thread.value, messageCache[thread.value.id]) : []));
 const toBottom = () => nextTick(() => { if (list.value) list.value.scrollTop = list.value.scrollHeight; });
 watch(() => msgs.value.length + ":" + (msgs.value.at(-1)?.text?.length || 0), toBottom);
@@ -64,7 +64,7 @@ async function send(text = draft.value.trim()) {
   leaveNote(all.slice(before));
   loadPals();
 }
-// 在邮箱里回了信、写了信：平时的聊天里留一行小记，TA 在那边也知道
+// 在邮箱里回了信、写了信：平时的聊天里留一行小记，他在那边也知道
 async function leaveNote(added) {
   const did = added.flatMap(m => (m.notes || []).map(n => n.text || "")).filter(t => /send_email|reply_email/.test(t) && !/出错|失败/.test(t));
   if (!did.length) return;
@@ -97,7 +97,7 @@ onMounted(() => { loadPals(); loadMsgs(); });
       <button class="icon-btn" :disabled="loading" aria-label="刷新" @click="loadPals"><Icon name="refresh" /></button>
     </header>
 
-    <p v-if="!server" class="empty">{{ role.name }} 还没有接邮箱：在「设置 → 工具 → MCP」里添加 TA 的邮箱，并勾上 TA。</p>
+    <p v-if="!server" class="empty">{{ role.name }} 还没有接邮箱：在「设置 → 工具 → MCP」里添加他的邮箱，并勾上他。</p>
     <template v-else>
       <div class="section-label">笔友</div>
       <div class="card pals">

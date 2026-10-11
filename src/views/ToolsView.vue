@@ -13,7 +13,7 @@ const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/cloudf
 
 // 搜索服务的设置平时收起来（不常改）
 const searchOpen = ref(false);
-// MCP 按人物分组：点一个人展开 TA 的 MCP
+// MCP 按人物分组：点一个人展开他的 MCP
 const openRole = ref("");
 const mcpGroups = computed(() => {
   const groups = store.roles.map(r => ({ id: r.id, role: r, list: store.mcpServers.filter(s => (s.roleIds || []).includes(r.id)) }));
@@ -37,7 +37,7 @@ async function testRelay() {
     const ready = r.ready?.length ? `Worker 里已经配好 Key 的：${r.ready.map(k => SEARCH_PROVIDERS[k]?.label || k).join("、")}` : "Worker 里还没有配搜索服务的 Key（可以在下面填）";
     const v = r.version || 1;
     const old = v < 3 ? "。注意：中转是旧版本，MCP / 网页读取可能用不了，请按说明更新 Worker 代码"
-      : v < LATEST_RELAY ? "。中转不是最新版：花园唤醒桥、一次性闹钟、TA 自己来找你（心潮的桥）、醒来时查工具说明要新版才能用" : "";
+      : v < LATEST_RELAY ? "。中转不是最新版：花园唤醒桥、一次性闹钟、他自己来找你（心潮的桥）、醒来时查工具说明要新版才能用" : "";
     // 中转这次从哪儿发出请求：在 HK、CN 这些地区的话，OpenAI 这类模型会拒绝
     const w = r.where?.loc ? `。中转这次从 ${r.where.loc}（机房 ${r.where.colo}）发出请求${/^(HK|CN|MO)$/.test(r.where.loc) ? "：这个地区 OpenAI 等模型不提供服务，走中转也会被拦" : ""}` : "";
     pingState.value = { ok: v >= 3, text: `连上了！中转版本 v${v}${v >= LATEST_RELAY ? "（最新）" : ""}。${ready}${w}${old}` };
@@ -84,7 +84,7 @@ async function testSearch() {
     <div class="list-card">
       <label class="list-row">
         <Icon name="globe" :size="20" />
-        <span class="grow">开启联网搜索<span class="sub">TA 需要时会自己搜</span></span>
+        <span class="grow">开启联网搜索<span class="sub">他需要时会自己搜</span></span>
         <input v-model="store.tools.search.enabled" type="checkbox" class="sw" />
       </label>
     </div>
@@ -130,7 +130,7 @@ async function testSearch() {
     <div class="list-card">
       <label class="list-row">
         <Icon name="file" :size="20" />
-        <span class="grow">开启网页读取<span class="sub">发链接给 TA，TA 能打开读全文；所有角色都能用</span></span>
+        <span class="grow">开启网页读取<span class="sub">发链接给他，他能打开读全文；所有角色都能用</span></span>
         <input v-model="store.tools.fetch.enabled" type="checkbox" class="sw" />
       </label>
     </div>

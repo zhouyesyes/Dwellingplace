@@ -38,7 +38,7 @@ const byDate = computed(() => {
   for (const e of store.events) (m[e.date] ??= []).push(e);
   return m;
 });
-// 接了心潮的 AI：这一天 TA 记住了什么（日期右上角一颗小星星）
+// 接了心潮的 AI：这一天他记住了什么（日期右上角一颗小星星）
 const router = useRouter();
 const xcRoles = computed(() => store.roles.filter(r => hasXinchao(r) && dashToken(r)));
 onMounted(() => xcRoles.value.forEach(r => loadMemoryMap(r)));
@@ -134,7 +134,7 @@ const colorsOpen = ref(false);
         <i class="who" :style="{ background: authorInfo(e.author).color }" :title="authorInfo(e.author).name" />
       </div>
       <template v-if="shownMems.length">
-        <div class="mem-head">这一天 TA 们记住的</div>
+        <div class="mem-head">这一天他记住的</div>
         <div v-for="s in shownMems" :key="s.role.id + s.id" class="ev mem" @click.stop="openMem(s)">
           <i class="spark" :style="{ color: s.role.color }">✦</i>
           <span class="text">{{ s.title }}</span>
