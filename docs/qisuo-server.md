@@ -44,6 +44,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/mai
 
 口令不对就拒绝，别的网站也转不了，不会被别人拿去当跳板。Key 只是路过，服务器不存。
 
+## ChatGPT 会员额度（`/p/<口令>/chatgpt/v1`）
+
+用 OpenAI 官方的「Sign in with ChatGPT」把 ChatGPT 会员（Plus 等）的额度接进栖所，不按 token 另外付钱。
+
+1. 「设置 → API」新建一条：接口格式选 OpenAI，地址填 `https://app.你的域名/p/口令/chatgpt/v1`，Key 随便填（比如 `plan`）
+2. 点「用 ChatGPT 登录」→ 在打开的页面登录、同意 → 最后跳到一个打不开的 `127.0.0.1` 页面，把地址栏整串地址复制
+3. 粘回栖所，点「完成」，再拉取模型、选一个
+
+- 登录信息（通行证）只存在服务器的 `~/qisuo-server/data/` 里（权限 600），不进浏览器、不进备份；快过期自己续
+- 额度和 ChatGPT 本身共用：Plus 每 5 小时、每周都有上限。用了多少、给栖所单独设上限：chatgpt.com → 设置 → 用量
+- 会员额度不能生图、不能用 OpenAI 的文件搜索 / 代码解释器
+- 栖所还是按 `/chat/completions` 发，服务器转成 Responses API（`store:false`）再按原样流回来，所以唤醒、群聊都不用改
+
 ## 更新
 
 再运行一次安装那一行：口令、端口、网址都不变，只换成最新的栖所。
