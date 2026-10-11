@@ -15,6 +15,7 @@ import { inlineMd } from "../lib/inlineMd.js";
 import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
+import WorldDrawer from "../components/WorldDrawer.vue";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -453,7 +454,8 @@ async function removeMsg() {
   await deleteMessage(thread.value, m.id);
 }
 
-const smallWorld = () => router.push(`/room/${role.value.id}`);
+const worldOpen = ref(false); // 小世界：右边滑出来的半边
+const smallWorld = () => (worldOpen.value = true);
 const back = () => goBack(router, "/");
 
 // 点聊天里的头像：换自己的（只在他面前用）或他的头像
@@ -499,11 +501,11 @@ async function changeAvatarOf(who) {
 
         <template v-for="it in items" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
-            <span :class="{ link: it.m.sources?.length || it.m.detail || it.m.imgs?.length }" @click="(it.m.sources?.length || it.m.detail || it.m.imgs?.length) && (openSources[it.key] = !openSources[it.key])">
-              {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail || it.m.imgs?.length"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
+            <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
+              {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
-            <div v-if="openSources[it.key] && it.m.imgs?.length" class="note-imgs"><ImgThumb v-for="id in it.m.imgs" :key="id" :id="id" /></div>
+            <div v-if="it.m.imgs?.length" class="note-imgs"><ImgThumb v-for="id in it.m.imgs" :key="id" :id="id" /></div>
             <pre v-if="openSources[it.key] && it.m.detail" class="detail">{{ it.m.detail }}</pre>
             <div v-if="openSources[it.key] && it.m.sources?.length" class="sources">
               <a v-for="s in it.m.sources" :key="s.url" :href="s.url" target="_blank" rel="noopener">{{ s.title || s.url }}</a>
@@ -592,7 +594,6 @@ async function changeAvatarOf(who) {
       </div>
       <div v-else class="row">
         <button class="tool" aria-label="添加图片或文件" @click="plusOpen = true"><Icon name="plus" :size="26" /></button>
-        <button class="tool" aria-label="切换对话" @click="threadsOpen = true"><Icon name="threads" :size="22" /></button>
         <button class="tool" aria-label="发语音" @click="startRec"><Icon name="mic" :size="22" /></button>
         <textarea ref="inputEl" v-model="draft" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
@@ -679,6 +680,8 @@ async function changeAvatarOf(who) {
       <p v-if="!store.apis.length" class="empty-hint">还没有 API，先去「设置 → API」添加</p>
       <p v-else class="tip">在「设置 → API」里给模型点星标，就会出现在这里</p>
     </Sheet>
+
+    <WorldDrawer :open="worldOpen" :role="role" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" />
 
     <!-- 消息操作：手指旁边一列小选项 -->
     <Teleport to="body">
@@ -846,8 +849,8 @@ async function changeAvatarOf(who) {
 .img-grid .more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .38); color: #fff; font-weight: 700; font-size: 1.1rem; }
 .att.one :deep(.thumb) { pointer-events: none; } /* 点图片打开看图，不是在新窗口打开 */
 .img-grid .cell { cursor: pointer; }
-.sends { flex: none; display: flex; gap: 6px; align-items: flex-end; }
-.send.small { width: 40px; height: 40px; }
+.sends { flex: none; display: flex; gap: 4px; align-items: flex-end; padding-bottom: 2px; }
+.send.small { width: 34px; height: 34px; }
 .send.reply { width: 40px; height: 40px; }
 .send.small.on { background: #9aa0ad; }
 .send.reply.on { background: var(--ink); }
@@ -864,7 +867,7 @@ async function changeAvatarOf(who) {
 @media (min-width: 760px) {
   .composer { width: calc(100% - 40px); max-width: 800px; margin: 0 auto calc(var(--safe-bottom) + 14px); border-radius: 28px; padding-bottom: 14px; box-shadow: 0 6px 30px rgba(40, 40, 60, .1); }
 }
-.tool { flex: none; width: 40px; height: 44px; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
+.tool { flex: none; width: 32px; height: 40px; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
 .tool:active { color: var(--ink); }
 textarea {
   flex: 1;
@@ -880,7 +883,7 @@ textarea {
 textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .send {
   flex: none;
-  width: 44px; height: 44px;
+  width: 38px; height: 38px;
   border-radius: 50%;
   border: 0;
   display: grid; place-items: center;
@@ -898,7 +901,9 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 
 /* 弹出面板 */
 .note-imgs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 6px auto 0; max-width: 92%; }
-.note-imgs :deep(.thumb) { width: 90px; border-radius: 10px; }
+.note-imgs { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; padding: 2px; }
+.note-imgs :deep(.thumb) { flex: none; width: auto; height: 120px; max-width: 70vw; border-radius: 10px; }
+.note-imgs :deep(.thumb img) { height: 100%; width: auto; }
 .rec-bar { display: flex; align-items: center; gap: 8px; max-width: 760px; margin: 0 auto; padding: 6px 4px; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
 .rec-bar .grow { flex: 1; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: breathe 1.2s ease-in-out infinite; }

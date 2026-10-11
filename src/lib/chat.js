@@ -10,6 +10,7 @@ import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
+import { LETTER_RE, applyLetterTags, lettersForAI, newLettersForAI } from "./letters.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
@@ -33,6 +34,7 @@ export function visibleText(text) {
     .replace(SIG_RE, "")
     .replace(AVATAR_RE, "")
     .replace(DRAW_RE, "")
+    .replace(LETTER_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(ALARM_RE, "")
@@ -43,7 +45,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -115,6 +117,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       : `现在不能更改签名。`,
     avatarForAI(role),
     stickersForAI(),
+    lettersForAI(role, who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
@@ -163,7 +166,8 @@ function contextNote(role, history) {
     lastOther && Date.now() - lastOther.ts > 30 * 60_000 ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
   ].filter(Boolean).join("\n");
   const mind = hasXinchao(role) ? mindForAI(role) : "";
-  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind].filter(Boolean).join("\n")}\n【以下是新消息】`;
+  const letters = newLettersForAI(role, me); // 还没读的来信（读了就记下）
+  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, letters].filter(Boolean).join("\n")}\n【以下是新消息】`;
   // 多大（用量页「都花在哪」）
   return { text, est: { mind: estTokens(mind) + estTokens(time) } };
 }
@@ -629,8 +633,9 @@ async function maybeCompress(thread, role, last) {
 export function applyReplyTags(role, msg) {
   const mem = applyMemoryTags(role, msg.text);
   const cal = applyCalendarTags(role, mem.text);
-  msg.text = cal.text;
-  const notes = [...mem.notes, ...cal.notes];
+  const let_ = applyLetterTags(role, cal.text);
+  msg.text = let_.text;
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();
