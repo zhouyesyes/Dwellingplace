@@ -15,6 +15,33 @@ const browser = computed(() => store.mcpServers.find(s => s.browser));
 const bState = ref(null); // { ok, text }
 const bBusy = ref("");
 const qr = ref(""); // 小红书登录页截图
+const qrBig = ref(""); // 从截图里找出来、放大的二维码
+// 在截图里找二维码，裁出来放大（不糊：放大时不做平滑）
+async function cropQr(dataUrl) {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  const { default: jsQR } = await import("jsqr");
+  const found = jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  if (!found) return "";
+  const pts = Object.values(found.location).filter(p => p && typeof p.x === "number");
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const pad = (Math.max(...xs) - Math.min(...xs)) * 0.12;
+  const x = Math.max(0, Math.min(...xs) - pad), y = Math.max(0, Math.min(...ys) - pad);
+  const w = Math.min(c.width - x, Math.max(...xs) - Math.min(...xs) + pad * 2), h = Math.min(c.height - y, Math.max(...ys) - Math.min(...ys) + pad * 2);
+  const k = Math.max(2, Math.floor(600 / Math.max(w, h)));
+  const out = document.createElement("canvas");
+  out.width = Math.round(w * k); out.height = Math.round(h * k);
+  const o = out.getContext("2d");
+  o.imageSmoothingEnabled = false;
+  o.fillStyle = "#fff"; o.fillRect(0, 0, out.width, out.height);
+  o.drawImage(c, x, y, w, h, 0, 0, out.width, out.height);
+  return out.toDataURL("image/png");
+}
 // 服务器地址（带口令）：从同步地址、或者走自己服务器的 API 地址里找
 async function serverBase() {
   const conf = await idbGet("sync:conf").catch(() => null);
@@ -46,16 +73,20 @@ async function connectBrowser() {
 async function xhsLogin() {
   bBusy.value = "xhs";
   qr.value = "";
+  qrBig.value = "";
   bState.value = null;
   try {
     const nav = await callToolRaw(browser.value, "chrome_navigate", { url: "https://www.xiaohongshu.com/explore", include_note: false });
     const pageId = JSON.parse(nav?.content?.[0]?.text || "{}").page_id;
     await new Promise(r => setTimeout(r, 2500));
-    const shot = await callToolRaw(browser.value, "chrome_view", { mode: "screenshot", ...(pageId ? { page_id: pageId } : {}) });
+    const shot = await callToolRaw(browser.value, "chrome_view", { mode: "screenshot", max_dimension: 1600, ...(pageId ? { page_id: pageId } : {}) });
     const im = (shot?.content || []).find(c => c.type === "image");
     if (!im) throw new Error("没截到图：" + JSON.stringify(shot?.content?.[0] || {}).slice(0, 120));
     qr.value = `data:${im.mimeType || "image/jpeg"};base64,${im.data}`;
-    bState.value = { ok: true, text: "截到了。有二维码就用手机小红书扫码登录；没有二维码（已经登录、或者页面没弹登录框），再点一次看看。登录状态存在服务器的浏览器里，以后不用再登。" };
+    qrBig.value = await cropQr(qr.value).catch(() => "");
+    bState.value = qrBig.value
+      ? { ok: true, text: "找到二维码了。在这台手机上扫：长按下面的二维码「存储到照片」→ 打开小红书 →「扫一扫」→ 右下角选相册里这张 → 在手机上确认登录。二维码一两分钟就过期，过期了再点一次。登录状态存在服务器的浏览器里，以后不用再登。" }
+      : { ok: true, text: "没能自动找出二维码。点开下面的完整截图看看：有二维码的话，长按截图「存储到照片」，在小红书「扫一扫」里选相册这张（存下来的是原图，比屏幕上看着清楚）；没有二维码可能是已经登录了。" };
   } catch (e) {
     bState.value = { ok: false, text: e.message };
   } finally {
@@ -203,7 +234,8 @@ async function testSearch() {
         <button class="btn soft wide" :disabled="!!bBusy" @click="xhsLogin">{{ bBusy === "xhs" ? "打开中…（要等几秒）" : "登录小红书（截图扫码）" }}</button>
       </template>
       <p v-if="bState" class="result" :class="{ bad: !bState.ok }">{{ bState.text }}</p>
-      <img v-if="qr" :src="qr" alt="" class="qr" />
+      <img v-if="qrBig" :src="qrBig" alt="小红书登录二维码" class="qr-big" />
+      <details v-if="qr" class="shot"><summary>看完整截图</summary><img :src="qr" alt="" class="qr" /></details>
     </div>
     <p class="note">要先在服务器上装好：运行安装那一行，问到「要给他装一个浏览器吗」选 y。浏览器只在你服务器内部，经过带口令的地址才能用。</p>
 
@@ -240,6 +272,8 @@ async function testSearch() {
 .test-row { display: flex; gap: 8px; }
 .test-row .btn { flex: none; }
 .add { color: var(--text-2); }
+.qr-big { display: block; width: min(100%, 300px); margin: 12px auto 0; image-rendering: pixelated; border-radius: 8px; }
+.shot { margin-top: 10px; font-size: 0.82rem; color: var(--text-2); }
 .qr { display: block; width: 100%; margin-top: 10px; border-radius: 12px; border: 1px solid var(--line); }
 .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 2px; font-size: 0.93rem; }
 .plain { border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; }
