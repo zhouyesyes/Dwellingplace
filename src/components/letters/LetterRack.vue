@@ -92,8 +92,7 @@ const delay = i => `${(i * 1.7) % 6.3}s`; // 每封信翻动的时间错开
 }
 .wax.fresh { animation: glow 2.4s ease-in-out infinite; }
 @keyframes glow { 50% { box-shadow: 0 0 8px 2px rgba(240, 210, 140, .7), inset 0 0 0 2px rgba(125, 94, 34, .35); } }
-.env .label { position: relative; font-family: "Long Cang", "Ma Shan Zheng", cursive; font-size: 1rem; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 6px; }
-.env.his .label { font-family: "Ma Shan Zheng", cursive; }
+.env .label { position: relative; font-family: "Long Cang", cursive; font-size: 1rem; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 6px; }
 .seal { position: absolute; right: 8px; top: 4px; font-size: 0.7rem; color: #c0392b; }
 .his .seal { color: #d4b16a; }
 .seal.lock { font-size: 0.75rem; }
@@ -125,10 +124,9 @@ const delay = i => `${(i * 1.7) % 6.3}s`; // 每封信翻动的时间错开
 .card.blank { background: linear-gradient(170deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, .1)); box-shadow: inset 0 0 0 1px rgba(120, 100, 80, .12); animation: none; cursor: default; }
 .card .flap { height: 22px; clip-path: polygon(0 0, 100% 0, 50% 100%); }
 .card .label {
-  position: absolute; top: 28px; left: 50%; transform: translateX(-50%); writing-mode: vertical-rl; line-height: 1; text-align: start; font-family: "Long Cang", "Ma Shan Zheng", cursive; font-size: .9rem; letter-spacing: .08em;
+  position: absolute; top: 28px; left: 50%; transform: translateX(-50%); writing-mode: vertical-rl; line-height: 1; text-align: start; font-family: "Long Cang", cursive; font-size: .9rem; letter-spacing: .08em;
   height: 66px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.card.his .label { font-family: "Ma Shan Zheng", cursive; }
 .card .wax { top: 13px; }
 .env .wax { left: auto; right: 10px; top: 6px; transform: none; width: 12px; height: 12px; }
 .card .seal { left: 6px; right: auto; top: 24px; }
