@@ -174,7 +174,13 @@ export function tempFor(api, model) {
   return /deepseek/i.test(`${model || ""} ${api.model || ""} ${api.baseUrl || ""}`) ? 1.3 : undefined;
 }
 
-async function openaiStream({ api, model, system, messages, signal, onText, onThinking }) {
+// OpenAI 官方（直连或经自己服务器转发）
+const isOpenAI = api => /api\.openai\.com|\/openai\/v1\/?$/i.test(api?.baseUrl || "");
+// 缓存分组：同一个 AI 的请求尽量交给 OpenAI 的同一台机器，开头那段设定更容易命中缓存。
+// 某个接口不认这个参数，就记下来，以后不再给它发
+const noCacheKey = new Set();
+
+async function openaiStream({ api, model, system, messages, signal, onText, onThinking, cacheKey }) {
   const stream = streaming();
   const body = {
     model,
@@ -188,12 +194,22 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
   if ((isOpenRouter(api) || isPlan(api)) && (api.showThinking || api.effort)) {
     body.reasoning = { ...(api.effort ? { effort: api.effort } : {}), ...(api.showThinking ? { enabled: true } : { exclude: true }) };
   }
-  const res = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
+  if (cacheKey && (isPlan(api) || isOpenAI(api)) && !noCacheKey.has(api.baseUrl)) body.prompt_cache_key = cacheKey;
+  const post = () => fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
     signal,
     headers: { ...openaiHeaders(api), ...(isOpenRouter(api) ? { "X-Title": "Qisuo" } : {}) },
     body: JSON.stringify(body),
   });
+  let res = await post();
+  if (!res.ok && res.status === 400 && body.prompt_cache_key) {
+    const raw = await res.clone().text();
+    if (/prompt_cache_key/i.test(raw)) { // 不认：去掉再发一次
+      noCacheKey.add(api.baseUrl);
+      delete body.prompt_cache_key;
+      res = await post();
+    }
+  }
   if (!res.ok) {
     const raw = await res.text();
     if (/not available in your region|unsupported_country|country, region, or territory/i.test(raw)) {
