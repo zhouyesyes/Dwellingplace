@@ -1,8 +1,46 @@
 <script setup>
 // 用量和余额：每个 API 在这台手机上每天用了多少次、多少 tokens；DeepSeek、OpenRouter 还能直接查账户余额和花费
 import { ref, computed, onMounted } from "vue";
-import { store, fmtTokens } from "../store/index.js";
+import { store, fmtTokens, today } from "../store/index.js";
+import { isPlan } from "../lib/providers.js";
 import SubHeader from "../components/SubHeader.vue";
+
+// ---------- ChatGPT 会员额度：放在最上面 ----------
+const planApis = computed(() => store.apis.filter(a => a.type === "openai" && isPlan(a)));
+const otherApis = computed(() => store.apis.filter(a => !planApis.value.includes(a)));
+const showOthers = ref(!planApis.value.length);
+const plan = ref({}); // apiId -> { loading, error, st }
+const planBase = a => String(a.baseUrl).trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
+async function checkPlan(a) {
+  plan.value[a.id] = { loading: true };
+  try {
+    const r = await fetch(planBase(a) + "/status", { cache: "no-store" });
+    const st = await r.json();
+    if (!r.ok) throw new Error(st.error?.message || `返回 ${r.status}`);
+    plan.value[a.id] = { st };
+  } catch (e) {
+    plan.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上服务器" : e.message };
+  }
+}
+// OpenAI 回复时带的「额度」响应头：认得出百分比的画成进度条，别的原样列出来
+function bars(limits) {
+  const h = limits?.headers || {};
+  const out = [];
+  for (const [k, v] of Object.entries(h)) {
+    if (!/percent/i.test(k)) continue;
+    const used = Math.max(0, Math.min(100, Number(v)));
+    if (!Number.isFinite(used)) continue;
+    const label = /primary|5h|hour/i.test(k) ? "5 小时" : /secondary|week/i.test(k) ? "每周" : k;
+    const resetKey = Object.keys(h).find(x => /reset/i.test(x) && x.replace(/reset.*$/i, "") === k.replace(/used.*$|percent.*$/i, ""));
+    const secs = resetKey ? Number(h[resetKey]) : NaN;
+    out.push({ label, left: Math.round(100 - used), reset: Number.isFinite(secs) && secs < 30 * 86400 ? untilText(secs) : "" });
+  }
+  return out;
+}
+const untilText = s => (s < 3600 ? `${Math.ceil(s / 60)} 分钟后恢复` : s < 86400 ? `${Math.round(s / 3600)} 小时后恢复` : `${Math.round(s / 86400)} 天后恢复`);
+const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : `${Math.round(m / 60)} 小时前`; };
+const todayCalls = a => store.usage[today()]?.[a.id]?.calls || 0;
+const rawOpen = ref({});
 
 // OpenRouter 的查询地址跟着接口地址走（自己服务器转发的也行）
 const orBase = a => (/\/openrouter(\/|$)/i.test(a.baseUrl || "") && !/openrouter\.ai/i.test(a.baseUrl || "") ? String(a.baseUrl).replace(/\/+$/, "").replace(/\/v1$/, "") + "/v1" : "https://openrouter.ai/api/v1");
@@ -38,7 +76,7 @@ async function check(a) {
     account.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上（可能要开梯子）" : e.message };
   }
 }
-const refresh = () => store.apis.forEach(check);
+const refresh = () => { store.apis.forEach(check); planApis.value.forEach(checkPlan); };
 onMounted(refresh);
 
 // 这台手机上记下来的：最近 14 天，每天每个 API 的次数和 tokens（点开看每个模型）
@@ -55,7 +93,37 @@ const short = d => d.slice(5).replace("-", "/");
       <button class="btn soft small" @click="refresh">刷新</button>
     </SubHeader>
 
-    <template v-for="a in store.apis" :key="a.id">
+    <div v-for="a in planApis" :key="a.id" class="card plan">
+      <div class="plan-top">
+        <b>ChatGPT 会员额度</b>
+        <span class="muted small">{{ plan[a.id]?.st?.email || a.name }}</span>
+      </div>
+      <p v-if="plan[a.id]?.loading" class="muted">正在查…</p>
+      <p v-else-if="plan[a.id]?.error" class="bad">查不到：{{ plan[a.id].error }}</p>
+      <p v-else-if="plan[a.id]?.st && !plan[a.id].st.connected" class="bad">还没登录：去「设置 → API → {{ a.name }}」里用 ChatGPT 登录</p>
+      <template v-else-if="plan[a.id]?.st">
+        <div v-for="b in bars(plan[a.id].st.limits)" :key="b.label" class="bar-row">
+          <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
+          <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
+        </div>
+        <p v-if="!bars(plan[a.id].st.limits).length" class="muted small">OpenAI 还没把剩多少告诉栖所。准确的数字在 ChatGPT 里看：</p>
+        <p v-if="plan[a.id].st.limits" class="muted small">（{{ ago(plan[a.id].st.limits.at) }}聊天时 OpenAI 带回来的）</p>
+      </template>
+      <div class="plan-foot">
+        <span>今天在这台设备上聊了 {{ todayCalls(a) }} 次</span>
+        <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT 里看用量 ›</a>
+      </div>
+      <template v-if="plan[a.id]?.st?.limits">
+        <button class="raw-btn" @click="rawOpen[a.id] = !rawOpen[a.id]">{{ rawOpen[a.id] ? "收起原始数据" : "原始数据" }}</button>
+        <div v-if="rawOpen[a.id]" class="raw"><div v-for="(v, k) in plan[a.id].st.limits.headers" :key="k">{{ k }}: {{ v }}</div></div>
+      </template>
+    </div>
+
+    <button v-if="planApis.length && otherApis.length" class="others-btn" @click="showOthers = !showOthers">
+      其他 API（{{ otherApis.length }}）<span>{{ showOthers ? "▴" : "▾" }}</span>
+    </button>
+
+    <template v-for="a in showOthers ? otherApis : []" :key="a.id">
       <div class="section-label">{{ a.name || "未命名" }} · {{ a.model || "未选模型" }}</div>
       <div class="card body">
         <template v-if="kindOf(a)">
@@ -84,12 +152,27 @@ const short = d => d.slice(5).replace("-", "/");
       </div>
     </template>
     <p v-if="!store.apis.length" class="muted center">还没有添加 API。</p>
+    <p v-if="planApis.length" class="note">会员额度是 OpenAI 按自己的方式算的（和 ChatGPT 本身共用），栖所只能显示 OpenAI 告诉它的部分。</p>
     <p class="note">次数和 tokens 是栖所在这台手机上记的（聊天、群聊都算）；唤醒是中转去调用的，记在「唤醒」页每次醒来的那一条里。余额和花费是服务商那边的数字。</p>
   </div>
 </template>
 
 <style scoped>
 .body { padding: 14px 16px; }
+.plan { padding: 18px 18px 14px; }
+.plan-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.plan-top b { font-size: 1.1rem; }
+.bar-row { margin: 10px 0; }
+.bar-label { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px; }
+.bar-label span:last-child { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.bar { height: 10px; border-radius: 999px; background: var(--bg-deep); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s; }
+.bar i.low { background: var(--danger); }
+.plan-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.82rem; color: var(--text-2); }
+.plan-foot a { color: var(--ink); white-space: nowrap; }
+.raw-btn { border: 0; background: none; color: var(--text-3); font-size: 0.75rem; padding: 6px 0 0; }
+.raw { margin-top: 4px; font-size: 0.72rem; color: var(--text-2); font-family: ui-monospace, Menlo, monospace; word-break: break-all; line-height: 1.6; }
+.others-btn { display: flex; justify-content: space-between; width: 100%; margin: 18px 0 0; border: 0; background: var(--card); border-radius: 16px; padding: 12px 16px; box-shadow: var(--shadow-soft); color: var(--text-2); font-size: 0.9rem; }
 .acc-title { margin: 0 0 4px; font-weight: 600; font-size: 0.9rem; }
 .acc { margin: 2px 0; font-size: 0.88rem; line-height: 1.6; }
 .muted { color: var(--text-3); font-size: 0.85rem; margin: 4px 0; line-height: 1.6; }

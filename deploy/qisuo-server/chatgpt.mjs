@@ -145,10 +145,19 @@ async function finishLogin(pasted) {
   return status();
 }
 
+// 额度：OpenAI 回复时带的响应头里，凡是像「限额 / 用量 / 重置」的都记下来（最近一次的），给栖所的用量页看
+let limits = null; // { at, headers: { 名字: 值 } }
+const LIMIT_HEADER = /ratelimit|rate-limit|limit|usage|percent|reset|quota|credit|remaining|plan/i;
+function noteLimits(headers) {
+  const h = {};
+  for (const [k, v] of headers) if (LIMIT_HEADER.test(k) && !/authorization|cookie|token/i.test(k)) h[k] = String(v).slice(0, 200);
+  if (Object.keys(h).length) limits = { at: Date.now(), headers: h };
+}
+
 function status() {
   const c = creds();
   if (!c) return { connected: false };
-  return { connected: true, email: c.email, planUsage: c.scopes?.includes("chatgpt.tokens.use.direct"), expiresAt: c.expires_at };
+  return { connected: true, email: c.email, planUsage: c.scopes?.includes("chatgpt.tokens.use.direct"), expiresAt: c.expires_at, limits };
 }
 
 async function logout() {
@@ -259,6 +268,7 @@ async function chat(body, res, CORS) {
       up = await openai("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req), signal: ctrl.signal });
     }
   }
+  noteLimits(up.headers);
   if (!up.ok || !up.body) {
     const j = await up.json().catch(() => ({}));
     res.writeHead(up.status === 401 ? 401 : up.status || 502, { ...CORS, "Content-Type": "application/json" });
