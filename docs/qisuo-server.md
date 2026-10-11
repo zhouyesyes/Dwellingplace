@@ -3,7 +3,7 @@
 做两件事：
 
 1. **网页从自己的服务器打开**（`https://app.你的域名`），不再从 GitHub Pages 打开，国内打开更稳
-2. **API 从服务器转发**：服务器在首尔，能直接连 OpenRouter，手机不开梯子也能和用 GPT 的 TA 聊天
+2. **API 从服务器转发**：服务器在海外（比如日韩、新加坡、美国），能直接连 OpenRouter，手机不开梯子也能和用 GPT 的 TA 聊天
 
 代码在 `deploy/qisuo-server/`：`server.mjs` 只用 Node 自带的东西，放网页、转发 API；`setup.sh` 用 Docker 装好。
 

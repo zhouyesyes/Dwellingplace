@@ -2,7 +2,7 @@
 // 构建变量（在 Worker 的「设置 → 构建」里填）：
 //   WORKER_NAME  Worker 的名字（和 Cloudflare 里的一模一样）
 //   KV_ID        绑定为 KV 的那个 KV 命名空间的 ID
-//   RELAY_DOMAIN （可选）自己域名下的中转地址，比如 relay.qisuo.xyz：国内不用梯子也能连
+//   RELAY_DOMAIN （可选）自己域名下的中转地址，比如 relay.example.com：国内不用梯子也能连
 //   RELAY_REGION （可选）指定中转在哪个云区域附近运行，比如 aws:us-east-1；不填就由 Cloudflare 自己选（离你最近）
 // 已经在网页上填好的变量和机密（RELAY_TOKEN、搜索 Key……）会保留，不会被覆盖
 import { writeFileSync } from "node:fs";

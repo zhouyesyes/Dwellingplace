@@ -28,7 +28,7 @@ if [ -f settings.env ]; then
 else
   say "在这台服务器上放一份栖所"
   ask PORT "1. 端口（不和别的冲突就行）" "18200"
-  ask DOMAIN "2. 栖所的网址（比如 app.qisuo.xyz，不要写 https://）" ""
+  ask DOMAIN "2. 栖所的网址（比如 app.example.com，不要写 https://）" ""
   DOMAIN=${DOMAIN#https://}; DOMAIN=${DOMAIN#http://}; DOMAIN=${DOMAIN%%/*}
   [ -n "$DOMAIN" ] || { echo "网址不能为空"; exit 1; }
   TOKEN=$(openssl rand -hex 16)

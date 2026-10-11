@@ -5,7 +5,7 @@
 需要准备：
 
 - 一台境外服务器（Ubuntu，装好 Docker），比如腾讯云轻量「Ubuntu24.04-Docker」镜像
-- 一个域名（比如 `qisuo.xyz`）
+- 一个域名（比如 `example.com`）
 - 一个整理记忆用的小模型 Key（OpenAI 兼容格式，建议 deepseek-chat 这种不带思考的模型）
 
 整体是这样连起来的：
