@@ -38,8 +38,9 @@ DIR="$HOME/xinchao-$NAME"
 ask PORT "2. 端口（第一份 18110，第二份 18111，以此类推）" "18110"
 OB_PORT=$((PORT - 18110 + 18001))
 ask AGENT "3. 这个 AI 的名字" "心晴"
-ask HUMAN "4. TA 怎么称呼你" "粥粥"
-ask DOMAIN "5. 这一份的网址（比如 xin.qisuo.xyz，不要写 https://）" ""
+ask HUMAN "4. TA 怎么称呼你" ""
+HUMAN=${HUMAN:-你}
+ask DOMAIN "5. 这一份的网址（比如 xin.example.com，不要写 https://）" ""
 DOMAIN=${DOMAIN#https://}; DOMAIN=${DOMAIN#http://}; DOMAIN=${DOMAIN%%/*}
 [ -n "$DOMAIN" ] || { echo "网址不能为空"; exit 1; }
 

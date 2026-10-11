@@ -1,16 +1,16 @@
-# 交接说明（给下一个窗口的 CC）
+# 开发交接说明
 
-用户叫我 CC。栖所是 Vue 3 PWA，两个 AI：心晴/脆脆（cui，DeepSeek）、Rowan/哥哥（rowan，OpenRouter 的 GPT）。用户是粥粥/妹妹。
+栖所是 Vue 3 PWA。默认两个角色：心晴/脆脆（cui）、Rowan（rowan），模型在设置里选。
 
 ## 工作习惯
 - 每次改完：在 `claude/multi-ai-frontend-5z7010` 上提交 → 开 PR → squash 合并（GitHub MCP）
 - 开始前先：`git fetch -q origin main && git checkout -q -B claude/multi-ai-frontend-5z7010 origin/main`，推送用 `--force-with-lease`
 - 改了 `relay/worker.js` 就把 `version` 加 1，同时改 `src/views/ToolsView.vue` 的 `LATEST_RELAY`（中转合并后自动部署）
-- 用户额度紧：回复简洁，大功能先问清楚再做
+- 大功能先问清楚再做
 
 ## 部署
-- 网页：用户自己的服务器（首尔）`deploy/qisuo-server/`，网址 app.qisuo.xyz；更新要在服务器再跑一次 setup.sh。也有 GitHub Pages 一份
-- API 转发：`https://app.qisuo.xyz/p/<口令>/openrouter/v1`（只 OpenRouter 用，DeepSeek 直连）
+- 网页：自己的服务器上跑 `deploy/qisuo-server/`（见 docs/qisuo-server.md）；更新要在服务器再跑一次 setup.sh。也有 GitHub Pages 一份
+- API 转发：`https://<栖所网址>/p/<口令>/openrouter/v1`（国内连不上的才走转发）
 - 心潮（记忆/情绪）、花园唤醒桥（`deploy/garden-wake/`）也在那台服务器
 - 邮箱：每个 AI 一个谷歌 Apps Script（`gmail/Code.gs`，现在 1.3，有 `list_pen_pals`），改了要用户重新贴、部署新版本
 
@@ -38,7 +38,8 @@
 - **电话**：语音转文字 → AI → 读出来，一来一回；实时打断太贵
 - **共读室**：上传 txt/epub，一页页读，AI 看当前页、写批注、记住进度
 - **一起听音乐**：AI 听不到声音，只看歌名和歌词聊；音乐来源等用户找
-- **浏览器 MCP（上网）**：用户倾向放进日常聊天而不是单独房间。装在首尔服务器（3.6G 内存，现在用约 450M，2 核，48G 硬盘），Playwright MCP 一类；心晴、哥哥各自独立的登录环境（能一个浏览器两个分身最好，不行就各一个）；**用的时候才启动、闲置几分钟自动关**，设内存上限约 1.5G；口令保护；日常里只放三四个工具、网页内容截短、下一轮只带 TA 的总结。账号（小红书要手机号）和首次登录由用户来做
+- **浏览器 MCP（上网）**：用户倾向放进日常聊天而不是单独房间。装在自己的服务器上，Playwright MCP 一类；每个角色各自独立的登录环境（能一个浏览器两个分身最好，不行就各一个）；**用的时候才启动、闲置几分钟自动关**，设内存上限约 1.5G；口令保护；日常里只放三四个工具、网页内容截短、下一轮只带 TA 的总结。账号和首次登录由用户来做
 - **工作室**：接 GitHub 等，让 TA 们参与工作；干活用便宜模型（DeepSeek），每日额度 + 每件事轮数上限，做完在聊天留小记
 - **翻聊天记录工具**：内置工具（像 BUILTIN_FETCH 那样），AI 带关键词搜本地 IndexedDB 里这个角色的聊天记录，返回几段带日期和前后句的片段。平时只多一行目录，搜时才几百到一两千 token；这样私聊条数可以保持 20。醒来时（中转）搜不到，等数据同步后再接上
-- **4o**：用户喜欢 GPT-4o，但太贵（几分钟三块多）。建议：单独对话、条数 8～10、偶尔用；平时把 4o 的语气写进「说话方式」
+- **贵的模型**：单独开一个对话、聊天条数调到 8～10、偶尔用；平时把想要的语气写进「我是谁 · 说话的样子」
+- **用 ChatGPT 会员额度聊天（Sign in with ChatGPT）**：OpenAI 官方的 plan usage。自助接入只给开源、本机运行的应用（回调要 127.0.0.1）；远程托管（服务器 + 手机）要填 interest form 申请。用会员额度时不能生图。批下来再接：OAuth + PKCE，额外的 plan usage 权限，走 Responses API
