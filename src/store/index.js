@@ -14,9 +14,12 @@ export const PALETTE = ["#f5a3b5", "#86d1b0", "#8cc1f2", "#f5d36e", "#b9a2ef", "
 export const BUBBLE_COLORS = ["#eeeff3", "#fde7ec", "#e3f5ec", "#e3effd", "#fdf5d6", "#efe8fd", "#fdeadf", "#ffffff"];
 export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
+// 栖所里只住一个 AI：固定的 id，几台设备各自升级时也是同一个
+export const MAIN = "main";
+
 function defaults() {
   return {
-    version: 6,
+    version: 7,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard", historyLimit: 80, privacy: "" }, // privacy：对外保密，所有 AI 通用
@@ -28,15 +31,9 @@ function defaults() {
     tools: defaultTools(),
     mcpServers: [], // 见 lib/mcp.js
     wake: { enabled: false, synced: false }, // 唤醒，见 lib/wake.js
-    roles: [
-      newRole({
-        name: "小机",
-        color: PALETTE[2],
-        bubbleColor: BUBBLE_COLORS[3],
-        signature: "来认识这个小 AI 吧～",
-        persona: "刚搬进栖所的小 AI，好奇、温柔，有一点点笨拙，正在慢慢认识对方。",
-      }),
-    ],
+    roles: [mainRole()],
+    // 旧居：以前住在这里的 AI（设定、聊天、群聊、日历、主页上写的话），只看不动
+    archive: emptyArchive(),
     threads: [], // 一对一：{ roleId }；群聊：{ groupId, roleId: null }
     groups: [], // 群聊：{ id, name, memberIds, createdAt }
     apis: [],
@@ -44,6 +41,11 @@ function defaults() {
     usage: {}, // { "2026-10-04": { [apiId]: { input, output, calls } } }
   };
 }
+
+function mainRole() {
+  return newRole({ id: MAIN, name: "TA", color: PALETTE[2], bubbleColor: BUBBLE_COLORS[3], signature: "", persona: "" });
+}
+const emptyArchive = () => ({ roles: [], threads: [], groups: [], events: [], bios: {}, at: 0 });
 
 function defaultTools() {
   return {
@@ -160,6 +162,31 @@ function migrate() {
     for (const r of store.roles) delete r.privacy;
     store.version = 6;
   }
+  if (store.version < 7) {
+    // 只留一个 AI：以前的 AI 连同 TA 们的对话、群聊、日历、写在主页上的话，一起搬进旧居（不删）
+    const old = store.roles.filter(r => r.id !== MAIN);
+    if (old.length) {
+      const a = store.archive || emptyArchive();
+      for (const r of old) r.wake = { ...(r.wake || {}), enabled: false }; // 不再醒来
+      const add = (list, items) => { for (const x of items) if (!list.some(y => y.id === x.id)) list.push(x); };
+      add(a.roles, old);
+      add(a.threads, store.threads.filter(t => t.roleId !== MAIN));
+      add(a.groups, store.groups || []);
+      add(a.events, store.events || []);
+      Object.assign(a.bios, store.profile.bios || {});
+      a.at = Date.now();
+      store.archive = a;
+      store.threads = store.threads.filter(t => t.roleId === MAIN);
+      store.groups = [];
+      store.events = [];
+      store.profile.bios = {};
+    }
+    if (!store.roles.some(r => r.id === MAIN)) store.roles = [mainRole()];
+    else store.roles = store.roles.filter(r => r.id === MAIN);
+    if (store.defaultApiId == null && store.apis[0]) store.defaultApiId = store.apis[0].id;
+    store.version = 7;
+  }
+  store.archive ??= emptyArchive();
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
   store.settings.groupHistoryLimit ??= 80; // 群聊里大家每次看群里最近多少条
@@ -199,10 +226,13 @@ function migrate() {
 
 // ---------- 查询 ----------
 export const roleById = id => store.roles.find(r => r.id === id);
+export const mainRoleNow = () => roleById(MAIN) || store.roles[0];
+// 旧居里的 AI（只用来显示名字、颜色，不参与聊天）
+export const archivedRole = id => store.archive?.roles.find(r => r.id === id);
 // 日历等处的「作者」：me 或某个角色
 export function authorInfo(id) {
   if (id === "me") return { name: "我", color: store.profile.color };
-  const r = roleById(id);
+  const r = roleById(id) || archivedRole(id);
   return r ? { name: r.name, color: r.color } : { name: "（已删除）", color: "#c8c8d0" };
 }
 export const apiById = id => store.apis.find(a => a.id === id);

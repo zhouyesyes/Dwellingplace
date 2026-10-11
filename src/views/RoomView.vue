@@ -13,7 +13,7 @@ import BlackBoxSheet from "../components/room/BlackBoxSheet.vue";
 const route = useRoute();
 const router = useRouter();
 const role = computed(() => roleById(route.params.roleId));
-if (!role.value) router.replace("/chats");
+if (!role.value) router.replace("/");
 
 // 每个人住自己的房间（没设过就按名字认）
 const kind = computed(() => (["cui", "rowan"].includes(role.value?.room) ? role.value.room : /rowan/i.test(role.value?.name || "") ? "rowan" : "cui"));

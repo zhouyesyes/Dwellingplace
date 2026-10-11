@@ -21,15 +21,16 @@ function usageLine(api) {
   <div class="page">
     <h1 class="page-title">设置</h1>
 
-    <div class="section-label">角色</div>
+    <div class="section-label">TA</div>
     <div class="list-card">
       <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/role/${r.id}`)">
         <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="36" />
-        <span class="grow">{{ r.name }}<span class="sub">{{ r.signature || "点进去改头像、颜色" }}</span></span>
+        <span class="grow">{{ r.name }}<span class="sub">{{ r.signature || "点进去改名字、设定、头像、颜色" }}</span></span>
         <Icon name="right" class="chev" :size="18" />
       </button>
-      <button class="list-row add" @click="router.push('/settings/role/new')">
-        <Icon name="plus" :size="20" /> <span class="grow">添加角色</span>
+      <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')">
+        <Icon name="home" :size="20" /> <span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span>
+        <Icon name="right" class="chev" :size="18" />
       </button>
     </div>
 

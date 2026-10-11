@@ -3,7 +3,7 @@ import Icon from "./Icon.vue";
 defineProps({ active: String });
 const tabs = [
   { key: "home", to: "/", icon: "home", label: "主页", tint: "var(--pink)" },
-  { key: "chats", to: "/chats", icon: "chat", label: "通讯", tint: "var(--green)" },
+  { key: "chats", to: "/chat/main", icon: "chat", label: "通讯", tint: "var(--green)" },
   { key: "memory", to: "/memory", icon: "memory", label: "记忆", tint: "var(--yellow)" },
   { key: "settings", to: "/settings", icon: "settings", label: "设置", tint: "var(--blue)" },
 ];
@@ -44,4 +44,21 @@ const tabs = [
   transition: background .2s, color .2s;
 }
 .tab.on { color: var(--ink); background: var(--tint); }
+
+/* 平板横屏：导航竖着放在左边 */
+@media (min-width: 1000px) {
+  .tabbar {
+    left: calc(var(--safe-left, 0px) + 18px);
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    width: 60px;
+    height: auto;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 0;
+    border-radius: 30px;
+  }
+  .tab { width: 44px; height: 44px; }
+}
 </style>

@@ -12,7 +12,7 @@ import Icon from "../components/Icon.vue";
 const route = useRoute();
 const router = useRouter();
 const role = computed(() => roleById(route.params.roleId));
-if (!role.value) router.replace("/chats");
+if (!role.value) router.replace("/");
 const server = computed(() => role.value && serversForMode(role.value.id, "mail").find(isMailServer));
 const back = () => goBack(router, `/room/${role.value?.id}`);
 

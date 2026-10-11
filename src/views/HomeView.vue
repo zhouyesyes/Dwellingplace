@@ -75,6 +75,8 @@ function rename() {
   cursor: pointer;
 }
 .head { max-width: 680px; margin: 0 auto; padding: 0 18px; }
+@media (min-width: 760px) { .head { max-width: 820px; padding: 0 28px; } }
+@media (min-width: 1000px) { .home { padding-bottom: 40px; } }
 .ava { display: block; margin: -46px 0 0 4px; padding: 0; border: 0; background: none; border-radius: 50%; }
 .ava :deep(.avatar) { box-shadow: 0 0 0 3px #fff, 0 4px 14px rgba(40, 40, 60, .12); }
 h1 { margin: 12px 6px 6px; font-size: 1.5rem; font-weight: 700; letter-spacing: .5px; cursor: pointer; }
