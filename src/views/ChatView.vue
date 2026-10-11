@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, HUG_TEXT, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment } from "../lib/chat.js";
+import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment } from "../lib/chat.js";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
@@ -181,13 +181,6 @@ async function sendSticker(s) {
   if (busy.value) return;
   scrollToBottom(true);
   await sendMessage(thread.value, `[表情:${s.name}]`, [], { reply: false });
-}
-// 抱抱他：发一个小拥抱，他马上回应（接了心潮的话，心潮也会知道）
-async function hug() {
-  plusOpen.value = false;
-  if (busy.value) return;
-  scrollToBottom(true);
-  await sendMessage(thread.value, HUG_TEXT, [], { hug: true, reply: !!currentApi.value });
 }
 // 最后一条是自己的、他还没回：可以让他回复
 const needReply = computed(() => {
@@ -611,7 +604,6 @@ async function changeAvatarOf(who) {
         <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片</button>
         <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
         <button @click="plusOpen = false; stickerOpen = true"><span><Icon name="smile" :size="26" /></span>表情</button>
-        <button :disabled="busy" @click="hug"><span class="hug-ic"><Icon name="heart" :size="26" /></span>抱抱他</button>
       </div>
     </Sheet>
 
@@ -917,7 +909,6 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .grid-actions { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 12px 4px; padding: 6px 0 4px; }
 .grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .grid-actions button:disabled { opacity: .4; }
-.grid-actions span.hug-ic { color: #d9789a; background: #fbe7ee; }
 .bubble.hug { display: inline-flex; align-items: center; gap: 6px; background: #fbe7ee !important; color: #b4587a; }
 .grid-actions span { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 20px; background: var(--bg-deep); color: var(--ink); }
 

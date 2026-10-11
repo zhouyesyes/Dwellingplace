@@ -3,7 +3,6 @@ import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, today, fmtTokens } from "../store/index.js";
 import { syncState } from "../lib/sync.js";
-import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 
@@ -20,19 +19,6 @@ function usageLine(api) {
 <template>
   <div class="page">
     <h1 class="page-title">设置</h1>
-
-    <div class="section-label">他</div>
-    <div class="list-card">
-      <button v-for="r in store.roles" :key="r.id" class="list-row" @click="router.push(`/settings/role/${r.id}`)">
-        <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="36" />
-        <span class="grow">{{ r.name }}<span class="sub">{{ r.signature || "点进去改名字、设定、头像、颜色" }}</span></span>
-        <Icon name="right" class="chev" :size="18" />
-      </button>
-      <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')">
-        <Icon name="home" :size="20" /> <span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span>
-        <Icon name="right" class="chev" :size="18" />
-      </button>
-    </div>
 
     <div class="section-label">API</div>
     <div class="list-card">
@@ -73,8 +59,8 @@ function usageLine(api) {
         </div>
       </div>
       <button class="list-row" @click="router.push('/settings/media')"><Icon name="mic" :size="20" /><span class="grow">语音和画画<span class="sub">{{ ["stt", "tts", "image"].filter(k => store.media?.[k]?.enabled).map(k => ({ stt: "语音转文字", tts: "他的声音", image: "画画" })[k]).join("、") || "还没开：选好服务商再来填" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <button class="list-row" @click="router.push('/settings/stickers')"><Icon name="image" :size="20" /><span class="grow">表情包<span class="sub">{{ store.stickers?.length ? `${store.stickers.length} 张，他和你都能发` : "上传几张，他和你都能发" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/sync')"><Icon name="refresh" :size="20" /><span class="grow">同步<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "已开启：几台设备共用一份") : "手机、iPad、电脑共用一份栖所" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')"><Icon name="home" :size="20" /><span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/backup')"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
     </div>
   </div>

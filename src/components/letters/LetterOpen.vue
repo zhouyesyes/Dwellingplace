@@ -2,7 +2,6 @@
 // 拆信：信封在中间 → 封口翻开 → 信纸抽出来 → 展开成一整张纸（手写字）
 import { ref, watch, computed } from "vue";
 import "@fontsource/long-cang/400.css";
-import "@fontsource/ma-shan-zheng/400.css";
 
 const props = defineProps({ letter: Object });
 const emit = defineEmits(["close", "lock", "remove"]);
@@ -87,7 +86,7 @@ const dateText = d => { const [y, m, dd] = String(d || "").split("-"); return y 
   box-shadow: 0 20px 50px rgba(0, 0, 0, .25);
 }
 .his .paper {
-  background: #111a2b; color: #cfae66; font-family: "Ma Shan Zheng", cursive;
+  background: #111a2b; color: #cfae66; font-family: "Long Cang", cursive;
   background-image: repeating-linear-gradient(transparent 0 37px, rgba(201, 167, 92, .16) 37px 38px);
   background-position: 0 92px;
   box-shadow: inset 0 0 0 1px rgba(201, 167, 92, .5), inset 0 0 0 6px #111a2b, inset 0 0 0 7px rgba(201, 167, 92, .25), 0 20px 50px rgba(0, 0, 0, .4);
