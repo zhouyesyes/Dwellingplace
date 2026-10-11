@@ -189,10 +189,7 @@ function migrate() {
   store.widgets = (store.widgets || []).filter(w => w.type !== "chick"); // 主页不再放小鸡
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
-  store.settings.groupHistoryLimit ??= 80; // 群聊里大家每次看群里最近多少条
-  store.settings.surfacedLimit ??= 8; // 每轮附上几条心潮里浮现的记忆
-  store.settings.groupPrivateLimit ??= 40; // 群聊里 TA 能看到你们最近多少条私聊
-  store.settings.privateGroupLimit ??= 40; // 私聊里 TA 能看到最近多少条群聊
+  for (const k of ["groupHistoryLimit", "groupPrivateLimit", "privateGroupLimit", "surfacedLimit"]) delete store.settings[k]; // 群聊、浮现的记忆都去掉了
   store.settings.wakeHistoryLimit ??= 30; // TA 醒来时看最近多少条聊天
   store.settings.privacy ??= "";
   store.profile.userName ??= "";
@@ -260,23 +257,6 @@ export function modelFor(thread, role) {
   return api.model;
 }
 
-// ---------- 群聊 ----------
-export const groupById = id => store.groups.find(g => g.id === id);
-export const groupThread = gid => store.threads.find(t => t.groupId === gid) || null;
-export function createGroup(name, memberIds) {
-  const g = { id: uid(), name: name.trim() || "群聊", memberIds: [...memberIds], createdAt: Date.now() };
-  store.groups.push(g);
-  const t = { id: uid(), roleId: null, groupId: g.id, title: g.name, createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "", sel: {} };
-  store.threads.push(t);
-  messageCache[t.id] = [];
-  return g;
-}
-export async function deleteGroup(id) {
-  const t = groupThread(id);
-  if (t) await deleteThread(t.id);
-  store.groups.splice(store.groups.findIndex(g => g.id === id), 1);
-}
-
 // ---------- 对话 ----------
 export function createThread(roleId) {
   const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "", sel: {} };
@@ -293,7 +273,6 @@ export async function deleteThread(id) {
 
 export async function deleteRole(id) {
   for (const t of store.threads.filter(t => t.roleId === id)) await deleteThread(t.id);
-  for (const g of store.groups || []) g.memberIds = g.memberIds.filter(x => x !== id);
   store.roles.splice(store.roles.findIndex(r => r.id === id), 1);
 }
 

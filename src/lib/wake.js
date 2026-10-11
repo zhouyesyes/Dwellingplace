@@ -10,7 +10,7 @@ import { store, uid, roleById, threadsOf, createThread, loadMessages, saveMessag
 import { relayCall, searchEnabled } from "./search.js";
 import { serversFor, enabledTools, headerObj, toolDoc } from "./mcp.js";
 import { ROOT } from "./tree.js";
-import { buildSystem, pathOf, touchThread, applyReplyTags, meName, noteRecord, recentToolResults } from "./chat.js";
+import { buildSystem, pathOf, touchThread, applyReplyTags, meName, noteRecord, recentToolResults, afterSummary, summaryForAI } from "./chat.js";
 import { applyXinchaoMemoryTags, hasXinchao, xinchaoBase } from "./xinchao.js";
 
 export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
@@ -120,7 +120,7 @@ async function snapshotRole(role) {
   const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
   // 醒来一天好几次，每次都要把聊天记录整个发一遍：单独用一个小一点的上限
   const limit = Math.max(2, Math.min(Number(store.settings.historyLimit) || 80, Number(store.settings.wakeHistoryLimit ?? 30) || 30));
-  const history = path
+  const history = afterSummary(thread, path) // 整理成摘要的那段：只带摘要
     .filter(m => m.from !== "event" && !m.pending && !m.error)
     .slice(-limit)
     .flatMap(m => {
@@ -130,6 +130,8 @@ async function snapshotRole(role) {
       const post = noteRecord((m.notes || []).filter(n => !n.before));
       return [pre && { from: "user", text: pre, ts: m.ts }, { from: "ai", text: textOf(m), ts: m.ts }, post && { from: "user", text: post, ts: m.ts }].filter(Boolean);
     });
+  const sum = summaryForAI(thread);
+  if (sum) history.unshift({ from: "user", text: sum, ts: history[0]?.ts || Date.now() });
   // 最近用工具拿到的结果：醒来时也看得见（比如上一手游戏的状态）
   const recent = recentToolResults(path);
   if (recent) history.push({ from: "user", text: recent, ts: history.length ? history[history.length - 1].ts : Date.now() });

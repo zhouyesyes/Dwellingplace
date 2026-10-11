@@ -62,6 +62,7 @@ const planFinish = () => planDo(async () => {
   if (!form.key) form.key = "plan";
   toast("登录好了");
   await pullModels();
+  if (form.model) planContext(form.model);
 });
 const planLogout = () => {
   if (!confirm("退出 ChatGPT 登录？之后要重新登录才能用会员额度。")) return;
@@ -123,6 +124,15 @@ async function openPicker() {
 function pickDefault(m) {
   form.model = m;
   pickerOpen.value = false;
+  if (plan.value) planContext(m);
+}
+// 会员额度：模型列表里带了上下文上限的话，自动填上
+async function planContext(m) {
+  try {
+    const j = await planCall("/v1/models");
+    const ctx = Number(j.data?.find(x => x.id === m)?.context_window);
+    if (ctx > 1000) { form.contextLimit = ctx; toast(`${m} 的上下文上限是 ${fmtTokens(ctx)}，已经填上`); }
+  } catch { /* 拿不到就用自己填的 */ }
 }
 
 async function pullModels() {
