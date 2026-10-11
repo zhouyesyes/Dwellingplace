@@ -9,6 +9,7 @@ import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js"
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
+import { stickersForAI } from "./stickers.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
@@ -21,12 +22,14 @@ export const generating = reactive({});
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
+const AVATAR_RE = /\[头像[:：]\s*([^\]\n]{1,30})\]/g;
 const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
   return text
     .replace(SIG_RE, "")
+    .replace(AVATAR_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(ALARM_RE, "")
@@ -68,6 +71,19 @@ const shrinkCode = text => String(text || "").replace(/```(html|htm|svg)[^\n]*\n
   return `[我之前做的小网页${t ? `「${t}」` : ""}，代码省略了]`;
 });
 
+// 头像库：两张以上、允许他自己换的时候才告诉他（6 小时最多换一次）
+const canChangeAvatar = role => role.avatarAuto !== false && (role.avatars || []).length >= 2 && Date.now() - (role.avatarUpdatedAt || 0) >= 6 * 3600_000;
+function avatarForAI(role) {
+  const list = role.avatars || [];
+  if (role.avatarAuto === false || list.length < 2) return "";
+  const cur = list.find(a => a.img === role.avatar);
+  return [
+    `\n# 你的头像`,
+    `你有一个头像库：${list.map(a => a.name).join("、")}。${cur ? `现在用的是「${cur.name}」。` : ""}`,
+    canChangeAvatar(role) ? `心情变了、想换个样子的时候，可以在回复末尾另起一行写 [头像:名字] 换一个。不用常换。` : `刚换过头像，过一阵子才能再换。`,
+  ].join("\n");
+}
+
 function canChangeSignature(role) {
   if (role.sigLocked) return false;
   return Date.now() - (role.sigUpdatedAt || 0) >= (Number(role.sigCooldownHours) || 0) * 3600_000;
@@ -92,6 +108,8 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
+    avatarForAI(role),
+    stickersForAI(),
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
     hasXinchao(role) || wake ? "" : [ // 醒来时（中转那边）翻不了
       `\n# 翻记忆`,
@@ -505,7 +523,8 @@ export async function generate(thread, parentId) {
 
 // ---------- 上下文压缩 ----------
 // 聊得久了，前面的聊天整理成一段摘要（存在 thread.summary），之后只带「摘要 + 最近的聊天」。
-// 两种时候整理：上一次回复看的内容快到模型上限（七成），或者没整理的消息超过「每次能看到多少条」（不然最早的就看不到了）
+// 两种时候整理：上一次回复看的内容快到模型上限（七成），或者没整理的消息快到「每次能看到多少条」（差几条的时候就整理，
+// 不等它真的超过：超过了最早那几条就有一次是看不到的）
 export function afterSummary(thread, history) {
   const upTo = thread?.summary?.upTo;
   if (!upTo) return history;
@@ -527,7 +546,8 @@ async function maybeCompress(thread, role, last) {
   const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
   const ctx = last?.ctx0 || last?.ctx || last?.usage?.input || 0;
   const full = ctx > (Number(api?.contextLimit) || 200000) * 0.7;
-  if (!full && rest.length <= limit) return;
+  const early = Math.max(2, limit - Math.min(10, Math.floor(limit / 5))); // 100 条的话，到 90 条就整理
+  if (!full && rest.length < early) return;
   const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : Math.floor(limit / 2);
   const old = rest.slice(0, rest.length - keep);
   if (old.length < 6) return;
@@ -575,6 +595,16 @@ export function applyReplyTags(role, msg) {
       role.signature = newSig;
       role.sigUpdatedAt = Date.now();
       notes.push(`${role.name} 把签名改成了「${role.signature}」`);
+    }
+  }
+  const avs = [...msg.text.matchAll(AVATAR_RE)];
+  if (avs.length) {
+    msg.text = msg.text.replace(AVATAR_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+    const a = (role.avatars || []).find(x => x.name === avs.at(-1)[1].trim());
+    if (a && canChangeAvatar(role) && a.img !== role.avatar) {
+      role.avatar = a.img;
+      role.avatarUpdatedAt = Date.now();
+      notes.push(`${role.name} 换了头像：${a.name}`);
     }
   }
   return notes.map(n => {

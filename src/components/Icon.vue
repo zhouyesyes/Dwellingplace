@@ -38,6 +38,7 @@ const P = {
   bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5Z"/><path d="M10 20h4"/>',
   alarm: '<circle cx="12" cy="13" r="6.5"/><path d="M12 9.5V13l2.3 1.6M5 5.5 7.5 3.5M19 5.5l-2.5-2"/>',
   heart: '<path d="M12 19s-7-4.4-7-9.6A3.9 3.9 0 0 1 12 7.6a3.9 3.9 0 0 1 7 1.8C19 14.6 12 19 12 19Z"/>',
+  smile: '<circle cx="12" cy="12" r="8"/><path d="M8.8 13.8a4 4 0 0 0 6.4 0"/><path d="M9.5 10h.01M14.5 10h.01" stroke-width="2.2"/>',
   more: '<path d="M6.5 12h.01M12 12h.01M17.5 12h.01" stroke-width="2.6"/>',
 };
 </script>

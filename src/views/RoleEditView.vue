@@ -8,6 +8,7 @@ import { draftStyle } from "../lib/chat.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
 import Avatar from "../components/Avatar.vue";
+import Icon from "../components/Icon.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 
 const route = useRoute();
@@ -66,6 +67,27 @@ async function changeMyAvatar() {
   form.me.avatar = id;
 }
 
+// ---------- 头像库 ----------
+form.avatars ??= [];
+form.avatarAuto ??= true;
+async function addAvatar() {
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "加进头像库", maxSize: 500 });
+  if (!id) return;
+  const name = (prompt("给这张头像起个名字（他换的时候写这个，比如「晴天」「困了」）", "") || "").trim().slice(0, 20) || `头像${form.avatars.length + 1}`;
+  form.avatars.push({ id, name, img: id });
+  if (!form.avatar) form.avatar = id;
+}
+// 点一张：设为现在的头像，下面出现「改名 / 删掉」
+const picked = ref(null);
+function pickAvatar(a) { form.avatar = a.img; picked.value = a; }
+function renameAvatar(a) { const n = (prompt("新名字", a.name) || "").trim().slice(0, 20); if (n) a.name = n; }
+function dropAvatar(a) {
+  if (!confirm(`把「${a.name}」从头像库删掉？`)) return;
+  form.avatars.splice(form.avatars.indexOf(a), 1);
+  if (form.avatar !== a.img) deleteImage(a.img);
+  picked.value = null;
+}
+
 async function changeAvatar() {
   const id = await pickAndCrop({ aspect: 1, round: true, title: "调整头像", maxSize: 500 });
   if (!id) return;
@@ -106,6 +128,23 @@ async function remove() {
           <Avatar :img="form.avatar" :name="form.name" :color="form.color" :size="76" />
           <span>换头像</span>
         </button>
+      </div>
+
+      <div class="field">
+        <span>头像库<small>（放两张以上，他会按心情自己换；点一张就换成它）</small></span>
+        <div class="av-lib">
+          <button v-for="a in form.avatars" :key="a.id" class="av" :class="{ cur: a.img === form.avatar }" @click="pickAvatar(a)">
+            <Avatar :img="a.img" :name="a.name" :color="form.color" :size="52" />
+            <small>{{ a.name }}</small>
+          </button>
+          <button class="av add" @click="addAvatar"><span><Icon name="plus" :size="20" /></span><small>添加</small></button>
+        </div>
+        <div v-if="picked && form.avatars.includes(picked)" class="av-edit">
+          <span>「{{ picked.name }}」</span>
+          <button class="btn soft small" @click="renameAvatar(picked)">改名字</button>
+          <button class="btn soft small" @click="dropAvatar(picked)">从头像库删掉</button>
+        </div>
+        <label v-if="form.avatars.length >= 2" class="switch-row"><span>让他自己换头像<small class="sub-note">最多 6 小时换一次</small></span><input v-model="form.avatarAuto" type="checkbox" /></label>
       </div>
 
       <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：小机" /></label>
@@ -193,6 +232,12 @@ async function remove() {
 .field-hint { display: block; font-size: 0.75rem; color: var(--text-3); margin-top: 4px; }
 .body { padding: 18px; }
 .ava-row { display: flex; justify-content: center; margin-bottom: 14px; }
+.av-edit { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 0.85rem; color: var(--text-2); }
+.av-lib { display: flex; flex-wrap: wrap; gap: 10px; }
+.av { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px; border-radius: 16px; }
+.av.cur { background: var(--bg-deep); }
+.av small { font-size: 0.72rem; color: var(--text-2); max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av.add span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; border: 2px dashed var(--line); color: var(--text-3); }
 .ava-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .bubble-preview { align-self: flex-start; margin: 6px 4px 0; padding: 8px 14px; border-radius: 8px 18px 18px 18px; font-size: 0.93rem; color: var(--text); box-shadow: 0 0 0 1px var(--line); }
 .me-row { display: flex; gap: 14px; align-items: flex-start; }
