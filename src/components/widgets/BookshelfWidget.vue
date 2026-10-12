@@ -1,5 +1,5 @@
 <script setup>
-// 主页的小书架（共读）：大封面一本挨一本斜靠着，左右划的时候书跟着转；架子是素色的（白 / 灰 / 黑，在书架页的「…」里换）
+// 主页的小书架（共读）：大封面一本挨一本斜靠着，左右划的时候书跟着转；架子是素色的（白 / 灰 / 黑，点右上角的小圆点换）
 import { computed, ref, onMounted, nextTick, watch } from "vue";
 import { useRouter } from "vue-router";
 import { store } from "../../store/index.js";
@@ -33,12 +33,16 @@ function open(b, i) {
   if (Math.abs(d.value[i] ?? 0) > 0.6) track.value.scrollTo({ left: track.value.querySelectorAll(".bk")[i].offsetLeft - 18, behavior: "smooth" });
   else router.push(`/read/${b.id}`);
 }
+// 右上角的小圆点：白 → 灰 → 黑 轮着换架子颜色
+const TONES = ["light", "grey", "dark"];
+const nextTone = () => { store.settings.shelfTone = TONES[(TONES.indexOf(tone.value) + 1) % TONES.length]; };
 const go = () => { if (!props.editing) router.push("/books"); };
 </script>
 
 <template>
   <div class="bw" @click="go">
-    <div class="head"><b>Bookshelf</b><span v-if="fresh" class="dot">{{ fresh }} 张新便利贴</span><span v-else class="sub">{{ books.length ? `${books.length} 本` : "放一本书进来" }}</span></div>
+    <div class="head"><b>Bookshelf</b><span v-if="fresh" class="dot">{{ fresh }} 张新便利贴</span><span v-else class="sub">{{ books.length ? `${books.length} 本` : "放一本书进来" }}</span>
+      <button class="tone" :class="tone" aria-label="换书架颜色" @click.stop="nextTone"><i /></button></div>
     <div class="stage">
       <div ref="track" class="track" @scroll.passive="layout" @click.stop>
         <button v-for="(b, i) in books" :key="b.id" class="bk" :style="styleOf(i)" :aria-label="b.title" @click="open(b, i)"><BookCover :book="b" /></button>
@@ -52,8 +56,14 @@ const go = () => { if (!props.editing) router.push("/books"); };
 
 <style scoped>
 .bw { position: absolute; inset: 0; border-radius: inherit; padding: 12px 0 10px; background: var(--card); cursor: pointer; display: flex; flex-direction: column; }
-.head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 18px 2px; }
+.head { display: flex; align-items: baseline; padding: 0 18px 2px; }
 .head b { font-weight: 300; letter-spacing: .14em; font-size: 1.05rem; color: var(--text); }
+.head .sub, .head .dot { margin-left: auto; }
+.tone { margin-left: 8px; width: 22px; height: 22px; border: 0; padding: 0; border-radius: 50%; background: none; display: grid; place-items: center; align-self: center; }
+.tone i { width: 13px; height: 13px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, .14), 0 0 0 3px var(--card), 0 0 0 4px var(--line); }
+.tone.light i { background: #f4f1ec; }
+.tone.grey i { background: #a9a9ad; }
+.tone.dark i { background: #3a3a40; }
 .sub { font-size: .72rem; color: var(--text-3); }
 .dot { font-size: .7rem; color: var(--text-2); background: var(--bg-deep); padding: 2px 9px; border-radius: 999px; }
 .stage { position: relative; perspective: 700px; flex: 1; min-height: 0; display: flex; flex-direction: column; }

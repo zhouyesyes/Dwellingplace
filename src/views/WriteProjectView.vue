@@ -1,8 +1,8 @@
 <script setup>
-// 一本书（共写）：点进来就是和他的讨论。上面一条短短的页头图，像这本书的样子；
+// 一本书（共写）：点进来就是和他的讨论。上面一条短短的页头图（往下慢慢淡掉，讨论从它下面滑过去），像这本书的样子；
 // 右上角「资料」从右边滑出半边：封面、书名、书脊颜色、定位、简介，下面是一个个资料夹（卡片）。
 // 卡片上可以贴便利贴：你的黄色，他的蓝色；他的可以「采纳」（接到卡片里）或撕掉。讨论页的背景、气泡颜色可以自己换
-import { ref, computed, nextTick, onMounted } from "vue";
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, BUBBLE_COLORS } from "../store/index.js";
 import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
@@ -10,9 +10,9 @@ import { pickFile, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
 import TalkDrawer from "../components/write/TalkDrawer.vue";
 import BookDrawer from "../components/write/BookDrawer.vue";
-import WriteCover from "../components/write/WriteCover.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
+import { vAutoGrow } from "../lib/autogrow.js";
 import { describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -42,10 +42,23 @@ const textOn = c => {
   const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.55 ? "#fff" : "var(--text)";
 };
+// 共写室自己的字号（和聊天的分开调）
+const FONTS = { small: ["小", 0.92], standard: ["标准", 1.05], large: ["大", 1.18], xl: ["特大", 1.32] };
+const wf = computed(() => FONTS[store.settings.writeFont]?.[1] || FONTS.standard[1]);
 const look = computed(() => {
   const me = p.value?.bubbleMe || "#ffffff", ai = p.value?.bubbleAi || role.value?.bubbleColor || BUBBLE_COLORS[3];
-  return { "--spine": spine.value, "--me": me, "--me-text": textOn(me), "--ai": ai, "--ai-text": textOn(ai) };
+  return { "--spine": spine.value, "--me": me, "--me-text": textOn(me), "--ai": ai, "--ai-text": textOn(ai), "--wf": wf.value, "--dock": dockH.value + "px" };
 });
+// 输入框浮在最下面，讨论从它后面滑过去：量一下它多高，讨论底下留出这么多
+const dock = ref(null);
+const dockH = ref(80);
+let ro = null;
+onMounted(() => {
+  ro = new ResizeObserver(() => { if (dock.value) dockH.value = dock.value.offsetHeight; });
+  if (dock.value) ro.observe(dock.value);
+});
+onBeforeUnmount(() => ro?.disconnect());
+const growMax = Math.round(innerHeight * 0.4);
 async function swapImage(key, aspect, title) {
   const id = await pickAndCrop({ aspect, title, maxSize: 1800 });
   if (!id) return;
@@ -53,7 +66,7 @@ async function swapImage(key, aspect, title) {
   p.value[key] = id;
   if (old) deleteImage(old);
 }
-const changeBanner = () => swapImage("banner", innerWidth / (Math.min(innerWidth * 0.42, 200) + 47), "调整页头图");
+const changeBanner = () => swapImage("banner", innerWidth / (Math.min(innerWidth * 0.46, 220) + 47), "调整页头图");
 const changeBg = () => swapImage("bg", innerWidth / innerHeight, "调整背景");
 const changeCover = () => swapImage("cover", 2 / 3, "调整封面");
 function clearImage(key) { deleteImage(p.value[key]); p.value[key] = null; }
@@ -208,8 +221,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
   <div v-if="p" class="proj" :class="{ 'has-bg': bg }" :style="look">
     <div class="page-bg" :style="bg ? { backgroundImage: `url(${bg})` } : {}" />
 
-    <!-- 页头：一条短短的图（点一下换），上面是返回、搜索、资料、更多 -->
-    <header class="banner" :style="banner ? { backgroundImage: `url(${banner})` } : {}" @click.self="changeBanner">
+    <!-- 页头：一条短短的图，往下慢慢淡掉；上面是返回、搜索、资料、更多 -->
+    <header class="banner" :style="banner ? { backgroundImage: `url(${banner})` } : {}">
       <div class="bar">
         <button class="glass" aria-label="回书桌" @click="goBack(router, '/write')"><Icon name="back" :size="20" /></button>
         <span class="grow" />
@@ -218,13 +231,6 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <button class="glass" aria-label="更多" @click="menu = true"><Icon name="more" :size="19" /></button>
       </div>
     </header>
-    <div class="who">
-      <button class="cv" aria-label="这本书的资料" @click="shelf = true"><WriteCover :book="p" /></button>
-      <div class="names">
-        <h1>{{ p.title }}</h1>
-        <p>{{ p.pitch || `和${him}一起写` }}</p>
-      </div>
-    </div>
 
     <!-- 讨论 -->
     <div ref="box" class="msgs">
@@ -237,14 +243,16 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </div>
       <div v-if="sending" class="m ai"><p class="typing">在想……</p></div>
     </div>
-    <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
-    <div class="composer">
-      <button class="plus" aria-label="发图片或文件" @click="attachToTalk"><Icon name="plus" :size="20" /></button>
-      <textarea v-model="draft" rows="1" :placeholder="`想和${him}说的…`" @keydown.enter.exact.prevent="send" />
-      <button class="send" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
+    <div ref="dock" class="dock">
+      <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
+      <div class="composer">
+        <button class="plus" aria-label="发图片或文件" @click="attachToTalk"><Icon name="plus" :size="20" /></button>
+        <textarea v-model="draft" v-auto-grow="growMax" rows="1" :placeholder="`想和${him}说的…`" />
+        <button class="send" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
+      </div>
     </div>
 
-    <BookDrawer :open="shelf" :book="p" :him="him" @close="shelf = false" @cover="changeCover" @card="c => openCard(c)" @new="t => openCard(null, t)" @import="importMany" />
+    <BookDrawer :open="shelf" :book="p" :him="him" :wf="wf" @close="shelf = false" @cover="changeCover" @card="c => openCard(c)" @new="t => openCard(null, t)" @import="importMany" />
     <TalkDrawer :open="finder" :msgs="msgs" :me="role ? meName(role) : '我'" :him="him" @close="finder = false" @go="goMsg" @fav="favMsg" />
 
     <!-- 一张卡片 -->
@@ -317,6 +325,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="list-row"><Icon name="image" :size="20" /><span class="grow">背景</span>
           <button v-if="p.bg" class="btn soft small" @click="clearImage('bg')">恢复默认</button>
           <button class="btn soft small" @click="menu = false; changeBg()">换背景</button></div>
+        <div class="section-label">共写室的字号</div>
+        <div class="seg"><button v-for="(f, k) in FONTS" :key="k" :class="{ on: (store.settings.writeFont || 'standard') === k }" @click="store.settings.writeFont = k">{{ f[0] }}</button></div>
         <div class="section-label">我的气泡</div>
         <div class="swatch-row"><ColorSwatches :model-value="p.bubbleMe || '#ffffff'" :colors="BUBBLE_COLORS" @update:model-value="v => (p.bubbleMe = v)" /></div>
         <div class="section-label">{{ him }}的气泡</div>
@@ -329,32 +339,29 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 </template>
 
 <style scoped>
-/* 整页固定、里面自己滚：输入框不会被 iPhone 的键盘顶来顶去 */
-.proj { position: fixed; inset: 0; height: 100dvh; display: flex; flex-direction: column; padding-bottom: calc(var(--safe-bottom) + 12px); }
-.page-bg { position: absolute; inset: 0; z-index: -1; background: var(--bg); background-size: cover; background-position: center; }
+/* 整页固定、里面自己滚：输入框不会被 iPhone 的键盘顶来顶去。页头和输入框都浮在讨论上面，讨论从它们下面滑过去 */
+.proj { position: fixed; inset: 0; height: 100dvh; overflow: hidden; }
+.page-bg { position: absolute; inset: 0; background: var(--bg); background-size: cover; background-position: center; }
 .banner {
-  flex: none; position: relative; height: calc(var(--safe-top) + min(42vw, 200px)); cursor: pointer;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--spine) 55%, #fff) 0%, color-mix(in srgb, var(--spine) 22%, #fff) 60%, #fff 140%);
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: calc(var(--safe-top) + min(46vw, 220px)); pointer-events: none;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--spine) 60%, #fff) 0%, color-mix(in srgb, var(--spine) 25%, #fff) 70%);
   background-size: cover; background-position: center;
+  -webkit-mask-image: linear-gradient(#000 40%, rgba(0, 0, 0, .55) 70%, transparent); mask-image: linear-gradient(#000 40%, rgba(0, 0, 0, .55) 70%, transparent);
 }
-.bar { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 14px 0; pointer-events: none; }
+.bar { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 14px 0; }
 .bar button { pointer-events: auto; }
 .glass { position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; color: var(--ink); background: rgba(255, 255, 255, .72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(40, 40, 60, .1); }
 .glass .dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: #6aa7e0; box-shadow: 0 0 0 2px #fff; }
 .grow { flex: 1; }
-/* 封面一半在页头图上、一半在下面，和主页的头像一样 */
-.who { flex: none; display: flex; align-items: flex-end; gap: 12px; padding: 0 20px; margin: -40px auto 0; position: relative; max-width: 760px; width: 100%; box-sizing: border-box; }
-.cv { width: 58px; flex: none; border: 0; padding: 0; background: none; }
-.cv .wcover { font-size: 9px; box-shadow: 0 0 0 3px #fff, 0 6px 16px rgba(40, 40, 60, .16); }
-.names { min-width: 0; padding-bottom: 2px; }
-.names h1 { margin: 0; font-size: 1.25rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.names p { margin: 2px 0 0; font-size: .78rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.has-bg .names h1, .has-bg .names p { text-shadow: 0 1px 6px rgba(255, 255, 255, .9); }
-.msgs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 18px 12px; max-width: 760px; width: 100%; margin: 0 auto; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
-.hint { text-align: center; color: var(--text-3); font-size: .8rem; line-height: 1.8; margin: 22px 10px; }
+.msgs {
+  position: absolute; inset: 0; z-index: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch;
+  padding: calc(var(--safe-top) + min(46vw, 220px) * .62) max(18px, calc((100% - 760px) / 2)) calc(var(--dock) + var(--safe-bottom) + 24px);
+}
+.msgs > :first-child { margin-top: auto; }
+.hint { text-align: center; color: var(--text-3); font-size: calc(.8rem * var(--wf)); line-height: 1.8; margin: 22px 10px; }
 .has-bg .hint { color: var(--text-2); background: rgba(255, 255, 255, .7); border-radius: 14px; padding: 10px 12px; }
-.m { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
-.m p { margin: 0; padding: 10px 14px; border-radius: 18px; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; -webkit-touch-callout: none; }
+.m { max-width: 86%; display: flex; flex-direction: column; gap: 4px; flex: none; }
+.m p { margin: 0; padding: 10px 14px; border-radius: 18px; font-size: calc(.92rem * var(--wf)); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; -webkit-touch-callout: none; }
 .m.me { align-self: flex-end; align-items: flex-end; }
 .m.me p { background: var(--me); color: var(--me-text); box-shadow: var(--shadow-soft); border-bottom-right-radius: 6px; }
 .m.ai p { background: var(--ai); color: var(--ai-text); border-bottom-left-radius: 6px; }
@@ -362,15 +369,20 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .edited { font-size: .66rem; color: var(--text-3); padding: 0 6px; }
 .m.flash p { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px #f0c36a; } 100% { box-shadow: 0 0 0 0 transparent; } }
-.act { font-size: .72rem; color: var(--text-2); padding: 0 6px; }
+.act { font-size: calc(.72rem * var(--wf)); color: var(--text-2); padding: 0 6px; }
 .has-bg .act, .has-bg .edited { background: rgba(255, 255, 255, .75); border-radius: 999px; padding: 1px 8px; }
 .typing { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .5; } }
-.draft-atts { margin: 0 auto 8px; max-width: 724px; width: calc(100% - 36px); }
-.composer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: var(--card); border-radius: 22px; box-shadow: var(--shadow-soft); max-width: 724px; align-self: center; width: calc(100% - 36px); box-sizing: border-box; }
-.composer textarea { flex: 1; border: 0; outline: none; background: none; resize: none; font-size: .95rem; line-height: 1.5; padding: 6px 8px; max-height: 140px; field-sizing: content; }
-.send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; flex: none; }
-.plus { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
+.dock { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 3; display: flex; flex-direction: column; align-items: center; padding: 0 18px; pointer-events: none; }
+.dock > * { pointer-events: auto; width: 100%; max-width: 724px; box-sizing: border-box; }
+.draft-atts { margin-bottom: 8px; }
+.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: rgba(255, 255, 255, .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 24px; box-shadow: 0 6px 24px rgba(40, 40, 60, .1); }
+.composer textarea { flex: 1; min-width: 0; border: 0; outline: none; background: none; resize: none; font-size: calc(.95rem * var(--wf)); line-height: 1.55; padding: 7px 8px; overflow-y: hidden; }
+.send { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; flex: none; }
+.plus { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
+.seg { display: flex; gap: 6px; padding: 2px 4px 10px; }
+.seg button { border: 0; background: var(--bg); padding: 6px 14px; border-radius: 999px; font-size: .85rem; color: var(--text-2); }
+.seg button.on { background: var(--ink); color: #fff; font-weight: 600; }
 .ed { display: flex; flex-direction: column; gap: 10px; max-height: 78vh; overflow-y: auto; }
 .types { display: flex; gap: 6px; flex-wrap: wrap; }
 .types button { border: 0; background: var(--bg-deep); padding: 5px 12px; border-radius: 999px; font-size: .8rem; color: var(--text-2); }
