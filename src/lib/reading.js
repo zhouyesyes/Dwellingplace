@@ -113,6 +113,47 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question }) 
   return { text, notes };
 }
 
+// 「一起读这页」：只给他看你屏幕上这几段（不是整章），他挑一两处有感觉的地方贴便利贴。
+// 这是单独问的一次，不进聊天记录，所以读多少页都不会把聊天挤掉
+const ALONG_RE = /\[贴[:：]\s*(\d+)\s*[|｜]([^\]]{1,600})\]/g;
+export async function readAlong(role, b, { ch, chapterTitle, paras, from, to }) {
+  const { oneShot, meName, visibleText } = await import("./chat.js");
+  const me = meName(role);
+  const lines = [];
+  let n = 0;
+  for (let i = from; i <= to && i < paras.length; i++) {
+    const t = paras[i].trim();
+    if (!t) continue;
+    if (n + t.length > 3200) break;
+    lines.push(`[${i}] ${t}`);
+    n += t.length;
+  }
+  if (!lines.length) throw new Error("这一屏没有字");
+  const prompt = [
+    role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
+    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。下面是${me}这一屏正在读的几段，每段前面方括号里是段号：`,
+    lines.join("\n"),
+    `你也读一读。挑一两处真让你有感觉的地方（不用每段都说），在那段旁边贴一张便利贴，像在书页边上随手写给${me}的，每张不超过 100 字。`,
+    `每张另起一行写：[贴:段号|想说的话]。只写便利贴，别的不用写。`,
+    `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
+  ].filter(Boolean).join("\n");
+  const raw = await oneShot(role, prompt, { raw: true });
+  const { text: t1, notes } = applyReadMemTags(role, raw);
+  const out = [];
+  for (const [, idx, body] of t1.matchAll(ALONG_RE)) {
+    const p = Number(idx), text = visibleText(body).trim();
+    if (text && p >= from && p <= to && paras[p]) out.push({ p, text });
+  }
+  // 没按格式写：整段当一张，贴在这一屏中间那段
+  if (!out.length) {
+    const text = visibleText(t1.replace(ALONG_RE, "")).trim();
+    if (text) out.push({ p: Math.round((from + to) / 2), text: text.slice(0, 300) });
+  }
+  if (!out.length) throw new Error("他没有写什么");
+  markHisPos(b, ch, Math.max(...out.map(x => x.p)));
+  return { notes: out.slice(0, 3), memNotes: notes };
+}
+
 // 他的读后感：看过的便利贴、记下的读书笔记都给他，打几颗星、写一段
 export async function hisReview(role, b) {
   const { oneShot, meName } = await import("./chat.js");

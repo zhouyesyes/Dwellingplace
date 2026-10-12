@@ -1,12 +1,13 @@
 <script setup>
-// 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）。
+// 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）；右下角「一起读这页」→ 他读你这一屏，挑一两处贴便利贴。
+// 给他看的只有这一段 / 这一屏，而且是单独问的一次，不进聊天记录。
 // 读到哪记在书上（他在聊天里也知道你读到哪了）；便利贴贴在那一段下面：你的黄色，他的蓝色
 // 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）；读的时候计时（每天读了多久）
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
-import { askHim } from "../lib/reading.js";
+import { askHim, readAlong } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookInfo from "../components/books/BookInfo.vue";
@@ -108,6 +109,27 @@ async function ask() {
   }
 }
 
+// 一起读这页：看看屏幕上是哪几段，给他读
+const along = ref(false);
+async function readThisPage() {
+  const r = role.value, el = scroller.value;
+  if (!r || !el || along.value) return;
+  const top = el.scrollTop, bottom = top + el.clientHeight;
+  const seen = [...el.querySelectorAll("[data-p]")].filter(x => x.offsetTop + x.offsetHeight > top + 40 && x.offsetTop < bottom - 40).map(x => Number(x.dataset.p));
+  if (!seen.length) return toast("这一屏没有字");
+  along.value = true;
+  store.settings.readTip = true;
+  try {
+    const { notes, memNotes } = await readAlong(r, b.value, { ch: ch.value, chapterTitle: chapterTitle.value, paras: paras.value, from: Math.min(...seen), to: Math.max(...seen) });
+    for (const n of notes) addNote(b.value, { ch: ch.value, p: n.p, quote: paras.value[n.p], text: n.text, from: "ai" }).seen = true;
+    toast(memNotes[0] || `${r.name} 贴了 ${notes.length} 张便利贴`, 2500);
+  } catch (e) {
+    toast(`没读成：${describeError(e)}`, 4000);
+  } finally {
+    along.value = false;
+  }
+}
+
 // ---------- 读了多久：页面开着、最近两分钟里动过，每 15 秒记一笔 ----------
 let lastAct = Date.now();
 const act = () => (lastAct = Date.now());
@@ -182,6 +204,14 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </nav>
     </main>
 
+    <!-- 第一次来：告诉她怎么和他一起读 -->
+    <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
+      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />右下角「一起读这页」：{{ role?.name || "他" }}读你这一屏，在有感觉的地方贴便利贴。<b>知道了</b>
+    </div>
+    <button v-if="sel == null" class="along" :class="{ busy: along }" :disabled="along" @click="readThisPage">
+      <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : "一起读这页" }}
+    </button>
+
     <Transition name="pop">
       <div v-if="sel != null" class="actions">
         <button @click="openSheet('note')"><Icon name="edit" :size="18" />贴便利贴</button>
@@ -236,7 +266,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .bar .t { flex: 1; min-width: 0; text-align: center; display: flex; flex-direction: column; }
 .bar .t b { font-weight: 600; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar .t span { font-size: .72rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.page { flex: 1; overflow-y: auto; padding: 18px 24px calc(var(--safe-bottom) + 90px); max-width: 720px; width: 100%; margin: 0 auto; -webkit-overflow-scrolling: touch; }
+.page { flex: 1; overflow-y: auto; padding: 18px 24px calc(var(--safe-bottom) + 130px); max-width: 720px; width: 100%; margin: 0 auto; -webkit-overflow-scrolling: touch; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
 .page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
 .page > p.marked { text-decoration: underline wavy rgba(217, 164, 65, .45); text-underline-offset: 6px; }
@@ -252,6 +282,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .waiting p { color: var(--text-2); animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .45; } }
 .ch-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 30px 0 10px; font-size: .8rem; color: var(--text-2); }
+.along { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: #fff; font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
+.along.busy { animation: breathe 1.6s ease-in-out infinite; }
+.tip { position: fixed; left: 18px; right: 18px; bottom: calc(var(--safe-bottom) + 80px); z-index: 3; max-width: 520px; margin: 0 auto; padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .96); color: #3b3128; font-size: .82rem; line-height: 1.7; box-shadow: 0 10px 30px rgba(30, 30, 40, .16); }
+.tip b { display: block; text-align: right; margin-top: 4px; color: #b5852e; font-weight: 600; }
 .actions { position: fixed; left: 50%; bottom: calc(var(--safe-bottom) + 22px); transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; border-radius: 999px; background: var(--ink); box-shadow: 0 10px 30px rgba(30, 30, 40, .25); z-index: 3; }
 .actions button { display: flex; align-items: center; gap: 6px; border: 0; background: none; color: #fff; padding: 9px 14px; border-radius: 999px; font-weight: 600; font-size: .88rem; }
 .actions .x { padding: 9px 10px; opacity: .7; }
