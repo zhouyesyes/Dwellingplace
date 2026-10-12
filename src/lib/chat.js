@@ -57,8 +57,8 @@ export const meName = role => meOf(role).name || "对方";
 // 代码块（```…```）整段放在一个气泡里，不按空行拆开（还在写、没收尾的也算）
 export function splitBubbles(text) {
   const out = [];
-  // 语音、表情各自单独一个气泡
-  const vt = visibleText(text).replace(/[ \t]*\n?(\[(?:语音|表情)[:：][^\]\n]*\])\n?[ \t]*/g, "\n\n$1\n\n");
+  // 语音、表情、网址卡片各自单独一个气泡
+  const vt = visibleText(text).replace(/[ \t]*\n?(\[(?:语音|表情|网址卡片)[:：][^\]\n]*\])\n?[ \t]*/g, "\n\n$1\n\n");
   for (const part of vt.split(/(```[\s\S]*?(?:```|$))/)) {
     if (part.startsWith("```")) { if (part.trim()) out.push(part.trim()); continue; }
     for (const b of part.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)) {
@@ -140,6 +140,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
           `一次只搜一个关键词；普通聊天不需要搜索。`,
         ].join("\n")
       : "",
+    `\n# 发网址\n给${who}发网页、文章、视频时，可以单独一行写 [网址卡片:网址|标题|一句话说明]，会显示成一张好看的卡片；直接贴网址也会自动变成卡片。`,
     // 不再放手写的「设定」「关于我」：TA 是谁、知道对方什么，都来自上面的说话方式和心潮里的记忆
     // 对外保密：不用另外填，固定一句（以前填过的还接着带上）
     `\n# 对外保密\n发邮件、在网上（小红书等平台）发帖、留言，或者对任何外人说话时，不要透露${who}的私人信息：真名、住在哪、联系方式、工作学校、在哪写东西和笔名等等。${store.settings.privacy?.trim() ? `另外这些也不能说：\n${store.settings.privacy.trim()}` : ""}`,

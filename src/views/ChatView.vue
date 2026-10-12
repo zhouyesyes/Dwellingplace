@@ -16,6 +16,9 @@ import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
 import WorldDrawer from "../components/WorldDrawer.vue";
+import SearchPanel from "../components/SearchPanel.vue";
+import LinkCard from "../components/LinkCard.vue";
+import { cardOf, urlsIn, onlyUrl } from "../lib/linkcard.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
@@ -61,6 +64,7 @@ async function openThread(id) {
   await loadMessages(id);
   await nextTick();
   scrollToBottom(true);
+  settleAtBottom();
 }
 
 onMounted(async () => {
@@ -122,6 +126,29 @@ function nearBottom() {
 function scrollToBottom(force = false) {
   const el = scroller.value;
   if (el && (force || nearBottom())) el.scrollTop = el.scrollHeight;
+}
+// 刚打开时图片、表情、字体还在陆续加载，内容会一点点变高：头两秒一直贴着底，你一动手指就不管了
+let settleStop = null;
+function settleAtBottom() {
+  settleStop?.();
+  const el = scroller.value;
+  if (!el) return;
+  const stick = () => { el.scrollTop = el.scrollHeight; };
+  const ro = new ResizeObserver(stick);
+  for (const c of el.children) ro.observe(c);
+  const onImg = e => e.target.tagName === "IMG" && stick();
+  el.addEventListener("load", onImg, true);
+  const stop = () => {
+    ro.disconnect();
+    el.removeEventListener("load", onImg, true);
+    ["touchstart", "wheel"].forEach(t => el.removeEventListener(t, stop));
+    clearTimeout(timer);
+    settleStop = null;
+  };
+  ["touchstart", "wheel"].forEach(t => el.addEventListener(t, stop, { passive: true }));
+  const timer = setTimeout(stop, 2500);
+  settleStop = stop;
+  requestAnimationFrame(stick);
 }
 watch(
   () => { const l = messages.value; return l.length + ":" + (l[l.length - 1]?.text?.length ?? 0); },
@@ -448,19 +475,19 @@ async function removeMsg() {
 }
 
 const worldOpen = ref(false); // 小世界：右边滑出来的半边
+const searchOpen = ref(false); // 搜聊天：也是右边半边
 const smallWorld = () => (worldOpen.value = true);
 const back = () => goBack(router, "/");
 
-// 点聊天里的头像：换自己的（只在他面前用）或他的头像
+// 点聊天里的头像：换自己的（和主页共用一张）或他的头像
 async function changeAvatarOf(who) {
   const r = role.value, mine = who === "user";
-  if (!confirm(mine ? `换一个你在 ${r.name} 面前的头像？` : `换 ${r.name} 的头像？`)) return;
+  if (!confirm(mine ? "换一个你的头像？（主页上的也会一起换）" : `换 ${r.name} 的头像？`)) return;
   const id = await pickAndCrop({ aspect: 1, round: true, title: mine ? "我的头像" : `${r.name} 的头像`, maxSize: 500 });
   if (!id) return;
   if (mine) {
-    r.me ??= { name: "", avatar: null, about: "" };
-    const old = r.me.avatar;
-    r.me.avatar = id;
+    const old = store.profile.avatar;
+    store.profile.avatar = id;
     if (old) deleteImage(old);
   } else {
     const old = r.avatar;
@@ -507,7 +534,7 @@ async function changeAvatarOf(who) {
 
           <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'">
             <div class="ava">
-              <Avatar v-if="it.from === 'user'" :img="role.me?.avatar || store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" @click="changeAvatarOf('user')" />
+              <Avatar v-if="it.from === 'user'" :img="store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" @click="changeAvatarOf('user')" />
               <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" @click="changeAvatarOf('ai')" />
             </div>
             <div class="col">
@@ -526,7 +553,7 @@ async function changeAvatarOf(who) {
                   </div>
                   <div v-if="m.hug" class="bubble hug" @click="openActions(m)"><Icon name="heart" :size="16" />抱了抱 {{ role.name }}</div>
                   <img v-else-if="onlySticker(m.text)" :src="stickerUrl(onlySticker(m.text))" :alt="onlySticker(m.text).name" class="sticker" @click="openActions(m)" />
-                  <div v-else-if="m.text" class="bubble" @click="openActions(m)">{{ m.text }}</div>
+                  <template v-else-if="m.text"><div v-if="!onlyUrl(m.text)" class="bubble" @click="openActions(m)">{{ m.text }}</div><LinkCard v-for="u in urlsIn(m.text)" :key="u" :url="u" /></template>
                   <div v-if="vers(m).list.length > 1" class="ver">
                     <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
                     {{ vers(m).index + 1 }} / {{ vers(m).list.length }}
@@ -542,7 +569,7 @@ async function changeAvatarOf(who) {
                   <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><div v-else class="bubble" @click="openActions(src(m))" v-html="withStickers(inlineMd(b))" /></template>
+                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><LinkCard v-else-if="cardOf(b)" v-bind="cardOf(b)" /><template v-else><div v-if="!onlyUrl(b)" class="bubble" @click="openActions(src(m))" v-html="withStickers(inlineMd(b))" /><LinkCard v-for="u in urlsIn(b)" :key="u" :url="u" /></template></template>
                   <template v-if="!m._src || m._last">
                     <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
                     <div v-if="imgsOf(src(m)).length" class="att one" @click="viewImgs(src(m))"><ImgThumb :id="imgsOf(src(m))[0].img" /></div>
@@ -673,7 +700,8 @@ async function changeAvatarOf(who) {
       <p v-else class="tip">在「设置 → API」里给模型点星标，就会出现在这里</p>
     </Sheet>
 
-    <WorldDrawer :open="worldOpen" :role="role" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" />
+    <WorldDrawer :open="worldOpen" :role="role" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" @search="worldOpen = false; searchOpen = true" />
+    <SearchPanel :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="id => { searchOpen = false; router.push(`/chat/${role.id}/${id}`); }" />
 
     <!-- 消息操作：手指旁边一列小选项 -->
     <Teleport to="body">
@@ -820,17 +848,17 @@ async function changeAvatarOf(who) {
   cursor: pointer;
   user-select: text;
 }
-.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 5px; }
-.mine .bubble { background: #fff; border-bottom-right-radius: 5px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
+.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 10px; }
+.mine .bubble { background: #fff; border-bottom-right-radius: 10px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
 /* 小尖角：气泡下角往外弯出去一个小钩（颜色跟着气泡走） */
 .bubble { position: relative; }
 .bubble::after {
-  content: ""; position: absolute; bottom: -4px; width: 22px; height: 22px; background: inherit; pointer-events: none;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M22 1L12 1C12 11 7.5 17.5 0 22C8.5 21.5 15.5 19 19 15.5L22 15.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M22 1L12 1C12 11 7.5 17.5 0 22C8.5 21.5 15.5 19 19 15.5L22 15.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
+  content: ""; position: absolute; bottom: -4px; width: 24px; height: 23px; background: inherit; pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 23'%3E%3Cpath d='M24 0L13 0C13 8 11 13.5 5 18.2C3.2 19.6 4 22.3 6.4 22C13 21.2 18.6 18.6 21.5 14.5L24 14.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 23'%3E%3Cpath d='M24 0L13 0C13 8 11 13.5 5 18.2C3.2 19.6 4 22.3 6.4 22C13 21.2 18.6 18.6 21.5 14.5L24 14.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
 }
-.theirs .bubble::after { left: -12px; }
-.mine .bubble::after { right: -12px; transform: scaleX(-1); }
+.theirs .bubble::after { left: -11px; }
+.mine .bubble::after { right: -11px; transform: scaleX(-1); }
 .theirs .bubble.error { background: #fdecee; color: var(--danger); font-size: 0.9rem; }
 
 .typing { display: flex; gap: 5px; padding: 15px 16px; }

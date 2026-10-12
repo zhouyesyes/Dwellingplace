@@ -129,7 +129,9 @@ async function send(callHim) {
 .compose textarea.c-body { height: calc(var(--line) * 6); resize: none; overflow: hidden; }
 .foot { display: flex; flex-direction: column; align-items: flex-end; padding-top: var(--line); } /* 署名在上、日期在下，都靠右下 */
 .c-sign { font-size: 1.05em !important; font-weight: 500 !important; text-align: right; width: 60% !important; }
-.c-date { font-size: .85em !important; width: 10em !important; text-align: right; }
+.c-date { font-size: .85em !important; width: 10em !important; text-align: right; -webkit-appearance: none; appearance: none; min-height: 0; margin: 0 !important; }
+.c-date::-webkit-date-and-time-value { text-align: right; margin: 0; }
+.c-date::-webkit-datetime-edit { padding: 0; }
 .panel { margin-top: 12px; padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .94); }
 .lock input { width: 18px; height: 18px; accent-color: #3b3b43; flex: none; }
 .lock { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #6c665f; }

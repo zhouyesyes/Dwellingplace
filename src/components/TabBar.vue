@@ -3,7 +3,6 @@ import Icon from "./Icon.vue";
 defineProps({ active: String });
 const tabs = [
   { key: "home", to: "/", icon: "home", label: "主页", tint: "var(--pink)" },
-  { key: "chats", to: "/chat/main", icon: "chat", label: "通讯", tint: "var(--green)" },
   { key: "memory", to: "/memory", icon: "memory", label: "记忆", tint: "var(--yellow)" },
   { key: "settings", to: "/settings", icon: "settings", label: "设置", tint: "var(--blue)" },
 ];

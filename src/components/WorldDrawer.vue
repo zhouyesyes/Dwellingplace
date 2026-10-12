@@ -11,7 +11,7 @@ import Icon from "./Icon.vue";
 import LetterRack from "./letters/LetterRack.vue";
 
 const props = defineProps({ open: Boolean, role: Object });
-const emit = defineEmits(["close", "threads"]);
+const emit = defineEmits(["close", "threads", "search"]);
 const router = useRouter();
 
 const days = computed(() => Math.max(1, Math.ceil((Date.now() - (props.role?.createdAt || Date.now())) / 86400000)));
@@ -79,8 +79,11 @@ function tapRack() {
           <button class="row" @click="go('/settings/stickers')">
             <Icon name="smile" :size="20" /><span class="grow">表情包<small>{{ store.stickers?.length ? `${store.stickers.length} 张` : "上传几张，你们都能发" }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
+          <button class="row" @click="emit('search')">
+            <Icon name="search" :size="20" /><span class="grow">搜聊天<small>在你们说过的话里找，还有收藏</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
           <button class="row" @click="go('/memory')">
-            <Icon name="memory" :size="20" /><span class="grow">记忆<small>记忆卡片、搜聊天、收藏</small></span><Icon name="right" :size="16" class="chev" />
+            <Icon name="memory" :size="20" /><span class="grow">记忆<small>他记住的一张张卡片</small></span><Icon name="right" :size="16" class="chev" />
           </button>
         </aside>
       </div>
