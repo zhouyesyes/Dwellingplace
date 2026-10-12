@@ -8,6 +8,16 @@ import SubHeader from "../components/SubHeader.vue";
 
 const router = useRouter();
 
+const helperGroups = computed(() => store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })).filter(g => g.models.length));
+const helperKey = computed(() => {
+  const h = store.settings.helper;
+  return h && store.apis.some(a => a.id === h.apiId) ? `${h.apiId}\u0000${h.model}` : "";
+});
+function setHelper(v) {
+  if (!v) { store.settings.helper = null; return; }
+  const [apiId, model] = v.split("\u0000");
+  store.settings.helper = { apiId, model };
+}
 const usageToday = computed(() => store.usage[today()] || {});
 function usageLine(api) {
   const u = usageToday.value[api.id];
@@ -31,6 +41,16 @@ function usageLine(api) {
         </span>
         <Icon name="right" class="chev" :size="18" />
       </button>
+      <!-- 整理用的模型：聊天摘要、共读的前情、共写的总结（不是他自己想记的记忆） -->
+      <label class="list-row helper">
+        <Icon name="memory" :size="20" /><span class="grow">整理用的模型<span class="sub">摘要、前情、总结用它，可选便宜的</span></span>
+        <select :value="helperKey" @change="e => setHelper(e.target.value)">
+          <option value="">和他一样</option>
+          <optgroup v-for="g in helperGroups" :key="g.api.id" :label="g.api.name || '未命名'">
+            <option v-for="m in g.models" :key="m" :value="g.api.id + '\u0000' + m">{{ m }}</option>
+          </optgroup>
+        </select>
+      </label>
       <button class="list-row" @click="router.push('/settings/billing')">
         <Icon name="box" :size="20" /> <span class="grow">用量和余额<span class="sub">每天用了多少次、多少 tokens；DeepSeek、OpenRouter 的余额</span></span><Icon name="right" class="chev" :size="18" />
       </button>
@@ -70,4 +90,5 @@ function usageLine(api) {
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 9px; padding: 4px 12px; font-size: 0.87rem; color: var(--text-2); }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
+.helper select { max-width: 42%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 6px 8px; font-size: .82rem; color: var(--text); }
 </style>

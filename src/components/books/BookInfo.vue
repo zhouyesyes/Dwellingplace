@@ -86,6 +86,11 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
         </template>
       </section>
 
+      <section v-if="b.gist?.text">
+        <h4>{{ role?.name }} 读到这里的印象</h4>
+        <article class="mem"><p>{{ b.gist.text }}</p><small>记到{{ b.chapters[b.gist.upTo.ch]?.title || `第 ${b.gist.upTo.ch + 1} 章` }}</small></article>
+      </section>
+
       <section v-if="mems.length">
         <h4>{{ role?.name }} 的读书笔记</h4>
         <article v-for="m in mems" :key="m.id" class="mem"><b>{{ m.title }}</b><p>{{ m.content }}</p><small>{{ m.date }}</small></article>

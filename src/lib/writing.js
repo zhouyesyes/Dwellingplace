@@ -232,7 +232,7 @@ export async function summarize(role, p) {
     `最近的讨论：\n${list.slice(-24).map(m => `${m.from === "me" ? me : "你"}：${m.text.slice(0, 300)}`).join("\n")}`,
     `用两三句话写一张给自己的记忆卡：这本书现在写到哪、${me}最近在琢磨什么、卡在哪、你们定下了什么。不要细节，120 字以内。只写内容。`,
   ].filter(Boolean).join("\n");
-  const text = (await oneShot(role, prompt)).trim();
+  const text = (await oneShot(role, prompt, { helper: true })).trim();
   if (!text) return;
   if (prev) Object.assign(prev, { content: text, date: todayYmd(), ts: Date.now() });
   else {
