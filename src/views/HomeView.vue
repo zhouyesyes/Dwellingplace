@@ -1,11 +1,15 @@
 <script setup>
 import { ref, computed } from "vue";
-import { store, roleById } from "../store/index.js";
+import { useRouter } from "vue-router";
+import { store, roleById, MAIN } from "../store/index.js";
+import Icon from "../components/Icon.vue";
 import Avatar from "../components/Avatar.vue";
 import BioSheet from "../components/home/BioSheet.vue";
 import WidgetDesk from "../components/home/WidgetDesk.vue";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 
+const router = useRouter();
+const him = computed(() => roleById(MAIN));
 const cover = useImage(() => store.profile.cover);
 const bioOpen = ref(false);
 
@@ -45,9 +49,16 @@ function rename() {
   <div class="home">
     <div class="cover" :style="cover ? { backgroundImage: `url(${cover})` } : {}" @click="changeCover" />
     <div class="head">
-      <button class="ava" aria-label="更换头像" @click="changeAvatar">
-        <Avatar :img="store.profile.avatar" :name="store.profile.name" :color="store.profile.color" :size="86" />
-      </button>
+      <!-- 我和他的头像挨在一起；右边是进聊天的入口 -->
+      <div class="duo">
+        <button class="ava" aria-label="更换头像" @click="changeAvatar">
+          <Avatar :img="store.profile.avatar" :name="store.profile.name" :color="store.profile.color" :size="86" />
+        </button>
+        <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)">
+          <Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="86" />
+        </button>
+        <button v-if="him" class="talk" @click="router.push(`/chat/${MAIN}`)"><Icon name="chat" :size="18" />对话</button>
+      </div>
       <h1 @click="rename">{{ store.profile.name }}</h1>
 
       <div class="bio" @click="bioOpen = true">
@@ -77,7 +88,10 @@ function rename() {
 .head { max-width: 680px; margin: 0 auto; padding: 0 18px; }
 @media (min-width: 760px) { .head { max-width: 820px; padding: 0 28px; } }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
-.ava { display: block; margin: -46px 0 0 4px; padding: 0; border: 0; background: none; border-radius: 50%; }
+.duo { display: flex; align-items: flex-end; margin: -46px 0 0 4px; }
+.ava { display: block; padding: 0; border: 0; background: none; border-radius: 50%; position: relative; }
+.ava.his { margin-left: -16px; }
+.talk { margin: 0 2px 6px auto; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--ink); color: #fff; font-weight: 600; font-size: .9rem; box-shadow: 0 4px 14px rgba(40, 40, 60, .14); }
 .ava :deep(.avatar) { box-shadow: 0 0 0 3px #fff, 0 4px 14px rgba(40, 40, 60, .12); }
 h1 { margin: 12px 6px 6px; font-size: 1.5rem; font-weight: 700; letter-spacing: .5px; cursor: pointer; }
 

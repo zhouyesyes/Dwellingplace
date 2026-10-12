@@ -60,11 +60,13 @@ async function draft() {
   }
 }
 
+// 我的头像：和主页、聊天里的是同一张，换了马上生效
 async function changeMyAvatar() {
-  const id = await pickAndCrop({ aspect: 1, round: true, title: "我在他面前的头像", maxSize: 500 });
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "我的头像", maxSize: 500 });
   if (!id) return;
-  if (form.me.avatar && form.me.avatar !== original?.me?.avatar) deleteImage(form.me.avatar);
-  form.me.avatar = id;
+  const old = store.profile.avatar;
+  store.profile.avatar = id;
+  if (old) deleteImage(old);
 }
 
 // ---------- 头像库 ----------
@@ -174,7 +176,7 @@ async function remove() {
     <div class="card body">
       <div class="me-row">
         <button class="ava-btn" @click="changeMyAvatar">
-          <Avatar :img="form.me.avatar || store.profile.avatar" :name="form.me.name || store.profile.name" :color="store.profile.color" :size="56" />
+          <Avatar :img="store.profile.avatar" :name="form.me.name || store.profile.name" :color="store.profile.color" :size="56" />
           <span>我的头像</span>
         </button>
         <label class="field grow">
@@ -182,7 +184,6 @@ async function remove() {
           <input v-model.trim="form.me.name" class="input" placeholder="例如：存在" />
         </label>
       </div>
-      <button v-if="form.me.avatar" class="btn soft small" @click="form.me.avatar = null">头像改回主页的</button>
     </div>
 
     <div class="section-label">我是谁 · 说话的样子</div>

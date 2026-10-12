@@ -60,6 +60,7 @@ COPY --from=build /src/dist /app/dist
 COPY --from=build /src/deploy/qisuo-server/server.mjs /app/server.mjs
 COPY --from=build /src/deploy/qisuo-server/chatgpt.mjs /app/chatgpt.mjs
 COPY --from=build /src/deploy/qisuo-server/sync.mjs /app/sync.mjs
+COPY --from=build /src/deploy/qisuo-server/preview.mjs /app/preview.mjs
 ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data
 CMD ["node", "/app/server.mjs"]
 DOCKER

@@ -60,5 +60,6 @@ onBeforeUnmount(() => ro?.disconnect());
 .long .bot { -webkit-mask-image: linear-gradient(transparent, #000 35%); mask-image: linear-gradient(transparent, #000 35%); }
 /* 里面的东西都按「一行」排，才能一直压在横线上 */
 .lp :deep(*) { line-height: var(--line); margin: 0; }
-.lp > :deep(:not(.bg)) { position: relative; }
+/* 字往下挪一点，像是压在横线上写的，而不是飘在两条线中间 */
+.lp > :deep(:not(.bg)) { position: relative; top: calc(var(--line) * .16); }
 </style>

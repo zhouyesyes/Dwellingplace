@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { store, MAIN } from "../store/index.js";
 import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
 import { newServer, refreshTools, callToolRaw } from "../lib/mcp.js";
-import { get as idbGet } from "idb-keyval";
+import { serverBase } from "../lib/server.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
 
@@ -41,13 +41,6 @@ async function cropQr(dataUrl) {
   o.fillStyle = "#fff"; o.fillRect(0, 0, out.width, out.height);
   o.drawImage(c, x, y, w, h, 0, 0, out.width, out.height);
   return out.toDataURL("image/png");
-}
-// 服务器地址（带口令）：从同步地址、或者走自己服务器的 API 地址里找
-async function serverBase() {
-  const conf = await idbGet("sync:conf").catch(() => null);
-  const urls = [conf?.url, ...store.apis.map(a => a.baseUrl)].filter(Boolean);
-  for (const u of urls) { const m = String(u).match(/^(https?:\/\/[^/]+\/p\/[^/]+)\//); if (m) return m[1]; }
-  return "";
 }
 async function connectBrowser() {
   bBusy.value = "connect";

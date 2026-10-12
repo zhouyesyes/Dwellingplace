@@ -20,7 +20,7 @@ export const MAIN = "main";
 
 function defaults() {
   return {
-    version: 7,
+    version: 8,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard", historyLimit: 80, privacy: "" }, // privacy：对外保密，所有 AI 通用
@@ -189,6 +189,13 @@ function migrate() {
     else store.roles = store.roles.filter(r => r.id === MAIN);
     if (store.defaultApiId == null && store.apis[0]) store.defaultApiId = store.apis[0].id;
     store.version = 7;
+  }
+  if (store.version < 8) {
+    // 只有一个他了：我的头像不再分「主页的」和「在他面前的」，统一用一个（聊天里换过的那张优先）
+    for (const r of store.roles) {
+      if (r.me?.avatar) { store.profile.avatar = r.me.avatar; r.me.avatar = null; }
+    }
+    store.version = 8;
   }
   store.archive ??= emptyArchive();
   store.widgets = (store.widgets || []).filter(w => w.type !== "chick"); // 主页不再放小鸡

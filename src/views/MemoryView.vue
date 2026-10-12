@@ -1,5 +1,5 @@
 <script setup>
-// 记忆库：每个角色一个抽屉，里面是一张张记忆卡片
+// 记忆库：每个角色一个抽屉，里面是一张张记忆卡片（搜聊天和收藏搬到小世界里了）
 import { ref, reactive, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo } from "../store/index.js";
@@ -12,8 +12,6 @@ import Avatar from "../components/Avatar.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import XinchaoDrawer from "../components/xinchao/XinchaoDrawer.vue";
 import { hasXinchao } from "../lib/xinchao.js";
-import { searchChats, snippet, isFav, toggleFav, whoName } from "../lib/recall.js";
-import { meName } from "../lib/chat.js";
 
 // 记住上次看的是谁，下次进来还是他
 const LAST = "memory-last-role";
@@ -31,28 +29,6 @@ const role = computed(() => roleById(tab.value));
 const switchOpen = ref(false);
 // 接了心潮的角色：记忆都在心潮里
 const xinchao = computed(() => hasXinchao(role.value));
-
-// 三页：记忆卡片 / 搜聊天 / 收藏
-const VIEWS = { cards: "记忆卡片", chats: "搜聊天", favs: "收藏" };
-const view = ref("cards");
-const chatQ = ref("");
-const chatHits = ref([]);
-const searching = ref(false);
-const openHit = ref({});
-let qTimer = 0;
-watch([chatQ, tab], () => {
-  clearTimeout(qTimer);
-  qTimer = setTimeout(async () => {
-    if (!chatQ.value.trim() || !tab.value) { chatHits.value = []; return; }
-    searching.value = true;
-    try { chatHits.value = await searchChats(tab.value, chatQ.value, { limit: 100 }); } finally { searching.value = false; }
-  }, 300);
-});
-const favs = computed(() => (store.favorites || []).filter(f => f.roleId === tab.value));
-const me = computed(() => (role.value ? meName(role.value) : "我"));
-const when = ts => new Date(ts).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-const unfav = f => { store.favorites.splice(store.favorites.indexOf(f), 1); };
-const goChat = (threadId) => router.push(`/chat/${tab.value}/${threadId}`);
 
 const query = ref("");
 const cards = computed(() => {
@@ -137,41 +113,6 @@ function remove() {
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
 
     <template v-else>
-    <div class="views">
-      <button v-for="(l, k) in VIEWS" :key="k" :class="{ on: view === k }" @click="view = k">{{ l }}<template v-if="k === 'favs' && favs.length"> {{ favs.length }}</template></button>
-    </div>
-
-    <template v-if="view === 'chats'">
-      <div class="search">
-        <Icon name="search" :size="17" />
-        <input v-model="chatQ" placeholder="搜你们说过的话（空格隔开：都要有）" />
-      </div>
-      <div class="hits">
-        <article v-for="h in chatHits" :key="h.m.id" class="hit" :class="{ mine: h.m.from === 'user' }" @click="openHit[h.m.id] = !openHit[h.m.id]">
-          <div class="hit-meta"><span>{{ when(h.m.ts) }} · {{ h.m.from === "user" ? me : role.name }}</span>
-            <button class="star" :class="{ on: isFav(h.m) }" :aria-label="isFav(h.m) ? '取消收藏' : '收藏'" @click.stop="toggleFav(h.thread, h.m)"><Icon name="star" :size="17" /></button></div>
-          <p>{{ openHit[h.m.id] ? h.text : snippet(h.text, chatQ) }}</p>
-          <button v-if="openHit[h.m.id]" class="btn soft small" @click.stop="goChat(h.thread.id)">去这段对话</button>
-        </article>
-      </div>
-      <p v-if="searching" class="empty-hint">在找……</p>
-      <p v-else-if="chatQ.trim() && !chatHits.length" class="empty-hint">没有找到，换个词试试</p>
-      <p v-else-if="!chatQ.trim()" class="empty-hint">输入一个词，在你们所有的聊天里找。点一条看全文，点 ☆ 收藏。</p>
-    </template>
-
-    <template v-else-if="view === 'favs'">
-      <div class="hits">
-        <article v-for="f in favs" :key="f.id" class="hit" :class="{ mine: f.from === 'user' }" @click="openHit[f.id] = !openHit[f.id]">
-          <div class="hit-meta"><span>{{ when(f.ts) }} · {{ whoName(f, me) }}</span>
-            <button class="star on" aria-label="取消收藏" @click.stop="unfav(f)"><Icon name="star" :size="17" /></button></div>
-          <p :class="{ clamp: !openHit[f.id] }">{{ f.text }}</p>
-          <button v-if="openHit[f.id] && store.threads.some(t => t.id === f.threadId)" class="btn soft small" @click.stop="goChat(f.threadId)">去这段对话</button>
-        </article>
-      </div>
-      <p v-if="!favs.length" class="empty-hint">还没有收藏。在聊天里长按一条消息点「收藏」，或者在「搜聊天」里点 ☆。</p>
-    </template>
-
-    <template v-else>
     <div class="search">
       <Icon name="search" :size="17" />
       <input v-model="query" placeholder="搜索标题、内容、日期" />
@@ -184,7 +125,7 @@ function remove() {
         <h3>{{ m.title }}</h3>
         <p>{{ m.content }}</p>
         <div class="by">
-          <Avatar v-if="m.author === 'me'" :img="role.me?.avatar || store.profile.avatar" :name="authorInfo('me').name" :color="store.profile.color" :size="22" />
+          <Avatar v-if="m.author === 'me'" :img="store.profile.avatar" :name="authorInfo('me').name" :color="store.profile.color" :size="22" />
           <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="22" />
           <span>{{ m.author === "me" ? "我写的" : `${role.name} 写的` }}</span>
           <Icon name="right" :size="15" class="chev" />
@@ -198,7 +139,6 @@ function remove() {
     </p>
 
     <button v-if="role" class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="26" /></button>
-    </template>
     </template>
 
     <!-- 查看 -->

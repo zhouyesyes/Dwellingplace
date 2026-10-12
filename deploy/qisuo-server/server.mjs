@@ -11,6 +11,7 @@ import { join, extname, normalize } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { handleChatGPT } from "./chatgpt.mjs";
 import { handleSync } from "./sync.mjs";
+import { handlePreview } from "./preview.mjs";
 
 const PORT = Number(process.env.PORT) || 8080;
 const DIST = process.env.DIST || "/app/dist";
@@ -110,6 +111,7 @@ http.createServer(async (req, res) => {
       if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
       if (!sameToken(m[1])) { res.writeHead(401, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: "转发口令不对" } })); }
       if (m[2] === "sync") return await handleSync(req, res, m[3] || "", url.searchParams, CORS); // 多设备同步
+      if (m[2] === "preview") return await handlePreview(req, res, m[3] || "", url.searchParams, CORS); // 网址卡片
       // 清空他的浏览器（退出所有登录、换账号）：在共享的资料目录里放个记号，浏览器那边看到就清空重开
       if (m[2] === "chrome" && m[3] === "/__reset" && req.method === "POST") {
         const dir = process.env.CHROME_PROFILE;
