@@ -1,11 +1,10 @@
 <script setup>
 // 信箱：一个纸盒子，信封一封封竖着插在里面。
 //   half（小世界抽屉里）：从正面看，盒子挡板挡住下半截，信封露出上面一截，后面的高一点。
-//     active：盒子往左探出来一点，最近的信从新到旧轮流冒出来，上面写着标题
+//     平时收在右边只露一大半；active：整个往左抽出来，最近的信从新到旧轮流冒出来，上面写着标题
 //   完整（信箱页）：从上往下看进盒子，一封叠一封只露出上沿，最新的在最前面、整封露出来；点哪封拆哪封
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { paperOf, asset } from "../../lib/stationery.js";
-import "@fontsource/long-cang/400.css";
 
 const props = defineProps({ letters: { type: Array, default: () => [] }, half: Boolean, active: Boolean });
 const emit = defineEmits(["open"]);
@@ -72,7 +71,10 @@ const md = d => { const [, m, dd] = String(d || "").split("-"); return m ? `${Nu
 /* ---------- 抽屉里：正面 ---------- */
 .shelf { position: relative; overflow: hidden; padding-top: calc(var(--k) * 15px + 46px); container-type: inline-size; transition: padding-top .45s cubic-bezier(.3, .7, .3, 1), transform .45s cubic-bezier(.3, .7, .3, 1); }
 /* 点一下：盒子往左探出来，上面空出地方给冒头的信 */
-.shelf.active { padding-top: calc(var(--k) * 15px + 46px + 64px); transform: translateX(-14px) rotate(-1deg); }
+/* 平时：盒子收在右边、只露一大半，信封也往里沉一点；点一下：整个抽出来摆正，上面空出地方给冒头的信 */
+.shelf:not(.active) { padding-top: calc(var(--k) * 15px + 26px); transform: translateX(30%); }
+.shelf:not(.active) .envs { top: 6px; }
+.shelf.active { padding-top: calc(var(--k) * 15px + 46px + 64px); transform: rotate(-1deg); }
 .shelf.active .envs { top: 64px; }
 .envs { transition: top .45s cubic-bezier(.3, .7, .3, 1); }
 .pe { transition: translate .5s cubic-bezier(.3, .7, .3, 1); translate: 0 0; }
@@ -110,11 +112,11 @@ const md = d => { const [, m, dd] = String(d || "").split("-"); return m ? `${Nu
   padding: 2px 10px 3px; border-radius: 3px; background: rgba(255, 252, 245, .9); box-shadow: 0 1px 3px rgba(60, 40, 20, .2);
   transform: rotate(-1.5deg); color: var(--ink);
 }
-.t { font-family: "Long Cang", cursive; font-size: 1.15rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t { font-weight: 600; font-size: .95rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m { font-size: .68rem; opacity: .7; white-space: nowrap; }
 .lock { font-size: .75rem; }
 .new { width: 8px; height: 8px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f6dc9c, #c39a45); box-shadow: 0 0 6px 2px rgba(240, 205, 120, .8); align-self: center; animation: glow 2s ease-in-out infinite; }
 @keyframes glow { 50% { box-shadow: 0 0 2px 1px rgba(240, 205, 120, .5); } }
-.empty { text-align: center; color: #a08a70; font-family: "Long Cang", cursive; font-size: 1.3rem; margin: 50px 0; }
+.empty { text-align: center; color: #a08a70; font-size: 1rem; margin: 50px 0; }
 @media (prefers-reduced-motion: reduce) { .pe, .new { animation: none; } }
 </style>

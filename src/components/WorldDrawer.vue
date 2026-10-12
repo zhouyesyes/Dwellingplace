@@ -1,6 +1,6 @@
 <script setup>
 // 小世界：聊天页右上角点开，从右边滑出来的半边（后面的聊天虚掉）。
-// 上面是他；下面是对话和背景、信箱（点一下盒子往左探出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
+// 上面是他（点卡片进他的设定）；下面是对话和背景、唤醒、语音和画画、信箱（平时收在右边，点一下整个抽出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { store, threadsOf, today } from "../store/index.js";
@@ -19,6 +19,7 @@ const letters = computed(() => (props.role ? lettersOf(props.role.id) : []));
 const unread = computed(() => letters.value.filter(l => l.from !== "me" && !l.readAt).length);
 const todayCalls = computed(() => Object.values(store.usage[today()] || {}).reduce((a, u) => a + (u.calls || 0), 0));
 const hasMail = computed(() => props.role && !!serversForMode(props.role.id, "mail").find(isMailServer));
+const mediaOn = computed(() => ["stt", "tts", "image"].filter(k => store.media?.[k]?.enabled).map(k => ({ stt: "语音转文字", tts: "他的声音", image: "画画" })[k]).join("、"));
 const go = path => { emit("close"); router.push(path); };
 const rackOut = ref(false);
 watch(() => props.open, o => { if (!o) rackOut.value = false; });
@@ -36,13 +37,14 @@ function tapRack() {
           <h2 class="script">Little World</h2>
 
           <div class="top">
-            <div class="me-card">
+            <div class="me-card" role="button" @click="go('/settings/role/' + role.id)">
               <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="52" />
               <div class="grow">
                 <div class="name">{{ role.name }} <i class="online" /></div>
                 <div class="days">{{ days }} days</div>
                 <div class="tiny">{{ role.signature || "still here" }}</div>
               </div>
+              <Icon name="right" :size="16" class="chev" />
             </div>
             <div class="mini">
               <span>信 {{ letters.length }}</span>
@@ -54,8 +56,11 @@ function tapRack() {
           <button class="row" @click="emit('threads')">
             <Icon name="chat" :size="20" /><span class="grow">对话<small>换一段对话、新对话、背景和气泡颜色</small></span><Icon name="right" :size="16" class="chev" />
           </button>
-          <button class="row" @click="go('/settings/role/' + role.id)">
-            <Icon name="settings" :size="20" /><span class="grow">他的设定<small>名字、头像库、说话的样子</small></span><Icon name="right" :size="16" class="chev" />
+          <button class="row" @click="go('/settings/wake')">
+            <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ store.wake?.enabled ? "已开启：他会自己醒来" : "让他按时间自己醒来，给你发消息" }}</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
+          <button class="row" @click="go('/settings/media')">
+            <Icon name="mic" :size="20" /><span class="grow">语音和画画<small>{{ mediaOn || "还没开：选好服务商再来填" }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
 
           <p class="sec">信箱 <em>letters</em></p>
@@ -91,24 +96,24 @@ function tapRack() {
   background: rgba(248, 247, 245, .86); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
   border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
 }
-.script { margin: 2px 0 14px; text-align: center; font-family: "Snell Roundhand", "Apple Chancery", "Brush Script MT", Georgia, serif; font-style: italic; font-weight: 400; font-size: 1.9rem; color: #3b3b43; }
+.script { margin: 2px 0 14px; text-align: center; font-weight: 300; letter-spacing: .12em; font-size: 1.9rem; color: #3b3b43; }
 .top { display: flex; gap: 8px; }
 .me-card, .mini, .row, .rack-card { background: rgba(255, 255, 255, .62); border: 1px solid rgba(255, 255, 255, .7); box-shadow: 0 2px 10px rgba(40, 40, 60, .05); }
-.me-card { flex: 1; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 18px; min-width: 0; }
+.me-card { cursor: pointer;  flex: 1; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 18px; min-width: 0; }
 .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .online { width: 7px; height: 7px; border-radius: 50%; background: #5fc77a; display: inline-block; }
-.days { font-family: Georgia, "Times New Roman", serif; font-size: 1.6rem; line-height: 1.15; }
+.days { font-weight: 500; font-size: 1.6rem; line-height: 1.15; }
 .tiny { font-size: 0.72rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini { width: 72px; border-radius: 18px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; font-size: 0.75rem; color: var(--text-2); }
 .mini span + span { border-top: 1px solid var(--line); padding-top: 10px; }
 .sec { margin: 18px 6px 8px; font-size: 0.85rem; font-weight: 600; color: var(--text); }
-.sec em, .sec:first-of-type { font-family: Georgia, serif; font-style: italic; font-weight: 400; color: var(--text-3); }
+.sec em, .sec:first-of-type { font-style: normal; font-weight: 300; letter-spacing: .06em; color: var(--text-3); }
 .row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 16px; margin-bottom: 8px; text-align: left; color: var(--text); font-size: 0.95rem; }
 .row small { display: block; font-size: 0.72rem; color: var(--text-2); margin-top: 1px; }
 .row.dim { opacity: .55; }
 .grow { flex: 1; min-width: 0; }
 .chev { color: var(--text-3); }
-.rack-card { border-radius: 18px; padding: 10px 10px 8px; cursor: pointer; transition: box-shadow .3s; }
+.rack-card { border-radius: 18px; padding: 10px 10px 8px; cursor: pointer; transition: box-shadow .3s; overflow: hidden; }
 .rack-card.out { box-shadow: 0 10px 28px rgba(60, 40, 20, .16); }
 .rack-foot { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-2); padding: 6px 6px 0; }
 .link { color: var(--ink); }

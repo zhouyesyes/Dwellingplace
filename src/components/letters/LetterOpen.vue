@@ -17,11 +17,12 @@ watch(() => props.letter, l => {
 }, { immediate: true });
 const paper = computed(() => props.letter && paperOf(props.letter));
 const his = computed(() => props.letter?.from !== "me");
-// 每一帧相对合上时信封宽度的大小，底边对齐
+// 四帧都按「信封下面那块四方形」对齐：一样宽、左右和底边都对上（素材里每帧画得大小不一）
+//   w：整张图宽 / 四方形宽；l：四方形左边离图左边多远；b：底边下面还有多少；h：四方形底边以上多高（都按四方形宽算）
 const frames = computed(() => {
   const f = paper.value?.g.frames || [];
   const hmax = Math.max(...f.map(x => x.h), 0.1);
-  return { hmax, list: f.map((x, i) => ({ src: paper.value.env[i], w: x.w, h: x.h })) };
+  return { hmax, list: f.map((x, i) => ({ src: paper.value.env[i], ...x })) };
 });
 const dateText = d => { const [y, m, dd] = String(d || "").split("-"); return y ? `${y} 年 ${Number(m)} 月 ${Number(dd)} 日` : ""; };
 </script>
@@ -31,7 +32,7 @@ const dateText = d => { const [y, m, dd] = String(d || "").split("-"); return y 
     <div v-if="letter" class="lo-mask" @click="emit('close')">
       <div class="stage" @click.stop>
         <div v-if="step < 4" class="env" :style="{ aspectRatio: `1 / ${frames.hmax}` }">
-          <img v-for="(f, i) in frames.list" :key="i" :src="f.src" alt="" :class="{ on: i === step }" :style="{ width: `${f.w * 100}%` }" />
+          <img v-for="(f, i) in frames.list" :key="i" :src="f.src" alt="" :class="{ on: i === step }" :style="{ width: `${f.w * 100}%`, left: `${-f.l * 100}%`, bottom: `${-f.b * 100}cqw` }" />
         </div>
         <div v-else class="sheet">
           <button class="x" aria-label="收起" @click="emit('close')">×</button>
@@ -59,18 +60,18 @@ const dateText = d => { const [y, m, dd] = String(d || "").split("-"); return y 
 .stage { width: min(100%, 440px); }
 
 /* ---------- 信封 ---------- */
-.env { position: relative; width: 82%; margin: 0 auto; animation: drop .45s ease-out; }
+.env { position: relative; width: 82%; margin: 0 auto; animation: drop .45s ease-out; container-type: inline-size; }
 @keyframes drop { from { transform: translateY(30px) scale(.9); opacity: 0; } }
-.env img { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); opacity: 0; transition: opacity .35s ease; filter: drop-shadow(0 14px 22px rgba(0, 0, 0, .25)); }
+.env img { position: absolute; opacity: 0; transition: opacity .35s ease; filter: drop-shadow(0 14px 22px rgba(0, 0, 0, .25)); }
 .env img.on { opacity: 1; }
 
 /* ---------- 信纸 ---------- */
 .sheet { position: relative; max-height: 88vh; overflow-y: auto; border-radius: 4px; animation: unfold .6s cubic-bezier(.2, .8, .2, 1); transform-origin: 50% 20%; scrollbar-width: none; }
 .sheet::-webkit-scrollbar { display: none; }
 @keyframes unfold { from { transform: translateY(40px) scale(.7); opacity: 0; } }
-h2 { font-size: 1.5em; font-weight: 400; text-align: center; padding-bottom: var(--line); }
+h2 { font-size: 1.3em; font-weight: 600; text-align: center; padding-bottom: var(--line); }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; min-height: calc(var(--line) * 4); }
-.sign { text-align: right; font-size: 1.15em; padding-top: var(--line); }
+.sign { text-align: right; font-size: 1.05em; font-weight: 500; padding-top: var(--line); }
 .date { text-align: right; font-size: .85em; opacity: .85; }
 .x { position: absolute; right: 6px; top: 2px; z-index: 2; border: 0; background: none; font-size: 1.6rem; color: rgba(60, 50, 40, .6); }
 .meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .9); font-family: -apple-system, "PingFang SC", sans-serif; font-size: 0.8rem; color: #8a8580; }

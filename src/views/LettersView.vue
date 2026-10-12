@@ -107,7 +107,7 @@ async function send(callHim) {
 <style scoped>
 .letters { min-height: 100%; padding: calc(var(--safe-top) + 16px) 18px calc(var(--safe-bottom) + 40px); max-width: 560px; margin: 0 auto; }
 .head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.head h1 { margin: 0; font-size: 1.3rem; font-family: Georgia, "Songti SC", serif; }
+.head h1 { margin: 0; font-size: 1.3rem; font-weight: 600; }
 .sub { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-2); }
 .grow { flex: 1; }
 .head .btn { display: flex; align-items: center; gap: 4px; }
@@ -125,10 +125,10 @@ async function send(callHim) {
 .pick img { width: 58px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .3)); }
 .compose input:not([type=checkbox]), .compose textarea { font: inherit; color: inherit; background: none; border: 0; outline: none; width: 100%; padding: 0; display: block; line-height: var(--line); height: var(--line); }
 .compose ::placeholder { color: inherit; opacity: .4; }
-.c-title { font-size: 1.5em !important; text-align: center; margin-bottom: var(--line) !important; }
+.c-title { font-size: 1.3em !important; font-weight: 600 !important; text-align: center; margin-bottom: var(--line) !important; }
 .compose textarea.c-body { height: calc(var(--line) * 6); resize: none; overflow: hidden; }
 .foot { display: flex; flex-direction: column; align-items: flex-end; padding-top: var(--line); } /* 署名在上、日期在下，都靠右下 */
-.c-sign { font-size: 1.15em !important; text-align: right; width: 60% !important; }
+.c-sign { font-size: 1.05em !important; font-weight: 500 !important; text-align: right; width: 60% !important; }
 .c-date { font-size: .85em !important; width: 10em !important; text-align: right; }
 .panel { margin-top: 12px; padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .94); }
 .lock input { width: 18px; height: 18px; accent-color: #3b3b43; flex: none; }

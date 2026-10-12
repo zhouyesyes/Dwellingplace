@@ -4,7 +4,6 @@ import { useRouter } from "vue-router";
 import { store, today, fmtTokens } from "../store/index.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
-import BigTextarea from "../components/BigTextarea.vue";
 
 const router = useRouter();
 
@@ -42,15 +41,8 @@ function usageLine(api) {
     <div class="section-label">聊天</div>
     <p class="hint moved">他每次看得到多少条消息，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调。</p>
 
-    <div class="section-label">对外保密</div>
-    <div class="card body privacy">
-      <p class="hint">所有 AI 通用。他发邮件、在花园等地方发东西时，都不会说出这里写的事。</p>
-      <BigTextarea v-model="store.settings.privacy" rows="3" title="对外保密" placeholder="比如：我的真名、住在哪里、在哪个平台写小说、笔名是什么" />
-    </div>
-
     <div class="section-label">更多</div>
     <div class="list-card">
-      <button class="list-row" @click="router.push('/settings/wake')"><Icon name="bell" :size="20" /><span class="grow">唤醒<span class="sub">{{ store.wake?.enabled ? "已开启：他会自己醒来" : "让他按时间自己醒来，给你发消息" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
@@ -58,7 +50,6 @@ function usageLine(api) {
           <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
         </div>
       </div>
-      <button class="list-row" @click="router.push('/settings/media')"><Icon name="mic" :size="20" /><span class="grow">语音和画画<span class="sub">{{ ["stt", "tts", "image"].filter(k => store.media?.[k]?.enabled).map(k => ({ stt: "语音转文字", tts: "他的声音", image: "画画" })[k]).join("、") || "还没开：选好服务商再来填" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/sync')"><Icon name="refresh" :size="20" /><span class="grow">同步<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "已开启：几台设备共用一份") : "手机、iPad、电脑共用一份栖所" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')"><Icon name="home" :size="20" /><span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/backup')"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
@@ -69,8 +60,6 @@ function usageLine(api) {
 <style scoped>
 .moved { font-size: 0.82rem; color: var(--text-3); line-height: 1.7; margin: 0 6px 18px; }
 .add { color: var(--text-2); }
-.privacy { padding: 14px 16px; }
-.privacy .hint { margin: 0 0 8px; font-size: 0.8rem; color: var(--text-3); }
 .api-dot { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--bg-deep); color: var(--text-2); }
 .api-dot.def { background: var(--yellow); color: var(--ink); }
 .tag { font-size: 0.733rem; background: var(--yellow); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }

@@ -820,8 +820,17 @@ async function changeAvatarOf(who) {
   cursor: pointer;
   user-select: text;
 }
-.theirs .bubble { background: var(--their); color: var(--their-text); border-top-left-radius: 8px; }
-.mine .bubble { background: #fff; border-top-right-radius: 8px; box-shadow: 0 1px 3px rgba(40, 40, 60, .06); }
+.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 5px; }
+.mine .bubble { background: #fff; border-bottom-right-radius: 5px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
+/* 小尖角：气泡下角往外弯出去一个小钩（颜色跟着气泡走） */
+.bubble { position: relative; }
+.bubble::after {
+  content: ""; position: absolute; bottom: -4px; width: 22px; height: 22px; background: inherit; pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M22 1L12 1C12 11 7.5 17.5 0 22C8.5 21.5 15.5 19 19 15.5L22 15.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M22 1L12 1C12 11 7.5 17.5 0 22C8.5 21.5 15.5 19 19 15.5L22 15.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
+}
+.theirs .bubble::after { left: -12px; }
+.mine .bubble::after { right: -12px; transform: scaleX(-1); }
 .theirs .bubble.error { background: #fdecee; color: var(--danger); font-size: 0.9rem; }
 
 .typing { display: flex; gap: 5px; padding: 15px 16px; }
