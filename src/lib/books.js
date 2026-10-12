@@ -1,0 +1,157 @@
+// 共读：书架上的书。一本书一个项目。
+//   store.books      [{ id, title, author, cover, chapters: [{ title, n }], pos: { ch, p }, addedAt, readAt }]
+//                    cover：封面图（images 里的 id），没有就画一个纯色的；n：这一章有几段
+//   book:<id>        正文 { chapters: [{ title, paras: [段落…] }] }（单独存，会跟着同步到各台设备）
+//   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen }]
+//                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你看没看过）
+import { unzipSync, strFromU8 } from "fflate";
+import { store, uid } from "../store/index.js";
+import { get, set, del } from "./kv.js";
+import { saveImage, deleteImage } from "./images.js";
+
+const key = id => `book:${id}`;
+const cache = new Map(); // 读过的正文先放着，翻章不用每次去 IndexedDB 拿
+export async function loadBook(id) {
+  if (!cache.has(id)) cache.set(id, (await get(key(id))) || { chapters: [] });
+  return cache.get(id);
+}
+export const bookById = id => (store.books || []).find(b => b.id === id);
+export const notesOf = (bookId, ch) => (store.bookNotes || []).filter(n => n.bookId === bookId && (ch == null || n.ch === ch));
+
+// ---------- 导入 ----------
+export async function importBook(file) {
+  const name = file.name.replace(/\.[^.]+$/, "");
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const isEpub = /\.epub$/i.test(file.name) || (buf[0] === 0x50 && buf[1] === 0x4b);
+  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name);
+  const chapters = parsed.chapters.filter(c => c.paras.length);
+  if (!chapters.length) throw new Error("这本书里没读出文字");
+  const id = uid();
+  await set(key(id), { chapters });
+  cache.set(id, { chapters });
+  store.books ??= [];
+  store.books.push({
+    id,
+    title: (parsed.title || name).slice(0, 80),
+    author: (parsed.author || "").slice(0, 40),
+    cover: parsed.cover ? await saveImage(parsed.cover, { maxSize: 600, quality: 0.85 }) : null,
+    chapters: chapters.map(c => ({ title: c.title, n: c.paras.length })),
+    pos: { ch: 0, p: 0 },
+    addedAt: Date.now(),
+    readAt: 0,
+  });
+  return id;
+}
+
+export async function removeBook(b) {
+  store.books.splice(store.books.indexOf(b), 1);
+  store.bookNotes = (store.bookNotes || []).filter(n => n.bookId !== b.id);
+  if (b.cover) deleteImage(b.cover);
+  cache.delete(b.id);
+  await del(key(b.id));
+}
+
+// TXT：先当 UTF-8 读，读不通就当 GBK（国内很多 txt 小说是 GBK）
+function decodeTxt(buf) {
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { /* 不是 UTF-8 */ }
+  try { return new TextDecoder("gb18030").decode(buf); } catch { return new TextDecoder().decode(buf); }
+}
+const CH_RE = /^\s*(第[零〇一二两三四五六七八九十百千万0-9０-９]+[章回节卷集部篇幕].{0,30}|序章.{0,20}|楔子.{0,20}|引子.{0,20}|尾声.{0,20}|番外.{0,30}|后记.{0,20}|Chapter\s*\d+.{0,40}|CHAPTER\s*\d+.{0,40})\s*$/;
+function parseTxt(buf, name) {
+  const lines = decodeTxt(buf).replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
+  const chapters = [];
+  let cur = { title: "开头", paras: [] };
+  for (const l of lines) {
+    if (CH_RE.test(l) && l.length <= 40) {
+      if (cur.paras.length || chapters.length) chapters.push(cur);
+      cur = { title: l, paras: [] };
+    } else cur.paras.push(l);
+  }
+  chapters.push(cur);
+  // 第一章前面只有书名、作者这一两行：不算一章
+  if (chapters.length > 1 && chapters[0].title === "开头" && chapters[0].paras.join("").length < 60) chapters.shift();
+  // 没有章节标题的 txt：每 60 段切一节，免得一章太长
+  if (chapters.length === 1 && cur.paras.length > 120) {
+    const all = cur.paras, out = [];
+    for (let i = 0; i < all.length; i += 60) out.push({ title: `第 ${out.length + 1} 节`, paras: all.slice(i, i + 60) });
+    return { title: name, chapters: out };
+  }
+  return { title: name, chapters };
+}
+
+// EPUB：其实是个 zip。按 spine（阅读顺序）一篇篇拿出正文；目录里有名字就用目录的名字
+async function parseEpub(buf) {
+  const files = unzipSync(buf);
+  const text = p => (files[p] ? strFromU8(files[p]) : "");
+  const xml = s => new DOMParser().parseFromString(s, "application/xml");
+  const dir = p => p.replace(/[^/]*$/, "");
+  const join = (base, rel) => {
+    const out = [];
+    for (const seg of (base + decodeURIComponent(rel.split("#")[0])).split("/")) {
+      if (seg === "..") out.pop(); else if (seg && seg !== ".") out.push(seg);
+    }
+    return out.join("/");
+  };
+  const opfPath = xml(text("META-INF/container.xml")).querySelector("rootfile")?.getAttribute("full-path");
+  if (!opfPath) throw new Error("这个 epub 打不开（找不到目录文件）");
+  const opf = xml(text(opfPath));
+  const base = dir(opfPath);
+  const items = {};
+  for (const it of opf.querySelectorAll("manifest > item")) items[it.getAttribute("id")] = { href: join(base, it.getAttribute("href")), type: it.getAttribute("media-type") || "", props: it.getAttribute("properties") || "" };
+  const meta = tag => opf.getElementsByTagNameNS("*", tag)[0]?.textContent?.trim() || "";
+
+  // 目录里的章节名：EPUB3 的 nav 或 EPUB2 的 toc.ncx
+  const labels = {};
+  const navItem = Object.values(items).find(i => /\bnav\b/.test(i.props));
+  if (navItem) {
+    const nav = new DOMParser().parseFromString(text(navItem.href), "text/html");
+    for (const a of nav.querySelectorAll("nav a[href]")) labels[join(dir(navItem.href), a.getAttribute("href"))] ??= a.textContent.trim();
+  }
+  const ncxItem = Object.values(items).find(i => /ncx/.test(i.type));
+  if (ncxItem) {
+    const ncx = xml(text(ncxItem.href));
+    for (const np of ncx.getElementsByTagNameNS("*", "navPoint")) {
+      const src = np.getElementsByTagNameNS("*", "content")[0]?.getAttribute("src");
+      const lab = np.getElementsByTagNameNS("*", "text")[0]?.textContent?.trim();
+      if (src && lab) labels[join(dir(ncxItem.href), src)] ??= lab;
+    }
+  }
+
+  const chapters = [];
+  for (const ref of opf.querySelectorAll("spine > itemref")) {
+    const it = items[ref.getAttribute("idref")];
+    if (!it || !/html|xml/.test(it.type)) continue;
+    const doc = new DOMParser().parseFromString(text(it.href), "text/html");
+    const blocks = [...doc.body?.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre") || []].filter(e => !e.querySelector("p, li, blockquote"));
+    let paras = blocks.map(e => e.textContent.replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (!paras.length) paras = (doc.body?.textContent || "").split(/\n+/).map(s => s.trim()).filter(Boolean);
+    if (paras.join("").length < 20) continue; // 封面、版权页这种几乎没字的跳过
+    const h = doc.querySelector("h1, h2, h3")?.textContent.trim();
+    chapters.push({ title: (labels[it.href] || h || doc.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras });
+  }
+
+  // 封面：properties="cover-image"，或者 <meta name="cover" content="图片的 id">
+  let coverItem = Object.values(items).find(i => /cover-image/.test(i.props));
+  if (!coverItem) { const cid = opf.querySelector('meta[name="cover"]')?.getAttribute("content"); if (cid) coverItem = items[cid]; }
+  const cover = coverItem && /^image\//.test(coverItem.type) && files[coverItem.href] ? new Blob([files[coverItem.href]], { type: coverItem.type }) : null;
+  return { title: meta("title"), author: meta("creator"), cover, chapters };
+}
+
+// ---------- 读到哪了、便利贴 ----------
+export function savePos(b, ch, p) {
+  b.pos = { ch, p };
+  b.readAt = Date.now();
+}
+export function addNote(b, { ch, p, quote, text, from }) {
+  store.bookNotes ??= [];
+  const n = { id: uid(), bookId: b.id, ch, p, quote: (quote || "").slice(0, 120), text: text.trim().slice(0, 1000), from, ts: Date.now(), seen: false };
+  store.bookNotes.push(n);
+  return n;
+}
+export function removeNote(n) {
+  store.bookNotes.splice(store.bookNotes.indexOf(n), 1);
+}
+
+// 没封面的书：按书名挑一个颜色
+const TONES = ["#c9b8a6", "#9fb4c7", "#c4a7b5", "#a9bfa4", "#b9adc9", "#d1b48c", "#8fa3a8", "#c79e8f"];
+export const toneOf = b => TONES[[...(b.title || "")].reduce((a, c) => a + c.codePointAt(0), 0) % TONES.length];
