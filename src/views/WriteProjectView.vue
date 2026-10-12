@@ -325,6 +325,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="list-row"><Icon name="image" :size="20" /><span class="grow">背景</span>
           <button v-if="p.bg" class="btn soft small" @click="clearImage('bg')">恢复默认</button>
           <button class="btn soft small" @click="menu = false; changeBg()">换背景</button></div>
+        <div class="section-label">聊几轮，{{ him }}把讨论记进记忆库一次</div>
+        <div class="seg"><button v-for="n in [4, 8, 12, 20]" :key="n" :class="{ on: (store.settings.writeSumEvery || 8) === n }" @click="store.settings.writeSumEvery = n">{{ n }} 轮</button></div>
         <div class="section-label">共写室的字号</div>
         <div class="seg"><button v-for="(f, k) in FONTS" :key="k" :class="{ on: (store.settings.writeFont || 'standard') === k }" @click="store.settings.writeFont = k">{{ f[0] }}</button></div>
         <div class="section-label">我的气泡</div>

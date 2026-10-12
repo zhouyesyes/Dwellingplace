@@ -2,7 +2,7 @@
 //   系统提示：有个书架；他可以写 [便利贴:书名|原文里的一小句|想说的话]，贴在那句话旁边
 //   【此刻】：最近在读哪本、读到哪；你新贴的便利贴（他看过就记下）
 //   读书笔记：他读到觉得有意思、对自己有用的，写 [读书笔记:书名|标题|内容]，记进他的记忆库（带着是哪本书）
-//   读到这里的印象（b.gist = { text, upTo: {ch, p}, at }）：每读过三千来字，用「整理用的模型」把前情缩成一小段。
+//   读到这里的印象（b.gist = { text, upTo: {ch, p}, at }）：每读过三千来字（可以调），用「整理用的模型」把前情缩成一小段。
 //   一起读、问问他、写读后感、平时聊天，都带着它（和这本书最近的便利贴、他的读书笔记），他才接得上前面
 import { store, uid } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
@@ -69,7 +69,8 @@ export async function updateGist(role, b, upTo) {
 export async function maybeGist(role, b, upTo) {
   const book = await loadBook(b.id);
   const from = b.gist?.upTo || { ch: 0, p: 0 };
-  if (before(from, upTo) && textBetween(book, from, upTo, 3200).length >= 3000) updateGist(role, b, upTo).catch(e => console.warn("共读印象没更新", e));
+  const every = Number(store.settings.readGistChars) || 3000; // 每读多少字整理一次（共读的 Aa 里能调）
+  if (before(from, upTo) && textBetween(book, from, upTo, every + 200).length >= every) updateGist(role, b, upTo).catch(e => console.warn("共读印象没更新", e));
 }
 // 给他看的「这本书你们读到哪了」：印象 + 最近的便利贴 + 他的读书笔记
 function bookContext(b, me) {
@@ -177,7 +178,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question }) 
 // 「一起读」：只给他看你最近读的这几页（不是整章，最多七千来字），他挑两三处有感觉的地方贴便利贴。
 // 这是单独问的一次，不进聊天记录，所以读多少页都不会把聊天挤掉
 const ALONG_RE = /\[贴[:：]\s*(\d+)\s*[|｜]([^\]]{1,600})\]/g;
-export async function readAlong(role, b, { ch, chapterTitle, paras, from, to }) {
+export async function readAlong(role, b, { ch, chapterTitle, paras, from, to, pages = 3 }) {
   const { oneShot, meName, visibleText } = await import("./chat.js");
   const me = meName(role);
   const lines = [];
@@ -186,7 +187,7 @@ export async function readAlong(role, b, { ch, chapterTitle, paras, from, to }) 
   for (let i = Math.min(to, paras.length - 1); i >= from; i--) {
     const t = paras[i].trim();
     if (!t) continue;
-    if (n + t.length > 7200 && lines.length) { from = i + 1; break; }
+    if (n + t.length > 2400 * pages && lines.length) { from = i + 1; break; }
     lines.unshift(`[${i}] ${t}`);
     n += t.length;
   }

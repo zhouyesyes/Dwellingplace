@@ -197,7 +197,7 @@ export async function talk(role, p, text, atts = []) {
   await saveTalk(p.id);
   touch(p.id);
   p.sinceSum = (p.sinceSum || 0) + 1;
-  if (p.sinceSum >= 8) summarize(role, p).catch(e => console.warn("共写总结失败", e));
+  if (p.sinceSum >= (Number(store.settings.writeSumEvery) || 8)) summarize(role, p).catch(e => console.warn("共写总结失败", e));
   return { reply, notes };
 }
 
