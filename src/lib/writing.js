@@ -94,7 +94,33 @@ export async function loadTalk(pid) {
   if (!talks[pid]) talks[pid] = (await get(`wtalk:${pid}`)) || [];
   return talks[pid];
 }
-const saveTalk = pid => set(`wtalk:${pid}`, JSON.parse(JSON.stringify(talks[pid] || [])));
+export const saveTalk = pid => set(`wtalk:${pid}`, JSON.parse(JSON.stringify(talks[pid] || [])));
+// 讨论里的一条：删掉（只删这一条）、从这条往后都去掉（重新回答 / 改了重发用）
+export async function dropTalkMsg(pid, id) {
+  const list = await loadTalk(pid);
+  const i = list.findIndex(m => m.id === id);
+  if (i >= 0) list.splice(i, 1);
+  await saveTalk(pid);
+}
+async function cutTalkAfter(pid, id, keep) {
+  const list = await loadTalk(pid);
+  const i = list.findIndex(m => m.id === id);
+  if (i >= 0) list.splice(keep ? i + 1 : i);
+}
+// 他这条重新说一遍
+export async function regenTalk(role, p, id) {
+  await cutTalkAfter(p.id, id, false);
+  return talk(role, p, "");
+}
+// 改了自己那句，从那里重新聊
+export async function editTalkAndResend(role, p, id, text) {
+  const m = (await loadTalk(p.id)).find(x => x.id === id);
+  if (!m) return;
+  m.text = text.trim();
+  m.edited = true;
+  await cutTalkAfter(p.id, id, true);
+  return talk(role, p, "");
+}
 
 // 这本书给他看的样子：标题 + 每张卡片（太长的截断）
 function projectText(p, limit = 9000) {
@@ -146,6 +172,7 @@ export async function talk(role, p, text, atts = []) {
   const me = meName(role);
   const list = await loadTalk(p.id);
   if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
+  else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
   const recent = list.slice(-16).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",

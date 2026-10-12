@@ -4,10 +4,12 @@
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
-import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES } from "../lib/writing.js";
+import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES } from "../lib/writing.js";
 import { pickFile, deleteImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
-import { describeError } from "../lib/chat.js";
+import TalkDrawer from "../components/write/TalkDrawer.vue";
+import BigTextarea from "../components/BigTextarea.vue";
+import { describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
@@ -126,6 +128,61 @@ async function send() {
   }
 }
 
+// 讨论里的一句：点一下，手指旁边弹出复制、收藏、修改、重新回答、删除（都只在这本书里）
+const actionMsg = ref(null);
+const menuPos = ref({});
+let tapAt = { x: innerWidth / 2, y: innerHeight / 2 };
+function openActions(m, e) {
+  if (sending.value) return;
+  tapAt = { x: e.clientX, y: e.clientY };
+  const w = 188, x = Math.min(Math.max(tapAt.x - w / 2, 12), innerWidth - w - 12);
+  menuPos.value = tapAt.y > innerHeight * 0.55 ? { left: x + "px", bottom: innerHeight - tapAt.y + 10 + "px" } : { left: x + "px", top: tapAt.y + 10 + "px" };
+  actionMsg.value = m;
+}
+const take = () => { const m = actionMsg.value; actionMsg.value = null; return m; };
+async function copyMsg() {
+  const m = take();
+  try { await navigator.clipboard.writeText(m.text || ""); toast("已复制"); } catch { toast("复制失败，浏览器不允许"); }
+}
+function favMsg(m = take()) {
+  m.fav = !m.fav;
+  saveTalk(p.value.id);
+  toast(m.fav ? "收藏好了，右上角放大镜里能找到" : "取消收藏了");
+}
+const fixing = ref(null); // { msg, text }
+function startEdit() { const m = take(); fixing.value = { msg: m, text: m.text || "" }; }
+async function saveEdit(resend) {
+  const { msg, text } = fixing.value;
+  fixing.value = null;
+  if (!resend) { msg.text = text.trim(); msg.edited = true; await saveTalk(p.value.id); return; }
+  await run(() => editTalkAndResend(role.value, p.value, msg.id, text));
+}
+async function regen() { const m = take(); await run(() => regenTalk(role.value, p.value, m.id)); }
+async function removeMsg() {
+  const m = take();
+  if (!confirm("删除这一句？")) return;
+  await dropTalkMsg(p.value.id, m.id);
+}
+async function run(fn) {
+  if (sending.value || !role.value) return;
+  sending.value = true;
+  down();
+  try { await fn(); } catch (e) { toast(describeError(e), 4000); } finally { sending.value = false; down(); }
+}
+// 搜索 / 收藏（右边半边）
+const drawer = ref(false);
+async function openDrawer() { msgs.value = await loadTalk(p.value.id); drawer.value = true; }
+const flash = ref("");
+async function goMsg(id) {
+  drawer.value = false;
+  tab.value = "talk";
+  msgs.value = await loadTalk(p.value.id);
+  await nextTick();
+  document.getElementById("wm-" + id)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  flash.value = id;
+  setTimeout(() => { if (flash.value === id) flash.value = ""; }, 1800);
+}
+
 // ---------- 这本书 ----------
 const menu = ref(false);
 function rename() { const t = prompt("书名", p.value.title); if (t?.trim()) p.value.title = t.trim().slice(0, 60); }
@@ -149,6 +206,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <header class="head">
       <button class="icon-btn" aria-label="回书桌" @click="goBack(router, '/write')"><Icon name="back" /></button>
       <div class="t"><i class="spine" :style="{ background: SPINES[p.color % SPINES.length] }" /><h1>{{ p.title }}</h1></div>
+      <button class="icon-btn" aria-label="搜索和收藏" @click="openDrawer"><Icon name="search" /></button>
       <button class="icon-btn" aria-label="更多" @click="menu = true"><Icon name="more" /></button>
     </header>
     <nav class="tabs">
@@ -179,9 +237,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <div v-else class="talk">
       <div ref="box" class="msgs">
         <p v-if="!msgs.length" class="hint">坐下来，和{{ role?.name || "他" }}聊聊这本书：卡在哪、想试什么、哪里不对劲。他会看着你的卡片说。</p>
-        <div v-for="m in msgs" :key="m.id" class="m" :class="m.from">
+        <div v-for="m in msgs" :id="'wm-' + m.id" :key="m.id" class="m" :class="[m.from, { flash: flash === m.id }]">
           <AttList v-if="m.atts?.length" :atts="m.atts" small />
-          <p v-if="m.text">{{ m.text }}</p>
+          <p v-if="m.text" role="button" @click="openActions(m, $event)">{{ m.text }}<i v-if="m.fav" class="fav">★</i></p>
+          <small v-if="m.edited" class="edited">改过</small>
           <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
         </div>
         <div v-if="sending" class="m ai"><p class="typing">在想……</p></div>
@@ -234,6 +293,31 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <button class="list-row" @click="addMenu = false; openCard(null)"><Icon name="edit" :size="20" /><span class="grow">写一张{{ filter === "all" ? "" : CARD_TYPES[filter].label }}卡片</span></button>
         <button class="list-row" :disabled="importing" @click="addMenu = false; importMany()"><Icon name="upload" :size="20" /><span class="grow">导入图片、文件<small class="sub">每个文件一张卡片，放进{{ filter === "all" ? "资料" : CARD_TYPES[filter].label }}</small></span></button>
       </div>
+    </Sheet>
+
+    <TalkDrawer :open="drawer" :msgs="msgs" :me="role ? meName(role) : '我'" :him="role?.name || '他'" @close="drawer = false" @go="goMsg" @fav="favMsg" />
+
+    <!-- 讨论里一句话的小选项 -->
+    <Teleport to="body">
+      <div v-if="actionMsg" class="ctx-mask" @click="actionMsg = null" @contextmenu.prevent>
+        <div class="ctx-menu" :style="menuPos" @click.stop>
+          <button @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
+          <button @click="favMsg()"><Icon name="star" :size="17" />{{ actionMsg.fav ? "取消收藏" : "收藏" }}</button>
+          <button @click="startEdit"><Icon name="edit" :size="17" />修改</button>
+          <button v-if="actionMsg.from === 'ai'" :disabled="sending" @click="regen"><Icon name="refresh" :size="17" />重新回答</button>
+          <button class="danger" @click="removeMsg"><Icon name="trash" :size="17" />删除</button>
+        </div>
+      </div>
+    </Teleport>
+
+    <Sheet :open="!!fixing" title="修改" @close="fixing = null">
+      <template v-if="fixing">
+        <BigTextarea v-model="fixing.text" rows="7" title="修改" />
+        <div class="row edit-actions">
+          <button class="btn soft" @click="saveEdit(false)">仅保存</button>
+          <button v-if="fixing.msg.from === 'me'" class="btn" :disabled="sending" @click="saveEdit(true)">保存并让他重新回答</button>
+        </div>
+      </template>
     </Sheet>
 
     <Sheet :open="menu" :title="`《${p.title}》`" @close="menu = false">
@@ -289,6 +373,12 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .m.me { align-self: flex-end; align-items: flex-end; }
 .m.me p { background: #fff; box-shadow: var(--shadow-soft); }
 .m.ai p { background: var(--blue); }
+.m p { cursor: pointer; -webkit-touch-callout: none; }
+.fav { font-style: normal; color: #e0a53a; font-size: .7rem; margin-left: 6px; }
+.edited { font-size: .66rem; color: var(--text-3); padding: 0 6px; }
+.m.flash p { animation: flash 1.8s ease-out; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px #f0c36a; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.edit-actions { justify-content: flex-end; margin-top: 12px; }
 .act { font-size: .72rem; color: var(--text-2); padding: 0 6px; }
 .typing { color: var(--text-2); animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .5; } }
