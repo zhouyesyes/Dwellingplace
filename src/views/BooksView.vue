@@ -72,9 +72,12 @@ const TONES = { light: "白", grey: "灰", dark: "黑" };
       </div>
     </header>
 
-    <p class="eyebrow">COREAD · 共读室</p>
-    <h1 class="big">Read,<br /><em>together.</em></h1>
-    <p class="lead">一个人读书，也有{{ role?.name || "他" }}在页边陪你。</p>
+    <!-- 标题：大大的「共读」，右边一行竖着的小字；下面是一道细线和这间屋子的一句话 -->
+    <div class="title">
+      <h1>共读</h1>
+      <span class="side">margins<br />we share</span>
+    </div>
+    <p class="lead"><i />同一本书，两个人的页边 · 和{{ role?.name || "他" }}</p>
 
     <nav class="tabs">
       <button v-for="(l, k) in TABS" :key="k" :class="{ on: tab === k }" @click="tab = k">{{ l }}</button>
@@ -140,10 +143,11 @@ const TONES = { light: "白", grey: "灰", dark: "黑" };
 .room { min-height: 100%; padding: calc(var(--safe-top) + 12px) 22px calc(var(--safe-bottom) + 40px); max-width: 760px; margin: 0 auto; }
 .head { display: flex; justify-content: space-between; align-items: center; }
 .acts { display: flex; gap: 8px; }
-.eyebrow { margin: 18px 0 2px; font-size: .72rem; letter-spacing: .3em; color: var(--text-3); }
-.big { margin: 0; font-size: clamp(2.6rem, 13vw, 3.6rem); font-weight: 300; line-height: 1.02; letter-spacing: -.01em; color: var(--text); }
-.big em { font-style: italic; font-weight: 300; color: var(--text-2); }
-.lead { margin: 12px 0 22px; color: var(--text-2); font-size: .92rem; }
+.title { display: flex; align-items: flex-end; gap: 14px; margin: 22px 0 0; }
+.title h1 { margin: 0; font-size: clamp(3rem, 16vw, 4.2rem); font-weight: 200; letter-spacing: .18em; line-height: 1; color: var(--text); }
+.side { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--text-3); line-height: 1.6; padding-bottom: 6px; }
+.lead { display: flex; align-items: center; gap: 10px; margin: 14px 0 24px; color: var(--text-2); font-size: .85rem; letter-spacing: .04em; }
+.lead i { width: 28px; height: 1px; background: var(--text-3); flex: none; }
 .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
 .tabs button { border: 0; background: var(--card); padding: 7px 16px; border-radius: 999px; font-size: .85rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
 .tabs button.on { background: var(--ink); color: #fff; font-weight: 600; }

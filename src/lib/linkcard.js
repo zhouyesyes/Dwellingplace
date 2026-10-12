@@ -27,10 +27,11 @@ export function previewOf(url) {
     infos[url] = { loading: true };
     (async () => {
       const base = await serverBase();
-      if (!base) return (infos[url] = { error: "没有服务器" });
+      if (!base) return (infos[url] = { error: "没找到你的服务器地址（设置 → 同步里连上服务器就好）" });
       try {
         const r = await fetch(`${base}/preview/?url=${encodeURIComponent(url)}`);
         const j = await r.json();
+        if (r.status === 404 && /不认识/.test(j.error?.message || "")) throw new Error("服务器还是旧的：再运行一次安装那一行");
         if (!r.ok) throw new Error(j.error?.message || r.status);
         const img = u => (u ? `${base}/preview/img?url=${encodeURIComponent(u)}` : "");
         infos[url] = { ...j, image: img(j.image), icon: img(j.icon) };

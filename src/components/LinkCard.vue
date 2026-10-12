@@ -19,6 +19,7 @@ const open = () => window.open(props.url, "_blank", "noopener");
       <p v-if="desc" class="d">{{ desc }}</p>
       <p v-else-if="info.loading" class="d sk">　</p>
     </div>
+    <p v-if="info.error" class="why">没读到网页：{{ info.error }}</p>
     <div class="foot">
       <span class="site"><img v-if="info.icon" :src="info.icon" alt="" @error="e => (e.target.style.display = 'none')" />{{ info.site || host }}</span>
       <svg class="go" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
@@ -40,4 +41,5 @@ const open = () => window.open(props.url, "_blank", "noopener");
 .site { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 12px; border-radius: 999px; background: var(--bg); font-size: .78rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .site img { width: 14px; height: 14px; border-radius: 3px; flex: none; }
 .go { flex: none; color: var(--text); }
+.why { margin: -4px 0 0; font-size: .68rem; color: var(--text-3); overflow-wrap: anywhere; }
 </style>
