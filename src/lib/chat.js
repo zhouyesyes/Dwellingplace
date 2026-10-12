@@ -189,7 +189,11 @@ async function partsOf(m) {
       parts.push({ type: "image", data, mime });
     } else if (a.kind === "pdf") {
       const blob = await get("file:" + a.file);
-      if (blob) parts.push({ type: "pdf", name: a.name, data: await blobToBase64(blob) });
+      if (blob) {
+        // 以前发的 PDF 没取过字：现在补上（记在附件上，下次不用再取）
+        if (a.text == null) { try { const { pdfText } = await import("./pdfText.js"); a.text = await pdfText(blob); } catch { a.text = ""; } }
+        parts.push({ type: "pdf", name: a.name, data: await blobToBase64(blob), text: a.text || "" });
+      }
     } else if (a.kind === "text") {
       parts.push({ type: "text", text: `【文件：${a.name}】\n${a.text}` });
     } else if (a.kind === "audio") {
@@ -801,7 +805,10 @@ export async function fileToAttachment(file) {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
     const id = uid();
     await set("file:" + id, file);
-    return { kind: "pdf", name: file.name, file: id, size: file.size };
+    // 顺便把字取出来：不收 PDF 的接口就发这些字
+    let text = "";
+    try { const { pdfText } = await import("./pdfText.js"); text = await pdfText(file); } catch (e) { console.warn("PDF 取字失败", e); }
+    return { kind: "pdf", name: file.name, file: id, size: file.size, text };
   }
   if (file.type.startsWith("text/") || TEXT_EXT.test(file.name)) {
     const text = await file.text();

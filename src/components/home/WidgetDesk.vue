@@ -13,7 +13,7 @@ const TYPES = {
   // 小鸡（暖暖）收起来了：组件还在 widgets/ChickWidget.vue，数据也没删
   anniv: { label: "纪念日", desc: "在一起第几天，下一个纪念日还有多久", comp: AnnivWidget, sizes: ["small", "large"] },
   calendar: { label: "日历", desc: "和他一起记录的小事", comp: CalendarWidget, sizes: ["large"] },
-  desk: { label: "书桌（共写）", desc: "像素小书桌，墙上是你在写的书，和他一起琢磨", comp: DeskWidget, sizes: ["large", "small"] },
+  desk: { label: "共写", desc: "在写的书，和他一起琢磨卡片和资料", comp: DeskWidget, sizes: ["large", "small"] },
   books: { label: "书架（共读）", desc: "放几本书，和他一起读，书里能贴便利贴", comp: BookshelfWidget, sizes: ["large"] },
 };
 

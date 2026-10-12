@@ -141,7 +141,7 @@ function toOpenAIContent(parts) {
   if (parts.every(p => p.type === "text")) return parts.map(p => p.text).join("\n");
   return parts.map(p => {
     if (p.type === "image") return { type: "image_url", image_url: { url: `data:${p.mime};base64,${p.data}` } };
-    if (p.type === "pdf") return { type: "text", text: `（对方发来了 PDF「${p.name}」，但当前接口不支持读取 PDF）` };
+    if (p.type === "pdf") return { type: "text", text: p.text?.trim() ? `【PDF：${p.name}】\n${p.text}` : `（对方发来了 PDF「${p.name}」，但里面取不出文字（可能是扫描的图片），当前接口也不支持直接读 PDF）` };
     return { type: "text", text: p.text };
   });
 }

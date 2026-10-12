@@ -50,12 +50,23 @@ async function safeTarget(raw) {
     new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("找这个网站太久了"), { status: 504 })), 5000)),
   ]);
   if (!addrs.length || addrs.some(a => privateIP(a.address))) throw Object.assign(new Error("不去内网"), { status: 400 });
-  return { u, addr: addrs[0] };
+  // IPv4 排前面：Docker 里多半连不上 IPv6；一个连不上就换下一个（见 get）
+  return { u, addrs: [...addrs].sort((a, b) => a.family - b.family) };
 }
 
 // 连检查过的那个 IP；跳转最多 4 次，每次重新检查
 async function get(raw, { accept, max }, hops = 0) {
-  const { u, addr } = await safeTarget(raw);
+  const { u, addrs } = await safeTarget(raw);
+  let last;
+  for (const addr of addrs.slice(0, 4)) {
+    try { return await getVia(u, addr, { accept, max }, hops); } catch (e) {
+      last = e;
+      if (e.status) throw e; // 网站自己回了错（404 之类），换地址也没用
+    }
+  }
+  throw Object.assign(new Error(`连不上这个网站（${last?.code || last?.message || "?"}）`), { status: 502 });
+}
+function getVia(u, addr, { accept, max }, hops) {
   const mod = u.protocol === "https:" ? https : http;
   return new Promise((resolve, reject) => {
     const req = mod.request(u, {
@@ -123,7 +134,8 @@ export function parse(html, base) { // 导出只是方便单独测
 }
 
 export async function handlePreview(req, res, rest, query, CORS) {
-  const json = (code, obj) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json", "Cache-Control": code === 200 ? "public, max-age=3600" : "no-store" }); res.end(JSON.stringify(obj)); };
+  // 出错也回 200 + { error }：回 5xx 的话 Cloudflare 会换成它自己的报错页，栖所就看不到原因了
+  const json = (code, obj) => { if (code >= 500) code = 200; res.writeHead(code, { ...CORS, "Content-Type": "application/json", "Cache-Control": code === 200 && !obj.error ? "public, max-age=3600" : "no-store" }); res.end(JSON.stringify(obj)); };
   try {
     if (req.method !== "GET") return json(405, { error: { message: "只能 GET" } });
     const target = query.get("url") || "";

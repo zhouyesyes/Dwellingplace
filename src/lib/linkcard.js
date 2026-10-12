@@ -38,7 +38,7 @@ export function previewOf(url) {
           throw new Error(`服务器回的不是网页信息（${r.status}${title ? `：${title}` : ""}）——再运行一次安装那一行试试`);
         }
         if (r.status === 404 && /不认识/.test(j.error?.message || "")) throw new Error("服务器还是旧的：再运行一次安装那一行");
-        if (!r.ok) throw new Error(j.error?.message || r.status);
+        if (!r.ok || j.error) throw new Error(j.error?.message || r.status);
         const img = u => (u ? `${base}/preview/img?url=${encodeURIComponent(u)}` : "");
         infos[url] = { ...j, image: img(j.image), icon: img(j.icon) };
       } catch (e) {

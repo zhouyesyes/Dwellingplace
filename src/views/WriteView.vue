@@ -1,60 +1,57 @@
 <script setup>
-// 共写的书桌：整屏的像素画，按高度铺满，左右可以划一点。墙上书架的书 = 你在写的书。
-// 白天 / 夜里跟着时间走，点窗户可以换；左上返回，书架上的书点进去
-import { ref, computed, onMounted, nextTick } from "vue";
+// 共写：在写的书一本本排着（像素书桌还在做，做好了再换上）。点一本进去；右上放新书
+import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { projects, newProject, freshNotes } from "../lib/writing.js";
-import { isNight, WALL } from "../lib/deskScene.js";
+import { store, MAIN, roleById } from "../store/index.js";
+import { projects, newProject, cardsOf, freshNotes, SPINES } from "../lib/writing.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
-import DeskScene from "../components/write/DeskScene.vue";
 
 const router = useRouter();
-const night = ref(isNight());
-const books = computed(() => projects());
-const fresh = computed(() => freshNotes().length);
-// 墙上的便利贴：他贴的、你还没看过的（最新的在前）
-const wallNotes = computed(() => [...freshNotes()].sort((a, b) => b.ts - a.ts));
-const openNote = id => { const n = freshNotes().find(x => x.id === id); if (n) router.push({ path: `/write/${n.projectId}`, query: { card: n.cardId } }); };
-const pan = ref(null);
-onMounted(async () => {
-  await nextTick();
-  const el = pan.value;
-  if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2; // 从中间开始
-});
+const role = computed(() => roleById(MAIN));
+const books = computed(() => [...projects()].sort((a, b) => b.updatedAt - a.updatedAt));
 function add() {
   const t = prompt("新书的名字");
   if (!t?.trim()) return;
-  const p = newProject(t);
-  router.push(`/write/${p.id}`);
+  router.push(`/write/${newProject(t).id}`);
 }
-const open = id => router.push(`/write/${id}`);
-const latest = () => { const p = [...books.value].sort((a, b) => b.updatedAt - a.updatedAt)[0]; p ? open(p.id) : add(); };
+const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 </script>
 
 <template>
-  <div class="write" :class="{ night }" :style="{ background: night ? WALL.night : WALL.day }">
-    <div ref="pan" class="pan">
-      <DeskScene :night="night" :books="books" :notes="wallNotes" @open="open" @add="add" @toggle="night = !night" @paper="latest" @note="openNote" />
-    </div>
-    <header class="over">
+  <div class="page write">
+    <header class="head">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" /></button>
-      <div class="label"><b>共写</b><span>{{ books.length ? (fresh ? `${fresh} 张新便利贴` : `${books.length} 本在写`) : "点书架上的空位，放第一本书" }}</span></div>
+      <span class="grow" />
+      <button class="icon-btn" aria-label="放一本新书" @click="add"><Icon name="plus" /></button>
     </header>
+    <div class="title"><h1>共写</h1><span class="side">at the desk<br />with {{ role?.name || "him" }}</span></div>
+
+    <div class="list">
+      <button v-for="b in books" :key="b.id" class="book" @click="router.push(`/write/${b.id}`)">
+        <i class="spine" :style="{ background: SPINES[b.color % SPINES.length] }" />
+        <span class="grow"><b>{{ b.title }}</b><small>{{ cardsOf(b.id).length }} 张卡片 · {{ when(b.updatedAt) }}</small></span>
+        <span v-if="freshNotes(b.id).length" class="fresh">{{ freshNotes(b.id).length }} 张新便利贴</span>
+        <Icon name="right" :size="16" class="chev" />
+      </button>
+      <button class="book add" @click="add"><i class="spine ph" /><span class="grow"><b>放一本新书</b><small>一本书一个地方：卡片、资料、和他讨论</small></span></button>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.write { position: fixed; inset: 0; background: #ece7df; }
-.write.night { background: #2d313c; }
-.pan { position: absolute; inset: 0; overflow-x: auto; overflow-y: hidden; display: flex; justify-content: safe center; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.pan::-webkit-scrollbar { display: none; }
-.pan > :deep(.desk-art) { flex: none; height: 100%; }
-.over { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 12px; padding: calc(var(--safe-top) + 12px) 16px 0; pointer-events: none; }
-.over > * { pointer-events: auto; }
-.night .icon-btn { background: rgba(60, 65, 80, .85); color: #e4e4ea; }
-.label { display: flex; flex-direction: column; padding: 6px 14px; border-radius: 16px; background: rgba(255, 255, 255, .7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-.night .label { background: rgba(40, 44, 56, .7); color: #e4e4ea; }
-.label b { font-weight: 600; font-size: .95rem; letter-spacing: .2em; }
-.label span { font-size: .7rem; opacity: .7; }
+.head { display: flex; align-items: center; gap: 10px; }
+.grow { flex: 1; min-width: 0; }
+.title { display: flex; align-items: flex-end; gap: 14px; margin: 22px 4px 26px; }
+.title h1 { margin: 0; font-size: clamp(3rem, 16vw, 4.2rem); font-weight: 200; letter-spacing: .18em; line-height: 1; }
+.side { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--text-3); line-height: 1.6; padding-bottom: 6px; }
+.list { display: flex; flex-direction: column; gap: 10px; }
+.book { display: flex; align-items: center; gap: 14px; text-align: left; border: 0; background: var(--card); border-radius: 18px; padding: 14px 16px; box-shadow: var(--shadow-soft); }
+.spine { width: 10px; height: 44px; border-radius: 2px; flex: none; box-shadow: inset -2px 0 0 rgba(0, 0, 0, .08); }
+.spine.ph { background: none; border: 1.5px dashed var(--line); }
+.book b { display: block; font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.book small { font-size: .75rem; color: var(--text-3); }
+.book.add { color: var(--text-2); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); }
+.fresh { font-size: .7rem; color: #4d7aa3; background: #e4eefa; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.chev { color: var(--text-3); }
 </style>

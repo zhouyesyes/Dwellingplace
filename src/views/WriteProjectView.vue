@@ -18,6 +18,10 @@ const router = useRouter();
 const p = computed(() => projectById(route.params.id));
 const role = computed(() => roleById(MAIN));
 const tab = ref("cards");
+const addMenu = ref(false);
+// 卡片的颜色（自己挑）：浅浅的几种
+const TINTS = { white: "#ffffff", mint: "#e3f3ec", cream: "#fbf3df", pink: "#fbe8ec", blue: "#e4eefa", lilac: "#eee8f8", sand: "#f2ece4" };
+const cardBg = c => TINTS[c.tint] || (c.from === "ai" ? TINTS.blue : TINTS.white);
 const filter = ref("all");
 const cards = computed(() => (p.value ? cardsOf(p.value.id) : []).filter(c => filter.value === "all" || c.type === filter.value).sort((a, b) => b.ts - a.ts));
 const counts = computed(() => { const m = {}; for (const c of p.value ? cardsOf(p.value.id) : []) m[c.type] = (m[c.type] || 0) + 1; return m; });
@@ -39,8 +43,8 @@ function openCard(c) {
 function saveCard() {
   const e = edit.value;
   if (!e.title.trim() && !e.content.trim() && !e.atts.length) return toast("卡片还是空的");
-  if (editing.value) Object.assign(editing.value, { type: e.type, title: e.title.trim(), content: e.content.trim(), atts: e.atts, ts: Date.now(), from: "me" });
-  else editing.value = addCard(p.value.id, e);
+  if (editing.value) Object.assign(editing.value, { type: e.type, tint: e.tint, title: e.title.trim(), content: e.content.trim(), atts: e.atts, ts: Date.now(), from: "me" });
+  else { editing.value = addCard(p.value.id, e); editing.value.tint = e.tint; }
   edit.value = null;
 }
 function dropCard() {
@@ -148,32 +152,28 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <button class="icon-btn" aria-label="更多" @click="menu = true"><Icon name="more" /></button>
     </header>
     <nav class="tabs">
+      <button class="add-round" aria-label="加卡片" @click="addMenu = true"><Icon name="plus" :size="20" /></button>
       <button :class="{ on: tab === 'cards' }" @click="tab = 'cards'">卡片</button>
       <button :class="{ on: tab === 'talk' }" @click="tab = 'talk'">和{{ role?.name || "他" }}讨论</button>
     </nav>
 
     <!-- 卡片 -->
-    <template v-if="tab === 'cards'">
+    <div v-if="tab === 'cards'" class="scroll">
       <div class="filters">
         <button :class="{ on: filter === 'all' }" @click="filter = 'all'">全部</button>
         <button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: filter === k }" @click="filter = k">{{ t.label }}<small v-if="counts[k]">{{ counts[k] }}</small></button>
       </div>
       <div class="cards">
-        <div class="new-col">
-          <button class="card new" @click="openCard(null)"><Icon name="plus" :size="20" /><span>写一张{{ filter === "all" ? "" : CARD_TYPES[filter].label }}卡片</span></button>
-          <button class="card new imp" :disabled="importing" @click="importMany"><Icon name="upload" :size="18" /><span>{{ importing ? "在放…" : `导入图片、文件${filter === "all" ? "（放进资料）" : `（放进${CARD_TYPES[filter].label}）`}` }}</span></button>
-        </div>
-        <div v-for="c in cards" :key="c.id" class="card" role="button" tabindex="0" :class="{ his: c.from === 'ai' }" @click="openCard(c)">
-          <span class="type">{{ CARD_TYPES[c.type]?.mark }}</span>
+        <div v-for="c in cards" :key="c.id" class="card" role="button" tabindex="0" :class="{ his: c.from === 'ai' }" :style="{ background: cardBg(c) }" @click="openCard(c)">
           <b>{{ c.title || "无题" }}</b>
           <p v-if="c.content">{{ c.content }}</p>
           <AttList v-if="c.atts?.length" :atts="c.atts.slice(0, 3)" small />
-          <span v-if="notesOfCard(c.id).length" class="stk" :class="{ fresh: notesOfCard(c.id).some(n => n.from === 'ai' && !n.seen) }">{{ notesOfCard(c.id).length }}</span>
-          <small v-if="c.from === 'ai'" class="by">{{ role?.name }} 提的</small>
+          <div class="foot"><small>{{ CARD_TYPES[c.type]?.label }}<template v-if="c.from === 'ai'"> · {{ role?.name }} 提的</template></small>
+            <span v-if="notesOfCard(c.id).length" class="stk" :class="{ fresh: notesOfCard(c.id).some(n => n.from === 'ai' && !n.seen) }">{{ notesOfCard(c.id).length }}</span></div>
         </div>
       </div>
-      <p v-if="!cards.length" class="hint">人物、设定、大纲、灵感、写好的片段……想到什么就放一张。他会读这些卡片，和你一起琢磨。</p>
-    </template>
+      <p v-if="!cards.length" class="hint">左上角的「＋」写一张卡片，或者导入图片、文件。人物、设定、大纲、灵感、片段……他会读这些卡片，和你一起琢磨。</p>
+    </div>
 
     <!-- 讨论 -->
     <div v-else class="talk">
@@ -198,6 +198,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <Sheet :open="!!edit" @close="edit = null">
       <div v-if="edit" class="ed">
         <div class="types"><button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: edit.type === k }" @click="edit.type = k">{{ t.label }}</button></div>
+        <div class="tints"><button v-for="(c, k) in TINTS" :key="k" :style="{ background: c }" :class="{ on: (edit.tint || 'white') === k }" :aria-label="k" @click="edit.tint = k" /></div>
         <input v-model="edit.title" class="input" placeholder="标题（比如人物的名字）" maxlength="60" />
         <textarea v-model="edit.content" class="input body" rows="8" placeholder="写下来，长短都行" />
         <AttList :atts="edit.atts" removable @remove="dropAtt" />
@@ -228,6 +229,13 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </div>
     </Sheet>
 
+    <Sheet :open="addMenu" title="加卡片" @close="addMenu = false">
+      <div class="menu">
+        <button class="list-row" @click="addMenu = false; openCard(null)"><Icon name="edit" :size="20" /><span class="grow">写一张{{ filter === "all" ? "" : CARD_TYPES[filter].label }}卡片</span></button>
+        <button class="list-row" :disabled="importing" @click="addMenu = false; importMany()"><Icon name="upload" :size="20" /><span class="grow">导入图片、文件<small class="sub">每个文件一张卡片，放进{{ filter === "all" ? "资料" : CARD_TYPES[filter].label }}</small></span></button>
+      </div>
+    </Sheet>
+
     <Sheet :open="menu" :title="`《${p.title}》`" @close="menu = false">
       <div class="menu">
         <p v-if="memo" class="memo"><b>他记着的：</b>{{ memo.content }}</p>
@@ -243,7 +251,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 </template>
 
 <style scoped>
-.proj { min-height: 100%; padding: calc(var(--safe-top) + 14px) 18px calc(var(--safe-bottom) + 30px); max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; }
+/* 整页固定、里面自己滚：输入框不会被 iPhone 的键盘顶来顶去 */
+.proj { position: fixed; inset: 0; height: 100dvh; padding: calc(var(--safe-top) + 14px) 18px calc(var(--safe-bottom) + 12px); max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; }
+.head, .tabs { flex: none; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -18px; padding: 0 18px 30px; -webkit-overflow-scrolling: touch; }
 .head { display: flex; align-items: center; gap: 12px; }
 .t { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
 .spine { width: 6px; height: 26px; border-radius: 1px; flex: none; }
@@ -257,18 +268,22 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .filters small { margin-left: 4px; opacity: .6; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (min-width: 640px) { .cards { grid-template-columns: repeat(3, 1fr); } }
-.card { position: relative; text-align: left; cursor: pointer; border: 0; border-radius: 16px; background: var(--card); padding: 12px 12px 14px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; min-height: 120px; }
-.card.his { background: #f1f6fc; }
+.card { position: relative; text-align: left; cursor: pointer; border: 0; border-radius: 18px; background: var(--card); padding: 14px 14px 12px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 6px; min-height: 110px; }
 .card.new { align-items: center; justify-content: center; color: var(--text-3); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); font-size: .8rem; gap: 6px; }
-.type { width: 22px; height: 22px; border-radius: 6px; background: var(--bg-deep); font-size: .7rem; display: grid; place-items: center; color: var(--text-2); }
-.card b { font-size: .92rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card b { font-size: 1rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.foot small { font-size: .68rem; color: var(--text-3); }
+.add-round { width: 36px; height: 36px; padding: 0 !important; border-radius: 50% !important; display: grid; place-items: center; background: var(--ink) !important; color: #fff !important; }
+.tints { display: flex; gap: 8px; }
+.tints button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); }
+.tints button.on { box-shadow: 0 0 0 2px var(--ink); }
 .card p { margin: 0; font-size: .8rem; line-height: 1.6; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
-.stk { position: absolute; top: 10px; right: 10px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 3px; background: #f4e7a8; font-size: .7rem; display: grid; place-items: center; transform: rotate(4deg); }
+.stk { min-width: 20px; height: 20px; padding: 0 5px; border-radius: 3px; background: #f4e7a8; font-size: .7rem; display: grid; place-items: center; transform: rotate(4deg); }
 .stk.fresh { background: #cfe0f2; }
-.by { font-size: .65rem; color: #7a96b4; }
 .hint { text-align: center; color: var(--text-3); font-size: .8rem; line-height: 1.7; margin: 22px 10px; }
 .talk { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 12px; max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 200px); }
+.composer { flex: none; }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 12px; }
 .m { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
 .m p { margin: 0; padding: 10px 14px; border-radius: 16px; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .m.me { align-self: flex-end; align-items: flex-end; }
@@ -307,9 +322,6 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .colors { display: flex; gap: 6px; }
 .colors button { width: 18px; height: 26px; border: 0; border-radius: 2px; }
 .colors button.on { box-shadow: 0 0 0 2px var(--ink); }
-.new-col { display: flex; flex-direction: column; gap: 10px; }
-.new-col .card.new { min-height: 55px; flex: 1; }
-.card.new.imp { font-size: .72rem; text-align: center; padding: 8px; }
 .card :deep(.atts) { margin-top: 4px; }
 .plus { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
 .draft-atts { margin-bottom: 8px; }
