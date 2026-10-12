@@ -10,7 +10,6 @@ import { pickFile } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
-import Sheet from "../components/Sheet.vue";
 import BookCover from "../components/books/BookCover.vue";
 import BookInfo from "../components/books/BookInfo.vue";
 
@@ -21,7 +20,6 @@ const TABS = { books: "书", notes: "笔记", stats: "统计" };
 const tab = ref("books");
 const busy = ref(false);
 const info = ref(null);
-const menuOpen = ref(false);
 
 async function add() {
   const [file] = await pickFile(".txt,.epub,text/plain,application/epub+zip");
@@ -59,7 +57,6 @@ const days = computed(() => {
   return out.map(x => ({ ...x, h: x.s / max }));
 });
 const finished = computed(() => books.value.filter(b => b.mine).length);
-const TONES = { light: "白", grey: "灰", dark: "黑" };
 </script>
 
 <template>
@@ -67,7 +64,6 @@ const TONES = { light: "白", grey: "灰", dark: "黑" };
     <header class="head">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" /></button>
       <div class="acts">
-        <button class="icon-btn" aria-label="更多" @click="menuOpen = true"><Icon name="more" /></button>
         <button class="icon-btn" :disabled="busy" aria-label="放一本书" @click="add"><Icon name="plus" /></button>
       </div>
     </header>
@@ -129,13 +125,6 @@ const TONES = { light: "白", grey: "灰", dark: "黑" };
 
     <BookInfo :book="info" @close="info = null" @read="b => { info = null; router.push(`/read/${b.id}`); }" />
 
-    <Sheet :open="menuOpen" title="共读室" @close="menuOpen = false">
-      <div class="menu">
-        <div class="list-row"><span class="grow">主页书架的颜色</span>
-          <div class="seg"><button v-for="(l, k) in TONES" :key="k" :class="{ on: store.settings.shelfTone === k }" @click="store.settings.shelfTone = k">{{ l }}</button></div>
-        </div>
-      </div>
-    </Sheet>
   </div>
 </template>
 
@@ -174,7 +163,4 @@ const TONES = { light: "白", grey: "灰", dark: "黑" };
 .bar { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
 .bar i { width: 100%; max-width: 14px; background: var(--ink); opacity: .75; border-radius: 4px; }
 .bar span { font-size: .6rem; color: var(--text-3); }
-.menu .seg { display: flex; gap: 4px; }
-.menu .seg button { border: 0; background: var(--bg); padding: 5px 12px; border-radius: 999px; font-size: .8rem; }
-.menu .seg button.on { background: var(--ink); color: #fff; }
 </style>
