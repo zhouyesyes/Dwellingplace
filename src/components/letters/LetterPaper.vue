@@ -2,6 +2,7 @@
 // 一张信纸：上段 + 带横线的中段 + 下段；信长过一页，中段下面用干净的一行横线一行行往下续（不再整页重复）。
 // 续的时候中段的下沿、下段的上沿都淡开，花边不会被一刀切断。字的行高正好等于横线间距，写在线上
 import { computed, ref, onMounted, onBeforeUnmount } from "vue";
+import "@fontsource/long-cang/400.css";
 
 const props = defineProps({ paper: Object });
 const u = n => `${(n / 6.4).toFixed(3)}cqw`; // 素材按 640 宽量的，换成纸宽的百分比
@@ -50,8 +51,9 @@ onBeforeUnmount(() => ro?.disconnect());
 .lp {
   position: relative; box-sizing: border-box; width: 100%;
   background-repeat: no-repeat, repeat-y;
-  color: var(--ink); font-weight: 300; letter-spacing: .02em;
-  line-height: var(--line); font-size: calc(var(--line) * .52);
+  /* 信纸里是手写的龙藏体（页面别处都是全局字体） */
+  color: var(--ink); font-family: "Long Cang", var(--font); font-weight: 400; letter-spacing: .02em;
+  line-height: var(--line); font-size: calc(var(--line) * .62);
   box-shadow: 0 18px 44px rgba(40, 30, 20, .22);
 }
 .bg { position: absolute; left: 0; right: 0; background-size: 100% 100%; background-repeat: no-repeat; pointer-events: none; }

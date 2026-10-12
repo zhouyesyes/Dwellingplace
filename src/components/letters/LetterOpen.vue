@@ -69,9 +69,9 @@ const dateText = d => { const [y, m, dd] = String(d || "").split("-"); return y 
 .sheet { position: relative; max-height: 88vh; overflow-y: auto; border-radius: 4px; animation: unfold .6s cubic-bezier(.2, .8, .2, 1); transform-origin: 50% 20%; scrollbar-width: none; }
 .sheet::-webkit-scrollbar { display: none; }
 @keyframes unfold { from { transform: translateY(40px) scale(.7); opacity: 0; } }
-h2 { font-size: 1.3em; font-weight: 600; text-align: center; padding-bottom: var(--line); }
+h2 { font-size: 1.4em; font-weight: 400; text-align: center; padding-bottom: var(--line); }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; min-height: calc(var(--line) * 4); }
-.sign { text-align: right; font-size: 1.05em; font-weight: 500; padding-top: var(--line); }
+.sign { text-align: right; font-size: 1.15em; font-weight: 400; padding-top: var(--line); }
 .date { text-align: right; font-size: .85em; opacity: .85; }
 .x { position: absolute; right: 6px; top: 2px; z-index: 2; border: 0; background: none; font-size: 1.6rem; color: rgba(60, 50, 40, .6); }
 .meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .9); font-family: -apple-system, "PingFang SC", sans-serif; font-size: 0.8rem; color: #8a8580; }

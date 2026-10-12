@@ -58,7 +58,8 @@ async function get(raw, { accept, max }, hops = 0) {
     const req = mod.request(u, {
       method: "GET",
       headers: { "User-Agent": UA, Accept: accept, "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.6" },
-      lookup: (_h, _o, cb) => cb(null, addr.address, addr.family),
+      // 新版 Node 会要一组地址（all: true），旧的要一个：都只给检查过的那个
+      lookup: (_h, o, cb) => (o?.all ? cb(null, [{ address: addr.address, family: addr.family }]) : cb(null, addr.address, addr.family)),
       timeout: TIMEOUT,
     }, res => {
       const loc = res.headers.location;
@@ -97,7 +98,7 @@ function decode(buf, type) {
   const cs = (type.match(/charset=([\w-]+)/i) || head.match(/<meta[^>]+charset=["']?([\w-]+)/i) || [])[1] || "utf-8";
   try { return new TextDecoder(cs.toLowerCase()).decode(buf); } catch { return buf.toString("utf8"); }
 }
-export function parse(html, base) {
+export function parse(html, base) { // 导出只是方便单独测
   const head = html.slice(0, 400_000);
   const metas = {};
   for (const tag of head.match(/<meta\b[^>]*>/gi) || []) {

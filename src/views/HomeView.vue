@@ -57,6 +57,7 @@ function rename() {
         <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)">
           <Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="86" />
         </button>
+        <button class="tools" aria-label="工具" @click="router.push('/settings/tools')"><Icon name="tool" :size="19" /></button>
         <button v-if="him" class="talk" @click="router.push(`/chat/${MAIN}`)"><Icon name="chat" :size="18" />对话</button>
       </div>
       <h1 @click="rename">{{ store.profile.name }}</h1>
@@ -91,7 +92,9 @@ function rename() {
 .duo { display: flex; align-items: flex-end; margin: -46px 0 0 4px; }
 .ava { display: block; padding: 0; border: 0; background: none; border-radius: 50%; position: relative; }
 .ava.his { margin-left: -16px; }
-.talk { margin: 0 2px 6px auto; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--ink); color: #fff; font-weight: 600; font-size: .9rem; box-shadow: 0 4px 14px rgba(40, 40, 60, .14); }
+/* 和头像一样，一半在封面上、一半在白底上 */
+.tools { margin: 0 8px 0 auto; align-self: center; width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #fff; color: var(--ink); box-shadow: 0 0 0 3px #fff, 0 4px 14px rgba(40, 40, 60, .14); }
+.talk { margin: 0 2px; align-self: center; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--ink); color: #fff; font-weight: 600; font-size: .9rem; box-shadow: 0 4px 14px rgba(40, 40, 60, .14); }
 .ava :deep(.avatar) { box-shadow: 0 0 0 3px #fff, 0 4px 14px rgba(40, 40, 60, .12); }
 h1 { margin: 12px 6px 6px; font-size: 1.5rem; font-weight: 700; letter-spacing: .5px; cursor: pointer; }
 
