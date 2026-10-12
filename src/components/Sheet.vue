@@ -1,13 +1,13 @@
 <script setup>
 // 从底部弹出的面板
-defineProps({ open: Boolean, title: String });
+defineProps({ open: Boolean, title: String, z: Number });
 const emit = defineEmits(["close"]);
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="sheet">
-      <div v-if="open" class="backdrop" @click.self="emit('close')">
+      <div v-if="open" class="backdrop" :style="z ? { zIndex: z } : null" @click.self="emit('close')">
         <div class="sheet">
           <div class="grip" />
           <button class="close" aria-label="关闭" @click="emit('close')">×</button>

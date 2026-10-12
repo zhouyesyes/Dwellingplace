@@ -1,5 +1,6 @@
 // 共写：书桌上的书。一本书一个项目，里面是一张张卡片（人物、设定、大纲、灵感、片段……），不一定按章节。
-//   store.writings   [{ id, title, color, createdAt, updatedAt, memId, sinceSum }]
+//   store.writings   [{ id, title, color, pitch, synopsis, cover, banner, bg, bubbleMe, bubbleAi, createdAt, updatedAt, memId, sinceSum }]
+//                    pitch：一句话的定位；synopsis：简介；cover / banner / bg：封面、页头图、讨论页背景（图片 id）；bubbleMe / bubbleAi：气泡颜色
 //                    color：书脊颜色的编号；memId：这本书在他记忆库里那张总结卡；sinceSum：上次总结以后又聊了几句
 //   store.writeCards [{ id, projectId, type, title, content, atts, from, ts }]   from："me" 或 "ai"（他提的新卡片）
 //                    atts：卡片上的图片、文件 [{ kind: "image", img } | { kind: "pdf" | "text", name, … }]（和聊天里的附件一样）
@@ -20,7 +21,11 @@ export const CARD_TYPES = {
   ref: { label: "资料", mark: "资" },
   other: { label: "其他", mark: "记" },
 };
-export const SPINES = ["#b9a7a0", "#a9b7c2", "#c4b6a1", "#9fae9c", "#bba9b9", "#c8b9a5", "#9aa6b2", "#b6a493"];
+// 书脊：淡淡的多巴胺色（按编号存，换了这一排，旧书也跟着换）
+// 卡片的颜色（自己挑）：浅浅的几种
+export const TINTS = { white: "#ffffff", mint: "#e3f3ec", cream: "#fbf3df", pink: "#fbe8ec", blue: "#e4eefa", lilac: "#eee8f8", sand: "#f2ece4" };
+export const cardBg = c => TINTS[c.tint] || (c.from === "ai" ? TINTS.blue : TINTS.white);
+export const SPINES = ["#ffadc6", "#ffcb85", "#ffe17d", "#a6e3a1", "#8fd3f4", "#bfa8f6", "#ffa494", "#7fdcd0"];
 
 export const projects = () => store.writings || [];
 export const projectById = id => projects().find(p => p.id === id);
@@ -38,6 +43,7 @@ export async function removeProject(p) {
   store.writings.splice(store.writings.indexOf(p), 1);
   store.writeCards = (store.writeCards || []).filter(c => c.projectId !== p.id);
   store.writeNotes = (store.writeNotes || []).filter(n => n.projectId !== p.id);
+  for (const k of ["cover", "banner", "bg"]) if (p[k]) deleteImage(p[k]);
   delete talks[p.id];
   await del(`wtalk:${p.id}`);
 }
@@ -133,7 +139,8 @@ function projectText(p, limit = 9000) {
     out.push(line);
     n += line.length;
   }
-  return out.join("\n") || "（还没有卡片）";
+  const head = [p.pitch?.trim() && `定位：${p.pitch.trim()}`, p.synopsis?.trim() && `简介：${p.synopsis.trim().slice(0, 1200)}`].filter(Boolean).join("\n");
+  return [head, out.join("\n") || "（还没有卡片）"].filter(Boolean).join("\n\n");
 }
 
 const NOTE_TAG = /\[便签[:：]([^\]]{2,1200})\]/g;
@@ -177,7 +184,7 @@ export async function talk(role, p, text, atts = []) {
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
-    `\n这本书现在的卡片：\n${projectText(p)}`,
+    `\n这本书的定位、简介和卡片：\n${projectText(p)}`,
     `\n你们刚才在聊：\n${recent || "（刚坐下）"}`,
     `\n${rulesFor(me)}`,
     atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",

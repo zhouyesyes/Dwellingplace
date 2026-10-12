@@ -30,7 +30,7 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
     <div class="list">
       <button v-for="b in books" :key="b.id" class="book" @click="router.push(`/write/${b.id}`)">
         <i class="spine" :style="{ background: SPINES[b.color % SPINES.length] }" />
-        <span class="grow"><b>{{ b.title }}</b><small>{{ cardsOf(b.id).length }} 张卡片 · {{ when(b.updatedAt) }}</small></span>
+        <span class="grow"><b>{{ b.title }}</b><small>{{ b.pitch ? b.pitch + " · " : "" }}{{ cardsOf(b.id).length }} 张卡片 · {{ when(b.updatedAt) }}</small></span>
         <span v-if="freshNotes(b.id).length" class="fresh">{{ freshNotes(b.id).length }} 张新便利贴</span>
         <Icon name="right" :size="16" class="chev" />
       </button>

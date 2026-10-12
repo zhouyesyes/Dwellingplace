@@ -16,6 +16,7 @@ const P = {
   stop: '<rect x="7.5" y="7.5" width="9" height="9" rx="1.8" fill="currentColor"/>',
   image: '<rect x="4" y="5" width="16" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="m5 17 4.5-4.5 3.5 3.5 2.5-2.5L20 17"/>',
   file: '<path d="M7 3.8h6.5L18 8.3V19a1.2 1.2 0 0 1-1.2 1.2H7A1.2 1.2 0 0 1 5.8 19V5A1.2 1.2 0 0 1 7 3.8Z"/><path d="M13.3 4v4.5H18"/>',
+  folder: '<path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5Z"/>',
   copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V6.5A1.5 1.5 0 0 1 6.5 5H15"/>',
   edit: '<path d="M5 19h4L18.5 9.5a2.1 2.1 0 0 0-3-3L6 16v3Z"/>',
   refresh: '<path d="M18.5 9A7 7 0 1 0 19 13"/><path d="M19 4.5V9h-4.5"/>',
