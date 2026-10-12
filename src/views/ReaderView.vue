@@ -263,9 +263,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 <style scoped>
 .reader { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--rbg); color: var(--rink); }
 .bar { display: flex; align-items: center; gap: 10px; padding: calc(var(--safe-top) + 10px) 14px 10px; background: color-mix(in srgb, var(--rbg) 92%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); z-index: 2; }
-.bar .t { flex: 1; min-width: 0; text-align: center; display: flex; flex-direction: column; }
-.bar .t b { font-weight: 600; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar .t span { font-size: .72rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 书名靠左，章节名跟在后面、小一点 */
+.bar .t { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; padding-left: 2px; }
+.bar .t b { flex: none; max-width: 62%; font-weight: 600; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar .t span { min-width: 0; font-size: .74rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page { flex: 1; overflow-y: auto; padding: 18px 24px calc(var(--safe-bottom) + 130px); max-width: 720px; width: 100%; margin: 0 auto; -webkit-overflow-scrolling: touch; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
 .page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
