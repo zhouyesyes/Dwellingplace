@@ -15,11 +15,6 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
   <div class="desk-art" :class="{ night }">
     <svg :viewBox="`0 0 ${W} ${H}`" preserveAspectRatio="xMidYMid slice" shape-rendering="crispEdges" class="art" aria-hidden="true">
       <defs>
-        <radialGradient id="lampGlow" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stop-color="#ffd99a" stop-opacity=".38" />
-          <stop offset=".55" stop-color="#ffcf88" stop-opacity=".12" />
-          <stop offset="1" stop-color="#ffcf88" stop-opacity="0" />
-        </radialGradient>
         <linearGradient id="beam" x1="0" y1="0" x2="0.6" y2="1">
           <stop offset="0" stop-color="#fff6d8" stop-opacity=".5" />
           <stop offset="1" stop-color="#fff6d8" stop-opacity="0" />
@@ -27,8 +22,6 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
       </defs>
       <rect v-for="(r, i) in s.rects" :key="i" :x="r.x" :y="r.y" :width="r.w" :height="r.h" :fill="r.c" />
       <polygon v-if="s.beam" :points="s.beam" fill="url(#beam)" class="beam" />
-      <ellipse v-for="(d, i) in s.dapple" :key="'d' + i" :cx="d[0]" :cy="d[1]" :rx="d[2]" :ry="d[2] * 0.7" fill="#9fc29a" opacity=".12" />
-      <ellipse v-if="night" :cx="s.lamp.x" :cy="s.lamp.y + 40" rx="70" ry="56" fill="url(#lampGlow)" class="glow" />
     </svg>
     <template v-if="interactive">
       <button class="hit win" :style="pos(s.window)" aria-label="换白天或夜里" @click="emit('toggle')" />
@@ -41,11 +34,9 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
 </template>
 
 <style scoped>
-.desk-art { position: relative; height: 100%; aspect-ratio: 180 / 300; image-rendering: pixelated; }
+.desk-art { position: relative; height: 100%; aspect-ratio: 96 / 160; image-rendering: pixelated; }
 .art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.glow { animation: breathe 6s ease-in-out infinite; }
 .beam { mix-blend-mode: screen; animation: sway 14s ease-in-out infinite; }
-@keyframes breathe { 50% { opacity: .82; } }
 @keyframes sway { 50% { opacity: .72; } }
 .hit { position: absolute; border: 0; padding: 0; background: transparent; cursor: pointer; }
 .hit.book:active, .hit.note:active { background: rgba(255, 255, 255, .3); }
@@ -53,5 +44,5 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
 .night .hit.add { border-color: rgba(200, 200, 220, .3); }
 .hit.add span { width: 100%; height: 100%; display: grid; place-items: center; font-size: 10px; color: rgba(120, 90, 60, .7); line-height: 1; }
 .night .hit.add span { color: rgba(200, 200, 220, .45); }
-@media (prefers-reduced-motion: reduce) { .glow, .beam { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .beam { animation: none; } }
 </style>

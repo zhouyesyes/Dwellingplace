@@ -38,6 +38,7 @@ export const router = createRouter({
     { path: "/books", component: () => import("./views/BooksView.vue") },
     { path: "/read/:id", component: () => import("./views/ReaderView.vue") },
     { path: "/write", component: () => import("./views/WriteView.vue") },
+    { path: "/write/desk", component: () => import("./views/DeskPreviewView.vue") }, // 像素书桌：还在做，先这样看看
     { path: "/write/:id", component: () => import("./views/WriteProjectView.vue") },
     { path: "/settings/media", component: () => import("./views/MediaView.vue") },
     { path: "/settings/stickers", component: () => import("./views/StickersView.vue") },
