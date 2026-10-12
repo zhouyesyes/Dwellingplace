@@ -222,6 +222,10 @@ function migrate() {
   store.letters ??= [];
   store.books ??= []; // 共读的书架
   store.bookNotes ??= []; // 书里的便利贴
+  store.readingLog ??= {}; // 每天读了多久（秒）
+  store.readerFonts ??= []; // 读书时用的导入字体
+  store.readerPrefs ??= { bg: "paper", size: 18, font: "" }; // 读书背景、字号、字体
+  store.settings.shelfTone ??= "light"; // 主页书架的颜色：light / grey / dark
   { const d = defaultMedia(), m = store.media || {}; store.media = { stt: { ...d.stt, ...m.stt }, tts: { ...d.tts, ...m.tts }, image: { ...d.image, ...m.image } }; }
   store.groups ??= [];
   store.mcpServers ??= [];

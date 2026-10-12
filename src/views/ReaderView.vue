@@ -1,11 +1,15 @@
 <script setup>
 // 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）。
 // 读到哪记在书上（他在聊天里也知道你读到哪了）；便利贴贴在那一段下面：你的黄色，他的蓝色
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
+// 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）；读的时候计时（每天读了多久）
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { MAIN, roleById } from "../store/index.js";
-import { bookById, loadBook, notesOf, addNote, removeNote, savePos } from "../lib/books.js";
-import { oneShot, meName, describeError } from "../lib/chat.js";
+import { store, MAIN, roleById } from "../store/index.js";
+import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
+import { askHim } from "../lib/reading.js";
+import { describeError } from "../lib/chat.js";
+import { pickFile } from "../lib/images.js";
+import BookInfo from "../components/books/BookInfo.vue";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
@@ -91,28 +95,51 @@ async function ask() {
   if (!r) return;
   sheet.value = null;
   sel.value = null;
-  const me = meName(r);
   if (s.text.trim()) addNote(b.value, { ch: ch.value, p, quote: paras.value[p], text: s.text, from: "me" }).seen = true;
   asking.value = p;
   try {
-    const around = [paras.value[p - 1], paras.value[p + 1]].filter(Boolean).map(x => x.slice(0, 300));
-    const prompt = [
-      r.style?.trim() ? `（这是你写给自己的：${r.style.trim()}）\n` : "",
-      `你和${me}在一起读《${b.value.title}》${b.value.author ? `（${b.value.author}）` : ""}，现在读到「${chapterTitle.value}」。`,
-      `${me}指着这一段给你看：\n「${paras.value[p]}」`,
-      around.length ? `（前后文：${around.join(" …… ")}）` : "",
-      s.text.trim() ? `${me}在旁边写：${s.text.trim()}` : `${me}想听听你读到这里在想什么。`,
-      `写一张便利贴贴在这段旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。只写便利贴上的字。`,
-    ].filter(Boolean).join("\n");
-    const text = await oneShot(r, prompt);
-    if (!text) throw new Error("他没有写什么");
+    const { text, notes } = await askHim(r, b.value, { ch: ch.value, p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim() });
     addNote(b.value, { ch: ch.value, p, quote: paras.value[p], text, from: "ai" }).seen = true;
+    if (notes.length) toast(notes[0], 2500);
   } catch (e) {
     toast(`没问到：${describeError(e)}`, 4000);
   } finally {
     asking.value = null;
   }
 }
+
+// ---------- 读了多久：页面开着、最近两分钟里动过，每 15 秒记一笔 ----------
+let lastAct = Date.now();
+const act = () => (lastAct = Date.now());
+const timer = setInterval(() => {
+  if (b.value && document.visibilityState === "visible" && Date.now() - lastAct < 120_000) tickReading(b.value, 15);
+}, 15_000);
+onBeforeUnmount(() => clearInterval(timer));
+
+// ---------- 背景、字号、字体 ----------
+const BGS = { white: ["#ffffff", "#2e2e34"], paper: ["#faf6ef", "#3b3128"], mist: ["#eef1f4", "#2f3640"], green: ["#e9efe6", "#2f3a2c"], night: ["#1c1d22", "#c9c6bf"] };
+const prefs = computed(() => store.readerPrefs);
+const fontFamily = ref("");
+watch(() => prefs.value.font, async id => { try { fontFamily.value = await useFont(id); } catch { fontFamily.value = ""; } }, { immediate: true });
+const pageStyle = computed(() => {
+  const [bg, ink] = BGS[prefs.value.bg] || BGS.paper;
+  return { "--rbg": bg, "--rink": ink, "--rsize": `${prefs.value.size || 18}px`, ...(fontFamily.value ? { "--rfont": `"${fontFamily.value}"` } : {}) };
+});
+const prefsOpen = ref(false);
+async function importFont() {
+  const [f] = await pickFile(".ttf,.otf,.woff,.woff2,font/*");
+  if (!f) return;
+  try {
+    const id = await addFont(f);
+    store.readerPrefs.font = id;
+    toast("字体放进来了");
+  } catch (e) {
+    toast(`这个字体用不了：${e.message}`, 4000);
+  }
+}
+const dropFont = f => { if (confirm(`删掉字体「${f.name}」？`)) removeFont(f); };
+const infoOpen = ref(false);
+const atEnd = computed(() => b.value && ch.value === b.value.chapters.length - 1);
 
 function tapNote(n) {
   if (confirm(`撕掉这张便利贴？\n\n${n.text.slice(0, 60)}`)) removeNote(n);
@@ -123,17 +150,18 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 </script>
 
 <template>
-  <div v-if="b" class="reader">
+  <div v-if="b" class="reader" :class="prefs.bg" :style="pageStyle" @pointerdown="act" @keydown="act">
     <header class="bar">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/books')"><Icon name="back" /></button>
       <div class="t">
         <b>{{ b.title }}</b>
         <span>{{ chapterTitle }}</span>
       </div>
+      <button class="icon-btn aa" aria-label="阅读设置" @click="prefsOpen = true">Aa</button>
       <button class="icon-btn" aria-label="目录" @click="tocOpen = true"><Icon name="threads" /></button>
     </header>
 
-    <main ref="scroller" class="page" @scroll.passive="onScroll">
+    <main ref="scroller" class="page" @scroll.passive="onScroll(); act()">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
         <p :data-p="i" :class="{ sel: sel === i, marked: notesByP[i] }" @click="pick(i)">{{ t }}</p>
@@ -149,7 +177,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>
-        <button class="btn" :disabled="ch >= b.chapters.length - 1" @click="goChapter(ch + 1)">下一章 ›</button>
+        <button v-if="!atEnd" class="btn" @click="goChapter(ch + 1)">下一章 ›</button>
+        <button v-else class="btn" @click="infoOpen = true">{{ b.mine ? "看读后感" : "读完了，打个分" }}</button>
       </nav>
     </main>
 
@@ -169,8 +198,30 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </div>
     </Sheet>
 
+    <Sheet :open="prefsOpen" title="阅读设置" @close="prefsOpen = false">
+      <div class="prefs">
+        <div class="pr-row"><span>背景</span>
+          <div class="bgs"><button v-for="(c, k) in BGS" :key="k" :class="{ on: prefs.bg === k }" :style="{ background: c[0], color: c[1] }" :aria-label="k" @click="store.readerPrefs.bg = k">文</button></div>
+        </div>
+        <div class="pr-row"><span>字号</span>
+          <input v-model.number="store.readerPrefs.size" type="range" min="14" max="26" step="1" /><b>{{ prefs.size }}</b>
+        </div>
+        <div class="pr-row col"><span>字体</span>
+          <div class="fonts">
+            <button :class="{ on: !prefs.font }" @click="store.readerPrefs.font = ''">默认</button>
+            <button v-for="f in store.readerFonts" :key="f.id" :class="{ on: prefs.font === f.id }" @click="store.readerPrefs.font = f.id" @contextmenu.prevent="dropFont(f)">{{ f.name }}</button>
+            <button class="imp" @click="importFont">＋ 导入字体</button>
+          </div>
+          <small>支持 ttf / otf / woff。长按一个导入的字体可以删掉。</small>
+        </div>
+      </div>
+    </Sheet>
+
+    <BookInfo :book="infoOpen ? b : null" @close="infoOpen = false" @read="infoOpen = false" />
+
     <Sheet :open="tocOpen" title="目录" @close="tocOpen = false">
       <div class="toc">
+        <button class="book-card" @click="tocOpen = false; infoOpen = true">这本书：进度、评分、读后感 ›</button>
         <button v-for="(c, i) in b.chapters" :key="i" :class="{ on: i === ch }" @click="goChapter(i)">
           <span>{{ c.title }}</span><small v-if="notesOf(b.id, i).length">{{ notesOf(b.id, i).length }} 张便利贴</small>
         </button>
@@ -180,14 +231,14 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 </template>
 
 <style scoped>
-.reader { position: fixed; inset: 0; display: flex; flex-direction: column; background: #faf6ef; }
-.bar { display: flex; align-items: center; gap: 10px; padding: calc(var(--safe-top) + 10px) 14px 10px; background: rgba(250, 246, 239, .92); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); z-index: 2; }
+.reader { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--rbg); color: var(--rink); }
+.bar { display: flex; align-items: center; gap: 10px; padding: calc(var(--safe-top) + 10px) 14px 10px; background: color-mix(in srgb, var(--rbg) 92%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); z-index: 2; }
 .bar .t { flex: 1; min-width: 0; text-align: center; display: flex; flex-direction: column; }
 .bar .t b { font-weight: 600; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar .t span { font-size: .72rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page { flex: 1; overflow-y: auto; padding: 18px 24px calc(var(--safe-bottom) + 90px); max-width: 720px; width: 100%; margin: 0 auto; -webkit-overflow-scrolling: touch; }
-.ch-title { font-weight: 600; font-size: 1.25rem; text-align: center; margin: 10px 0 26px; color: #3b3128; }
-.page > p { margin: 0 0 .9em; text-indent: 2em; font-size: 1.08rem; line-height: 1.95; color: #3b3128; font-weight: 300; border-radius: 6px; transition: background .2s; cursor: pointer; }
+.ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
+.page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
 .page > p.marked { text-decoration: underline wavy rgba(217, 164, 65, .45); text-underline-offset: 6px; }
 .page > p.sel { background: rgba(217, 164, 65, .16); }
 .notes { display: flex; flex-wrap: wrap; gap: 10px; margin: -2px 0 18px; }
@@ -213,4 +264,23 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .toc button { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border: 0; background: none; text-align: left; padding: 11px 6px; border-bottom: 1px solid var(--line); font-size: .9rem; }
 .toc button.on { font-weight: 600; color: #b5852e; }
 .toc small { color: #d9a441; font-size: .7rem; flex: none; }
+.bar .t span { color: color-mix(in srgb, var(--rink) 55%, transparent); }
+.night .icon-btn { background: #2a2b31; color: #ddd; }
+.night .ch-nav { color: #888; }
+.night .note { filter: brightness(.72) saturate(.8); }
+.aa { font-weight: 600; font-size: .95rem; }
+.prefs { display: flex; flex-direction: column; gap: 16px; }
+.pr-row { display: flex; align-items: center; gap: 12px; }
+.pr-row.col { flex-direction: column; align-items: stretch; gap: 8px; }
+.pr-row > span { font-size: .85rem; color: var(--text-2); width: 3em; flex: none; }
+.pr-row input[type=range] { flex: 1; accent-color: var(--ink); }
+.bgs { display: flex; gap: 10px; }
+.bgs button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); font-size: .85rem; }
+.bgs button.on { box-shadow: 0 0 0 2px var(--ink); }
+.fonts { display: flex; flex-wrap: wrap; gap: 8px; }
+.fonts button { border: 1px solid var(--line); background: var(--card); padding: 6px 12px; border-radius: 999px; font-size: .82rem; }
+.fonts button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.fonts .imp { border-style: dashed; color: var(--text-2); }
+.pr-row small { color: var(--text-3); font-size: .72rem; }
+.toc .book-card { color: var(--text-2); font-size: .82rem; }
 </style>
