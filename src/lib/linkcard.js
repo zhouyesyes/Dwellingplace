@@ -30,7 +30,13 @@ export function previewOf(url) {
       if (!base) return (infos[url] = { error: "没找到你的服务器地址（设置 → 同步里连上服务器就好）" });
       try {
         const r = await fetch(`${base}/preview/?url=${encodeURIComponent(url)}`);
-        const j = await r.json();
+        const raw = await r.text();
+        let j;
+        try { j = JSON.parse(raw); } catch {
+          // 回来的不是服务器的回答（多半是中间的反向代理 / Cloudflare 的报错页，或者服务器还没更新）
+          const title = raw.match(/<title>([^<]{1,80})<\/title>/i)?.[1]?.trim();
+          throw new Error(`服务器回的不是网页信息（${r.status}${title ? `：${title}` : ""}）——再运行一次安装那一行试试`);
+        }
         if (r.status === 404 && /不认识/.test(j.error?.message || "")) throw new Error("服务器还是旧的：再运行一次安装那一行");
         if (!r.ok) throw new Error(j.error?.message || r.status);
         const img = u => (u ? `${base}/preview/img?url=${encodeURIComponent(u)}` : "");

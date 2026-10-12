@@ -709,14 +709,14 @@ export async function draftStyle(role) {
   ].filter(Boolean).join("\n"));
 }
 
-// raw：原样给回去（标签还在，调用的地方自己处理）
-export async function oneShot(role, prompt, { raw = false } = {}) {
+// raw：原样给回去（标签还在，调用的地方自己处理）；attachments：一起给他看的图片、文件
+export async function oneShot(role, prompt, { raw = false, attachments = [] } = {}) {
   const api = apiFor(null, role);
   const model = modelFor(null, role);
   const system = `你是「${role.name}」。`;
   const { text, usage } = await streamChat({
     api, model, system, cacheKey: `qisuo-${role.id}`,
-    messages: [{ role: "user", parts: [{ type: "text", text: prompt }] }],
+    messages: [{ role: "user", parts: [...(await partsOf({ attachments })), { type: "text", text: prompt }] }],
     onText: () => {},
   });
   if (api) recordUsage(api.id, model, usage.input, usage.output);

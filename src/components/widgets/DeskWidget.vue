@@ -3,7 +3,7 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { projects, freshNotes } from "../../lib/writing.js";
-import { isNight } from "../../lib/deskScene.js";
+import { isNight, WALL } from "../../lib/deskScene.js";
 import DeskScene from "../write/DeskScene.vue";
 
 const props = defineProps({ size: String, editing: Boolean });
@@ -16,8 +16,8 @@ const go = () => { if (!props.editing) router.push("/write"); };
 </script>
 
 <template>
-  <div class="dw" :class="[size, { night }]" @click="go">
-    <div class="pic"><div class="crop"><DeskScene :night="night" :books="books" :fresh="fresh" :interactive="false" /></div></div>
+  <div class="dw" :class="[size, { night }]" :style="{ background: night ? WALL.night : WALL.day }" @click="go">
+    <div class="pic"><div class="crop"><DeskScene :night="night" :books="books" :notes="freshNotes()" :interactive="false" /></div></div>
     <div v-if="size === 'large'" class="txt">
       <b>Desk</b>
       <span v-if="latest">在写《{{ latest.title }}》</span>
@@ -33,8 +33,8 @@ const go = () => { if (!props.editing) router.push("/write"); };
 .dw.night { background: #2d313c; color: #e4e4ea; }
 .pic { position: relative; height: 100%; aspect-ratio: 0.9; flex: none; overflow: hidden; }
 .dw.small .pic { margin: 0 auto; }
-/* 只露窗户到桌面那一段（第 18 到 152 格） */
-.crop { position: absolute; left: 50%; top: calc(-18 / 134 * 100%); height: calc(200 / 134 * 100%); transform: translateX(-50%); }
+/* 只露窗户到桌面那一段（第 12 到 150 格） */
+.crop { position: absolute; left: 50%; top: calc(-12 / 138 * 100%); height: calc(200 / 138 * 100%); transform: translateX(-50%); }
 .txt { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 16px 0 6px; min-width: 0; }
 .txt b { font-weight: 300; letter-spacing: .2em; font-size: 1.05rem; }
 .txt span { font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
