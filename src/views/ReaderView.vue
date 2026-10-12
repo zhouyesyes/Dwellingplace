@@ -2,7 +2,8 @@
 // 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）；右下角「一起读这页」→ 他读你这一屏，挑一两处贴便利贴。
 // 给他看的只有这一段 / 这一屏，而且是单独问的一次，不进聊天记录。
 // 读到哪记在书上（他在聊天里也知道你读到哪了）；便利贴贴在那一段下面：你的黄色，他的蓝色
-// 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）；读的时候计时（每天读了多久）
+// 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）、翻页还是上下滚；读的时候计时（每天读了多久）
+// 翻页：一屏一页（左右划，或者点屏幕左右两边），「一起读这页」读的正好是这一页
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
@@ -31,42 +32,113 @@ const notesByP = computed(() => {
   return m;
 });
 
+// ---------- 翻页 ----------
+const paged = computed(() => (store.readerPrefs.mode || "page") === "page");
+const pageW = ref(0); // 一页多宽（就是书页的宽度：一栏字 + 两边留白）
+const padX = ref(48); // 左右留白加起来：也是两栏字之间的空，这样「一栏 + 空」正好一页宽
+const pageNo = ref(0);
+const pageCount = ref(1);
+let ro = null;
+function measure() {
+  const el = scroller.value;
+  if (!el) return;
+  pageW.value = el.clientWidth;
+  const cs = getComputedStyle(el);
+  padX.value = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  pageCount.value = paged.value ? Math.max(1, Math.round(el.scrollWidth / el.clientWidth)) : 1;
+  pageNo.value = paged.value ? Math.round(el.scrollLeft / el.clientWidth) : 0;
+}
+function toPage(n, smooth = true) {
+  const el = scroller.value;
+  if (!el) return;
+  measure();
+  n = Math.max(0, Math.min(n, pageCount.value - 1));
+  el.scrollTo({ left: n * el.clientWidth, behavior: smooth ? "smooth" : "auto" });
+  pageNo.value = n;
+}
+// 往后 / 往前翻一页；翻过这一章的头尾就去上一章 / 下一章
+function flip(d) {
+  measure();
+  const n = pageNo.value + d;
+  if (n < 0) { if (ch.value > 0) goChapter(ch.value - 1, true); return; }
+  if (n >= pageCount.value) { if (ch.value < b.value.chapters.length - 1) goChapter(ch.value + 1); return; }
+  toPage(n);
+}
+// 左右划翻页；点屏幕左右两边也翻（中间点一段还是贴便利贴、问问他）
+let down0 = null, swiped = false;
+function onDown(e) { down0 = { x: e.clientX, y: e.clientY }; swiped = false; }
+function onUp(e) {
+  if (!paged.value || !down0) return;
+  const dx = e.clientX - down0.x, dy = e.clientY - down0.y;
+  down0 = null;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) { swiped = true; flip(dx < 0 ? 1 : -1); }
+}
+function onTapCapture(e) {
+  if (!paged.value) return;
+  if (swiped) { swiped = false; e.stopPropagation(); e.preventDefault(); return; }
+  if (sel.value != null || e.target.closest(".note, button")) return;
+  const w = innerWidth;
+  if (e.clientX < w * 0.22) { e.stopPropagation(); flip(-1); }
+  else if (e.clientX > w * 0.78) { e.stopPropagation(); flip(1); }
+}
+
+// 现在屏幕上看得到哪几段（翻页、滚动都按看得见的算）
+function visibleParas() {
+  const el = scroller.value;
+  if (!el) return [];
+  const box = el.getBoundingClientRect();
+  const out = [];
+  for (const x of el.querySelectorAll("[data-p]")) {
+    if ([...x.getClientRects()].some(r => r.right > box.left + 20 && r.left < box.right - 20 && r.bottom > box.top + 30 && r.top < box.bottom - 40)) out.push(Number(x.dataset.p));
+  }
+  return out;
+}
+
 onMounted(async () => {
   if (!b.value) return router.replace("/books");
   content.value = await loadBook(b.value.id);
   ch.value = Math.min(b.value.pos?.ch || 0, content.value.chapters.length - 1);
   await nextTick();
+  ro = new ResizeObserver(() => { const p = b.value?.pos?.p || 0; measure(); jumpTo(p); });
+  ro.observe(scroller.value);
   jumpTo(b.value.pos?.p || 0);
   markSeen();
 });
+onBeforeUnmount(() => ro?.disconnect());
 
 function jumpTo(p) {
-  const el = scroller.value?.querySelector(`[data-p="${p}"]`);
-  if (el) scroller.value.scrollTop = el.offsetTop - 70;
-  else if (scroller.value) scroller.value.scrollTop = 0;
+  const el = scroller.value;
+  if (!el) return;
+  const x = el.querySelector(`[data-p="${p}"]`);
+  if (paged.value) {
+    measure();
+    if (!x) return toPage(0, false);
+    const r = x.getClientRects()[0], box = el.getBoundingClientRect();
+    toPage(Math.floor((r.left - box.left + el.scrollLeft + 2) / el.clientWidth), false);
+  } else if (x) el.scrollTop = x.offsetTop - 70;
+  else el.scrollTop = 0;
 }
-async function goChapter(i) {
+async function goChapter(i, toEnd = false) {
   if (!content.value || i < 0 || i >= content.value.chapters.length) return;
   ch.value = i;
   sel.value = null;
   tocOpen.value = false;
   savePos(b.value, i, 0);
   await nextTick();
-  jumpTo(0);
+  if (toEnd && paged.value) { measure(); toPage(pageCount.value - 1, false); }
+  else { scroller.value.scrollLeft = 0; jumpTo(0); }
+  measure();
   markSeen();
 }
-
-// 读到哪：最上面那一段（停下来半秒再记）
+// 读到哪：屏幕上第一段（停下来半秒再记）
 let posTimer = 0;
 function onScroll() {
   clearTimeout(posTimer);
   posTimer = setTimeout(() => {
-    const el = scroller.value;
-    if (!el || !b.value) return;
-    const top = el.scrollTop + 80;
-    let p = 0;
-    for (const x of el.querySelectorAll("[data-p]")) { if (x.offsetTop <= top) p = Number(x.dataset.p); else break; }
-    savePos(b.value, ch.value, p);
+    if (!scroller.value || !b.value) return;
+    measure();
+    const seen = visibleParas();
+    savePos(b.value, ch.value, seen.length ? Math.min(...seen) : 0);
   }, 500);
 }
 onBeforeUnmount(() => clearTimeout(posTimer));
@@ -114,8 +186,7 @@ const along = ref(false);
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
-  const top = el.scrollTop, bottom = top + el.clientHeight;
-  const seen = [...el.querySelectorAll("[data-p]")].filter(x => x.offsetTop + x.offsetHeight > top + 40 && x.offsetTop < bottom - 40).map(x => Number(x.dataset.p));
+  const seen = visibleParas();
   if (!seen.length) return toast("这一屏没有字");
   along.value = true;
   store.settings.readTip = true;
@@ -147,6 +218,13 @@ const pageStyle = computed(() => {
   const [bg, ink] = BGS[prefs.value.bg] || BGS.paper;
   return { "--rbg": bg, "--rink": ink, "--rsize": `${prefs.value.size || 18}px`, ...(fontFamily.value ? { "--rfont": `"${fontFamily.value}"` } : {}) };
 });
+// 换了字号、字体、翻页方式：排版变了，回到刚才读的那一段
+watch(() => [store.readerPrefs.size, store.readerPrefs.font, store.readerPrefs.mode, fontFamily.value], async () => {
+  const p = b.value?.pos?.p || 0;
+  await nextTick();
+  setTimeout(() => { measure(); jumpTo(p); }, 60);
+});
+
 const prefsOpen = ref(false);
 async function importFont() {
   const [f] = await pickFile(".ttf,.otf,.woff,.woff2,font/*");
@@ -183,7 +261,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <button class="icon-btn" aria-label="目录" @click="tocOpen = true"><Icon name="threads" /></button>
     </header>
 
-    <main ref="scroller" class="page" @scroll.passive="onScroll(); act()">
+    <main ref="scroller" class="page" :class="{ paged }" :style="paged && pageW ? { '--colw': pageW - padX + 'px', '--colgap': padX + 'px' } : null"
+      @scroll.passive="onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
         <p :data-p="i" :class="{ sel: sel === i, marked: notesByP[i] }" @click="pick(i)">{{ t }}</p>
@@ -204,9 +283,11 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </nav>
     </main>
 
+    <span v-if="paged && pageCount > 1" class="pgno">{{ pageNo + 1 }} / {{ pageCount }}</span>
+
     <!-- 第一次来：告诉她怎么和他一起读 -->
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
-      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />右下角「一起读这页」：{{ role?.name || "他" }}读你这一屏，在有感觉的地方贴便利贴。<b>知道了</b>
+      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读这页」：{{ role?.name || "他" }}读你这一页，在有感觉的地方贴便利贴。<b>知道了</b>
     </div>
     <button v-if="sel == null" class="along" :class="{ busy: along }" :disabled="along" @click="readThisPage">
       <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : "一起读这页" }}
@@ -232,6 +313,9 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <div class="prefs">
         <div class="pr-row"><span>背景</span>
           <div class="bgs"><button v-for="(c, k) in BGS" :key="k" :class="{ on: prefs.bg === k }" :style="{ background: c[0], color: c[1] }" :aria-label="k" @click="store.readerPrefs.bg = k">文</button></div>
+        </div>
+        <div class="pr-row"><span>翻页</span>
+          <div class="fonts"><button :class="{ on: paged }" @click="store.readerPrefs.mode = 'page'">一屏一页</button><button :class="{ on: !paged }" @click="store.readerPrefs.mode = 'scroll'">上下滚动</button></div>
         </div>
         <div class="pr-row"><span>字号</span>
           <input v-model.number="store.readerPrefs.size" type="range" min="14" max="26" step="1" /><b>{{ prefs.size }}</b>
@@ -268,6 +352,11 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .bar .t b { flex: none; max-width: 62%; font-weight: 600; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar .t span { min-width: 0; font-size: .74rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page { flex: 1; overflow-y: auto; padding: 18px 24px calc(var(--safe-bottom) + 130px); max-width: 720px; width: 100%; margin: 0 auto; -webkit-overflow-scrolling: touch; }
+/* 一屏一页：字排成一栏一栏往右排，一栏正好一屏宽，翻页就是往右挪一屏 */
+.page.paged { min-height: 0; max-width: none; overflow: hidden; column-width: var(--colw, 300px); column-gap: var(--colgap, 48px); column-fill: auto; padding-bottom: calc(var(--safe-bottom) + 84px); touch-action: pan-y pinch-zoom; }
+@media (min-width: 768px) { .page.paged { padding-left: max(24px, calc((100% - 720px) / 2)); padding-right: max(24px, calc((100% - 720px) / 2)); } }
+.page.paged .notes, .page.paged .ch-nav { break-inside: avoid; }
+.pgno { position: fixed; left: 22px; bottom: calc(var(--safe-bottom) + 34px); z-index: 2; font-size: .72rem; color: var(--text-3); letter-spacing: .05em; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
 .page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
 .page > p.marked { text-decoration: underline wavy rgba(217, 164, 65, .45); text-underline-offset: 6px; }
