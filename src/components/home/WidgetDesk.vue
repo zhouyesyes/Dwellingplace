@@ -4,6 +4,7 @@ import { ref, computed, nextTick, onBeforeUnmount } from "vue";
 import { store, uid } from "../../store/index.js";
 import AnnivWidget from "../widgets/AnnivWidget.vue";
 import CalendarWidget from "../widgets/CalendarWidget.vue";
+import BookshelfWidget from "../widgets/BookshelfWidget.vue";
 import Sheet from "../Sheet.vue";
 import Icon from "../Icon.vue";
 
@@ -11,6 +12,7 @@ const TYPES = {
   // 小鸡（暖暖）收起来了：组件还在 widgets/ChickWidget.vue，数据也没删
   anniv: { label: "纪念日", desc: "在一起第几天，下一个纪念日还有多久", comp: AnnivWidget, sizes: ["small", "large"] },
   calendar: { label: "日历", desc: "和他一起记录的小事", comp: CalendarWidget, sizes: ["large"] },
+  books: { label: "书架（共读）", desc: "放几本书，和他一起读，书里能贴便利贴", comp: BookshelfWidget, sizes: ["large"] },
 };
 
 const editing = ref(false);

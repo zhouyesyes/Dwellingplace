@@ -20,7 +20,7 @@ export const MAIN = "main";
 
 function defaults() {
   return {
-    version: 8,
+    version: 9,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard", historyLimit: 80, privacy: "" }, // privacy：对外保密，所有 AI 通用
@@ -64,6 +64,7 @@ function defaultTools() {
 
 function defaultWidgets() {
   return [
+    { id: uid(), type: "books", size: "large" },
     { id: uid(), type: "anniv", size: "small" },
     { id: uid(), type: "calendar", size: "large" },
   ];
@@ -197,6 +198,11 @@ function migrate() {
     }
     store.version = 8;
   }
+  if (store.version < 9) {
+    // 新的共读书架：主页上放一个（不想要可以长按桌面移除）
+    if (!store.widgets.some(w => w.type === "books")) store.widgets.unshift({ id: uid(), type: "books", size: "large" });
+    store.version = 9;
+  }
   store.archive ??= emptyArchive();
   store.widgets = (store.widgets || []).filter(w => w.type !== "chick"); // 主页不再放小鸡
   store.settings ??= { fontSize: "standard" };
@@ -214,6 +220,8 @@ function migrate() {
   store.favorites ??= [];
   store.stickers ??= [];
   store.letters ??= [];
+  store.books ??= []; // 共读的书架
+  store.bookNotes ??= []; // 书里的便利贴
   { const d = defaultMedia(), m = store.media || {}; store.media = { stt: { ...d.stt, ...m.stt }, tts: { ...d.tts, ...m.tts }, image: { ...d.image, ...m.image } }; }
   store.groups ??= [];
   store.mcpServers ??= [];
