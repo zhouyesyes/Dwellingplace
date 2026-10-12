@@ -848,14 +848,14 @@ async function changeAvatarOf(who) {
   cursor: pointer;
   user-select: text;
 }
-.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 6px; }
-.mine .bubble { background: #fff; border-bottom-right-radius: 6px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
-/* 小尖角：气泡下角往外弯出去一个小钩（颜色跟着气泡走） */
+.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 3px; }
+.mine .bubble { background: #fff; border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
+/* 小尖角：贴着气泡底边往外伸出一个尖，内侧一道弧（颜色跟着气泡走） */
 .bubble { position: relative; }
 .bubble::after {
-  content: ""; position: absolute; bottom: -4px; width: 24px; height: 23px; background: inherit; pointer-events: none;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 23'%3E%3Cpath d='M24 0L13 0C13 8 11 13.5 5 18.2C3.2 19.6 4 22.3 6.4 22C13 21.2 18.6 18.6 21.5 14.5L24 14.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 23'%3E%3Cpath d='M24 0L13 0C13 8 11 13.5 5 18.2C3.2 19.6 4 22.3 6.4 22C13 21.2 18.6 18.6 21.5 14.5L24 14.5Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
+  content: ""; position: absolute; bottom: 0; width: 24px; height: 17px; background: inherit; pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 17'%3E%3Cpath d='M24 0L24 17L0 17C8.5 15.2 13 10 14.2 0Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 17'%3E%3Cpath d='M24 0L24 17L0 17C8.5 15.2 13 10 14.2 0Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
 }
 .theirs .bubble::after { left: -11px; }
 .mine .bubble::after { right: -11px; transform: scaleX(-1); }

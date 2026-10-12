@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { store, today, fmtTokens } from "../store/index.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
+import SubHeader from "../components/SubHeader.vue";
 
 const router = useRouter();
 
@@ -17,7 +18,7 @@ function usageLine(api) {
 
 <template>
   <div class="page">
-    <h1 class="page-title">设置</h1>
+    <SubHeader title="设置" home="/" />
 
     <div class="section-label">API</div>
     <div class="list-card">
@@ -43,6 +44,7 @@ function usageLine(api) {
 
     <div class="section-label">更多</div>
     <div class="list-card">
+      <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
         <div class="seg">

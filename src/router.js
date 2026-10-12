@@ -26,7 +26,7 @@ export const router = createRouter({
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
     { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
     { path: "/mail/:roleId", component: () => import("./views/MailView.vue") },
-    { path: "/settings", component: SettingsView, meta: { tab: "settings" } },
+    { path: "/settings", component: SettingsView }, // 从主页右上的齿轮进来，不在底栏
     { path: "/settings/role/:id", component: RoleEditView },
     { path: "/settings/api/:id", component: ApiEditView },
     { path: "/settings/backup", component: BackupView },

@@ -2,9 +2,9 @@
 import { useRouter } from "vue-router";
 import Icon from "./Icon.vue";
 import { goBack } from "../lib/nav.js";
-defineProps({ title: String });
+const props = defineProps({ title: String, home: { type: String, default: "/settings" } });
 const router = useRouter();
-const back = () => goBack(router, "/settings");
+const back = () => goBack(router, props.home);
 </script>
 
 <template>

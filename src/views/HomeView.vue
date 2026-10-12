@@ -57,7 +57,7 @@ function rename() {
         <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)">
           <Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="86" />
         </button>
-        <button class="tools" aria-label="工具" @click="router.push('/settings/tools')"><Icon name="tool" :size="19" /></button>
+        <button class="tools" aria-label="设置" @click="router.push('/settings')"><Icon name="settings" :size="19" /></button>
         <button v-if="him" class="talk" @click="router.push(`/chat/${MAIN}`)"><Icon name="chat" :size="18" />对话</button>
       </div>
       <h1 @click="rename">{{ store.profile.name }}</h1>
