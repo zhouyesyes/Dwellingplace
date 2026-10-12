@@ -188,7 +188,8 @@ const along = ref(false);
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
-  const seen = visibleParas(2);
+  const pages = Number(store.settings.alongPages) || 3;
+  const seen = visibleParas(pages - 1);
   if (!seen.length) return toast("这一页没有字");
   const done = b.value.alongTo?.ch === ch.value ? b.value.alongTo.p : -1;
   const to = Math.max(...seen);
@@ -196,7 +197,7 @@ async function readThisPage() {
   along.value = true;
   store.settings.readTip = true;
   try {
-    const { notes, memNotes } = await readAlong(r, b.value, { ch: ch.value, chapterTitle: chapterTitle.value, paras: paras.value, from, to });
+    const { notes, memNotes } = await readAlong(r, b.value, { ch: ch.value, chapterTitle: chapterTitle.value, paras: paras.value, from, to, pages });
     b.value.alongTo = { ch: ch.value, p: to };
     for (const n of notes) addNote(b.value, { ch: ch.value, p: n.p, quote: paras.value[n.p], text: n.text, from: "ai" }).seen = true;
     toast(memNotes[0] || `${r.name} 贴了 ${notes.length} 张便利贴`, 2500);
@@ -293,7 +294,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
     <!-- 第一次来：告诉她怎么和他一起读 -->
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
-      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}读你最近这三页，在有感觉的地方贴便利贴。<b>知道了</b>
+      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}读你最近这{{ store.settings.alongPages || 3 }}页，在有感觉的地方贴便利贴。<b>知道了</b>
     </div>
     <button v-if="sel == null" class="along" :class="{ busy: along }" :disabled="along" @click="readThisPage">
       <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : "一起读" }}
@@ -322,6 +323,13 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         </div>
         <div class="pr-row"><span>翻页</span>
           <div class="fonts"><button :class="{ on: paged }" @click="store.readerPrefs.mode = 'page'">一屏一页</button><button :class="{ on: !paged }" @click="store.readerPrefs.mode = 'scroll'">上下滚动</button></div>
+        </div>
+        <div class="pr-row col"><span>一起读，一次读几页</span>
+          <div class="fonts"><button v-for="n in [1, 2, 3, 5]" :key="n" :class="{ on: (store.settings.alongPages || 3) === n }" @click="store.settings.alongPages = n">{{ n }} 页</button></div>
+        </div>
+        <div class="pr-row col"><span>每读多少字，{{ role?.name || "他" }}整理一次前情</span>
+          <div class="fonts"><button v-for="n in [2000, 3000, 5000, 8000]" :key="n" :class="{ on: (store.settings.readGistChars || 3000) === n }" @click="store.settings.readGistChars = n">{{ n / 1000 }} 千字</button></div>
+          <small>整理得勤，他记得细一点，也多花一点；用的是「设置 → API」里的整理模型。</small>
         </div>
         <div class="pr-row"><span>字号</span>
           <input v-model.number="store.readerPrefs.size" type="range" min="14" max="26" step="1" /><b>{{ prefs.size }}</b>
@@ -402,6 +410,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .prefs { display: flex; flex-direction: column; gap: 16px; }
 .pr-row { display: flex; align-items: center; gap: 12px; }
 .pr-row.col { flex-direction: column; align-items: stretch; gap: 8px; }
+.pr-row.col > span { width: auto; }
 .pr-row > span { font-size: .85rem; color: var(--text-2); width: 3em; flex: none; }
 .pr-row input[type=range] { flex: 1; accent-color: var(--ink); }
 .bgs { display: flex; gap: 10px; }
