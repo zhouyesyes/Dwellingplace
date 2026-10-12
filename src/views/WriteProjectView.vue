@@ -1,14 +1,18 @@
 <script setup>
-// 一本书（共写）：两页——卡片（人物、设定、大纲、灵感、片段……一张张）和讨论（坐在书桌前和他聊这本书）。
-// 卡片上可以贴便利贴：你的黄色，他的蓝色；他的可以「采纳」（接到卡片里）或撕掉
-import { ref, computed, nextTick, onMounted, watch } from "vue";
+// 一本书（共写）：点进来就是和他的讨论。上面一条短短的页头图，像这本书的样子；
+// 右上角「资料」从右边滑出半边：封面、书名、书脊颜色、定位、简介，下面是一个个资料夹（卡片）。
+// 卡片上可以贴便利贴：你的黄色，他的蓝色；他的可以「采纳」（接到卡片里）或撕掉。讨论页的背景、气泡颜色可以自己换
+import { ref, computed, nextTick, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, MAIN, roleById } from "../store/index.js";
-import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES } from "../lib/writing.js";
-import { pickFile, deleteImage } from "../lib/images.js";
+import { store, MAIN, roleById, BUBBLE_COLORS } from "../store/index.js";
+import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
+import { pickFile, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
 import TalkDrawer from "../components/write/TalkDrawer.vue";
+import BookDrawer from "../components/write/BookDrawer.vue";
+import WriteCover from "../components/write/WriteCover.vue";
 import BigTextarea from "../components/BigTextarea.vue";
+import ColorSwatches from "../components/ColorSwatches.vue";
 import { describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -19,27 +23,48 @@ const route = useRoute();
 const router = useRouter();
 const p = computed(() => projectById(route.params.id));
 const role = computed(() => roleById(MAIN));
-const tab = ref("cards");
-const addMenu = ref(false);
-// 卡片的颜色（自己挑）：浅浅的几种
-const TINTS = { white: "#ffffff", mint: "#e3f3ec", cream: "#fbf3df", pink: "#fbe8ec", blue: "#e4eefa", lilac: "#eee8f8", sand: "#f2ece4" };
-const cardBg = c => TINTS[c.tint] || (c.from === "ai" ? TINTS.blue : TINTS.white);
-const filter = ref("all");
-const cards = computed(() => (p.value ? cardsOf(p.value.id) : []).filter(c => filter.value === "all" || c.type === filter.value).sort((a, b) => b.ts - a.ts));
-const counts = computed(() => { const m = {}; for (const c of p.value ? cardsOf(p.value.id) : []) m[c.type] = (m[c.type] || 0) + 1; return m; });
-onMounted(() => {
+const him = computed(() => role.value?.name || "他");
+onMounted(async () => {
   if (!p.value) return router.replace("/write");
+  msgs.value = await loadTalk(p.value.id);
+  down();
   // 从书桌墙上的便利贴点进来：直接打开那张卡片
   const c = route.query.card && cardsOf(p.value.id).find(x => x.id === route.query.card);
   if (c) openCard(c);
 });
 
-// ---------- 卡片 ----------
+// ---------- 样子：页头图、背景、气泡 ----------
+const banner = useImage(() => p.value?.banner);
+const bg = useImage(() => p.value?.bg);
+const spine = computed(() => SPINES[(p.value?.color || 0) % SPINES.length]);
+const textOn = c => {
+  const hex = (c || "#ffffff").replace("#", "");
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.55 ? "#fff" : "var(--text)";
+};
+const look = computed(() => {
+  const me = p.value?.bubbleMe || "#ffffff", ai = p.value?.bubbleAi || role.value?.bubbleColor || BUBBLE_COLORS[3];
+  return { "--spine": spine.value, "--me": me, "--me-text": textOn(me), "--ai": ai, "--ai-text": textOn(ai) };
+});
+async function swapImage(key, aspect, title) {
+  const id = await pickAndCrop({ aspect, title, maxSize: 1800 });
+  if (!id) return;
+  const old = p.value[key];
+  p.value[key] = id;
+  if (old) deleteImage(old);
+}
+const changeBanner = () => swapImage("banner", innerWidth / (Math.min(innerWidth * 0.42, 200) + 47), "调整页头图");
+const changeBg = () => swapImage("bg", innerWidth / innerHeight, "调整背景");
+const changeCover = () => swapImage("cover", 2 / 3, "调整封面");
+function clearImage(key) { deleteImage(p.value[key]); p.value[key] = null; }
+
+// ---------- 资料（右边半边）和卡片 ----------
+const shelf = ref(false);
 const edit = ref(null); // 正在看 / 改的卡片（副本）
 const editing = ref(null); // 原卡片
-function openCard(c) {
+function openCard(c, type = "idea") {
   editing.value = c;
-  edit.value = c ? { ...c, atts: [...(c.atts || [])] } : { type: filter.value === "all" ? "idea" : filter.value, title: "", content: "", atts: [] };
+  edit.value = c ? { ...c, atts: [...(c.atts || [])] } : { type, title: "", content: "", atts: [] };
   for (const n of c ? notesOfCard(c.id) : []) n.seen = true;
 }
 function saveCard() {
@@ -54,7 +79,7 @@ function dropCard() {
   removeCard(editing.value);
   edit.value = null;
 }
-// 卡片上挂图片、文件；导入一批文件（每个一张卡片，放进现在选的分类，「全部」时放进资料）
+// 卡片上挂图片、文件；导入一批文件（每个一张卡片，放进那个资料夹）
 const ACCEPT = "image/*,.pdf,.txt,.md,.markdown,.csv,.json";
 async function attachToCard() {
   const files = await pickFile(ACCEPT, true);
@@ -66,18 +91,14 @@ function dropAtt(a) {
   edit.value.atts.splice(edit.value.atts.indexOf(a), 1);
   if (a.kind === "image" && !(editing.value?.atts || []).includes(a)) deleteImage(a.img);
 }
-const importing = ref(false);
-async function importMany() {
+async function importMany(type) {
   const files = await pickFile(ACCEPT, true);
   if (!files.length) return;
-  importing.value = true;
   try {
-    const made = await importFiles(p.value.id, files, filter.value === "all" ? "ref" : filter.value);
+    const made = await importFiles(p.value.id, files, type);
     toast(`放进来 ${made.length} 张卡片`);
   } catch (e) {
     toast(e.message, 4000);
-  } finally {
-    importing.value = false;
   }
 }
 const noteText = ref("");
@@ -92,6 +113,7 @@ async function askReview() {
   reviewing.value = true;
   try { await reviewCard(role.value, editing.value); } catch (e) { toast(describeError(e), 4000); } finally { reviewing.value = false; }
 }
+const freshCount = computed(() => (p.value ? cardsOf(p.value.id) : []).filter(c => notesOfCard(c.id).some(n => n.from === "ai" && !n.seen)).length);
 
 // ---------- 讨论 ----------
 const msgs = ref([]);
@@ -106,37 +128,22 @@ async function attachToTalk() {
 }
 const box = ref(null);
 const down = () => nextTick(() => { if (box.value) box.value.scrollTop = box.value.scrollHeight; });
-watch(tab, async t => { if (t === "talk" && p.value) { msgs.value = await loadTalk(p.value.id); down(); } });
 async function send() {
   if (sending.value || !role.value) return;
   const t = draft.value, atts = draftAtts.value;
   if (!t.trim() && !atts.length && msgs.value.at(-1)?.from !== "me") return;
   draft.value = "";
   draftAtts.value = [];
-  sending.value = true;
-  msgs.value = await loadTalk(p.value.id);
-  down();
-  try {
-    const promise = talk(role.value, p.value, t, atts);
-    down();
-    await promise;
-  } catch (e) {
-    toast(describeError(e), 4000);
-  } finally {
-    sending.value = false;
-    down();
-  }
+  await run(() => talk(role.value, p.value, t, atts));
 }
 
 // 讨论里的一句：点一下，手指旁边弹出复制、收藏、修改、重新回答、删除（都只在这本书里）
 const actionMsg = ref(null);
 const menuPos = ref({});
-let tapAt = { x: innerWidth / 2, y: innerHeight / 2 };
 function openActions(m, e) {
   if (sending.value) return;
-  tapAt = { x: e.clientX, y: e.clientY };
-  const w = 188, x = Math.min(Math.max(tapAt.x - w / 2, 12), innerWidth - w - 12);
-  menuPos.value = tapAt.y > innerHeight * 0.55 ? { left: x + "px", bottom: innerHeight - tapAt.y + 10 + "px" } : { left: x + "px", top: tapAt.y + 10 + "px" };
+  const w = 188, x = Math.min(Math.max(e.clientX - w / 2, 12), innerWidth - w - 12);
+  menuPos.value = e.clientY > innerHeight * 0.55 ? { left: x + "px", bottom: innerHeight - e.clientY + 10 + "px" } : { left: x + "px", top: e.clientY + 10 + "px" };
   actionMsg.value = m;
 }
 const take = () => { const m = actionMsg.value; actionMsg.value = null; return m; };
@@ -170,13 +177,10 @@ async function run(fn) {
   try { await fn(); } catch (e) { toast(describeError(e), 4000); } finally { sending.value = false; down(); }
 }
 // 搜索 / 收藏（右边半边）
-const drawer = ref(false);
-async function openDrawer() { msgs.value = await loadTalk(p.value.id); drawer.value = true; }
+const finder = ref(false);
 const flash = ref("");
 async function goMsg(id) {
-  drawer.value = false;
-  tab.value = "talk";
-  msgs.value = await loadTalk(p.value.id);
+  finder.value = false;
   await nextTick();
   document.getElementById("wm-" + id)?.scrollIntoView({ block: "center", behavior: "smooth" });
   flash.value = id;
@@ -185,7 +189,6 @@ async function goMsg(id) {
 
 // ---------- 这本书 ----------
 const menu = ref(false);
-function rename() { const t = prompt("书名", p.value.title); if (t?.trim()) p.value.title = t.trim().slice(0, 60); }
 async function drop() {
   if (!confirm(`把《${p.value.title}》从书桌上拿走？卡片和讨论都会没有（他记忆库里的总结还在）。`)) return;
   const x = p.value;
@@ -202,59 +205,50 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 </script>
 
 <template>
-  <div v-if="p" class="proj">
-    <header class="head">
-      <button class="icon-btn" aria-label="回书桌" @click="goBack(router, '/write')"><Icon name="back" /></button>
-      <div class="t"><i class="spine" :style="{ background: SPINES[p.color % SPINES.length] }" /><h1>{{ p.title }}</h1></div>
-      <button class="icon-btn" aria-label="搜索和收藏" @click="openDrawer"><Icon name="search" /></button>
-      <button class="icon-btn" aria-label="更多" @click="menu = true"><Icon name="more" /></button>
-    </header>
-    <nav class="tabs">
-      <button class="add-round" aria-label="加卡片" @click="addMenu = true"><Icon name="plus" :size="20" /></button>
-      <button :class="{ on: tab === 'cards' }" @click="tab = 'cards'">卡片</button>
-      <button :class="{ on: tab === 'talk' }" @click="tab = 'talk'">和{{ role?.name || "他" }}讨论</button>
-    </nav>
+  <div v-if="p" class="proj" :class="{ 'has-bg': bg }" :style="look">
+    <div class="page-bg" :style="bg ? { backgroundImage: `url(${bg})` } : {}" />
 
-    <!-- 卡片 -->
-    <div v-if="tab === 'cards'" class="scroll">
-      <div class="filters">
-        <button :class="{ on: filter === 'all' }" @click="filter = 'all'">全部</button>
-        <button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: filter === k }" @click="filter = k">{{ t.label }}<small v-if="counts[k]">{{ counts[k] }}</small></button>
+    <!-- 页头：一条短短的图（点一下换），上面是返回、搜索、资料、更多 -->
+    <header class="banner" :style="banner ? { backgroundImage: `url(${banner})` } : {}" @click.self="changeBanner">
+      <div class="bar">
+        <button class="glass" aria-label="回书桌" @click="goBack(router, '/write')"><Icon name="back" :size="20" /></button>
+        <span class="grow" />
+        <button class="glass" aria-label="搜索和收藏" @click="finder = true"><Icon name="search" :size="19" /></button>
+        <button class="glass" aria-label="资料" @click="shelf = true"><Icon name="folder" :size="19" /><i v-if="freshCount" class="dot" /></button>
+        <button class="glass" aria-label="更多" @click="menu = true"><Icon name="more" :size="19" /></button>
       </div>
-      <div class="cards">
-        <div v-for="c in cards" :key="c.id" class="card" role="button" tabindex="0" :class="{ his: c.from === 'ai' }" :style="{ background: cardBg(c) }" @click="openCard(c)">
-          <b>{{ c.title || "无题" }}</b>
-          <p v-if="c.content">{{ c.content }}</p>
-          <AttList v-if="c.atts?.length" :atts="c.atts.slice(0, 3)" small />
-          <div class="foot"><small>{{ CARD_TYPES[c.type]?.label }}<template v-if="c.from === 'ai'"> · {{ role?.name }} 提的</template></small>
-            <span v-if="notesOfCard(c.id).length" class="stk" :class="{ fresh: notesOfCard(c.id).some(n => n.from === 'ai' && !n.seen) }">{{ notesOfCard(c.id).length }}</span></div>
-        </div>
+    </header>
+    <div class="who">
+      <button class="cv" aria-label="这本书的资料" @click="shelf = true"><WriteCover :book="p" /></button>
+      <div class="names">
+        <h1>{{ p.title }}</h1>
+        <p>{{ p.pitch || `和${him}一起写` }}</p>
       </div>
-      <p v-if="!cards.length" class="hint">左上角的「＋」写一张卡片，或者导入图片、文件。人物、设定、大纲、灵感、片段……他会读这些卡片，和你一起琢磨。</p>
     </div>
 
     <!-- 讨论 -->
-    <div v-else class="talk">
-      <div ref="box" class="msgs">
-        <p v-if="!msgs.length" class="hint">坐下来，和{{ role?.name || "他" }}聊聊这本书：卡在哪、想试什么、哪里不对劲。他会看着你的卡片说。</p>
-        <div v-for="m in msgs" :id="'wm-' + m.id" :key="m.id" class="m" :class="[m.from, { flash: flash === m.id }]">
-          <AttList v-if="m.atts?.length" :atts="m.atts" small />
-          <p v-if="m.text" role="button" @click="openActions(m, $event)">{{ m.text }}<i v-if="m.fav" class="fav">★</i></p>
-          <small v-if="m.edited" class="edited">改过</small>
-          <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
-        </div>
-        <div v-if="sending" class="m ai"><p class="typing">在想……</p></div>
+    <div ref="box" class="msgs">
+      <p v-if="!msgs.length" class="hint">坐下来，和{{ him }}聊聊这本书：卡在哪、想试什么、哪里不对劲。<br />他会看着右上角「资料」里的定位、简介和卡片说。</p>
+      <div v-for="m in msgs" :id="'wm-' + m.id" :key="m.id" class="m" :class="[m.from, { flash: flash === m.id }]">
+        <AttList v-if="m.atts?.length" :atts="m.atts" small />
+        <p v-if="m.text" role="button" @click="openActions(m, $event)">{{ m.text }}<i v-if="m.fav" class="fav">★</i></p>
+        <small v-if="m.edited" class="edited">改过</small>
+        <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
       </div>
-      <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
-      <div class="composer">
-        <button class="plus" aria-label="发图片或文件" @click="attachToTalk"><Icon name="plus" :size="20" /></button>
-        <textarea v-model="draft" rows="1" placeholder="想和他说的…" @keydown.enter.exact.prevent="send" />
-        <button class="send" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
-      </div>
+      <div v-if="sending" class="m ai"><p class="typing">在想……</p></div>
+    </div>
+    <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
+    <div class="composer">
+      <button class="plus" aria-label="发图片或文件" @click="attachToTalk"><Icon name="plus" :size="20" /></button>
+      <textarea v-model="draft" rows="1" :placeholder="`想和${him}说的…`" @keydown.enter.exact.prevent="send" />
+      <button class="send" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
     </div>
 
+    <BookDrawer :open="shelf" :book="p" :him="him" @close="shelf = false" @cover="changeCover" @card="c => openCard(c)" @new="t => openCard(null, t)" @import="importMany" />
+    <TalkDrawer :open="finder" :msgs="msgs" :me="role ? meName(role) : '我'" :him="him" @close="finder = false" @go="goMsg" @fav="favMsg" />
+
     <!-- 一张卡片 -->
-    <Sheet :open="!!edit" @close="edit = null">
+    <Sheet :open="!!edit" :z="850" @close="edit = null">
       <div v-if="edit" class="ed">
         <div class="types"><button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: edit.type === k }" @click="edit.type = k">{{ t.label }}</button></div>
         <div class="tints"><button v-for="(c, k) in TINTS" :key="k" :style="{ background: c }" :class="{ on: (edit.tint || 'white') === k }" :aria-label="k" @click="edit.tint = k" /></div>
@@ -274,7 +268,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
             <div v-for="n in notesOfCard(editing.id)" :key="n.id" class="note" :class="n.from === 'me' ? 'mine' : 'his'">
               <i class="tape" />
               <p>{{ n.text }}</p>
-              <div class="nf"><small>— {{ n.from === "me" ? "我" : role?.name }} · {{ when(n.ts) }}</small>
+              <div class="nf"><small>— {{ n.from === "me" ? "我" : him }} · {{ when(n.ts) }}</small>
                 <button v-if="n.from === 'ai'" @click="adoptNote(n); edit.content = editing.content">采纳</button>
                 <button @click="removeNote(n)">撕掉</button></div>
             </div>
@@ -283,19 +277,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
             <input v-model="noteText" class="input" placeholder="自己贴一张便利贴" @keydown.enter="myNote" />
             <button class="btn soft small" @click="myNote">贴</button>
           </div>
-          <button class="btn soft" :disabled="reviewing" @click="askReview">{{ reviewing ? `${role?.name}在看……` : `请${role?.name || "他"}看看这张` }}</button>
+          <button class="btn soft" :disabled="reviewing" @click="askReview">{{ reviewing ? `${him}在看……` : `请${him}看看这张` }}</button>
         </template>
       </div>
     </Sheet>
-
-    <Sheet :open="addMenu" title="加卡片" @close="addMenu = false">
-      <div class="menu">
-        <button class="list-row" @click="addMenu = false; openCard(null)"><Icon name="edit" :size="20" /><span class="grow">写一张{{ filter === "all" ? "" : CARD_TYPES[filter].label }}卡片</span></button>
-        <button class="list-row" :disabled="importing" @click="addMenu = false; importMany()"><Icon name="upload" :size="20" /><span class="grow">导入图片、文件<small class="sub">每个文件一张卡片，放进{{ filter === "all" ? "资料" : CARD_TYPES[filter].label }}</small></span></button>
-      </div>
-    </Sheet>
-
-    <TalkDrawer :open="drawer" :msgs="msgs" :me="role ? meName(role) : '我'" :him="role?.name || '他'" @close="drawer = false" @go="goMsg" @fav="favMsg" />
 
     <!-- 讨论里一句话的小选项 -->
     <Teleport to="body">
@@ -315,19 +300,28 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <BigTextarea v-model="fixing.text" rows="7" title="修改" />
         <div class="row edit-actions">
           <button class="btn soft" @click="saveEdit(false)">仅保存</button>
-          <button v-if="fixing.msg.from === 'me'" class="btn" :disabled="sending" @click="saveEdit(true)">保存并让他重新回答</button>
+          <button v-if="fixing.msg.from === 'me'" class="btn" :disabled="sending" @click="saveEdit(true)">保存并让{{ him }}重新回答</button>
         </div>
       </template>
     </Sheet>
 
     <Sheet :open="menu" :title="`《${p.title}》`" @close="menu = false">
       <div class="menu">
-        <p v-if="memo" class="memo"><b>他记着的：</b>{{ memo.content }}</p>
-        <button class="list-row" :disabled="summing" @click="sumNow">{{ summing ? "在整理……" : "让他把最近的讨论记进记忆库" }}</button>
-        <div class="list-row"><span class="grow">书脊颜色</span>
-          <div class="colors"><button v-for="(c, i) in SPINES" :key="i" :style="{ background: c }" :class="{ on: p.color === i }" @click="p.color = i" /></div>
-        </div>
-        <button class="list-row" @click="rename">改书名</button>
+        <p v-if="memo" class="memo"><b>{{ him }}记着的：</b>{{ memo.content }}</p>
+        <button class="list-row" :disabled="summing" @click="sumNow">{{ summing ? "在整理……" : `让${him}把最近的讨论记进记忆库` }}</button>
+
+        <div class="section-label">这一页的样子</div>
+        <div class="list-row"><Icon name="image" :size="20" /><span class="grow">页头图</span>
+          <button v-if="p.banner" class="btn soft small" @click="clearImage('banner')">恢复默认</button>
+          <button class="btn soft small" @click="menu = false; changeBanner()">换一张</button></div>
+        <div class="list-row"><Icon name="image" :size="20" /><span class="grow">背景</span>
+          <button v-if="p.bg" class="btn soft small" @click="clearImage('bg')">恢复默认</button>
+          <button class="btn soft small" @click="menu = false; changeBg()">换背景</button></div>
+        <div class="section-label">我的气泡</div>
+        <div class="swatch-row"><ColorSwatches :model-value="p.bubbleMe || '#ffffff'" :colors="BUBBLE_COLORS" @update:model-value="v => (p.bubbleMe = v)" /></div>
+        <div class="section-label">{{ him }}的气泡</div>
+        <div class="swatch-row"><ColorSwatches :model-value="p.bubbleAi || role?.bubbleColor || BUBBLE_COLORS[3]" :colors="BUBBLE_COLORS" @update:model-value="v => (p.bubbleAi = v)" /></div>
+
         <button class="list-row danger" @click="drop">从书桌上拿走</button>
       </div>
     </Sheet>
@@ -336,62 +330,56 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
 <style scoped>
 /* 整页固定、里面自己滚：输入框不会被 iPhone 的键盘顶来顶去 */
-.proj { position: fixed; inset: 0; height: 100dvh; padding: calc(var(--safe-top) + 14px) 18px calc(var(--safe-bottom) + 12px); max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; }
-.head, .tabs { flex: none; }
-.scroll { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -18px; padding: 0 18px 30px; -webkit-overflow-scrolling: touch; }
-.head { display: flex; align-items: center; gap: 12px; }
-.t { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
-.spine { width: 6px; height: 26px; border-radius: 1px; flex: none; }
-.t h1 { margin: 0; font-size: 1.25rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tabs { display: flex; gap: 6px; margin: 16px 0 12px; }
-.tabs button, .filters button { border: 0; background: var(--card); padding: 7px 16px; border-radius: 999px; font-size: .85rem; color: var(--text-2); box-shadow: var(--shadow-soft); white-space: nowrap; }
-.tabs button.on, .filters button.on { background: var(--ink); color: #fff; font-weight: 600; }
-.filters { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 10px; }
-.filters::-webkit-scrollbar { display: none; }
-.filters button { padding: 5px 12px; font-size: .78rem; box-shadow: none; background: var(--bg-deep); }
-.filters small { margin-left: 4px; opacity: .6; }
-.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (min-width: 640px) { .cards { grid-template-columns: repeat(3, 1fr); } }
-.card { position: relative; text-align: left; cursor: pointer; border: 0; border-radius: 18px; background: var(--card); padding: 14px 14px 12px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 6px; min-height: 110px; }
-.card.new { align-items: center; justify-content: center; color: var(--text-3); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); font-size: .8rem; gap: 6px; }
-.card b { font-size: 1rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.foot small { font-size: .68rem; color: var(--text-3); }
-.add-round { width: 36px; height: 36px; padding: 0 !important; border-radius: 50% !important; display: grid; place-items: center; background: var(--ink) !important; color: #fff !important; }
-.tints { display: flex; gap: 8px; }
-.tints button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); }
-.tints button.on { box-shadow: 0 0 0 2px var(--ink); }
-.card p { margin: 0; font-size: .8rem; line-height: 1.6; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
-.stk { min-width: 20px; height: 20px; padding: 0 5px; border-radius: 3px; background: #f4e7a8; font-size: .7rem; display: grid; place-items: center; transform: rotate(4deg); }
-.stk.fresh { background: #cfe0f2; }
-.hint { text-align: center; color: var(--text-3); font-size: .8rem; line-height: 1.7; margin: 22px 10px; }
-.talk { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.composer { flex: none; }
-.msgs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 12px; }
+.proj { position: fixed; inset: 0; height: 100dvh; display: flex; flex-direction: column; padding-bottom: calc(var(--safe-bottom) + 12px); }
+.page-bg { position: absolute; inset: 0; z-index: -1; background: var(--bg); background-size: cover; background-position: center; }
+.banner {
+  flex: none; position: relative; height: calc(var(--safe-top) + min(42vw, 200px)); cursor: pointer;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--spine) 55%, #fff) 0%, color-mix(in srgb, var(--spine) 22%, #fff) 60%, #fff 140%);
+  background-size: cover; background-position: center;
+}
+.bar { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 14px 0; pointer-events: none; }
+.bar button { pointer-events: auto; }
+.glass { position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; color: var(--ink); background: rgba(255, 255, 255, .72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(40, 40, 60, .1); }
+.glass .dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: #6aa7e0; box-shadow: 0 0 0 2px #fff; }
+.grow { flex: 1; }
+/* 封面一半在页头图上、一半在下面，和主页的头像一样 */
+.who { flex: none; display: flex; align-items: flex-end; gap: 12px; padding: 0 20px; margin: -40px auto 0; position: relative; max-width: 760px; width: 100%; box-sizing: border-box; }
+.cv { width: 58px; flex: none; border: 0; padding: 0; background: none; }
+.cv .wcover { font-size: 9px; box-shadow: 0 0 0 3px #fff, 0 6px 16px rgba(40, 40, 60, .16); }
+.names { min-width: 0; padding-bottom: 2px; }
+.names h1 { margin: 0; font-size: 1.25rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.names p { margin: 2px 0 0; font-size: .78rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.has-bg .names h1, .has-bg .names p { text-shadow: 0 1px 6px rgba(255, 255, 255, .9); }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 18px 12px; max-width: 760px; width: 100%; margin: 0 auto; box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+.hint { text-align: center; color: var(--text-3); font-size: .8rem; line-height: 1.8; margin: 22px 10px; }
+.has-bg .hint { color: var(--text-2); background: rgba(255, 255, 255, .7); border-radius: 14px; padding: 10px 12px; }
 .m { max-width: 86%; display: flex; flex-direction: column; gap: 4px; }
-.m p { margin: 0; padding: 10px 14px; border-radius: 16px; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m p { margin: 0; padding: 10px 14px; border-radius: 18px; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; -webkit-touch-callout: none; }
 .m.me { align-self: flex-end; align-items: flex-end; }
-.m.me p { background: #fff; box-shadow: var(--shadow-soft); }
-.m.ai p { background: var(--blue); }
-.m p { cursor: pointer; -webkit-touch-callout: none; }
+.m.me p { background: var(--me); color: var(--me-text); box-shadow: var(--shadow-soft); border-bottom-right-radius: 6px; }
+.m.ai p { background: var(--ai); color: var(--ai-text); border-bottom-left-radius: 6px; }
 .fav { font-style: normal; color: #e0a53a; font-size: .7rem; margin-left: 6px; }
 .edited { font-size: .66rem; color: var(--text-3); padding: 0 6px; }
 .m.flash p { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px #f0c36a; } 100% { box-shadow: 0 0 0 0 transparent; } }
-.edit-actions { justify-content: flex-end; margin-top: 12px; }
 .act { font-size: .72rem; color: var(--text-2); padding: 0 6px; }
-.typing { color: var(--text-2); animation: breathe 1.6s ease-in-out infinite; }
+.has-bg .act, .has-bg .edited { background: rgba(255, 255, 255, .75); border-radius: 999px; padding: 1px 8px; }
+.typing { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .5; } }
-.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: var(--card); border-radius: 22px; box-shadow: var(--shadow-soft); }
+.draft-atts { margin: 0 auto 8px; max-width: 724px; width: calc(100% - 36px); }
+.composer { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: var(--card); border-radius: 22px; box-shadow: var(--shadow-soft); max-width: 724px; align-self: center; width: calc(100% - 36px); box-sizing: border-box; }
 .composer textarea { flex: 1; border: 0; outline: none; background: none; resize: none; font-size: .95rem; line-height: 1.5; padding: 6px 8px; max-height: 140px; field-sizing: content; }
 .send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; flex: none; }
+.plus { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
 .ed { display: flex; flex-direction: column; gap: 10px; max-height: 78vh; overflow-y: auto; }
 .types { display: flex; gap: 6px; flex-wrap: wrap; }
 .types button { border: 0; background: var(--bg-deep); padding: 5px 12px; border-radius: 999px; font-size: .8rem; color: var(--text-2); }
 .types button.on { background: var(--ink); color: #fff; }
+.tints { display: flex; gap: 8px; padding: 3px; }
+.tints button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); }
+.tints button.on { box-shadow: 0 0 0 2px var(--ink); }
 .body { min-height: 160px; line-height: 1.7; }
 .row { display: flex; gap: 8px; align-items: center; }
-.grow { flex: 1; }
 h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
 .notes { display: flex; flex-direction: column; gap: 12px; }
 .note { position: relative; padding: 14px 14px 8px; border-radius: 2px; box-shadow: 0 6px 14px rgba(60, 45, 30, .12); transform: rotate(-.8deg); }
@@ -407,13 +395,10 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .add-note .input { flex: 1; }
 .danger { color: var(--danger); }
 .menu { display: flex; flex-direction: column; }
+.menu .list-row { gap: 10px; }
 .memo { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--bg); font-size: .82rem; line-height: 1.7; color: var(--text-2); }
 .memo b { color: var(--text); font-weight: 600; }
-.colors { display: flex; gap: 6px; }
-.colors button { width: 18px; height: 26px; border: 0; border-radius: 2px; }
-.colors button.on { box-shadow: 0 0 0 2px var(--ink); }
-.card :deep(.atts) { margin-top: 4px; }
-.plus { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
-.draft-atts { margin-bottom: 8px; }
+.swatch-row { padding: 4px 4px 10px; }
+.edit-actions { justify-content: flex-end; margin-top: 12px; }
 .att-btn { align-self: flex-start; display: flex; align-items: center; gap: 4px; }
 </style>

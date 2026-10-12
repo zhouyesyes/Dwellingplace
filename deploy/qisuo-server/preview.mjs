@@ -16,6 +16,8 @@ const TIMEOUT = 7000;
 const MAX_HTML = 768 * 1024; // 网页只读开头这么多，标题和封面都在 <head> 里
 const MAX_IMG = 4 * 1024 * 1024;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+// 有的网站（维基百科等）不让服务器假装成手机浏览器，回 403；这时老老实实报上名字再试一次
+const BOT_UA = "QisuoLinkPreview/1.0 (+https://github.com/zhouyesyes/Dwellingplace; link preview for a personal app)";
 
 // 读过的记一会儿（6 小时，最多 300 条）
 const cache = new Map();
@@ -55,23 +57,29 @@ async function safeTarget(raw) {
 }
 
 // 连检查过的那个 IP；跳转最多 4 次，每次重新检查
-async function get(raw, { accept, max }, hops = 0) {
+async function get(raw, opt, hops = 0) {
+  try { return await getOnce(raw, opt, hops); } catch (e) {
+    if (opt.ua || ![401, 403, 429].includes(e.http)) throw e;
+    return getOnce(raw, { ...opt, ua: BOT_UA }, hops);
+  }
+}
+async function getOnce(raw, { accept, max, ua }, hops) {
   const { u, addrs } = await safeTarget(raw);
   let last;
   for (const addr of addrs.slice(0, 4)) {
-    try { return await getVia(u, addr, { accept, max }, hops); } catch (e) {
+    try { return await getVia(u, addr, { accept, max, ua }, hops); } catch (e) {
       last = e;
       if (e.status) throw e; // 网站自己回了错（404 之类），换地址也没用
     }
   }
   throw Object.assign(new Error(`连不上这个网站（${last?.code || last?.message || "?"}）`), { status: 502 });
 }
-function getVia(u, addr, { accept, max }, hops) {
+function getVia(u, addr, { accept, max, ua }, hops) {
   const mod = u.protocol === "https:" ? https : http;
   return new Promise((resolve, reject) => {
     const req = mod.request(u, {
       method: "GET",
-      headers: { "User-Agent": UA, Accept: accept, "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.6" },
+      headers: { "User-Agent": ua || UA, Accept: accept, "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.6" },
       // 新版 Node 会要一组地址（all: true），旧的要一个：都只给检查过的那个
       lookup: (_h, o, cb) => (o?.all ? cb(null, [{ address: addr.address, family: addr.family }]) : cb(null, addr.address, addr.family)),
       timeout: TIMEOUT,
@@ -80,9 +88,9 @@ function getVia(u, addr, { accept, max }, hops) {
       if (res.statusCode >= 300 && res.statusCode < 400 && loc) {
         res.resume();
         if (hops >= 4) return reject(Object.assign(new Error("跳转太多次"), { status: 502 }));
-        return get(new URL(loc, u).href, { accept, max }, hops + 1).then(resolve, reject);
+        return getOnce(new URL(loc, u).href, { accept, max, ua }, hops + 1).then(resolve, reject);
       }
-      if (res.statusCode >= 400) { res.resume(); return reject(Object.assign(new Error(`网页打不开（${res.statusCode}）`), { status: 502 })); }
+      if (res.statusCode >= 400) { res.resume(); return reject(Object.assign(new Error(`网页打不开（${res.statusCode}）`), { status: 502, http: res.statusCode })); }
       const chunks = [];
       let n = 0;
       res.on("data", c => {
@@ -133,6 +141,25 @@ export function parse(html, base) { // 导出只是方便单独测
   };
 }
 
+// 维基百科：直接问它的公开接口要摘要和配图，比读整个网页稳（它对服务器来读网页很严）
+async function wikipedia(target) {
+  const u = new URL(target);
+  const m = u.hostname.match(/^([a-z-]+)\.(?:m\.)?wikipedia\.org$/i);
+  const t = m && u.pathname.match(/^\/(?:wiki|zh-[a-z]+)\/(.+)$/i);
+  if (!t) return null;
+  const api = `https://${m[1]}.wikipedia.org/api/rest_v1/page/summary/${t[1]}`;
+  const r = await get(api, { accept: "application/json", max: 256 * 1024, ua: BOT_UA });
+  const j = JSON.parse(r.body.toString("utf8"));
+  return {
+    url: j.content_urls?.mobile?.page || target,
+    title: clean(j.title, 120),
+    description: clean(j.extract, 240),
+    image: j.thumbnail?.source || j.originalimage?.source || "",
+    site: "Wikipedia",
+    icon: `https://${m[1]}.wikipedia.org/static/favicon/wikipedia.ico`,
+  };
+}
+
 export async function handlePreview(req, res, rest, query, CORS) {
   // 出错也回 200 + { error }：回 5xx 的话 Cloudflare 会换成它自己的报错页，栖所就看不到原因了
   const json = (code, obj) => { if (code >= 500) code = 200; res.writeHead(code, { ...CORS, "Content-Type": "application/json", "Cache-Control": code === 200 && !obj.error ? "public, max-age=3600" : "no-store" }); res.end(JSON.stringify(obj)); };
@@ -148,6 +175,8 @@ export async function handlePreview(req, res, rest, query, CORS) {
     if (rest && rest !== "/") return json(404, { error: { message: "没有这个地址" } });
     const hit = cache.get(target);
     if (hit && Date.now() - hit.at < CACHE_MS) return json(200, hit.v);
+    const wiki = await wikipedia(target).catch(() => null);
+    if (wiki?.title) { remember(target, wiki); return json(200, wiki); }
     const r = await get(target, { accept: "text/html,application/xhtml+xml", max: MAX_HTML });
     const info = /html|xml/i.test(r.type) || !r.type ? parse(decode(r.body, r.type), r.url) : { url: r.url, title: "", description: "", image: "", site: new URL(r.url).hostname, icon: "" };
     remember(target, info);

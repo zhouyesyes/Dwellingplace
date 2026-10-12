@@ -1,5 +1,6 @@
 // 信纸和信封：九套（GPT 画的素材切出来的）。每封信记着用的是哪套（letter.paper）
-//   素材：n-env1~4（合上 → 打开 → 信在里面 → 信抽出来），n-top / n-mid / n-bot（信纸的上段、带横线的中段、下段），n-line（干净的一行横线：信长过一页，就用它往下续）
+//   素材：n-env1~4（合上 → 打开 → 信在里面 → 信抽出来），n-top / n-mid / n-bot（信纸的上段、带横线的中段、下段），n-line（干净的一行横线：信长过一页，就用它往下续）；
+//   n-side（可选）：花边自己的一截，按自己的长度往下续（航空信的斜条纹和横线间距对不上，得分开铺）
 //   geom：每套信纸的尺寸（640 宽时的像素）——上段多高、一行多高、下段多高、横线左右端
 import geom from "./stationery-geom.json";
 
@@ -13,10 +14,10 @@ export const PAPERS = [
   { id: "wisteria", n: 4, name: "紫藤", ink: "#463d63" },
   { id: "lily", n: 5, name: "铃兰", ink: "#394837" },
   { id: "night", n: 6, name: "星夜", ink: "#1f2a44" },
-  { id: "airmail", n: 7, name: "航空", ink: "#2c3550" },
+  { id: "airmail", n: 7, name: "航空", ink: "#2c3550", sideH: 184 },
   { id: "cloud", n: 8, name: "云月", ink: "#33405a" },
   { id: "lace", n: 9, name: "蕾丝", ink: "#4a3e38" },
-].map(p => ({ ...p, g: geom[p.n], env: [1, 2, 3, 4].map(i => asset(`${p.n}-env${i}`)), top: asset(`${p.n}-top`), mid: asset(`${p.n}-mid`), bot: asset(`${p.n}-bot`), line: asset(`${p.n}-line`) }));
+].map(p => ({ ...p, g: geom[p.n], env: [1, 2, 3, 4].map(i => asset(`${p.n}-env${i}`)), top: asset(`${p.n}-top`), mid: asset(`${p.n}-mid`), bot: asset(`${p.n}-bot`), line: asset(`${p.n}-line`), side: p.sideH ? asset(`${p.n}-side`) : null }));
 
 export const DEFAULT_MINE = "plain";
 export const DEFAULT_HIS = "night";
