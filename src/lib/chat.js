@@ -630,7 +630,7 @@ async function maybeCompress(thread, role, last) {
       `下面是你和${me}${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n`,
       `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方。`,
       `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写摘要本身。`,
-    ].filter(Boolean).join("\n"));
+    ].filter(Boolean).join("\n"), { helper: true });
     if (!text) return;
     thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now() };
     last.notes = [...(last.notes || []), { text: `${role.name} 把前面 ${old.length} 条聊天整理成了摘要（点开看）`, detail: thread.summary.text }];
@@ -714,9 +714,14 @@ export async function draftStyle(role) {
 }
 
 // raw：原样给回去（标签还在，调用的地方自己处理）；attachments：一起给他看的图片、文件
-export async function oneShot(role, prompt, { raw = false, attachments = [] } = {}) {
-  const api = apiFor(null, role);
-  const model = modelFor(null, role);
+// helper：整理类的活（聊天摘要、共读的前情、共写的总结）——设置里选了「整理用的模型」就用它（可以是更便宜的，比如 DeepSeek），没选就和他一样
+export function helperApi(role) {
+  const h = store.settings?.helper;
+  const api = h && store.apis.find(a => a.id === h.apiId);
+  return api ? { api, model: h.model || api.model } : { api: apiFor(null, role), model: modelFor(null, role) };
+}
+export async function oneShot(role, prompt, { raw = false, attachments = [], helper = false } = {}) {
+  const { api, model } = helper ? helperApi(role) : { api: apiFor(null, role), model: modelFor(null, role) };
   const system = `你是「${role.name}」。`;
   const { text, usage } = await streamChat({
     api, model, system, cacheKey: `qisuo-${role.id}`,

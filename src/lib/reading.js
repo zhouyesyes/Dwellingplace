@@ -2,6 +2,8 @@
 //   系统提示：有个书架；他可以写 [便利贴:书名|原文里的一小句|想说的话]，贴在那句话旁边
 //   【此刻】：最近在读哪本、读到哪；你新贴的便利贴（他看过就记下）
 //   读书笔记：他读到觉得有意思、对自己有用的，写 [读书笔记:书名|标题|内容]，记进他的记忆库（带着是哪本书）
+//   读到这里的印象（b.gist = { text, upTo: {ch, p}, at }）：每读过三千来字，用「整理用的模型」把前情缩成一小段。
+//   一起读、问问他、写读后感、平时聊天，都带着它（和这本书最近的便利贴、他的读书笔记），他才接得上前面
 import { store, uid } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
@@ -24,6 +26,62 @@ export function readingForAI(role, who) {
   ].join("\n");
 }
 
+// ---------- 读到这里的印象 ----------
+const before = (a, b) => a.ch < b.ch || (a.ch === b.ch && a.p < b.p);
+// 从 from 读到 to（不含 to）的原文，太长就只留后面 max 个字
+function textBetween(book, from, to, max) {
+  const out = [];
+  for (let c = from.ch; c <= to.ch && c < book.chapters.length; c++) {
+    const ps = book.chapters[c].paras || [];
+    const a = c === from.ch ? from.p : 0, z = c === to.ch ? to.p : ps.length;
+    if (a < z) out.push(`【${book.chapters[c].title || `第 ${c + 1} 章`}】`, ...ps.slice(a, z));
+  }
+  const t = out.join("\n");
+  return t.length > max ? "……" + t.slice(-max) : t;
+}
+const gisting = {};
+export async function updateGist(role, b, upTo) {
+  if (gisting[b.id]) return;
+  gisting[b.id] = true;
+  try {
+    const { oneShot, meName } = await import("./chat.js");
+    const me = meName(role);
+    const book = await loadBook(b.id);
+    const from = b.gist?.upTo || { ch: 0, p: 0 };
+    if (!before(from, upTo)) return;
+    const seg = textBetween(book, from, upTo, 9000);
+    if (seg.length < 200) return;
+    const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-8).map(n => `- ${n.from === "me" ? me : "你"}：${n.text.slice(0, 100)}`);
+    const prompt = [
+      `你在和${me}一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
+      b.gist?.text ? `你之前记下的「读到这里的印象」：\n${b.gist.text}` : "",
+      `接下来读到的原文：\n${seg}`,
+      notes.length ? `你们最近在书页边上贴的便利贴：\n${notes.join("\n")}` : "",
+      `把${b.gist?.text ? "以前的印象和这一段" : "这一段"}合起来，写一段新的「读到这里的印象」，给以后接着读的自己看：故事讲到哪了、主要人物和他们的关系、发生过的重要的事、埋下的伏笔，最后一两句你自己读着的感受。用你自己的口吻，不超过 600 字，只写内容。`,
+    ].filter(Boolean).join("\n\n");
+    const text = (await oneShot(role, prompt, { helper: true })).trim();
+    if (text) b.gist = { text: text.slice(0, 1500), upTo, at: Date.now() };
+  } finally {
+    delete gisting[b.id];
+  }
+}
+// 一起读 / 问问他之后：离上次的印象读过三千来字了，就在后台更新一下（下一次就带上新的）
+export async function maybeGist(role, b, upTo) {
+  const book = await loadBook(b.id);
+  const from = b.gist?.upTo || { ch: 0, p: 0 };
+  if (before(from, upTo) && textBetween(book, from, upTo, 3200).length >= 3000) updateGist(role, b, upTo).catch(e => console.warn("共读印象没更新", e));
+}
+// 给他看的「这本书你们读到哪了」：印象 + 最近的便利贴 + 他的读书笔记
+function bookContext(b, me) {
+  const out = [];
+  if (b.gist?.text) out.push(`你们读到这里的前情（你自己记的）：\n${b.gist.text}`);
+  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text.slice(0, 120)}`);
+  if (notes.length) out.push(`这本书里你们最近贴的便利贴：\n${notes.join("\n")}`);
+  const mems = readingMemsOf(b.id).slice(0, 5).map(m => `- ${m.content.slice(0, 140)}`);
+  if (mems.length) out.push(`你为这本书记过的读书笔记：\n${mems.join("\n")}`);
+  return out.join("\n\n");
+}
+
 export function newReadingForAI(role, who) {
   const parts = [];
   const recent = [...(store.books || [])].filter(b => b.readAt && Date.now() - b.readAt < 3 * 86400_000).sort((a, b) => b.readAt - a.readAt)[0];
@@ -31,6 +89,7 @@ export function newReadingForAI(role, who) {
     const ch = recent.chapters[recent.pos?.ch || 0];
     const his = recent.hisPos ? `你上次读到第 ${recent.hisPos.ch + 1} 章。` : "";
     parts.push(`${who}最近在读《${recent.title}》，读到「${ch?.title || "开头"}」（第 ${(recent.pos?.ch || 0) + 1} / ${recent.chapters.length} 章）。${his}`);
+    if (recent.gist?.text) parts.push(`你记下的这本书读到这里的印象：${recent.gist.text.slice(0, 600)}`);
   }
   const fresh = (store.bookNotes || []).filter(n => n.from === "me" && !n.seen).slice(0, 4);
   for (const n of fresh) {
@@ -98,6 +157,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question }) 
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
+    bookContext(b, me),
     `${me}指着这一段给你看：\n「${paras[p]}」`,
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
     question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
@@ -110,6 +170,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question }) 
   const text = visibleText(t1).trim();
   if (!text) throw new Error("他没有写什么");
   markHisPos(b, ch, p);
+  maybeGist(role, b, { ch, p }).catch(() => {});
   return { text, notes };
 }
 
@@ -131,7 +192,9 @@ export async function readAlong(role, b, { ch, chapterTitle, paras, from, to }) 
   if (!lines.length) throw new Error("这一屏没有字");
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
-    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。下面是${me}这一屏正在读的几段，每段前面方括号里是段号：`,
+    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
+    bookContext(b, me),
+    `下面是${me}这一屏正在读的几段，每段前面方括号里是段号：`,
     lines.join("\n"),
     `你也读一读。挑一两处真让你有感觉的地方（不用每段都说），在那段旁边贴一张便利贴，像在书页边上随手写给${me}的，每张不超过 100 字。`,
     `每张另起一行写：[贴:段号|想说的话]。只写便利贴，别的不用写。`,
@@ -151,6 +214,7 @@ export async function readAlong(role, b, { ch, chapterTitle, paras, from, to }) 
   }
   if (!out.length) throw new Error("他没有写什么");
   markHisPos(b, ch, Math.max(...out.map(x => x.p)));
+  maybeGist(role, b, { ch, p: to + 1 }).catch(() => {});
   return { notes: out.slice(0, 3), memNotes: notes };
 }
 
@@ -163,6 +227,7 @@ export async function hisReview(role, b) {
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}一起读完了《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
+    b.gist?.text ? `你记下的这本书的印象：\n${b.gist.text}` : "",
     notes.length ? `你们在书里贴过的便利贴：\n${notes.join("\n")}` : "",
     mems.length ? `你记下的读书笔记：\n${mems.join("\n")}` : "",
     b.mine?.text ? `${me}的读后感（${b.mine.stars} 星）：${b.mine.text.slice(0, 600)}` : "",
