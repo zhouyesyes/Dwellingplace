@@ -27,7 +27,8 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
       </defs>
       <rect v-for="(r, i) in s.rects" :key="i" :x="r.x" :y="r.y" :width="r.w" :height="r.h" :fill="r.c" />
       <polygon v-if="s.beam" :points="s.beam" fill="url(#beam)" class="beam" />
-      <ellipse v-if="night" :cx="s.lamp.x" :cy="s.lamp.y + 26" rx="46" ry="38" fill="url(#lampGlow)" class="glow" />
+      <ellipse v-for="(d, i) in s.dapple" :key="'d' + i" :cx="d[0]" :cy="d[1]" :rx="d[2]" :ry="d[2] * 0.7" fill="#9fc29a" opacity=".12" />
+      <ellipse v-if="night" :cx="s.lamp.x" :cy="s.lamp.y + 40" rx="70" ry="56" fill="url(#lampGlow)" class="glow" />
     </svg>
     <template v-if="interactive">
       <button class="hit win" :style="pos(s.window)" aria-label="换白天或夜里" @click="emit('toggle')" />
@@ -40,7 +41,7 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
 </template>
 
 <style scoped>
-.desk-art { position: relative; height: 100%; aspect-ratio: 120 / 200; image-rendering: pixelated; }
+.desk-art { position: relative; height: 100%; aspect-ratio: 180 / 300; image-rendering: pixelated; }
 .art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .glow { animation: breathe 6s ease-in-out infinite; }
 .beam { mix-blend-mode: screen; animation: sway 14s ease-in-out infinite; }
