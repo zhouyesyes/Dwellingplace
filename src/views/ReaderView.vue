@@ -1,9 +1,9 @@
 <script setup>
-// 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）；右下角「一起读这页」→ 他读你这一屏，挑一两处贴便利贴。
-// 给他看的只有这一段 / 这一屏，而且是单独问的一次，不进聊天记录。
+// 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）；右下角「一起读」→ 他读你最近这三页（上次一起读过的不重复），挑两三处贴便利贴。
+// 给他看的只有这一段 / 这几页，而且是单独问的一次，不进聊天记录。
 // 读到哪记在书上（他在聊天里也知道你读到哪了）；便利贴贴在那一段下面：你的黄色，他的蓝色
 // 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）、翻页还是上下滚；读的时候计时（每天读了多久）
-// 翻页：一屏一页（左右划，或者点屏幕左右两边），「一起读这页」读的正好是这一页
+// 翻页：一屏一页（左右划，或者点屏幕左右两边）
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
@@ -83,13 +83,15 @@ function onTapCapture(e) {
 }
 
 // 现在屏幕上看得到哪几段（翻页、滚动都按看得见的算）
-function visibleParas() {
+// back：再往前多算几屏（一起读时连前两页一起）
+function visibleParas(back = 0) {
   const el = scroller.value;
   if (!el) return [];
   const box = el.getBoundingClientRect();
+  const left = box.left - (paged.value ? back * el.clientWidth : 0), top = box.top - (paged.value ? 0 : back * el.clientHeight);
   const out = [];
   for (const x of el.querySelectorAll("[data-p]")) {
-    if ([...x.getClientRects()].some(r => r.right > box.left + 20 && r.left < box.right - 20 && r.bottom > box.top + 30 && r.top < box.bottom - 40)) out.push(Number(x.dataset.p));
+    if ([...x.getClientRects()].some(r => r.right > left + 20 && r.left < box.right - 20 && r.bottom > top + 30 && r.top < box.bottom - 40)) out.push(Number(x.dataset.p));
   }
   return out;
 }
@@ -181,17 +183,21 @@ async function ask() {
   }
 }
 
-// 一起读这页：看看屏幕上是哪几段，给他读
+// 一起读：这一页和前两页（上次一起读过的段落不再给他），一次读三页
 const along = ref(false);
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
-  const seen = visibleParas();
-  if (!seen.length) return toast("这一屏没有字");
+  const seen = visibleParas(2);
+  if (!seen.length) return toast("这一页没有字");
+  const done = b.value.alongTo?.ch === ch.value ? b.value.alongTo.p : -1;
+  const to = Math.max(...seen);
+  const from = Math.max(Math.min(...seen), done < to ? done + 1 : 0);
   along.value = true;
   store.settings.readTip = true;
   try {
-    const { notes, memNotes } = await readAlong(r, b.value, { ch: ch.value, chapterTitle: chapterTitle.value, paras: paras.value, from: Math.min(...seen), to: Math.max(...seen) });
+    const { notes, memNotes } = await readAlong(r, b.value, { ch: ch.value, chapterTitle: chapterTitle.value, paras: paras.value, from, to });
+    b.value.alongTo = { ch: ch.value, p: to };
     for (const n of notes) addNote(b.value, { ch: ch.value, p: n.p, quote: paras.value[n.p], text: n.text, from: "ai" }).seen = true;
     toast(memNotes[0] || `${r.name} 贴了 ${notes.length} 张便利贴`, 2500);
   } catch (e) {
@@ -287,10 +293,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
     <!-- 第一次来：告诉她怎么和他一起读 -->
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
-      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读这页」：{{ role?.name || "他" }}读你这一页，在有感觉的地方贴便利贴。<b>知道了</b>
+      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}读你最近这三页，在有感觉的地方贴便利贴。<b>知道了</b>
     </div>
     <button v-if="sel == null" class="along" :class="{ busy: along }" :disabled="along" @click="readThisPage">
-      <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : "一起读这页" }}
+      <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : "一起读" }}
     </button>
 
     <Transition name="pop">
