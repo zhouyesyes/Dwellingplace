@@ -287,19 +287,23 @@ export async function streamChat(opts) {
   const model = opts.model || api.model;
   if (!model) throw new Error(`「${api.name || "API"}」还没有选择模型`);
   const fn = api.type === "openai" ? openaiStream : anthropicStream;
-  // 网络断了（手机信号、切到后台、中转平台掐断……）：还没收到任何内容的话，自动再试两次
+  // 网络断了（手机信号、切到后台、中转平台掐断……）或者平台太忙：还没收到任何内容的话，自动再试两次
   let got = false;
   const o = { ...opts, model, onText: d => { got = true; opts.onText?.(d); }, onThinking: d => { got = true; opts.onThinking?.(d); } };
   for (let i = 0; ; i++) {
     try {
       return await fn(o);
     } catch (e) {
-      const net = /load failed|failed to fetch|networkerror|network error|network connection|terminated|econnreset|socket/i.test(String(e?.message || e));
-      if (!net || got || i >= 2 || opts.signal?.aborted) {
+      const msg = String(e?.message || e);
+      const net = /load failed|failed to fetch|networkerror|network error|network connection|terminated|econnreset|socket/i.test(msg);
+      // 平台那边忙不过来（overloaded、502/503/529、稍后再试）：也是还没收到内容就自动再等等再试
+      const busy = /overloaded|try again later|temporarily unavailable|server_error|返回 (502|503|504|529)/i.test(msg);
+      if ((!net && !busy) || got || i >= 2 || opts.signal?.aborted) {
         if (net && !got) throw new Error(`连不上「${api.name || "API"}」（试了 ${i + 1} 次）：网络断了，或者平台那边掐断了连接。稍后点重新生成再试。`);
+        if (busy && !got) throw new Error(`「${api.name || "API"}」那边的服务器太忙了（自动试了 ${i + 1} 次）：不是你这边的问题，过一会儿点重新生成就好。`);
         throw e;
       }
-      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+      await new Promise(r => setTimeout(r, (busy ? 3000 : 1500) * (i + 1)));
     }
   }
 }
