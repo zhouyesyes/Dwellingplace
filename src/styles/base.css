@@ -23,6 +23,8 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --tabbar-h: 62px;
+  /* 全局字体：英文数字用 Jost（细长的几何体），中文用系统的苹方；正文细、标题粗 */
+  --font: "Jost Variable", Jost, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   color-scheme: light;
 }
 
@@ -33,8 +35,7 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 1rem/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
-    "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font: 300 1rem/1.6 var(--font);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
@@ -42,6 +43,7 @@ html, body {
 #app { height: 100%; }
 
 button, input, textarea, select { font: inherit; color: inherit; }
+h1, h2, h3, h4, b, strong, th { font-weight: 600; }
 button { cursor: pointer; }
 /* 点击马上有反馈，去掉双击缩放的等待 */
 button, a, label, .list-row, [role="button"] { touch-action: manipulation; }
@@ -67,7 +69,6 @@ html { font-size: 0.933rem; }
 }
 
 .page-title {
-  font-family: Georgia, "Songti SC", "Noto Serif SC", serif;
   font-size: 1.73rem;
   font-weight: 600;
   letter-spacing: .3px;

@@ -252,7 +252,6 @@ function remove() {
 .who-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px; border-radius: 12px; font-size: 0.9rem; text-align: left; }
 .who-menu button.on { background: var(--bg); font-weight: 600; }
 .studio {
-  font-family: Georgia, "Times New Roman", "Songti SC", serif;
   text-align: center;
   font-size: 1.75rem;
   font-weight: 600;

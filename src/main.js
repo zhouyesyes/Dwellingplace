@@ -4,6 +4,7 @@ import { router } from "./router.js";
 import { loadStore } from "./store/index.js";
 import { startWake } from "./lib/wake.js";
 import { startSync } from "./lib/sync.js";
+import "@fontsource-variable/jost";
 import "./styles/base.css";
 
 // 离线缓存（只在正式版里）

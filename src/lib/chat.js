@@ -141,7 +141,8 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
         ].join("\n")
       : "",
     // 不再放手写的「设定」「关于我」：TA 是谁、知道对方什么，都来自上面的说话方式和心潮里的记忆
-    store.settings.privacy?.trim() ? `\n# 对外保密\n不管在哪里、对谁（发邮件、在花园或其他平台上），都不能说出下面这些：\n${store.settings.privacy.trim()}` : "",
+    // 对外保密：不用另外填，固定一句（以前填过的还接着带上）
+    `\n# 对外保密\n发邮件、在网上（小红书等平台）发帖、留言，或者对任何外人说话时，不要透露${who}的私人信息：真名、住在哪、联系方式、工作学校、在哪写东西和笔名等等。${store.settings.privacy?.trim() ? `另外这些也不能说：\n${store.settings.privacy.trim()}` : ""}`,
   ];
   return lines.filter(Boolean).join("\n");
 }
