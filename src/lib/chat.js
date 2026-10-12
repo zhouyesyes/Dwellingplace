@@ -11,7 +11,7 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI, newLettersForAI } from "./letters.js";
-import { NOTE_RE, applyNoteTags, readingForAI, newReadingForAI } from "./reading.js";
+import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI, newReadingForAI } from "./reading.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
@@ -37,6 +37,7 @@ export function visibleText(text) {
     .replace(DRAW_RE, "")
     .replace(LETTER_RE, "")
     .replace(NOTE_RE, "")
+    .replace(READ_MEM_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(ALARM_RE, "")
@@ -641,8 +642,9 @@ export function applyReplyTags(role, msg) {
   const cal = applyCalendarTags(role, mem.text);
   const let_ = applyLetterTags(role, cal.text);
   const stick = applyNoteTags(role, let_.text);
-  msg.text = stick.text;
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes];
+  const rmem = applyReadMemTags(role, stick.text);
+  msg.text = rmem.text;
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();
@@ -705,7 +707,8 @@ export async function draftStyle(role) {
   ].filter(Boolean).join("\n"));
 }
 
-export async function oneShot(role, prompt) {
+// raw：原样给回去（标签还在，调用的地方自己处理）
+export async function oneShot(role, prompt, { raw = false } = {}) {
   const api = apiFor(null, role);
   const model = modelFor(null, role);
   const system = `你是「${role.name}」。`;
@@ -715,7 +718,7 @@ export async function oneShot(role, prompt) {
     onText: () => {},
   });
   if (api) recordUsage(api.id, model, usage.input, usage.output);
-  return visibleText(text).trim();
+  return (raw ? text : visibleText(text)).trim();
 }
 
 export { describeError };

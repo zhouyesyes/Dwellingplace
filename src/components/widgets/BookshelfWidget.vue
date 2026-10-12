@@ -1,28 +1,70 @@
 <script setup>
-// 主页的小书架（共读）：最近读的几本书斜靠在架子上；点书接着读，点空位或别处去书架
-import { computed } from "vue";
+// 主页的小书架（共读）：大封面一本挨一本斜靠着，左右划的时候书跟着转；架子是素色的（白 / 灰 / 黑，在书架页的「…」里换）
+import { computed, ref, onMounted, nextTick, watch } from "vue";
 import { useRouter } from "vue-router";
 import { store } from "../../store/index.js";
-import Shelf from "../books/Shelf.vue";
+import BookCover from "../books/BookCover.vue";
+import shelf from "../../assets/books/shelf.webp";
 
 const props = defineProps({ size: String, editing: Boolean });
 const router = useRouter();
-const books = computed(() => store.books || []);
-const unread = computed(() => (store.bookNotes || []).filter(n => n.from === "ai" && !n.seen).length);
-const go = path => { if (!props.editing) router.push(path); };
+const books = computed(() => [...(store.books || [])].sort((a, b) => (b.readAt || b.addedAt) - (a.readAt || a.addedAt)));
+const fresh = computed(() => (store.bookNotes || []).filter(n => n.from === "ai" && !n.seen).length);
+const tone = computed(() => store.settings.shelfTone || "light");
+
+// 每本书离中间多远 → 转多少、往后退多少
+const track = ref(null);
+const d = ref([]);
+function layout() {
+  const el = track.value;
+  if (!el) return;
+  const mid = el.scrollLeft + el.clientWidth * 0.32;
+  d.value = [...el.querySelectorAll(".bk")].map(x => (x.offsetLeft + x.offsetWidth / 2 - mid) / x.offsetWidth);
+}
+const styleOf = i => {
+  const v = Math.max(-2.5, Math.min(2.5, d.value[i] ?? i));
+  return { transform: `rotateY(${(-v * 11).toFixed(1)}deg) rotateZ(${(-5 + v * 1.8).toFixed(1)}deg) translateZ(${(-Math.abs(v) * 16).toFixed(0)}px)`, zIndex: 100 - Math.round(Math.abs(v) * 10) };
+};
+onMounted(() => nextTick(() => { if (track.value) track.value.scrollLeft = 0; layout(); }));
+watch(() => books.value.length, () => nextTick(layout));
+
+function open(b, i) {
+  if (props.editing) return;
+  if (Math.abs(d.value[i] ?? 0) > 0.6) track.value.scrollTo({ left: track.value.querySelectorAll(".bk")[i].offsetLeft - 18, behavior: "smooth" });
+  else router.push(`/read/${b.id}`);
+}
+const go = () => { if (!props.editing) router.push("/books"); };
 </script>
 
 <template>
-  <div class="bw" @click="go('/books')">
-    <div class="head"><b>Bookshelf</b><span v-if="unread" class="dot">{{ unread }} 张新便利贴</span><span v-else class="sub">{{ books.length ? `${books.length} 本` : "放一本书进来" }}</span></div>
-    <Shelf :books="books" :per-row="4" :rows="books.length >= 4 ? 2 : 1" @open="b => go(`/read/${b.id}`)" @add="go('/books')" />
+  <div class="bw" @click="go">
+    <div class="head"><b>Bookshelf</b><span v-if="fresh" class="dot">{{ fresh }} 张新便利贴</span><span v-else class="sub">{{ books.length ? `${books.length} 本` : "放一本书进来" }}</span></div>
+    <div class="stage">
+      <div ref="track" class="track" @scroll.passive="layout" @click.stop>
+        <button v-for="(b, i) in books" :key="b.id" class="bk" :style="styleOf(i)" :aria-label="b.title" @click="open(b, i)"><BookCover :book="b" /></button>
+        <button class="bk add" :style="styleOf(books.length)" aria-label="放一本书" @click="go"><span>＋</span></button>
+        <i class="tail" />
+      </div>
+      <img :src="shelf" alt="" class="plank" :class="tone" />
+    </div>
   </div>
 </template>
 
 <style scoped>
-.bw { height: 100%; padding: 14px 12px 12px; background: linear-gradient(180deg, #fbf8f3, #f3ece2); cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
-.head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 6px 4px; }
-.head b { font-weight: 300; letter-spacing: .14em; font-size: 1.05rem; color: #5b4a3a; }
-.sub { font-size: .72rem; color: #a08a70; }
-.dot { font-size: .72rem; color: #fff; background: #d9a441; padding: 2px 9px; border-radius: 999px; }
+.bw { height: 100%; padding: 14px 0 12px; background: var(--card); cursor: pointer; display: flex; flex-direction: column; }
+.head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 18px 2px; }
+.head b { font-weight: 300; letter-spacing: .14em; font-size: 1.05rem; color: var(--text); }
+.sub { font-size: .72rem; color: var(--text-3); }
+.dot { font-size: .7rem; color: var(--text-2); background: var(--bg-deep); padding: 2px 9px; border-radius: 999px; }
+.stage { position: relative; perspective: 700px; }
+.track { display: flex; align-items: flex-end; overflow-x: auto; scrollbar-width: none; padding: 18px 18px 0; }
+.track::-webkit-scrollbar { display: none; }
+.bk { flex: 0 0 38%; max-width: 170px; margin-right: -9%; border: 0; padding: 0; background: none; transform-origin: 50% 100%; transition: transform .12s linear; position: relative; }
+.bk.add { aspect-ratio: 2 / 3; flex-basis: 30%; margin-right: 0; border-radius: 4px; border: 1.5px dashed var(--line); color: var(--text-3); font-size: 1.4rem; display: grid; place-items: center; background: var(--card-2); }
+.tail { flex: 0 0 40%; }
+.plank { display: block; width: calc(100% - 20px); margin: -6px 10px 0; height: auto; position: relative; z-index: 200; }
+/* 木板染成素色 */
+.plank.light { filter: grayscale(1) brightness(1.32) contrast(.85) drop-shadow(0 6px 8px rgba(40, 40, 60, .1)); }
+.plank.grey { filter: grayscale(1) brightness(.92) drop-shadow(0 6px 8px rgba(40, 40, 60, .12)); }
+.plank.dark { filter: grayscale(1) brightness(.32) contrast(1.15) drop-shadow(0 6px 8px rgba(0, 0, 0, .2)); }
 </style>

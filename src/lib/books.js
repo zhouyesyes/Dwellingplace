@@ -1,6 +1,7 @@
 // 共读：书架上的书。一本书一个项目。
-//   store.books      [{ id, title, author, cover, chapters: [{ title, n }], pos: { ch, p }, addedAt, readAt }]
+//   store.books      [{ id, title, author, cover, chapters: [{ title, n }], pos: { ch, p }, hisPos, addedAt, readAt, readSecs, mine, his }]
 //                    cover：封面图（images 里的 id），没有就画一个纯色的；n：这一章有几段
+//                    pos / hisPos：你 / 他读到哪；readSecs：你读了多久；mine / his：读完的评分和读后感 { stars, text, at }
 //   book:<id>        正文 { chapters: [{ title, paras: [段落…] }] }（单独存，会跟着同步到各台设备）
 //   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen }]
 //                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你看没看过）
@@ -155,3 +156,69 @@ export function removeNote(n) {
 // 没封面的书：按书名挑一个颜色
 const TONES = ["#c9b8a6", "#9fb4c7", "#c4a7b5", "#a9bfa4", "#b9adc9", "#d1b48c", "#8fa3a8", "#c79e8f"];
 export const toneOf = b => TONES[[...(b.title || "")].reduce((a, c) => a + c.codePointAt(0), 0) % TONES.length];
+
+// ---------- 进度、时间、评分 ----------
+// 读到百分之几（按段落算）
+export function progressOf(b, pos = b.pos) {
+  if (!pos || !b.chapters?.length) return 0;
+  const total = b.chapters.reduce((a, c) => a + c.n, 0) || 1;
+  const before = b.chapters.slice(0, pos.ch).reduce((a, c) => a + c.n, 0);
+  return Math.min(1, (before + (pos.p || 0) + 1) / total);
+}
+// 在读的时候每隔一会儿记一笔：这本书读了多久、每天读了多久（store.readingLog { "2026-10-12": 秒 }）
+export function tickReading(b, sec) {
+  b.readSecs = (b.readSecs || 0) + sec;
+  store.readingLog ??= {};
+  const d = ymdOf(new Date());
+  store.readingLog[d] = (store.readingLog[d] || 0) + sec;
+}
+const ymdOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export function readingTotals() {
+  const log = store.readingLog || {};
+  const now = new Date(), today = ymdOf(now), month = today.slice(0, 7), year = today.slice(0, 4);
+  let t = 0, m = 0, y = 0, all = 0;
+  for (const [d, s] of Object.entries(log)) {
+    all += s;
+    if (d === today) t += s;
+    if (d.startsWith(month)) m += s;
+    if (d.startsWith(year)) y += s;
+  }
+  return { today: t, month: m, year: y, all };
+}
+export const fmtDur = s => {
+  s = Math.round(s || 0);
+  if (s < 60) return s ? "不到 1 分钟" : "0 分钟";
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h} 小时${m ? ` ${m} 分` : ""}` : `${m} 分钟`;
+};
+// 他读到哪：他看过的段落里最靠后的那一段
+export function markHisPos(b, ch, p) {
+  const cur = b.hisPos;
+  if (!cur || ch > cur.ch || (ch === cur.ch && p > cur.p)) b.hisPos = { ch, p, at: Date.now() };
+}
+
+// ---------- 导入的字体（读书时用）----------
+//   store.readerFonts [{ id, name }]，字体文件存在 font:<id>
+const loadedFonts = new Set();
+export async function addFont(file) {
+  const id = uid();
+  await set(`font:${id}`, file);
+  store.readerFonts ??= [];
+  store.readerFonts.push({ id, name: file.name.replace(/\.[^.]+$/, "").slice(0, 30) });
+  return id;
+}
+export async function useFont(id) {
+  if (!id || loadedFonts.has(id)) return id ? `qf-${id}` : "";
+  const blob = await get(`font:${id}`);
+  if (!blob) return "";
+  const face = new FontFace(`qf-${id}`, await blob.arrayBuffer());
+  await face.load();
+  document.fonts.add(face);
+  loadedFonts.add(id);
+  return `qf-${id}`;
+}
+export async function removeFont(f) {
+  store.readerFonts.splice(store.readerFonts.indexOf(f), 1);
+  if (store.readerPrefs?.font === f.id) store.readerPrefs.font = "";
+  await del(`font:${f.id}`);
+}
