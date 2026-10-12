@@ -11,6 +11,7 @@ import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI, newLettersForAI } from "./letters.js";
+import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI, newReadingForAI } from "./reading.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
@@ -122,6 +123,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     stickersForAI(),
     lettersForAI(role, who),
     readingForAI(role, who),
+    writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),

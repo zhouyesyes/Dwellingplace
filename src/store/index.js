@@ -20,7 +20,7 @@ export const MAIN = "main";
 
 function defaults() {
   return {
-    version: 9,
+    version: 10,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
     settings: { fontSize: "standard", historyLimit: 80, privacy: "" }, // privacy：对外保密，所有 AI 通用
@@ -65,6 +65,7 @@ function defaultTools() {
 function defaultWidgets() {
   return [
     { id: uid(), type: "books", size: "large" },
+    { id: uid(), type: "desk", size: "large" },
     { id: uid(), type: "anniv", size: "small" },
     { id: uid(), type: "calendar", size: "large" },
   ];
@@ -203,6 +204,11 @@ function migrate() {
     if (!store.widgets.some(w => w.type === "books")) store.widgets.unshift({ id: uid(), type: "books", size: "large" });
     store.version = 9;
   }
+  if (store.version < 10) {
+    // 新的共写书桌：放在书架后面（不想要可以长按桌面移除）
+    if (!store.widgets.some(w => w.type === "desk")) store.widgets.splice(store.widgets.findIndex(w => w.type === "books") + 1, 0, { id: uid(), type: "desk", size: "large" });
+    store.version = 10;
+  }
   store.archive ??= emptyArchive();
   store.widgets = (store.widgets || []).filter(w => w.type !== "chick"); // 主页不再放小鸡
   store.settings ??= { fontSize: "standard" };
@@ -223,6 +229,9 @@ function migrate() {
   store.books ??= []; // 共读的书架
   store.bookNotes ??= []; // 书里的便利贴
   store.readingLog ??= {}; // 每天读了多久（秒）
+  store.writings ??= []; // 共写：书桌上的书
+  store.writeCards ??= []; // 共写的卡片
+  store.writeNotes ??= []; // 卡片上的便利贴
   store.readerFonts ??= []; // 读书时用的导入字体
   store.readerPrefs ??= { bg: "paper", size: 18, font: "" }; // 读书背景、字号、字体
   store.settings.shelfTone ??= "light"; // 主页书架的颜色：light / grey / dark
