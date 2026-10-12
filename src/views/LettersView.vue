@@ -60,8 +60,8 @@ async function send(callHim) {
   <div class="letters">
     <header class="head">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, `/chat/${MAIN}`)"><Icon name="back" /></button>
-      <div class="grow">
-        <h1>信箱</h1>
+      <div class="grow title">
+        <h1>Letters</h1>
         <p class="sub">{{ letters.length ? `${letters.length} 封信` : "还没有信" }}<template v-if="letters.some(l => l.from !== 'me' && !l.readAt)"> · 有没拆的</template></p>
       </div>
       <button class="btn small" @click="startWrite"><Icon name="edit" :size="16" /> 写信</button>
@@ -106,8 +106,11 @@ async function send(callHim) {
 
 <style scoped>
 .letters { min-height: 100%; padding: calc(var(--safe-top) + 16px) 18px calc(var(--safe-bottom) + 40px); max-width: 560px; margin: 0 auto; }
-.head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.head h1 { margin: 0; font-size: 1.3rem; font-weight: 600; }
+.head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-bottom: 16px; }
+.head > :first-child { justify-self: start; }
+.head > :last-child { justify-self: end; }
+.head h1 { margin: 0; font-size: 2rem; font-weight: 300; letter-spacing: .14em; line-height: 1.2; }
+.title { text-align: center; }
 .sub { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-2); }
 .grow { flex: 1; }
 .head .btn { display: flex; align-items: center; gap: 4px; }
@@ -125,10 +128,10 @@ async function send(callHim) {
 .pick img { width: 58px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .3)); }
 .compose input:not([type=checkbox]), .compose textarea { font: inherit; color: inherit; background: none; border: 0; outline: none; width: 100%; padding: 0; display: block; line-height: var(--line); height: var(--line); }
 .compose ::placeholder { color: inherit; opacity: .4; }
-.c-title { font-size: 1.3em !important; font-weight: 600 !important; text-align: center; margin-bottom: var(--line) !important; }
+.c-title { font-size: 1.4em !important; font-weight: 400 !important; text-align: center; margin-bottom: var(--line) !important; }
 .compose textarea.c-body { height: calc(var(--line) * 6); resize: none; overflow: hidden; }
 .foot { display: flex; flex-direction: column; align-items: flex-end; padding-top: var(--line); } /* 署名在上、日期在下，都靠右下 */
-.c-sign { font-size: 1.05em !important; font-weight: 500 !important; text-align: right; width: 60% !important; }
+.c-sign { font-size: 1.15em !important; font-weight: 400 !important; text-align: right; width: 60% !important; }
 .c-date { font-size: .85em !important; width: 10em !important; text-align: right; -webkit-appearance: none; appearance: none; min-height: 0; margin: 0 !important; }
 .c-date::-webkit-date-and-time-value { text-align: right; margin: 0; }
 .c-date::-webkit-datetime-edit { padding: 0; }

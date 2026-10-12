@@ -840,7 +840,7 @@ async function changeAvatarOf(who) {
 
 .bubble {
   padding: 10px 15px;
-  border-radius: 20px;
+  border-radius: 16px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.65;
@@ -848,8 +848,8 @@ async function changeAvatarOf(who) {
   cursor: pointer;
   user-select: text;
 }
-.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 10px; }
-.mine .bubble { background: #fff; border-bottom-right-radius: 10px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
+.theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 6px; }
+.mine .bubble { background: #fff; border-bottom-right-radius: 6px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
 /* 小尖角：气泡下角往外弯出去一个小钩（颜色跟着气泡走） */
 .bubble { position: relative; }
 .bubble::after {
