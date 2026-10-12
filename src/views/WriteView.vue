@@ -4,7 +4,7 @@
 import { ref, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { projects, newProject, freshNotes } from "../lib/writing.js";
-import { isNight } from "../lib/deskScene.js";
+import { isNight, WALL } from "../lib/deskScene.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 import DeskScene from "../components/write/DeskScene.vue";
@@ -13,6 +13,9 @@ const router = useRouter();
 const night = ref(isNight());
 const books = computed(() => projects());
 const fresh = computed(() => freshNotes().length);
+// 墙上的便利贴：他贴的、你还没看过的（最新的在前）
+const wallNotes = computed(() => [...freshNotes()].sort((a, b) => b.ts - a.ts));
+const openNote = id => { const n = freshNotes().find(x => x.id === id); if (n) router.push({ path: `/write/${n.projectId}`, query: { card: n.cardId } }); };
 const pan = ref(null);
 onMounted(async () => {
   await nextTick();
@@ -30,9 +33,9 @@ const latest = () => { const p = [...books.value].sort((a, b) => b.updatedAt - a
 </script>
 
 <template>
-  <div class="write" :class="{ night }">
+  <div class="write" :class="{ night }" :style="{ background: night ? WALL.night : WALL.day }">
     <div ref="pan" class="pan">
-      <DeskScene :night="night" :books="books" :fresh="fresh" @open="open" @add="add" @toggle="night = !night" @paper="latest" />
+      <DeskScene :night="night" :books="books" :notes="wallNotes" @open="open" @add="add" @toggle="night = !night" @paper="latest" @note="openNote" />
     </div>
     <header class="over">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" /></button>
@@ -46,7 +49,7 @@ const latest = () => { const p = [...books.value].sort((a, b) => b.updatedAt - a
 .write.night { background: #2d313c; }
 .pan { position: absolute; inset: 0; overflow-x: auto; overflow-y: hidden; display: flex; justify-content: safe center; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .pan::-webkit-scrollbar { display: none; }
-.pan > :deep(.desk) { flex: none; height: 100%; }
+.pan > :deep(.desk-art) { flex: none; height: 100%; }
 .over { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 12px; padding: calc(var(--safe-top) + 12px) 16px 0; pointer-events: none; }
 .over > * { pointer-events: auto; }
 .night .icon-btn { background: rgba(60, 65, 80, .85); color: #e4e4ea; }

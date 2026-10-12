@@ -108,7 +108,7 @@ function add(type) {
 </script>
 
 <template>
-  <section class="desk" :class="{ editing }">
+  <section class="wdesk" :class="{ editing }">
     <div
       v-for="w in widgets"
       :key="w.id"
@@ -158,7 +158,7 @@ function add(type) {
 </template>
 
 <style scoped>
-.desk {
+.wdesk {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
@@ -178,10 +178,11 @@ function add(type) {
 .widget .inner { height: 100%; border-radius: inherit; overflow: hidden; }
 .widget.small { aspect-ratio: 1; }
 .widget.large { grid-column: span 2; }
-.widget.large.chick, .widget.large.anniv, .widget.large.desk { aspect-ratio: 2 / 1; }
+/* 大的统一 2:1、小的 1:1（日历要放一整个月，单独高一些） */
+.widget.large:not(.calendar) { aspect-ratio: 2 / 1; }
 /* 平板：一行三格，小组件不再被撑得很大 */
 @media (min-width: 760px) {
-  .desk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .wdesk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* 编辑模式 */

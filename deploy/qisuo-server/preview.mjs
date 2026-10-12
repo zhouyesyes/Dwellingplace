@@ -45,7 +45,10 @@ async function safeTarget(raw) {
   if (u.port && !["80", "443"].includes(u.port)) throw Object.assign(new Error("只去常见端口"), { status: 400 });
   const host = u.hostname.replace(/^\[|\]$/g, "");
   if (/^localhost$|\.localhost$|\.local$|\.internal$/i.test(host)) throw Object.assign(new Error("不去内网"), { status: 400 });
-  const addrs = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
+  const addrs = isIP(host) ? [{ address: host, family: isIP(host) }] : await Promise.race([
+    lookup(host, { all: true }),
+    new Promise((_, no) => setTimeout(() => no(Object.assign(new Error("找这个网站太久了"), { status: 504 })), 5000)),
+  ]);
   if (!addrs.length || addrs.some(a => privateIP(a.address))) throw Object.assign(new Error("不去内网"), { status: 400 });
   return { u, addr: addrs[0] };
 }

@@ -4,7 +4,9 @@
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
-import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, reviewCard, removeProject, summarize, CARD_TYPES, SPINES } from "../lib/writing.js";
+import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES } from "../lib/writing.js";
+import { pickFile, deleteImage } from "../lib/images.js";
+import AttList from "../components/write/AttList.vue";
 import { describeError } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -19,20 +21,25 @@ const tab = ref("cards");
 const filter = ref("all");
 const cards = computed(() => (p.value ? cardsOf(p.value.id) : []).filter(c => filter.value === "all" || c.type === filter.value).sort((a, b) => b.ts - a.ts));
 const counts = computed(() => { const m = {}; for (const c of p.value ? cardsOf(p.value.id) : []) m[c.type] = (m[c.type] || 0) + 1; return m; });
-onMounted(() => { if (!p.value) router.replace("/write"); });
+onMounted(() => {
+  if (!p.value) return router.replace("/write");
+  // 从书桌墙上的便利贴点进来：直接打开那张卡片
+  const c = route.query.card && cardsOf(p.value.id).find(x => x.id === route.query.card);
+  if (c) openCard(c);
+});
 
 // ---------- 卡片 ----------
 const edit = ref(null); // 正在看 / 改的卡片（副本）
 const editing = ref(null); // 原卡片
 function openCard(c) {
   editing.value = c;
-  edit.value = c ? { ...c } : { type: filter.value === "all" ? "idea" : filter.value, title: "", content: "" };
+  edit.value = c ? { ...c, atts: [...(c.atts || [])] } : { type: filter.value === "all" ? "idea" : filter.value, title: "", content: "", atts: [] };
   for (const n of c ? notesOfCard(c.id) : []) n.seen = true;
 }
 function saveCard() {
   const e = edit.value;
-  if (!e.title.trim() && !e.content.trim()) return toast("卡片还是空的");
-  if (editing.value) Object.assign(editing.value, { type: e.type, title: e.title.trim(), content: e.content.trim(), ts: Date.now(), from: "me" });
+  if (!e.title.trim() && !e.content.trim() && !e.atts.length) return toast("卡片还是空的");
+  if (editing.value) Object.assign(editing.value, { type: e.type, title: e.title.trim(), content: e.content.trim(), atts: e.atts, ts: Date.now(), from: "me" });
   else editing.value = addCard(p.value.id, e);
   edit.value = null;
 }
@@ -40,6 +47,32 @@ function dropCard() {
   if (!editing.value || !confirm("撕掉这张卡片？上面的便利贴也会一起没有。")) return;
   removeCard(editing.value);
   edit.value = null;
+}
+// 卡片上挂图片、文件；导入一批文件（每个一张卡片，放进现在选的分类，「全部」时放进资料）
+const ACCEPT = "image/*,.pdf,.txt,.md,.markdown,.csv,.json";
+async function attachToCard() {
+  const files = await pickFile(ACCEPT, true);
+  for (const f of files) {
+    try { edit.value.atts.push(await toAtt(f)); } catch (e) { toast(e.message, 4000); }
+  }
+}
+function dropAtt(a) {
+  edit.value.atts.splice(edit.value.atts.indexOf(a), 1);
+  if (a.kind === "image" && !(editing.value?.atts || []).includes(a)) deleteImage(a.img);
+}
+const importing = ref(false);
+async function importMany() {
+  const files = await pickFile(ACCEPT, true);
+  if (!files.length) return;
+  importing.value = true;
+  try {
+    const made = await importFiles(p.value.id, files, filter.value === "all" ? "ref" : filter.value);
+    toast(`放进来 ${made.length} 张卡片`);
+  } catch (e) {
+    toast(e.message, 4000);
+  } finally {
+    importing.value = false;
+  }
 }
 const noteText = ref("");
 function myNote() {
@@ -57,19 +90,28 @@ async function askReview() {
 // ---------- 讨论 ----------
 const msgs = ref([]);
 const draft = ref("");
+const draftAtts = ref([]);
 const sending = ref(false);
+async function attachToTalk() {
+  const files = await pickFile(ACCEPT, true);
+  for (const f of files) {
+    try { draftAtts.value.push(await toAtt(f)); } catch (e) { toast(e.message, 4000); }
+  }
+}
 const box = ref(null);
 const down = () => nextTick(() => { if (box.value) box.value.scrollTop = box.value.scrollHeight; });
 watch(tab, async t => { if (t === "talk" && p.value) { msgs.value = await loadTalk(p.value.id); down(); } });
 async function send() {
   if (sending.value || !role.value) return;
-  const t = draft.value;
+  const t = draft.value, atts = draftAtts.value;
+  if (!t.trim() && !atts.length && msgs.value.at(-1)?.from !== "me") return;
   draft.value = "";
+  draftAtts.value = [];
   sending.value = true;
   msgs.value = await loadTalk(p.value.id);
   down();
   try {
-    const promise = talk(role.value, p.value, t);
+    const promise = talk(role.value, p.value, t, atts);
     down();
     await promise;
   } catch (e) {
@@ -117,14 +159,18 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: filter === k }" @click="filter = k">{{ t.label }}<small v-if="counts[k]">{{ counts[k] }}</small></button>
       </div>
       <div class="cards">
-        <button class="card new" @click="openCard(null)"><Icon name="plus" :size="20" /><span>写一张{{ filter === "all" ? "" : CARD_TYPES[filter].label }}卡片</span></button>
-        <button v-for="c in cards" :key="c.id" class="card" :class="{ his: c.from === 'ai' }" @click="openCard(c)">
+        <div class="new-col">
+          <button class="card new" @click="openCard(null)"><Icon name="plus" :size="20" /><span>写一张{{ filter === "all" ? "" : CARD_TYPES[filter].label }}卡片</span></button>
+          <button class="card new imp" :disabled="importing" @click="importMany"><Icon name="upload" :size="18" /><span>{{ importing ? "在放…" : `导入图片、文件${filter === "all" ? "（放进资料）" : `（放进${CARD_TYPES[filter].label}）`}` }}</span></button>
+        </div>
+        <div v-for="c in cards" :key="c.id" class="card" role="button" tabindex="0" :class="{ his: c.from === 'ai' }" @click="openCard(c)">
           <span class="type">{{ CARD_TYPES[c.type]?.mark }}</span>
           <b>{{ c.title || "无题" }}</b>
-          <p>{{ c.content }}</p>
+          <p v-if="c.content">{{ c.content }}</p>
+          <AttList v-if="c.atts?.length" :atts="c.atts.slice(0, 3)" small />
           <span v-if="notesOfCard(c.id).length" class="stk" :class="{ fresh: notesOfCard(c.id).some(n => n.from === 'ai' && !n.seen) }">{{ notesOfCard(c.id).length }}</span>
           <small v-if="c.from === 'ai'" class="by">{{ role?.name }} 提的</small>
-        </button>
+        </div>
       </div>
       <p v-if="!cards.length" class="hint">人物、设定、大纲、灵感、写好的片段……想到什么就放一张。他会读这些卡片，和你一起琢磨。</p>
     </template>
@@ -134,12 +180,15 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <div ref="box" class="msgs">
         <p v-if="!msgs.length" class="hint">坐下来，和{{ role?.name || "他" }}聊聊这本书：卡在哪、想试什么、哪里不对劲。他会看着你的卡片说。</p>
         <div v-for="m in msgs" :key="m.id" class="m" :class="m.from">
+          <AttList v-if="m.atts?.length" :atts="m.atts" small />
           <p v-if="m.text">{{ m.text }}</p>
           <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
         </div>
         <div v-if="sending" class="m ai"><p class="typing">在想……</p></div>
       </div>
+      <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
       <div class="composer">
+        <button class="plus" aria-label="发图片或文件" @click="attachToTalk"><Icon name="plus" :size="20" /></button>
         <textarea v-model="draft" rows="1" placeholder="想和他说的…" @keydown.enter.exact.prevent="send" />
         <button class="send" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
       </div>
@@ -151,6 +200,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="types"><button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: edit.type === k }" @click="edit.type = k">{{ t.label }}</button></div>
         <input v-model="edit.title" class="input" placeholder="标题（比如人物的名字）" maxlength="60" />
         <textarea v-model="edit.content" class="input body" rows="8" placeholder="写下来，长短都行" />
+        <AttList :atts="edit.atts" removable @remove="dropAtt" />
+        <button class="btn soft small att-btn" @click="attachToCard"><Icon name="image" :size="16" /> 加图片、文件</button>
         <div class="row">
           <button v-if="editing" class="btn soft small danger" @click="dropCard">撕掉</button>
           <span class="grow" />
@@ -206,7 +257,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .filters small { margin-left: 4px; opacity: .6; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (min-width: 640px) { .cards { grid-template-columns: repeat(3, 1fr); } }
-.card { position: relative; text-align: left; border: 0; border-radius: 16px; background: var(--card); padding: 12px 12px 14px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; min-height: 120px; }
+.card { position: relative; text-align: left; cursor: pointer; border: 0; border-radius: 16px; background: var(--card); padding: 12px 12px 14px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; min-height: 120px; }
 .card.his { background: #f1f6fc; }
 .card.new { align-items: center; justify-content: center; color: var(--text-3); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); font-size: .8rem; gap: 6px; }
 .type { width: 22px; height: 22px; border-radius: 6px; background: var(--bg-deep); font-size: .7rem; display: grid; place-items: center; color: var(--text-2); }
@@ -256,4 +307,11 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .colors { display: flex; gap: 6px; }
 .colors button { width: 18px; height: 26px; border: 0; border-radius: 2px; }
 .colors button.on { box-shadow: 0 0 0 2px var(--ink); }
+.new-col { display: flex; flex-direction: column; gap: 10px; }
+.new-col .card.new { min-height: 55px; flex: 1; }
+.card.new.imp { font-size: .72rem; text-align: center; padding: 8px; }
+.card :deep(.atts) { margin-top: 4px; }
+.plus { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
+.draft-atts { margin-bottom: 8px; }
+.att-btn { align-self: flex-start; display: flex; align-items: center; gap: 4px; }
 </style>

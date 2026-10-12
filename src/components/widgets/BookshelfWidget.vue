@@ -51,17 +51,17 @@ const go = () => { if (!props.editing) router.push("/books"); };
 </template>
 
 <style scoped>
-.bw { height: 100%; padding: 14px 0 12px; background: var(--card); cursor: pointer; display: flex; flex-direction: column; }
+.bw { position: absolute; inset: 0; border-radius: inherit; padding: 12px 0 10px; background: var(--card); cursor: pointer; display: flex; flex-direction: column; }
 .head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 18px 2px; }
 .head b { font-weight: 300; letter-spacing: .14em; font-size: 1.05rem; color: var(--text); }
 .sub { font-size: .72rem; color: var(--text-3); }
 .dot { font-size: .7rem; color: var(--text-2); background: var(--bg-deep); padding: 2px 9px; border-radius: 999px; }
-.stage { position: relative; perspective: 700px; }
-.track { display: flex; align-items: flex-end; overflow-x: auto; scrollbar-width: none; padding: 18px 18px 0; }
+.stage { position: relative; perspective: 700px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.track { flex: 1; min-height: 0; display: flex; align-items: flex-end; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 8px 18px 0; }
 .track::-webkit-scrollbar { display: none; }
-.bk { flex: 0 0 38%; max-width: 170px; margin-right: -9%; border: 0; padding: 0; background: none; transform-origin: 50% 100%; transition: transform .12s linear; position: relative; }
-.bk.add { aspect-ratio: 2 / 3; flex-basis: 30%; margin-right: 0; border-radius: 4px; border: 1.5px dashed var(--line); color: var(--text-3); font-size: 1.4rem; display: grid; place-items: center; background: var(--card-2); }
-.tail { flex: 0 0 40%; }
+.bk { flex: none; height: 100%; aspect-ratio: 2 / 3; margin-right: -5%; border: 0; padding: 0; background: none; transform-origin: 50% 100%; transition: transform .12s linear; position: relative; }
+.bk.add { margin-right: 0; border-radius: 4px; border: 1.5px dashed var(--line); color: var(--text-3); font-size: 1.4rem; display: grid; place-items: center; background: var(--card-2); }
+.tail { flex: 0 0 45%; }
 .plank { display: block; width: calc(100% - 20px); margin: -6px 10px 0; height: auto; position: relative; z-index: 200; }
 /* 木板染成素色 */
 .plank.light { filter: grayscale(1) brightness(1.32) contrast(.85) drop-shadow(0 6px 8px rgba(40, 40, 60, .1)); }

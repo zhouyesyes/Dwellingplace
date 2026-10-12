@@ -1,13 +1,15 @@
 // 共写：书桌上的书。一本书一个项目，里面是一张张卡片（人物、设定、大纲、灵感、片段……），不一定按章节。
 //   store.writings   [{ id, title, color, createdAt, updatedAt, memId, sinceSum }]
 //                    color：书脊颜色的编号；memId：这本书在他记忆库里那张总结卡；sinceSum：上次总结以后又聊了几句
-//   store.writeCards [{ id, projectId, type, title, content, from, ts }]   from："me" 或 "ai"（他提的新卡片）
+//   store.writeCards [{ id, projectId, type, title, content, atts, from, ts }]   from："me" 或 "ai"（他提的新卡片）
+//                    atts：卡片上的图片、文件 [{ kind: "image", img } | { kind: "pdf" | "text", name, … }]（和聊天里的附件一样）
 //   store.writeNotes [{ id, projectId, cardId, from, text, ts, seen }]     便利贴：贴在卡片上
-//   wtalk:<项目 id>  和他讨论的记录 [{ id, from, text, ts }]（单独存，会同步）
+//   wtalk:<项目 id>  和他讨论的记录 [{ id, from, text, atts, ts }]（单独存，会同步）
 import { reactive } from "vue";
 import { store, uid } from "../store/index.js";
 import { get, set, del } from "./kv.js";
 import { todayYmd } from "./dates.js";
+import { saveImage, deleteImage, CHAT_IMAGE } from "./images.js";
 
 export const CARD_TYPES = {
   role: { label: "人物", mark: "人" },
@@ -15,6 +17,7 @@ export const CARD_TYPES = {
   outline: { label: "大纲", mark: "纲" },
   idea: { label: "灵感", mark: "灵" },
   scene: { label: "片段", mark: "段" },
+  ref: { label: "资料", mark: "资" },
   other: { label: "其他", mark: "记" },
 };
 export const SPINES = ["#b9a7a0", "#a9b7c2", "#c4b6a1", "#9fae9c", "#bba9b9", "#c8b9a5", "#9aa6b2", "#b6a493"];
@@ -40,14 +43,15 @@ export async function removeProject(p) {
 }
 const touch = pid => { const p = projectById(pid); if (p) p.updatedAt = Date.now(); };
 
-export function addCard(pid, { type = "idea", title = "", content = "", from = "me" }) {
+export function addCard(pid, { type = "idea", title = "", content = "", from = "me", atts = [] }) {
   store.writeCards ??= [];
-  const c = { id: uid(), projectId: pid, type, title: title.trim().slice(0, 60), content: content.trim(), from, ts: Date.now() };
+  const c = { id: uid(), projectId: pid, type, title: title.trim().slice(0, 60), content: content.trim(), atts, from, ts: Date.now() };
   store.writeCards.push(c);
   touch(pid);
   return c;
 }
 export function removeCard(c) {
+  for (const a of c.atts || []) if (a.kind === "image") deleteImage(a.img); else if (a.file) del(`file:${a.file}`);
   store.writeCards.splice(store.writeCards.indexOf(c), 1);
   store.writeNotes = (store.writeNotes || []).filter(n => n.cardId !== c.id);
 }
@@ -66,6 +70,24 @@ export function adoptNote(n) {
   removeNote(n);
 }
 
+// ---------- 图片、文件 ----------
+// 一个文件 → 附件：图片压一下存起来，PDF、文本和聊天里一样
+export async function toAtt(file) {
+  if (file.type.startsWith("image/")) return { kind: "image", img: await saveImage(file, CHAT_IMAGE), name: file.name };
+  const { fileToAttachment } = await import("./chat.js");
+  return fileToAttachment(file);
+}
+// 导入：每个文件变成一张卡片（文本文件的字直接放进卡片里；图片、PDF 挂在卡片上）
+export async function importFiles(pid, files, type = "ref") {
+  const out = [];
+  for (const f of files) {
+    const a = await toAtt(f);
+    const title = f.name.replace(/\.[^.]+$/, "").slice(0, 60);
+    out.push(a.kind === "text" ? addCard(pid, { type, title, content: a.text }) : addCard(pid, { type, title, atts: [a] }));
+  }
+  return out;
+}
+
 // ---------- 讨论记录 ----------
 const talks = reactive({});
 export async function loadTalk(pid) {
@@ -79,7 +101,8 @@ function projectText(p, limit = 9000) {
   const out = [];
   let n = 0;
   for (const c of cardsOf(p.id)) {
-    const line = `【${CARD_TYPES[c.type]?.label || "其他"}】${c.title || "（无题）"}：${c.content.replace(/\n{2,}/g, "\n").slice(0, 700)}`;
+    const att = (c.atts || []).length ? `（卡片上有 ${c.atts.map(a => a.kind === "image" ? "图" : a.name).join("、")}）` : "";
+    const line = `【${CARD_TYPES[c.type]?.label || "其他"}】${c.title || "（无题）"}：${c.content.replace(/\n{2,}/g, "\n").slice(0, 700)}${att}`;
     if (n + line.length > limit) { out.push("……（还有一些卡片，太长没放进来）"); break; }
     out.push(line);
     n += line.length;
@@ -118,21 +141,22 @@ function rulesFor(who) {
 }
 
 // 在书桌前和他讨论：说一句，他回一句
-export async function talk(role, p, text) {
+export async function talk(role, p, text, atts = []) {
   const { oneShot, meName, visibleText } = await import("./chat.js");
   const me = meName(role);
   const list = await loadTalk(p.id);
-  if (text.trim()) list.push({ id: uid(), from: "me", text: text.trim(), ts: Date.now() });
-  const recent = list.slice(-16).map(m => `${m.from === "me" ? me : "你"}：${m.text}`).join("\n");
+  if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
+  const recent = list.slice(-16).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
     `\n这本书现在的卡片：\n${projectText(p)}`,
     `\n你们刚才在聊：\n${recent || "（刚坐下）"}`,
     `\n${rulesFor(me)}`,
+    atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",
     `\n现在接着回${me}，像平时说话那样，几段就好。`,
   ].filter(Boolean).join("\n");
-  const raw = await oneShot(role, prompt, { raw: true });
+  const raw = await oneShot(role, prompt, { raw: true, attachments: atts });
   const { text: rest, notes } = applyTags(p, raw);
   const reply = visibleText(rest).trim();
   if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });
@@ -155,7 +179,7 @@ export async function reviewCard(role, c) {
     notesOfCard(c.id).length ? `\n上面已经贴着的便利贴：\n${notesOfCard(c.id).map(n => `- ${n.from === "me" ? me : "你"}：${n.text}`).join("\n")}` : "",
     `\n写一张便利贴贴在这张卡片上：具体的想法、建议或者疑问，用你自己的口吻，150 字以内。只写便利贴上的字。`,
   ].filter(Boolean).join("\n");
-  const text = visibleText(await oneShot(role, prompt)).trim();
+  const text = visibleText(await oneShot(role, prompt, { attachments: c.atts || [] })).trim();
   if (!text) throw new Error("他没有写什么");
   const n = addNote(c, text, "ai");
   n.seen = true;
