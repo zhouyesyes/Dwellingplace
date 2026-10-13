@@ -7,7 +7,7 @@
 import { store, uid } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
-import { globalMemoryForScene, takeSuggestions } from "./memoryTags.js";
+import { globalMemoryForScene, takeSuggestions, newMemory } from "./memoryTags.js";
 
 export const NOTE_RE = /\[便利贴[:：]([^\]]{2,1200})\]/g;
 export const READ_MEM_RE = /\[读书笔记[:：]([^\]]{2,1200})\]/g;
@@ -15,7 +15,7 @@ const findBook = title => {
   const name = String(title || "").replace(/[《》]/g, "").trim();
   return (store.books || []).find(x => x.title === name) || (store.books || []).find(x => name && (name.includes(x.title) || x.title.includes(name)));
 };
-export const readingMemsOf = bookId => (store.memories || []).filter(m => m.bookId && (!bookId || m.bookId === bookId)).sort((a, b) => b.ts - a.ts);
+export const readingMemsOf = bookId => (store.memories || []).filter(m => m.bookId && (!bookId || m.bookId === bookId) && (m.status || "valid") === "valid").sort((a, b) => b.ts - a.ts);
 
 export function readingForAI(role, who) {
   if (!store.books?.length) return "";
@@ -117,9 +117,9 @@ export function readingSceneParts(b, me) {
   if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》：${x.gist.text.slice(0, 200)}`).join("\n")}` });
   return out;
 }
-async function bookContext(b, me, role) {
+async function bookContext(b, me, role, query = "") {
   const scene = readingSceneParts(b, me).map(x => x.text).join("\n\n");
-  return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? await globalMemoryForScene(role, me, { skip: "read" }) : ""].filter(Boolean).join("\n");
+  return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? await globalMemoryForScene(role, me, { skip: "read", query }) : ""].filter(Boolean).join("\n");
 }
 
 // peek：只是看看（记忆库里用），不把便利贴、读后感记成「他看过了」
@@ -182,7 +182,7 @@ export function applyReadMemTags(role, text) {
     const b = findBook(title);
     const content = rest.join(" ").trim() || head;
     if (!b || !content) return "";
-    store.memories.push({ id: uid(), roleId: role.id, bookId: b.id, title: `《${b.title}》${rest.length ? "：" + head : ""}`.slice(0, 40), content, img: null, date: todayYmd(), author: role.id, ts: Date.now() });
+    newMemory(role, { bookId: b.id, title: `《${b.title}》${rest.length ? "：" + head : ""}`.slice(0, 40), content, source: { type: "read", by: "ai", id: b.id, label: `《${b.title}》` } });
     notes.push(`${role.name} 记下了一条读书笔记：《${b.title}》`);
     return "";
   });
@@ -199,7 +199,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
-    await bookContext(b, me, role),
+    await bookContext(b, me, role, `${question || ""} ${quote || paras[p] || ""}`),
     await (async () => { const t = await sinceGist(b, { ch, p: Math.max(0, p - 1) }); return t ? `（上次整理前情之后，你们读过的原文：）\n${t}` : ""; })(),
     part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
     around.length ? `（前后文：${around.join(" …… ")}）` : "",

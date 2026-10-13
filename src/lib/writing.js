@@ -215,7 +215,7 @@ export async function writingPrompt(role, p, atts = []) {
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
     `\n# 共写《${p.title}》（这次的场景，最要紧）\n${writingSceneParts(p, list, me).map(x => x.text).join("\n\n")}`,
-    await globalMemoryForScene(role, me, { skip: "write" }),
+    await globalMemoryForScene(role, me, { skip: "write", query: [...list].reverse().find(m => m.from === "me")?.text || "" }),
     `\n${rulesFor(me)}`,
     atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",
     `\n现在接着回${me}，像平时说话那样，几段就好。`,
@@ -309,10 +309,10 @@ export async function summarize(role, p) {
   ].filter(Boolean).join("\n");
   const text = (await oneShot(role, prompt, { helper: true })).trim();
   if (!text) return;
-  if (prev) Object.assign(prev, { content: text, date: todayYmd(), ts: Date.now() });
+  if (prev) Object.assign(prev, { content: text, date: todayYmd(), ts: Date.now(), updatedAt: Date.now() });
   else {
-    const m = { id: uid(), roleId: role.id, writingId: p.id, title: `在写《${p.title}》`, content: text, img: null, date: todayYmd(), author: role.id, ts: Date.now() };
-    store.memories.push(m);
+    const { newMemory } = await import("./memoryTags.js");
+    const m = newMemory(role, { writingId: p.id, title: `在写《${p.title}》`, content: text, source: { type: "write", by: "helper", id: p.id, label: `《${p.title}》` } });
     p.memId = m.id;
   }
   p.sinceSum = 0;

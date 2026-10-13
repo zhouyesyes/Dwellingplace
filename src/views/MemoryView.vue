@@ -12,7 +12,7 @@ import PromptPreview from "../components/memory/PromptPreview.vue";
 import MemoryGuide from "../components/memory/MemoryGuide.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import MemorySettings from "../components/memory/MemorySettings.vue";
-import { suggestionsOf, acceptSuggestion, dropSuggestion, lettersLog, cardLimit } from "../lib/memoryTags.js";
+import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
 import { ref, reactive, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
@@ -46,16 +46,48 @@ const xinchao = computed(() => hasXinchao(role.value));
 const view = ref("global"); // global：全局记忆；scene：场景记忆
 const guideOpen = ref(false);
 const setOpen = ref(false);
-const suggests = computed(() => (tab.value ? suggestionsOf(tab.value) : []));
 const letterLines = computed(() => (role.value ? lettersLog(role.value, meName(role.value)) : ""));
-// 卡片：钉住的在最前；超过张数上限的标一下「他现在看不到」
-const shownIds = computed(() => { const all = tab.value ? memoriesOf(tab.value).filter(m => memKind(m) === "card") : []; return new Set([...all.filter(m => m.pinned), ...all.filter(m => !m.pinned).slice(0, cardLimit())].map(m => m.id)); });
-const togglePin = m => { m.pinned = !m.pinned; };
+
+// ---------- 记忆卡片：常驻 / 普通 / 归档 / 待确认 / 已过时（+ 回收站）----------
+const all = computed(() => (tab.value ? memoriesOf(tab.value) : []));
+const BUCKETS = {
+  pinned: { label: "常驻", test: m => isLive(m) && accessOf(m) === "pinned", tip: `每次、每个房间都带着，最多 ${PIN_MAX} 张` },
+  normal: { label: "普通", test: m => isLive(m) && accessOf(m) === "normal" && memKind(m) === "card", tip: "平时不全带：按你说的话，每次自动想起最相关的几张" },
+  archived: { label: "归档", test: m => isLive(m) && accessOf(m) === "archived", tip: "还成立，但不常用了：不自动想起，只在搜索时出现" },
+  pending: { label: "待确认", test: m => m.status === "pending", tip: "整理时挑出来的：确认前不给他、不自动想起" },
+  obsolete: { label: "已过时", test: m => m.status === "obsolete", tip: "以前成立、现在不是了：留作历史，不当成现在的事" },
+  deleted: { label: "回收站", test: m => m.status === "deleted", tip: "不再给他；可以恢复，也可以彻底删掉" },
+};
+const bucket = ref("normal");
+const countOf = k => all.value.filter(BUCKETS[k].test).length;
 const query = ref("");
-const hit = m => { const q = query.value.trim().toLowerCase(); return !q || (m.title + m.content + m.date).toLowerCase().includes(q); };
-const cards = computed(() => { const list = (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) === "card" && hit(m)); return [...list.filter(m => m.pinned), ...list.filter(m => !m.pinned)]; });
-// 从共读、共写整理过来的（也在全局记忆里，排在记忆卡片后面）
-const derived = computed(() => (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) !== "card" && hit(m)));
+const withArchived = ref(true);
+const withHistory = ref(false);
+const hit = m => { const q = query.value.trim().toLowerCase(); return !q || (m.title + m.content + m.date + (m.tags || []).join(" ")).toLowerCase().includes(q); };
+// 搜索的时候：在常驻、普通里找；勾上了再加归档、已过时
+const cards = computed(() => {
+  if (query.value.trim()) return all.value.filter(m => hit(m) && ((isLive(m) && (accessOf(m) !== "archived" || withArchived.value)) || (m.status === "obsolete" && withHistory.value)));
+  return all.value.filter(BUCKETS[bucket.value].test);
+});
+// 从共读、共写整理过来的（也在全局记忆里，排在常驻卡片后面）
+const derived = computed(() => all.value.filter(m => memKind(m) !== "card" && isLive(m) && accessOf(m) !== "archived" && hit(m)));
+const badge = m => (m.status === "pending" ? "待确认" : m.status === "obsolete" ? "已过时" : m.status === "deleted" ? "回收站" : ACCESS[accessOf(m)]);
+const srcLine = m => [SRC[m.source?.type] || "", m.source?.label || "", BY[m.source?.by] || (m.author === "me" ? "你写的" : "他自己记的")].filter(Boolean).join(" · ");
+const fmt = ts => (ts ? new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+function act(m, what) {
+  let err = "";
+  if (what === "confirm") err = confirmMemory(m, "normal");
+  else if (what === "confirmPin") err = confirmMemory(m, "pinned");
+  else if (what === "pin") err = setAccess(m, "pinned");
+  else if (what === "normal") err = setAccess(m, "normal");
+  else if (what === "archive") err = setAccess(m, "archived");
+  else if (what === "obsolete") markObsolete(m);
+  else if (what === "trash") trashMemory(m);
+  else if (what === "restore") restoreMemory(m);
+  else if (what === "purge") { if (!confirm("彻底删掉这张卡片？删了就找不回来了。")) return; purgeMemory(m); viewing.value = null; return; }
+  if (err) return toast(err, 3500);
+  viewing.value = null;
+}
 // 每个对话的摘要记忆
 const sums = computed(() => (tab.value ? threadsOf(tab.value) : []).filter(t => t.summary?.text && !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
 const sumEdit = ref(null);
@@ -103,11 +135,13 @@ const draft = ref(null);
 const draftImg = useImage(() => draft.value?.img);
 function newCard() {
   if (!role.value) return;
-  draft.value = { id: uid(), roleId: tab.value, title: "", content: "", img: null, date: todayYmd(), author: "me", ts: Date.now(), _isNew: true };
+  const now = Date.now();
+  draft.value = { id: uid(), roleId: tab.value, title: "", content: "", img: null, date: todayYmd(), author: "me", ts: now, createdAt: now, updatedAt: now,
+    status: "valid", access: bucket.value === "pinned" ? "pinned" : bucket.value === "archived" ? "archived" : "normal", source: { type: "manual", by: "me" }, tags: [], importance: 3, _tags: "", _isNew: true };
 }
 function editCard(m) {
   viewing.value = null;
-  draft.value = { ...m, _isNew: false };
+  draft.value = { ...m, _tags: (m.tags || []).join("，"), _isNew: false };
 }
 async function changeImg() {
   const id = await pickAndCrop({ aspect: 4 / 3, title: "调整图片", maxSize: 1400 });
@@ -117,28 +151,29 @@ async function changeImg() {
   draft.value.img = id;
 }
 function save() {
-  const { _isNew, ...m } = draft.value;
+  const { _isNew, _tags, ...m } = draft.value;
+  m.tags = _tags.split(/[，,、\s]+/).map(x => x.trim()).filter(Boolean).slice(0, 8);
+  m.importance = Number(m.importance) || 3;
+  if (_isNew && m.access === "pinned" && all.value.filter(BUCKETS.pinned.test).length >= PIN_MAX) { m.access = "normal"; toast(`常驻已经满 ${PIN_MAX} 张了，先放进普通`, 3000); }
   m.title = m.title.trim() || m.content.trim().slice(0, 12);
   m.content = m.content.trim();
   if (!m.content) return;
   const i = store.memories.findIndex(x => x.id === m.id);
   if (i >= 0) {
     if (store.memories[i].img && store.memories[i].img !== m.img) deleteImage(store.memories[i].img);
-    store.memories[i] = { ...m, ts: Date.now() };
+    store.memories[i] = { ...m, ts: Date.now(), updatedAt: Date.now() };
   } else {
     store.memories.push(m);
   }
   tab.value = m.roleId;
   draft.value = null;
 }
+// 删除：先进回收站（不再给他），回收站里可以恢复或者彻底删掉
 function remove() {
-  if (!confirm("删除这张记忆卡片？")) return;
-  const i = store.memories.findIndex(x => x.id === draft.value.id);
-  if (i >= 0) {
-    deleteImage(store.memories[i].img);
-    store.memories.splice(i, 1);
-  }
+  const m = store.memories.find(x => x.id === draft.value.id);
+  if (m) trashMemory(m);
   draft.value = null;
+  toast("放进回收站了");
 }
 </script>
 
@@ -175,36 +210,37 @@ function remove() {
     <template v-if="view === 'global'">
     <button v-if="role" class="peek" @click="showChat">看看聊天时发给{{ role.name }}的全部 ›</button>
 
-    <template v-if="suggests.length">
-      <p class="sec">待确认的记忆<small>整理的时候挑出来的，收下才变成记忆卡片</small></p>
-      <article v-for="x in suggests" :key="x.id" class="sum sug">
-        <div class="meta"><span>从{{ x.src }}里挑的</span><span>{{ new Date(x.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) }}</span></div>
-        <h3>{{ x.title }}</h3>
-        <p>{{ x.content }}</p>
-        <div class="sug-acts"><button class="btn soft small" @click="dropSuggestion(x)">不要</button><button class="btn small" @click="acceptSuggestion(x)">收下</button></div>
-      </article>
-    </template>
 
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
 
 
     <template v-else>
-    <p class="sec">记忆卡片<small>钉住的永远带着，其余带最新的 {{ cardLimit() }} 张</small></p>
+    <p class="sec">记忆卡片</p>
+    <div class="buckets">
+      <button v-for="(b, k) in BUCKETS" :key="k" :class="{ on: bucket === k && !query.trim(), warn: k === 'pending' && countOf(k) }" @click="bucket = k; query = ''">
+        {{ b.label }}<small>{{ k === "pinned" ? `${countOf(k)}/${PIN_MAX}` : countOf(k) }}</small>
+      </button>
+    </div>
+    <p v-if="!query.trim()" class="btip">{{ BUCKETS[bucket].tip }}{{ bucket === "normal" ? `（现在每次最多 ${recallCount()} 张，⚙ 里调）` : "" }}</p>
     <div class="search">
       <Icon name="search" :size="17" />
-      <input v-model="query" placeholder="搜索标题、内容、日期" />
+      <input v-model="query" placeholder="搜索标题、内容、标签、日期" />
+    </div>
+    <div v-if="query.trim()" class="stoggles">
+      <label><input v-model="withArchived" type="checkbox" /> 包含归档</label>
+      <label><input v-model="withHistory" type="checkbox" /> 包含已过时</label>
     </div>
 
     <div class="cards">
-      <article v-for="m in cards" :key="m.id" class="mcard" :class="{ off: !shownIds.has(m.id) }" :style="{ background: tint(role.color) }" @click="viewing = m">
-        <div class="meta"><span>{{ md(m.date) }}{{ m.pinned ? " · 📌 钉住" : "" }}{{ !shownIds.has(m.id) ? " · 他现在看不到（超过张数）" : "" }}</span><span>{{ role.name }}</span></div>
+      <article v-for="m in cards" :key="m.id" class="mcard" :class="{ off: !isLive(m) || accessOf(m) === 'archived' }" :style="{ background: tint(role.color) }" @click="viewing = m">
+        <div class="meta"><span>{{ md(m.date) }} · {{ srcLine(m) }}</span><span class="bdg" :class="m.status || 'valid'">{{ badge(m) }}</span></div>
         <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
         <h3>{{ m.title }}</h3>
         <p>{{ m.content }}</p>
         <div class="by">
           <Avatar v-if="m.author === 'me'" :img="store.profile.avatar" :name="authorInfo('me').name" :color="store.profile.color" :size="22" />
           <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="22" />
-          <span>{{ m.author === "me" ? "我写的" : `${role.name} 写的` }}</span>
+          <span>{{ m.source?.by === "helper" ? "整理模型建议的" : m.author === "me" ? "我写的" : `${role.name} 写的` }}</span>
           <Icon name="right" :size="15" class="chev" />
         </div>
       </article>
@@ -212,7 +248,7 @@ function remove() {
 
     <p v-if="!store.roles.length" class="empty-hint">还没有角色，先去「设置」里添加一个吧</p>
     <p v-else-if="!cards.length" class="empty-hint">
-      {{ query ? "没有找到相关的记忆" : `${role?.name} 的抽屉还是空的。聊天时他会自己写下记忆，你也可以点右下角 ＋ 自己写。` }}
+      {{ query ? "没有找到相关的记忆（可以勾上「包含归档」「包含已过时」再找找）" : bucket === "normal" ? `还没有普通记忆。聊天时${role?.name}会自己写下记忆，你也可以点右下角 ＋ 自己写。` : `「${BUCKETS[bucket].label}」里还没有卡片。` }}
     </p>
 
     <button v-if="role" class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="26" /></button>
@@ -265,12 +301,30 @@ function remove() {
     <Sheet :open="!!viewing" @close="viewing = null">
       <template v-if="viewing">
         <img v-if="imgOf(viewing)" :src="imgOf(viewing)" alt="" class="view-pic" />
-        <div class="view-meta">{{ viewing.date }} · {{ viewing.author === "me" ? "我写的" : `${roleById(viewing.roleId)?.name} 写的` }}</div>
+        <div class="view-meta">{{ viewing.date }} · {{ viewing.source?.by === "helper" ? "整理模型建议的" : viewing.author === "me" ? "我写的" : `${roleById(viewing.roleId)?.name} 写的` }}{{ viewing.tags?.length ? ` · #${viewing.tags.join(" #")}` : "" }}{{ viewing.importance && viewing.importance !== 3 ? ` · ${"★".repeat(viewing.importance)}` : "" }}</div>
         <h2 class="view-title">{{ viewing.title }}</h2>
         <p class="view-body">{{ viewing.content }}</p>
-        <div class="edit-actions">
-          <button v-if="memKind(viewing) === 'card'" class="btn soft" @click="togglePin(viewing)">{{ viewing.pinned ? "取消钉住" : "📌 钉住" }}</button>
-          <button class="btn soft" @click="editCard(viewing)"><Icon name="edit" :size="16" /> 编辑</button>
+        <p class="src">来源：{{ srcLine(viewing) }}<br />现在：{{ badge(viewing) }}{{ viewing.status === "valid" ? `（${ACCESS[accessOf(viewing)]}）` : "" }} · 创建 {{ fmt(viewing.createdAt || viewing.ts) }}{{ viewing.updatedAt && viewing.updatedAt !== viewing.createdAt ? ` · 更新 ${fmt(viewing.updatedAt)}` : "" }}</p>
+        <div class="mem-acts">
+          <template v-if="viewing.status === 'pending'">
+            <button class="btn small" @click="act(viewing, 'confirm')">确认（放进普通）</button>
+            <button class="btn soft small" @click="act(viewing, 'confirmPin')">确认并设为常驻</button>
+          </template>
+          <template v-else-if="viewing.status === 'deleted'">
+            <button class="btn small" @click="act(viewing, 'restore')">恢复</button>
+            <button class="btn soft small danger" @click="act(viewing, 'purge')">彻底删除</button>
+          </template>
+          <template v-else-if="viewing.status === 'obsolete'">
+            <button class="btn soft small" @click="act(viewing, 'normal')">又成立了（放回普通）</button>
+          </template>
+          <template v-else>
+            <button v-if="accessOf(viewing) !== 'pinned'" class="btn soft small" @click="act(viewing, 'pin')">设为常驻</button>
+            <button v-if="accessOf(viewing) !== 'normal'" class="btn soft small" @click="act(viewing, 'normal')">{{ accessOf(viewing) === "pinned" ? "取消常驻" : "移回普通" }}</button>
+            <button v-if="accessOf(viewing) !== 'archived'" class="btn soft small" @click="act(viewing, 'archive')">归档</button>
+            <button class="btn soft small" @click="act(viewing, 'obsolete')">标记为已过时</button>
+          </template>
+          <button v-if="viewing.status !== 'deleted'" class="btn soft small" @click="editCard(viewing)"><Icon name="edit" :size="15" /> 编辑</button>
+          <button v-if="viewing.status !== 'deleted'" class="btn soft small danger" @click="act(viewing, 'trash')">删除</button>
         </div>
       </template>
     </Sheet>
@@ -287,6 +341,10 @@ function remove() {
         <label class="field"><span>标题</span><input v-model="draft.title" class="input" placeholder="例如：第一次给小鸡起名字" /></label>
         <label class="field"><span>内容</span><BigTextarea v-model="draft.content" rows="5" title="记忆内容" placeholder="想让他一直记得的事" /></label>
         <label class="field"><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
+        <div class="field two">
+          <label><span>标签（逗号隔开，可不填）</span><input v-model="draft._tags" class="input" placeholder="比如：身体，学校" /></label>
+          <label><span>重要程度</span><select v-model.number="draft.importance" class="input"><option v-for="n in 5" :key="n" :value="n">{{ "★".repeat(n) }}</option></select></label>
+        </div>
         <div class="field">
           <span>图片（可选）</span>
           <div class="img-row">
@@ -296,7 +354,7 @@ function remove() {
           </div>
         </div>
         <div class="edit-actions">
-          <button v-if="!draft._isNew" class="btn danger" @click="remove">删除</button>
+          <button v-if="!draft._isNew" class="btn danger" @click="remove">删除（进回收站）</button>
           <span class="spacer" />
           <button class="btn" :disabled="!draft.content.trim()" @click="save">保存</button>
         </div>
@@ -360,7 +418,25 @@ function remove() {
 .tmp .pre { -webkit-line-clamp: unset; display: block; }
 .sug { border: 1.5px dashed var(--line); box-shadow: none; cursor: default; }
 .sug-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-.mcard.off { opacity: .55; }
+.mcard.off { opacity: .6; }
+.buckets { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 8px; }
+.buckets::-webkit-scrollbar { display: none; }
+.buckets button { flex: none; border: 0; background: var(--card); padding: 6px 12px; border-radius: 999px; font-size: .82rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
+.buckets button small { margin-left: 4px; font-size: .7rem; color: var(--text-3); }
+.buckets button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.buckets button.on small { color: rgba(255, 255, 255, .7); }
+.buckets button.warn:not(.on) { box-shadow: inset 0 0 0 1.5px #e9657e; }
+.btip { margin: 0 4px 10px; font-size: .74rem; color: var(--text-3); line-height: 1.6; }
+.stoggles { display: flex; gap: 14px; margin: -8px 6px 12px; font-size: .78rem; color: var(--text-2); }
+.stoggles input { accent-color: var(--ink); }
+.bdg { font-size: .66rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, .7); }
+.bdg.pending { background: #fde3ea; color: #c9304c; }
+.bdg.obsolete, .bdg.deleted { background: var(--bg-deep); color: var(--text-3); }
+.src { font-size: .74rem; line-height: 1.7; color: var(--text-3); margin: 12px 0 0; }
+.field.two { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
+.field.two label { display: flex; flex-direction: column; gap: 6px; }
+.mem-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.mem-acts .btn { display: inline-flex; align-items: center; gap: 4px; }
 .tmp .on { color: #c9304c; font-weight: 600; }
 .tmp .rule { display: block; margin-top: 6px; font-size: .7rem; line-height: 1.6; color: var(--text-3); }
 .tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }

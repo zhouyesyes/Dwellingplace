@@ -33,9 +33,10 @@ export async function searchChats(roleId, q, { limit = 50 } = {}) {
   return out.sort((a, b) => b.m.ts - a.m.ts).slice(0, limit);
 }
 
+// 搜记忆卡片：当前有效的都找（常驻、普通、归档）；已过时的也找出来但标好是历史；待确认、回收站里的不找
 export function searchCards(roleId, q) {
   const ts = terms(q);
-  return ts.length ? memoriesOf(roleId).filter(m => hit(`${m.title} ${m.content} ${m.date}`, ts)) : [];
+  return ts.length ? memoriesOf(roleId).filter(m => ["valid", "obsolete", undefined].includes(m.status) && hit(`${m.title} ${m.content} ${m.date} ${(m.tags || []).join(" ")}`, ts)) : [];
 }
 
 // 给他看的结果
@@ -45,7 +46,7 @@ export async function recallForAI(role, q, me) {
   const sums = threadsOf(role.id).map(t => t.summary?.text).filter(s => s && hit(s, terms(q)));
   const day = ts => new Date(ts).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const lines = [
-    ...cards.map(c => `· 记忆卡片 [${c.date}] ${c.title}：${c.content.slice(0, 300)}`),
+    ...cards.map(c => `· 记忆卡片 [${c.date}] ${c.title}：${c.content.slice(0, 300)}${c.status === "obsolete" ? "（已过时：以前是这样，现在不是了）" : ""}`),
     ...sums.map(s => `· 你整理过的摘要里：${snippet(s, q, 120)}`),
     ...chats.map(r => `· 聊天 [${day(r.m.ts)}] ${r.m.from === "user" ? me : role.name}：${snippet(r.text, q, 80)}`),
   ];
