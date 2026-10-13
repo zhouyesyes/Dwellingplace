@@ -622,6 +622,8 @@ export async function generate(thread, parentId) {
     saveMessages(thread.id);
   }
   if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
+  // 隔两周：他把记忆卡片从头整理一遍，建议等她看（后台做）
+  if (!msg.error && msg.text && !thread.mail) import("./review.js").then(m => m.maybeReview(role, msg)).then(() => saveMessages(thread.id)).catch(() => {});
 }
 
 async function drawInto(thread, msg, role, prompt) {
