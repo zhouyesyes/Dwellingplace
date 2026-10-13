@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick, onMounted } from "vue";
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment } from "../lib/chat.js";
@@ -119,6 +119,20 @@ const src = m => m._src || m;
 
 // ---------- 滚动 ----------
 const scroller = ref(null);
+// 输入框浮在最下面，聊天从它后面滑过去：量一下它多高，聊天底下留出这么多
+const dock = ref(null);
+const dockH = ref(120);
+let dockRO = null;
+onMounted(() => {
+  dockRO = new ResizeObserver(() => {
+    if (!dock.value) return;
+    const stick = nearBottom();
+    dockH.value = dock.value.offsetHeight;
+    if (stick) nextTick(() => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; });
+  });
+  if (dock.value) dockRO.observe(dock.value);
+});
+onBeforeUnmount(() => dockRO?.disconnect());
 function nearBottom() {
   const el = scroller.value;
   return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 140;
@@ -499,7 +513,7 @@ async function changeAvatarOf(who) {
 </script>
 
 <template>
-  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="theirBubble">
+  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="{ ...theirBubble, '--dock': dockH + 'px' }">
     <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
 
     <header class="top">
@@ -589,7 +603,7 @@ async function changeAvatarOf(who) {
       </div>
     </main>
 
-    <footer class="composer">
+    <footer ref="dock" class="composer">
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
           <ImgThumb v-if="a.kind === 'image'" :id="a.img" class="mini" />
@@ -598,7 +612,6 @@ async function changeAvatarOf(who) {
         </div>
       </div>
       <div class="pill-row">
-        <button class="model-pill" @click="modelOpen = true">{{ currentModel || "选择模型" }}</button>
         <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
           <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
           <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
@@ -660,6 +673,11 @@ async function changeAvatarOf(who) {
 
       <div class="section-label">这个对话</div>
       <div class="list-card flat">
+        <button class="list-row" @click="threadsOpen = false; modelOpen = true">
+          <Icon name="key" :size="20" />
+          <span class="grow">模型<span class="sub">{{ currentModel || "选择模型" }}</span></span>
+          <Icon name="right" :size="16" />
+        </button>
         <div class="list-row">
           <Icon name="image" :size="20" />
           <span class="grow">背景</span>
@@ -766,9 +784,9 @@ async function changeAvatarOf(who) {
 .name { font-size: 1.13rem; font-weight: 700; letter-spacing: 1px; }
 .sig { font-size: 0.833rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 消息区 */
+/* 消息区：输入框浮在上面，底下留出它的高度，最后一条能滑到它上方 */
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.inner { max-width: 760px; margin: 0 auto; padding: 12px 14px 24px; display: flex; flex-direction: column; gap: 18px; }
+.inner { max-width: 760px; margin: 0 auto; padding: 12px 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
 
 .hello { text-align: center; color: var(--text-2); margin-top: 18vh; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .hello p { margin: 8px 0 0; }
@@ -886,16 +904,15 @@ async function changeAvatarOf(who) {
 .file-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border-radius: 12px; padding: 8px 12px; font-size: 0.867rem; color: var(--text-2); box-shadow: var(--shadow-soft); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 输入面板 */
+/* 悬空的一张卡片（和共写一样）：聊天从它后面滑过去，不被切开 */
 .composer {
-  background: rgba(255, 255, 255, .97);
-  border-radius: 30px 30px 0 0;
-  box-shadow: 0 -6px 30px rgba(40, 40, 60, .08);
-  padding: 14px 14px calc(var(--safe-bottom) + 14px);
+  position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 5;
+  width: calc(100% - 28px); max-width: 800px; margin: 0 auto; box-sizing: border-box;
+  background: rgba(255, 255, 255, .97); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  border-radius: 28px; box-shadow: 0 8px 30px rgba(40, 40, 60, .12);
+  padding: 8px 10px 8px;
 }
 .row { display: flex; align-items: flex-end; gap: 4px; max-width: 760px; margin: 0 auto; }
-@media (min-width: 760px) {
-  .composer { width: calc(100% - 40px); max-width: 800px; margin: 0 auto calc(var(--safe-bottom) + 14px); border-radius: 28px; padding-bottom: 14px; box-shadow: 0 6px 30px rgba(40, 40, 60, .1); }
-}
 .tool { flex: none; width: 32px; height: 40px; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
 .tool:active { color: var(--ink); }
 textarea {
@@ -957,7 +974,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .t-time { font-size: 0.8rem; color: var(--text-3); }
 .mini-btn { border: 0; background: none; color: var(--text-3); width: 30px; height: 30px; display: grid; place-items: center; padding: 0; }
 .new-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 10px; }
-.pill-row { max-width: 760px; margin: 0 auto 4px; padding: 0 8px; display: flex; align-items: center; gap: 8px; }
+.pill-row { max-width: 760px; margin: 0 auto; padding: 2px 8px 0; display: flex; align-items: center; gap: 8px; }
 .model-pill {
   border: 0; border-radius: 999px; padding: 2px 10px;
   background: var(--blue); color: #4b74a8; font-size: 0.75rem;
