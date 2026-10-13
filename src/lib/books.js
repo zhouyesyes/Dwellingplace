@@ -143,9 +143,12 @@ export function savePos(b, ch, p) {
   b.pos = { ch, p };
   b.readAt = Date.now();
 }
-export function addNote(b, { ch, p, quote, text, from }) {
+// 一条划线 / 批注：划在第 ch 章第 p 段的 [start, end) 这几个字上（旧的没有 start / end：按 quote 去段落里找，找不到就是整段）。
+// text 空着 = 只划了线
+export function addNote(b, { ch, p, quote, text, from, start, end }) {
   store.bookNotes ??= [];
-  const n = { id: uid(), bookId: b.id, ch, p, quote: (quote || "").slice(0, 120), text: text.trim().slice(0, 1000), from, ts: Date.now(), seen: false };
+  const n = { id: uid(), bookId: b.id, ch, p, quote: (quote || "").slice(0, 200), text: (text || "").trim().slice(0, 1000), from, ts: Date.now(), seen: false };
+  if (start != null && end != null && end > start) Object.assign(n, { start, end });
   store.bookNotes.push(n);
   return n;
 }

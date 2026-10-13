@@ -151,19 +151,20 @@ export function applyReadMemTags(role, text) {
 
 // ---------- 读书页里直接问他 ----------
 // 「问问他」：给他看这一段（和前后各一段），他回一张便利贴；想记的读书笔记也一起记下
-export async function askHim(role, b, { ch, p, paras, chapterTitle, question }) {
+export async function askHim(role, b, { ch, p, paras, chapterTitle, question, quote }) {
   const { oneShot, meName } = await import("./chat.js");
   const me = meName(role);
   const around = [paras[p - 1], paras[p + 1]].filter(Boolean).map(x => x.slice(0, 300));
+  const part = quote && quote.trim() !== paras[p].trim();
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
     bookContext(b, me),
-    `${me}指着这一段给你看：\n「${paras[p]}」`,
+    part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
     question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
-    `写一张便利贴贴在这段旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
-    `如果这一段让你自己有收获、想记住，可以在最后另起一行写 [读书笔记:${b.title}|标题|内容]，会记进你的记忆库（不是每次都要）。`,
+    `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
+    `如果让你自己有收获、想记住，可以在最后另起一行写 [读书笔记:${b.title}|标题|内容]，会记进你的记忆库（不是每次都要）。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt, { raw: true });
   const { text: t1, notes } = applyReadMemTags(role, raw);
@@ -175,49 +176,73 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question }) 
   return { text, notes };
 }
 
-// 「一起读」：只给他看你最近读的这几页（不是整章，最多七千来字），他挑两三处有感觉的地方贴便利贴。
-// 这是单独问的一次，不进聊天记录，所以读多少页都不会把聊天挤掉
-const ALONG_RE = /\[贴[:：]\s*(\d+)\s*[|｜]([^\]]{1,600})\]/g;
-export async function readAlong(role, b, { ch, chapterTitle, paras, from, to, pages = 3 }) {
+// 「一起读」：从他上次一起读到的地方，到你现在读到的这一页，全部给他（可以跨章）。
+// 他挑两三处有感觉的句子划线、写批注。这是单独问的一次，不进聊天记录，所以读多少页都不会把聊天挤掉
+const ALONG_RE = /\[贴[:：]\s*(\d+)\s*[.．]\s*(\d+)\s*[|｜]([^|｜\]]{0,80})[|｜]([^\]]{1,600})\]/g;
+const ALONG_RE2 = /\[贴[:：]\s*(\d+)\s*[.．]\s*(\d+)\s*[|｜]([^\]]{1,600})\]/g; // 没写原文的
+// 从 from 到 to（都含）的段落，太长从前面截掉；返回 [{ ch, p, t }]
+export async function alongSlice(b, from, to, maxChars = Infinity) {
+  const book = await loadBook(b.id);
+  const out = [];
+  let n = 0;
+  for (let c = to.ch; c >= from.ch && c >= 0; c--) {
+    const ps = book.chapters[c]?.paras || [];
+    const a = c === from.ch ? from.p : 0, z = c === to.ch ? Math.min(to.p, ps.length - 1) : ps.length - 1;
+    for (let i = z; i >= a; i--) {
+      const t = ps[i].trim();
+      if (!t) continue;
+      if (n + t.length > maxChars && out.length) return out;
+      out.unshift({ ch: c, p: i, t });
+      n += t.length;
+    }
+  }
+  return out;
+}
+export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
   const { oneShot, meName, visibleText } = await import("./chat.js");
   const me = meName(role);
+  const book = await loadBook(b.id);
+  const items = await alongSlice(b, from, to, maxChars);
+  if (!items.length) throw new Error("这几页没有字");
   const lines = [];
-  let n = 0;
-  // 从最后往前取：太长的话，留下的是她刚读的那部分
-  for (let i = Math.min(to, paras.length - 1); i >= from; i--) {
-    const t = paras[i].trim();
-    if (!t) continue;
-    if (n + t.length > 2400 * pages && lines.length) { from = i + 1; break; }
-    lines.unshift(`[${i}] ${t}`);
-    n += t.length;
+  let last = -1;
+  for (const it of items) {
+    if (it.ch !== last) { lines.push(`【${book.chapters[it.ch]?.title || `第 ${it.ch + 1} 章`}】`); last = it.ch; }
+    lines.push(`[${it.ch + 1}.${it.p}] ${it.t}`);
   }
-  if (!lines.length) throw new Error("这几页没有字");
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
-    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
+    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
     bookContext(b, me),
-    `下面是${me}刚读的这几页，每段前面方括号里是段号：`,
+    `下面是${me}从你上次一起读到的地方、一直读到现在的这几页。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
-    `你也读一读。挑两三处真让你有感觉的地方（不用每段都说），在那段旁边贴一张便利贴，像在书页边上随手写给${me}的，每张不超过 100 字。`,
-    `每张另起一行写：[贴:段号|想说的话]。只写便利贴，别的不用写。`,
+    `你也读一读。挑两三处真让你有感觉的句子（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
+    `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
     `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt, { raw: true });
   const { text: t1, notes } = applyReadMemTags(role, raw);
+  const ok = (c, p) => items.some(it => it.ch === c && it.p === p);
   const out = [];
-  for (const [, idx, body] of t1.matchAll(ALONG_RE)) {
-    const p = Number(idx), text = visibleText(body).trim();
-    if (text && p >= from && p <= to && paras[p]) out.push({ p, text });
+  for (const [, c, p, q, body] of t1.matchAll(ALONG_RE)) {
+    const text = visibleText(body).trim();
+    if (text && ok(c - 1, +p)) out.push({ ch: c - 1, p: +p, quote: q.replace(/[「」“”"]/g, "").trim(), text });
   }
-  // 没按格式写：整段当一张，贴在这几页中间那段
+  if (!out.length) for (const [, c, p, body] of t1.matchAll(ALONG_RE2)) {
+    const text = visibleText(body).trim();
+    if (text && ok(c - 1, +p)) out.push({ ch: c - 1, p: +p, quote: "", text });
+  }
+  // 没按格式写：整段话当一条，划在最后读的那一段
   if (!out.length) {
-    const text = visibleText(t1.replace(ALONG_RE, "")).trim();
-    if (text) out.push({ p: Math.round((from + to) / 2), text: text.slice(0, 300) });
+    const text = visibleText(t1.replace(ALONG_RE, "").replace(ALONG_RE2, "")).trim();
+    const it = items[items.length - 1];
+    if (text) out.push({ ch: it.ch, p: it.p, quote: "", text: text.slice(0, 300) });
   }
   if (!out.length) throw new Error("他没有写什么");
-  markHisPos(b, ch, Math.max(...out.map(x => x.p)));
-  maybeGist(role, b, { ch, p: to + 1 }).catch(() => {});
-  return { notes: out.slice(0, 3), memNotes: notes };
+  const end = items[items.length - 1];
+  markHisPos(b, end.ch, end.p);
+  maybeGist(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
+  return { notes: out.slice(0, 4), memNotes: notes, upTo: { ch: end.ch, p: end.p }, count: items.length };
 }
 
 // 他的读后感：看过的便利贴、记下的读书笔记都给他，打几颗星、写一段
