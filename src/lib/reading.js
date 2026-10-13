@@ -1,6 +1,6 @@
 // 共读里给他看的东西
 //   系统提示：有个书架；他可以写 [便利贴:书名|原文里的一小句|想说的话]，贴在那句话旁边
-//   【此刻】：最近在读哪本、读到哪；你新贴的便利贴（他看过就记下）
+//   【此刻】：24 小时里读过的书、来往的划线批注（见 moment.js）
 //   读书笔记：他读到觉得有意思、对自己有用的，写 [读书笔记:书名|标题|内容]，记进他的记忆库（带着是哪本书）
 //   读到这里的印象（b.gist = { text, upTo: {ch, p}, at }）：每读过三千来字（可以调），用「整理用的模型」把前情缩成一小段。
 //   一起读、问问他、写读后感、平时聊天，都带着它（和这本书最近的便利贴、他的读书笔记），他才接得上前面
@@ -120,32 +120,6 @@ export function readingSceneParts(b, me) {
 async function bookContext(b, me, role, query = "") {
   const scene = readingSceneParts(b, me).map(x => x.text).join("\n\n");
   return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? await globalMemoryForScene(role, me, { skip: "read", query }) : ""].filter(Boolean).join("\n");
-}
-
-// peek：只是看看（记忆库里用），不把便利贴、读后感记成「他看过了」
-export function newReadingForAI(role, who, { peek = false } = {}) {
-  const parts = [];
-  const recent = [...(store.books || [])].filter(b => b.readAt && Date.now() - b.readAt < 3 * 86400_000).sort((a, b) => b.readAt - a.readAt)[0];
-  if (recent) {
-    const ch = recent.chapters[recent.pos?.ch || 0];
-    const his = recent.hisPos ? `你上次读到第 ${recent.hisPos.ch + 1} 章。` : "";
-    parts.push(`${who}最近在读《${recent.title}》，读到「${ch?.title || "开头"}」（第 ${(recent.pos?.ch || 0) + 1} / ${recent.chapters.length} 章）。${his}`);
-    if (recent.gist?.text) parts.push(`你记下的这本书读到这里的印象：${recent.gist.text.slice(0, 600)}`);
-  }
-  const fresh = (store.bookNotes || []).filter(n => n.from === "me" && !n.seen).slice(0, 4);
-  for (const n of fresh) {
-    const b = store.books.find(x => x.id === n.bookId);
-    if (!b) continue;
-    parts.push(`${who}在《${b.title}》「${b.chapters[n.ch]?.title || ""}」${n.text ? "写了一条批注" : "划了一句"}——原文：「${n.quote}」${n.text ? `，${who}写：${n.text}` : ""}`);
-    if (!peek) n.seen = true;
-  }
-  for (const b of store.books || []) {
-    if (b.mine?.text && !b.mine.seen) {
-      parts.push(`${who}读完了《${b.title}》，打了 ${b.mine.stars} 颗星，写了读后感：${b.mine.text.slice(0, 500)}`);
-      if (!peek) b.mine.seen = true;
-    }
-  }
-  return parts.length ? `\n# 共读\n${parts.join("\n")}` : "";
 }
 
 // 他回复里的便利贴：先贴在她读到的地方，再去书里找那句话，找到了挪过去

@@ -5,15 +5,14 @@
 // 每一处都能「看看发给他的」，右上角旁边有说明书
 import { chatPreview, summarizeThread, describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
-import { newReadingForAI } from "../lib/reading.js";
-import { newLettersForAI } from "../lib/letters.js";
+import { momentParts, momentsOf, removeMoment, ago, MOMENT_MAX } from "../lib/moment.js";
 import SceneMemory from "../components/memory/SceneMemory.vue";
 import PromptPreview from "../components/memory/PromptPreview.vue";
 import MemoryGuide from "../components/memory/MemoryGuide.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import MemorySettings from "../components/memory/MemorySettings.vue";
 import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
-import { ref, reactive, computed, watch } from "vue";
+import { ref, reactive, computed, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
 import { memoriesOf, memKind } from "../lib/memoryTags.js";
@@ -107,15 +106,20 @@ async function sumNow() {
   } catch (e) { toast(`没整理成：${describeError(e)}`, 4000); } finally { sumBusy.value = false; }
 }
 // 临时带着的：附在新消息前面的【此刻】里，有的时候才有（只是看看，不会记成他看过了）
+const RULES = {
+  letters: { label: "信箱", rule: "你新寄的信，他下一次聊天时读一次全文；他寄的信你还没拆，就一直挂着，直到你拆开；24 小时里寄出、读过的信，一共最多 3 封，只带标题和第一句。上了锁的只告诉他有几封。" },
+  read: { label: "共读：24 小时里读过的书", rule: "每本分开：书名、读到哪、他最新的印象、24 小时里你们来往的划线和批注（每本最多 20 条）。超过 24 小时就不带了。读后感他没看过的，看一次。" },
+  self: { label: `他自己记的（最多 ${MOMENT_MAX} 条）`, rule: "他回复时写 [此刻:…] 记下的小事（心情、待会儿要做的），35 字以内，24 小时后自动忘。不想他记着的可以点 × 删掉。" },
+};
+const now = ref(Date.now());
+const tick = setInterval(() => (now.value = Date.now()), 60_000);
+onUnmounted(() => clearInterval(tick));
 const moment = computed(() => {
   if (!role.value) return [];
-  void store.bookNotes?.length; void store.letters?.length; // 这些变了重新算
-  const me = meName(role.value);
-  return [
-    { key: "read", label: "共读：在读的书", text: newReadingForAI(role.value, me, { peek: true }).replace(/^\n# 共读\n/, ""), rule: "最近 3 天读过书，就带上最近读的那一本：读到哪、他记的前情（截 600 字）。3 天没读就不带。你新划的线、写的批注、读后感，他下一次聊天时看到一次（最多 4 条），看过就不再带。" },
-    { key: "letters", label: "信箱：没读的来信", text: newLettersForAI(role.value, me, { peek: true }).replace(/^\n# 信箱\n/, ""), rule: "你写的信，他下一次聊天时读一次（一次最多 3 封），读过就不再带；上了锁的只告诉他有几封。" },
-  ];
+  void now.value; void store.bookNotes?.length; void store.letters?.length; void store.moments?.length; // 这些变了重新算
+  return momentParts(role.value, meName(role.value), { peek: true }).map(p => ({ ...p, ...RULES[p.key] }));
 });
+const selfMoments = computed(() => (void now.value, void store.moments?.length, role.value ? momentsOf(role.value.id) : []));
 const preview = ref(null);
 async function showChat() { preview.value = { title: "聊天时发给他的", parts: await chatPreview(role.value) }; }
 
@@ -262,10 +266,13 @@ function remove() {
       </article>
       <p v-if="!sums.length" class="empty-hint small">还没有聊天摘要。聊久了会自己整理，也可以在聊天的小世界里点「摘要记忆 → 现在整理」。</p>
 
-      <p class="sec">临时带着的<small>附在新消息前面的【此刻】里，有的时候才有</small></p>
+      <p class="sec">此刻 · 最近 24 小时<small>附在新消息前面的【此刻】里，有的时候才有</small></p>
       <article v-for="x in moment" :key="x.key" class="sum tmp">
         <div class="meta"><span>{{ x.label }}</span><span :class="x.text ? 'on' : ''">{{ x.text ? "现在带着" : "现在没有" }}</span></div>
-        <p v-if="x.text">{{ x.text }}</p>
+        <ul v-if="x.key === 'self' && selfMoments.length" class="moms">
+          <li v-for="m in selfMoments" :key="m.id"><span>{{ m.text }}</span><small>{{ ago(m.ts) }}</small><button aria-label="删掉" @click="removeMoment(m)"><Icon name="close" :size="14" /></button></li>
+        </ul>
+        <p v-else-if="x.text" class="pre">{{ x.text }}</p>
         <small class="rule">{{ x.rule }}</small>
       </article>
 
@@ -438,6 +445,11 @@ function remove() {
 .mem-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .mem-acts .btn { display: inline-flex; align-items: center; gap: 4px; }
 .tmp .on { color: #c9304c; font-weight: 600; }
+.moms { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.moms li { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--text-2); background: rgba(0, 0, 0, .03); border-radius: 12px; padding: 6px 6px 6px 12px; }
+.moms li span { flex: 1; min-width: 0; }
+.moms li small { color: var(--text-3); font-size: .7rem; white-space: nowrap; }
+.moms li button { border: 0; background: none; color: var(--text-3); padding: 4px; display: grid; place-items: center; }
 .tmp .rule { display: block; margin-top: 6px; font-size: .7rem; line-height: 1.6; color: var(--text-3); }
 .tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }
 .views button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; color: var(--text-2); font-size: 0.9rem; }
