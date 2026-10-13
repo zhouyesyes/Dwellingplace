@@ -112,6 +112,9 @@ export async function healthOf(role, me) {
   if (squashed.length) tips.push(`${squashed.map(r => r.name).join("、")}的摘要已经被重新压了 ${SQUASH_WARN} 次以上，可以翻翻历史版本，看有没有细节丢了`);
   const near = rooms.filter(r => r.pct >= 90);
   if (near.length) tips.push(`${near.map(r => `${r.kind}${r.name}`).join("、")}快到整理的时候了`);
+  const { openItems } = await import("./review.js");
+  const waiting = openItems(role.id).length;
+  if (waiting) tips.push(`${role.name}的整理建议还有 ${waiting} 条等你看`);
   if (stale.length) tips.push(`有 ${stale.length} 张卡片一个多月没被想起、也没被翻到，可以考虑归档或者设成常驻`);
 
   return { count, pairs: pairs.slice(0, 12), stale, rooms, tokens, total, recalls, searches, tips, auto: AUTO, imprEvery: imprEvery() };

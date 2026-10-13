@@ -15,6 +15,8 @@ import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SumVersions from "../components/memory/SumVersions.vue";
 import TryRecall from "../components/memory/TryRecall.vue";
 import MemoryHealth from "../components/memory/MemoryHealth.vue";
+import ReviewSheet from "../components/memory/ReviewSheet.vue";
+import { openItems } from "../lib/review.js";
 import { snapshotSum } from "../lib/budget.js";
 import MemorySettings from "../components/memory/MemorySettings.vue";
 import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
@@ -154,6 +156,8 @@ function editPal(x) {
 const preview = ref(null);
 const tryOpen = ref(false);
 const healthOpen = ref(false);
+const reviewOpen = ref(false);
+const reviewWaiting = computed(() => (role.value ? openItems(role.value.id).length : 0));
 async function showChat() { preview.value = { title: "聊天时发给他的", parts: await chatPreview(role.value) }; }
 
 const imgUrls = reactive({});
@@ -242,6 +246,7 @@ function remove() {
     <MemoryGuide :open="guideOpen" :him="role?.name || '他'" @close="guideOpen = false" />
     <PromptPreview :open="!!preview" :title="preview?.title" :parts="preview?.parts" @close="preview = null" />
     <TryRecall v-if="role" :open="tryOpen" :role="role" @close="tryOpen = false" />
+    <ReviewSheet v-if="role" :open="reviewOpen" :role="role" @close="reviewOpen = false" @view="m => { reviewOpen = false; viewing = m; }" />
     <MemoryHealth v-if="role" :open="healthOpen" :role="role" @close="healthOpen = false" @view="m => { healthOpen = false; viewing = m; }" />
 
     <SceneMemory v-if="role && view === 'scene'" :role="role" />
@@ -250,6 +255,7 @@ function remove() {
     <button v-if="role" class="peek" @click="showChat">看看聊天时发给{{ role.name }}的全部 ›</button>
     <button v-if="role" class="peek" @click="tryOpen = true">试试{{ role.name }}翻记忆会翻到什么 ›</button>
     <button v-if="role" class="peek" @click="healthOpen = true">记忆体检 ›</button>
+    <button v-if="role" class="peek" :class="{ due: reviewWaiting }" @click="reviewOpen = true">{{ reviewWaiting ? `${role.name}的整理建议：${reviewWaiting} 条等你看 ›` : `${role.name}的整理建议 ›` }}</button>
 
 
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
@@ -470,6 +476,8 @@ function remove() {
 .views { display: flex; background: var(--bg-deep); border-radius: 14px; padding: 4px; gap: 4px; margin-bottom: 14px; }
 .views .guide-btn { flex: none; width: 38px; font-weight: 700; color: var(--text-2); }
 .peek { display: block; margin: -4px 0 14px auto; border: 0; background: none; color: var(--text-2); font-size: .8rem; }
+.peek + .peek { margin-top: -8px; }
+.peek.due { color: #c9304c; font-weight: 600; }
 .sec { margin: 18px 4px 10px; font-size: .92rem; font-weight: 600; }
 .sec small { margin-left: 8px; font-weight: 400; font-size: .72rem; color: var(--text-3); }
 .sum { background: var(--card); border-radius: 18px; padding: 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); cursor: pointer; }
