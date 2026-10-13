@@ -45,30 +45,33 @@ const cancel = () => { clearTimeout(press); press = 0; };
 const mems = computed(() => readingMemsOf());
 const bookOf = id => store.books.find(b => b.id === id);
 const totals = computed(() => readingTotals());
-// 每个月一张日历，读得越久颜色越深（最近 6 个月，新的在上面）
+// 一整年的热力图：十二个小月份，读得越久颜色越深（粉 → 红）；左右箭头换年份
+const year = ref(new Date().getFullYear());
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const months = computed(() => {
   const log = store.readingLog || {};
-  const now = new Date(), today = ymd(now);
+  const today = ymd(new Date());
   const out = [];
-  for (let k = 0; k < 6; k++) {
-    const first = new Date(now.getFullYear(), now.getMonth() - k, 1);
-    const n = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  for (let mo = 0; mo < 12; mo++) {
+    const first = new Date(year.value, mo, 1);
+    const n = new Date(year.value, mo + 1, 0).getDate();
     const lead = (first.getDay() + 6) % 7; // 周一在最前
     let sum = 0;
     const cells = Array.from({ length: lead }, () => null);
     for (let d = 1; d <= n; d++) {
-      const key = ymd(new Date(first.getFullYear(), first.getMonth(), d));
-      const s = log[key] || 0;
-      sum += s;
+      const key = ymd(new Date(year.value, mo, d));
+      const sec = log[key] || 0;
+      sum += sec;
       // 0：没读；1～4：读了不到 10 分钟、半小时、一小时、更久
-      const lv = !s ? 0 : s < 600 ? 1 : s < 1800 ? 2 : s < 3600 ? 3 : 4;
-      cells.push({ d, key, s, lv, today: key === today, future: key > today });
+      const lv = !sec ? 0 : sec < 600 ? 1 : sec < 1800 ? 2 : sec < 3600 ? 3 : 4;
+      cells.push({ d, key, s: sec, lv, today: key === today, future: key > today });
     }
-    out.push({ label: `${first.getFullYear()} 年 ${first.getMonth() + 1} 月`, cells, sum, days: cells.filter(c => c?.s).length });
+    out.push({ label: `${mo + 1} 月`, cells, sum });
   }
   return out;
 });
+const yearSum = computed(() => months.value.reduce((a, m) => a + m.sum, 0));
+const yearDays = computed(() => months.value.reduce((a, m) => a + m.cells.filter(c => c?.s).length, 0));
 const tapDay = c => c && !c.future && toast(`${c.key.slice(5).replace("-", " 月 ")} 日：${c.s ? fmtDur(c.s) : "没读"}`, 1800);
 const finished = computed(() => books.value.filter(b => b.mine).length);
 </script>
@@ -126,13 +129,20 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
         <div><b>{{ fmtDur(totals.month) }}</b><span>这个月</span></div>
         <div><b>{{ fmtDur(totals.year) }}</b><span>今年</span></div>
       </div>
-      <div class="months"><div v-for="m in months" :key="m.label" class="month">
-        <div class="mh"><b>{{ m.label }}</b><span>{{ m.days ? `读了 ${m.days} 天 · ${fmtDur(m.sum)}` : "这个月还没读" }}</span></div>
-        <div class="wk"><span v-for="w in ['一', '二', '三', '四', '五', '六', '日']" :key="w">{{ w }}</span></div>
-        <div class="cal">
-          <i v-for="(c, i) in m.cells" :key="i" :class="c ? ['lv' + c.lv, { today: c.today, future: c.future }] : 'blank'" @click="tapDay(c)">{{ c ? c.d : "" }}</i>
+      <div class="year">
+        <div class="yh">
+          <button aria-label="上一年" @click="year--">‹</button>
+          <b>{{ year }}</b>
+          <button aria-label="下一年" :disabled="year >= new Date().getFullYear()" @click="year++">›</button>
+          <span>{{ yearDays ? `读了 ${yearDays} 天 · ${fmtDur(yearSum)}` : "这一年还没读" }}</span>
         </div>
-      </div></div>
+        <div class="months">
+          <div v-for="m in months" :key="m.label" class="month">
+            <small>{{ m.label }}</small>
+            <div class="cal"><i v-for="(c, i) in m.cells" :key="i" :class="c ? ['lv' + c.lv, { today: c.today, future: c.future }] : 'blank'" @click="tapDay(c)" /></div>
+          </div>
+        </div>
+      </div>
       <div class="legend"><span>少</span><i class="lv0" /><i class="lv1" /><i class="lv2" /><i class="lv3" /><i class="lv4" /><span>多</span></div>
       <div class="totals small">
         <div><b>{{ books.length }}</b><span>本书</span></div>
@@ -178,24 +188,28 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .totals b { font-size: 1.05rem; font-weight: 600; }
 .totals span { font-size: .72rem; color: var(--text-3); }
 .totals.small b { font-size: 1.3rem; font-weight: 300; }
-.month { background: var(--card); border-radius: 18px; padding: 14px 14px 12px; margin: 12px 0; box-shadow: var(--shadow-soft); }
-@media (min-width: 640px) { .months { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; } }
-.mh { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-.mh b { font-weight: 600; font-size: .92rem; }
-.mh span { font-size: .72rem; color: var(--text-3); }
-.wk, .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.wk span { text-align: center; font-size: .62rem; color: var(--text-3); }
-.cal i { height: 30px; border-radius: 6px; display: grid; place-items: center; font-style: normal; font-size: .62rem; color: var(--text-3); cursor: pointer; }
+.year { background: var(--card); border-radius: 18px; padding: 12px 14px 14px; margin: 12px 0 8px; box-shadow: var(--shadow-soft); }
+.yh { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.yh b { font-weight: 600; font-size: .95rem; }
+.yh button { border: 0; background: none; font-size: 1.1rem; color: var(--text-2); width: 26px; height: 26px; padding: 0; }
+.yh button:disabled { opacity: .25; }
+.yh span { margin-left: auto; font-size: .7rem; color: var(--text-3); }
+.months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px 14px; }
+@media (min-width: 640px) { .months { grid-template-columns: repeat(4, 1fr); } }
+.month small { display: block; font-size: .64rem; color: var(--text-3); margin-bottom: 4px; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal i { aspect-ratio: 1; border-radius: 2px; cursor: pointer; }
 .cal i.blank { visibility: hidden; }
 .cal i.future { opacity: .35; }
-.cal i.today { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.cal i.today { box-shadow: 0 0 0 1.2px #e9657e; }
+/* 粉 → 红 */
 .lv0 { background: var(--bg-deep); }
-.lv1 { background: #f3e2bf; color: #8a6a3a !important; }
-.lv2 { background: #e8c67f; color: #6e4f20 !important; }
-.lv3 { background: #d5a148; color: #fff !important; }
-.lv4 { background: #b07a28; color: #fff !important; }
-.legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: .66rem; color: var(--text-3); margin: 0 4px 12px; }
-.legend i { width: 12px; height: 12px; border-radius: 3px; }
+.lv1 { background: #fbd3dc; }
+.lv2 { background: #f5a3b4; }
+.lv3 { background: #e9657e; }
+.lv4 { background: #c9304c; }
+.legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; font-size: .64rem; color: var(--text-3); margin: 0 4px 12px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; }
 .chart { display: flex; align-items: flex-end; gap: 4px; height: 130px; margin: 16px 0; padding: 14px 12px 8px; background: var(--card); border-radius: 18px; box-shadow: var(--shadow-soft); }
 .bar { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
 .bar i { width: 100%; max-width: 14px; background: var(--ink); opacity: .75; border-radius: 4px; }

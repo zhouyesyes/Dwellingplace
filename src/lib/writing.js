@@ -34,19 +34,15 @@ const ordOf = c => (c.order ?? c.ts);
 export const cardsOf = pid => (store.writeCards || []).filter(c => c.projectId === pid).sort((a, b) => ordOf(a) - ordOf(b));
 // 资料夹的顺序（p.folders）：自己排过就按排的，新加的类型接在后面
 export const folderOrder = p => [...new Set([...(p?.folders || []).filter(k => CARD_TYPES[k]), ...Object.keys(CARD_TYPES)])];
-export function moveFolder(p, key, d) {
-  const list = folderOrder(p);
-  const i = list.indexOf(key), j = i + d;
-  if (i < 0 || j < 0 || j >= list.length) return;
-  [list[i], list[j]] = [list[j], list[i]];
+// 长按拖着排顺序：把它挪到第 to 个
+export function placeFolder(p, key, to) {
+  const list = folderOrder(p).filter(k => k !== key);
+  list.splice(Math.max(0, Math.min(to, list.length)), 0, key);
   p.folders = list;
 }
-// 同一个资料夹里往前 / 往后挪一张
-export function moveCard(c, d) {
-  const list = cardsOf(c.projectId).filter(x => x.type === c.type);
-  const i = list.indexOf(c), j = i + d;
-  if (i < 0 || j < 0 || j >= list.length) return;
-  [list[i], list[j]] = [list[j], list[i]];
+export function placeCard(c, to) {
+  const list = cardsOf(c.projectId).filter(x => x.type === c.type && x !== c);
+  list.splice(Math.max(0, Math.min(to, list.length)), 0, c);
   list.forEach((x, k) => (x.order = k));
 }
 export const notesOfCard = cid => (store.writeNotes || []).filter(n => n.cardId === cid);
