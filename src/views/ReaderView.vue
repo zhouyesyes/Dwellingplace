@@ -17,6 +17,8 @@ import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
+import PetDock from "../components/pet/PetDock.vue";
+import { petOn, petOnce, petActive } from "../lib/pet.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -292,6 +294,7 @@ async function ask() {
 
 // 一起读：从他上次一起读到的地方，到你现在这一页的最后一段；超过 10 页先问你
 const along = ref(false);
+const petErr = ref(false); // 桌宠：没读成时着急几秒
 const posBefore = (x, y) => x.ch < y.ch || (x.ch === y.ch && x.p < y.p);
 async function readThisPage() {
   const r = role.value, el = scroller.value;
@@ -324,8 +327,11 @@ async function readThisPage() {
       addNote(b.value, { ch: n.ch, p: n.p, start: st, end: Math.min(en, para.length), quote: para.slice(st, en), text: n.text, from: "ai" }).seen = n.ch !== ch.value;
     }
     toast(res.memNotes[0] || `${r.name} 读了 ${Math.min(pages, 10)} 页，划了 ${res.notes.length} 处`, 2800);
+    petOnce("success");
   } catch (e) {
     toast(`没读成：${describeError(e)}`, 4000);
+    petErr.value = true;
+    setTimeout(() => (petErr.value = false), 5000);
   } finally {
     along.value = false;
   }
@@ -408,6 +414,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
       点一下选中一句（长按可以自己拖着选）：划线、写想法，或者问问{{ role?.name || "他" }}。点划线看批注。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}从上次读到的地方读到这一页，挑几句划线、写批注。<b>知道了</b>
     </div>
+    <!-- 桌宠：站在「一起读」上面；平时在读书，他在想的时候托着脑袋 -->
+    <div v-if="sel == null && petOn()" class="pet-read" @pointerdown="petActive()"><PetDock :work="petErr ? 'error' : asking ? 'think' : null" base="read" :roam="false" /></div>
     <button v-if="sel == null" class="along" :class="{ busy: along || asking }" :disabled="along || asking" @click="readThisPage">
       <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : asking ? `${role?.name || "他"}在想…` : "一起读" }}
     </button>
@@ -518,6 +526,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .mk.temp { background: rgba(217, 164, 65, .22); }
 .mk[data-n]::after { content: attr(data-n); display: inline; margin-left: 2px; padding: 0 4px; line-height: 1; border-radius: 7px; font-size: 9px; text-align: center; text-indent: 0; vertical-align: super; background: rgba(214, 160, 60, .85); color: #fff; font-weight: 600; font-family: var(--font); }
 .mk.his[data-n]::after { background: rgba(92, 142, 205, .9); }
+.pet-read { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px + 42px); width: 180px; height: 0; z-index: 3; pointer-events: none; }
 .along { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: #fff; font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
 .along.busy { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .55; } }

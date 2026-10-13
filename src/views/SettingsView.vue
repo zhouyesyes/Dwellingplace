@@ -60,7 +60,7 @@ function usageLine(api) {
     </div>
 
     <div class="section-label">聊天</div>
-    <p class="hint moved">他每次看得到多少条消息，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调。</p>
+    <p class="hint moved">他每次带多少聊天原文，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调；记忆库右上角 ⚙ 里也能调。</p>
 
     <div class="section-label">更多</div>
     <div class="list-card">
@@ -69,6 +69,13 @@ function usageLine(api) {
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
         <div class="seg">
           <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
+        </div>
+      </div>
+      <div class="list-row">
+        <Icon name="heart" :size="20" /><span class="grow">桌宠小章鱼<span class="sub">站在输入框上面，他回复时敲键盘；共读时站在「一起读」上面</span></span>
+        <div class="seg">
+          <button :class="{ on: store.settings.pet !== false }" @click="store.settings.pet = true">开</button>
+          <button :class="{ on: store.settings.pet === false }" @click="store.settings.pet = false">关</button>
         </div>
       </div>
       <button class="list-row" @click="router.push('/settings/sync')"><Icon name="refresh" :size="20" /><span class="grow">同步<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "已开启：几台设备共用一份") : "手机、iPad、电脑共用一份栖所" }}</span></span><Icon name="right" class="chev" :size="18" /></button>

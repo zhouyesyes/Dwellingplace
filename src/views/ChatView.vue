@@ -1,9 +1,11 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
+import { store, MAIN, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
 import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
+import PetDock from "../components/pet/PetDock.vue";
+import { petOn } from "../lib/pet.js";
 import SumVersions from "../components/memory/SumVersions.vue";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
@@ -59,6 +61,17 @@ function switchVersion(m, step) {
   if (next && !busy.value) selectVersion(thread.value, next);
 }
 const busy = computed(() => !!generating[threadId.value]);
+// 桌宠现在在干什么：还没开口在想；在用工具；回复短的两条敲、长的四条敲；最后一条出错了就着急
+const petWork = computed(() => {
+  const last = messages.value[messages.value.length - 1];
+  if (busy.value) {
+    const m = last?.from === "ai" && last.pending ? last : null;
+    if (m?.notes?.some(n => n.before && /…$/.test(n.text || ""))) return "tool";
+    if (!m || !m.text) return "think";
+    return m.text.length > 500 ? "type4" : "type2";
+  }
+  return last?.from === "ai" && last.error ? "error" : null;
+});
 const bgUrl = useImage(() => thread.value?.bg);
 
 async function openThread(id) {
@@ -638,6 +651,8 @@ async function changeAvatarOf(who) {
     </main>
 
     <footer ref="dock" class="composer">
+      <!-- 桌宠：他（主角色）的小章鱼，站在输入框上面 -->
+      <PetDock v-if="petOn() && role.id === MAIN && !thread?.mail" :work="petWork" />
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
           <ImgThumb v-if="a.kind === 'image'" :id="a.img" class="mini" />

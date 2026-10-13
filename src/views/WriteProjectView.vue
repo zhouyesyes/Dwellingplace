@@ -20,6 +20,8 @@ import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import SumVersions from "../components/memory/SumVersions.vue";
+import PetDock from "../components/pet/PetDock.vue";
+import { petOn, petHears, petOnce } from "../lib/pet.js";
 import { setProgress, PROGRESS_MAX } from "../lib/board.js";
 import { snapshotSum, sumTokens, fmtTok } from "../lib/budget.js";
 
@@ -159,6 +161,7 @@ async function send() {
   if (!t.trim() && !atts.length && msgs.value.at(-1)?.from !== "me") return;
   draft.value = "";
   draftAtts.value = [];
+  petHears(t);
   await run(() => talk(role.value, p.value, t, atts));
 }
 
@@ -195,11 +198,20 @@ async function removeMsg() {
   if (!confirm("删除这一句？")) return;
   await dropTalkMsg(p.value.id, m.id);
 }
+// 桌宠：他在回的时候敲键盘；放了卡片、贴了便签就开心一下；出错了着急几秒
+const petErr = ref(false);
 async function run(fn) {
   if (sending.value || !role.value) return;
   sending.value = true;
   down();
-  try { await fn(); } catch (e) { toast(describeError(e), 4000); } finally { sending.value = false; down(); }
+  try {
+    const r = await fn();
+    if (r?.notes?.length) petOnce("success");
+  } catch (e) {
+    toast(describeError(e), 4000);
+    petErr.value = true;
+    setTimeout(() => (petErr.value = false), 5000);
+  } finally { sending.value = false; down(); }
 }
 // 搜索 / 收藏（右边半边）
 const finder = ref(false);
@@ -292,6 +304,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <div ref="dock" class="dock">
       <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
       <div class="composer">
+        <PetDock v-if="petOn()" :work="petErr ? 'error' : sending ? 'type2' : null" base="write" :roam="false" />
         <button class="plus" aria-label="发图片或文件" @click="attachToTalk"><Icon name="plus" :size="20" /></button>
         <textarea v-model="draft" v-auto-grow="growMax" rows="1" :placeholder="`想和${him}说的…`" />
         <button class="send" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
@@ -449,7 +462,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .dock { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 3; display: flex; flex-direction: column; align-items: center; padding: 0 18px; pointer-events: none; }
 .dock > * { pointer-events: auto; width: 100%; max-width: 724px; box-sizing: border-box; }
 .draft-atts { margin-bottom: 8px; }
-.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: rgba(255, 255, 255, .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 24px; box-shadow: 0 6px 24px rgba(40, 40, 60, .1); }
+.composer { position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: rgba(255, 255, 255, .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 24px; box-shadow: 0 6px 24px rgba(40, 40, 60, .1); }
 .composer textarea { flex: 1; min-width: 0; border: 0; outline: none; background: none; resize: none; font-size: calc(.95rem * var(--wf)); line-height: 1.55; padding: 7px 8px; overflow-y: hidden; }
 .send { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; flex: none; }
 .plus { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
