@@ -13,6 +13,7 @@ import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
 import { BOARD_RE, applyBoardTags } from "./board.js";
+import { petHears, petAfterReply } from "./pet.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
@@ -622,6 +623,7 @@ export async function generate(thread, parentId) {
     saveMessages(thread.id);
   }
   if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
+  if (!thread.mail) petAfterReply(msg); // 桌宠：写了信、用工具做成了，播一下
   // 隔两周：他把记忆卡片从头整理一遍，建议等她看（后台做）
   if (!msg.error && msg.text && !thread.mail) import("./review.js").then(m => m.maybeReview(role, msg)).then(() => saveMessages(thread.id)).catch(() => {});
 }
@@ -826,6 +828,7 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   const parent = path.length ? path[path.length - 1].id : ROOT;
   const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}) };
   all.push(m);
+  if (!thread.mail) petHears(text); // 桌宠：夸他、撒娇，他会开心或害羞一下
   thread.sel[parent] = m.id;
   if (role && !thread.mail) role.lastThreadId = thread.id;
   touchThread(thread, all);
