@@ -232,6 +232,7 @@ function migrate() {
   store.writings ??= []; // 共写：书桌上的书
   store.writeCards ??= []; // 共写的卡片
   store.writeNotes ??= []; // 卡片上的便利贴
+  store.memSuggest ??= []; // 整理时挑出来的候选记忆（待你确认）
   store.readerFonts ??= []; // 读书时用的导入字体
   store.readerPrefs ??= { bg: "paper", size: 18, font: "" }; // 读书背景、字号、字体
   store.settings.shelfTone ??= "light"; // 主页书架的颜色：light / grey / dark

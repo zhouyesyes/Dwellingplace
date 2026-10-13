@@ -7,7 +7,7 @@
 import { store, uid } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
-import { globalMemoryForScene } from "./memoryTags.js";
+import { globalMemoryForScene, takeSuggestions } from "./memoryTags.js";
 
 export const NOTE_RE = /\[便利贴[:：]([^\]]{2,1200})\]/g;
 export const READ_MEM_RE = /\[读书笔记[:：]([^\]]{2,1200})\]/g;
@@ -59,8 +59,9 @@ export async function updateGist(role, b, upTo) {
       `接下来读到的原文：\n${seg}`,
       notes.length ? `你们最近在书页边上贴的便利贴：\n${notes.join("\n")}` : "",
       `把${b.gist?.text ? "以前的印象和这一段" : "这一段"}合起来，写一段新的「读到这里的印象」，给以后接着读的自己看：故事讲到哪了、主要人物和他们的关系、发生过的重要的事、埋下的伏笔，最后一两句你自己读着的感受。用你自己的口吻，不超过 600 字，只写内容。`,
+      `另外：如果你们在书页边上的批注里，有关于${me}、或者你自己想长久记住的事（不是书里的情节），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
     ].filter(Boolean).join("\n\n");
-    const text = (await oneShot(role, prompt, { helper: true })).trim();
+    const text = takeSuggestions(role, await oneShot(role, prompt, { helper: true, raw: true }), `共读《${b.title}》`).trim();
     if (text) b.gist = { text: text.slice(0, 1500), upTo, at: Date.now() };
   } finally {
     delete gisting[b.id];

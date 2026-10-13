@@ -242,12 +242,15 @@ export async function compressTalk(role, p, { keep = Math.floor(talkLimit() / 2)
   try {
     const me = meName(role);
     const prev = p.talkSum?.text;
-    const text = (await oneShot(role, [
+    let text = (await oneShot(role, [
       `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
       prev ? `你以前整理过的讨论摘要：\n${prev}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
       `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份讨论摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。按先后，简洁，不超过 800 字。只写摘要本身。`,
-    ].filter(Boolean).join("\n"), { helper: true })).trim();
+      `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的设定），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
+    ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
+    const { takeSuggestions } = await import("./memoryTags.js");
+    text = takeSuggestions(role, text, `共写《${p.title}》`);
     if (!text) return 0;
     p.talkSum = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (p.talkSum?.count || 0) + old.length, at: Date.now(), why, last: old.length };
     return old.length;

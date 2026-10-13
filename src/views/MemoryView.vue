@@ -11,6 +11,8 @@ import SceneMemory from "../components/memory/SceneMemory.vue";
 import PromptPreview from "../components/memory/PromptPreview.vue";
 import MemoryGuide from "../components/memory/MemoryGuide.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
+import MemorySettings from "../components/memory/MemorySettings.vue";
+import { suggestionsOf, acceptSuggestion, dropSuggestion, lettersLog, cardLimit } from "../lib/memoryTags.js";
 import { ref, reactive, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
@@ -43,9 +45,15 @@ const xinchao = computed(() => hasXinchao(role.value));
 
 const view = ref("global"); // global：全局记忆；scene：场景记忆
 const guideOpen = ref(false);
+const setOpen = ref(false);
+const suggests = computed(() => (tab.value ? suggestionsOf(tab.value) : []));
+const letterLines = computed(() => (role.value ? lettersLog(role.value, meName(role.value)) : ""));
+// 卡片：钉住的在最前；超过张数上限的标一下「他现在看不到」
+const shownIds = computed(() => { const all = tab.value ? memoriesOf(tab.value).filter(m => memKind(m) === "card") : []; return new Set([...all.filter(m => m.pinned), ...all.filter(m => !m.pinned).slice(0, cardLimit())].map(m => m.id)); });
+const togglePin = m => { m.pinned = !m.pinned; };
 const query = ref("");
 const hit = m => { const q = query.value.trim().toLowerCase(); return !q || (m.title + m.content + m.date).toLowerCase().includes(q); };
-const cards = computed(() => (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) === "card" && hit(m)));
+const cards = computed(() => { const list = (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) === "card" && hit(m)); return [...list.filter(m => m.pinned), ...list.filter(m => !m.pinned)]; });
 // 从共读、共写整理过来的（也在全局记忆里，排在记忆卡片后面）
 const derived = computed(() => (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) !== "card" && hit(m)));
 // 每个对话的摘要记忆
@@ -155,8 +163,10 @@ function remove() {
     <div v-if="role" class="views">
       <button :class="{ on: view === 'global' }" @click="view = 'global'">全局记忆</button>
       <button :class="{ on: view === 'scene' }" @click="view = 'scene'">场景记忆</button>
+      <button class="guide-btn" aria-label="记忆设置" @click="setOpen = true">⚙</button>
       <button class="guide-btn" aria-label="说明书" @click="guideOpen = true">?</button>
     </div>
+    <MemorySettings :open="setOpen" :him="role?.name || '他'" @close="setOpen = false" />
     <MemoryGuide :open="guideOpen" :him="role?.name || '他'" @close="guideOpen = false" />
     <PromptPreview :open="!!preview" :title="preview?.title" :parts="preview?.parts" @close="preview = null" />
 
@@ -165,18 +175,29 @@ function remove() {
     <template v-if="view === 'global'">
     <button v-if="role" class="peek" @click="showChat">看看聊天时发给{{ role.name }}的全部 ›</button>
 
+    <template v-if="suggests.length">
+      <p class="sec">待确认的记忆<small>整理的时候挑出来的，收下才变成记忆卡片</small></p>
+      <article v-for="x in suggests" :key="x.id" class="sum sug">
+        <div class="meta"><span>从{{ x.src }}里挑的</span><span>{{ new Date(x.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) }}</span></div>
+        <h3>{{ x.title }}</h3>
+        <p>{{ x.content }}</p>
+        <div class="sug-acts"><button class="btn soft small" @click="dropSuggestion(x)">不要</button><button class="btn small" @click="acceptSuggestion(x)">收下</button></div>
+      </article>
+    </template>
+
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
 
+
     <template v-else>
-    <p class="sec">记忆卡片</p>
+    <p class="sec">记忆卡片<small>钉住的永远带着，其余带最新的 {{ cardLimit() }} 张</small></p>
     <div class="search">
       <Icon name="search" :size="17" />
       <input v-model="query" placeholder="搜索标题、内容、日期" />
     </div>
 
     <div class="cards">
-      <article v-for="m in cards" :key="m.id" class="mcard" :style="{ background: tint(role.color) }" @click="viewing = m">
-        <div class="meta"><span>{{ md(m.date) }}</span><span>{{ role.name }}</span></div>
+      <article v-for="m in cards" :key="m.id" class="mcard" :class="{ off: !shownIds.has(m.id) }" :style="{ background: tint(role.color) }" @click="viewing = m">
+        <div class="meta"><span>{{ md(m.date) }}{{ m.pinned ? " · 📌 钉住" : "" }}{{ !shownIds.has(m.id) ? " · 他现在看不到（超过张数）" : "" }}</span><span>{{ role.name }}</span></div>
         <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
         <h3>{{ m.title }}</h3>
         <p>{{ m.content }}</p>
@@ -212,6 +233,11 @@ function remove() {
         <small class="rule">{{ x.rule }}</small>
       </article>
 
+      <template v-if="letterLines">
+        <p class="sec">来往的信<small>他记得的：标题和开头一句（最近 10 封）</small></p>
+        <article class="sum tmp"><p class="pre">{{ letterLines }}</p></article>
+      </template>
+
       <template v-if="derived.length">
         <p class="sec">从共读、共写整理来的<small>在全局记忆里排在卡片后面</small></p>
         <article v-for="m in derived" :key="m.id" class="sum" @click="viewing = m">
@@ -242,7 +268,10 @@ function remove() {
         <div class="view-meta">{{ viewing.date }} · {{ viewing.author === "me" ? "我写的" : `${roleById(viewing.roleId)?.name} 写的` }}</div>
         <h2 class="view-title">{{ viewing.title }}</h2>
         <p class="view-body">{{ viewing.content }}</p>
-        <div class="edit-actions"><button class="btn soft" @click="editCard(viewing)"><Icon name="edit" :size="16" /> 编辑</button></div>
+        <div class="edit-actions">
+          <button v-if="memKind(viewing) === 'card'" class="btn soft" @click="togglePin(viewing)">{{ viewing.pinned ? "取消钉住" : "📌 钉住" }}</button>
+          <button class="btn soft" @click="editCard(viewing)"><Icon name="edit" :size="16" /> 编辑</button>
+        </div>
       </template>
     </Sheet>
 
@@ -328,6 +357,10 @@ function remove() {
 .sum p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .empty-hint.small { font-size: .8rem; }
 .tmp { cursor: default; }
+.tmp .pre { -webkit-line-clamp: unset; display: block; }
+.sug { border: 1.5px dashed var(--line); box-shadow: none; cursor: default; }
+.sug-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.mcard.off { opacity: .55; }
 .tmp .on { color: #c9304c; font-weight: 600; }
 .tmp .rule { display: block; margin-top: 6px; font-size: .7rem; line-height: 1.6; color: var(--text-3); }
 .tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }
