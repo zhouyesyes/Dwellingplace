@@ -2,15 +2,17 @@
 // 记忆设置：几个和记忆有关的数字、整理用的模型，放在一起（别的地方也还能改，改的是同一个）
 import { computed } from "vue";
 import { store } from "../../store/index.js";
+import { fmtTok } from "../../lib/budget.js";
 import Sheet from "../Sheet.vue";
 
 defineProps({ open: Boolean, him: String });
 defineEmits(["close"]);
 const ROWS = [
-  { key: "historyLimit", def: 80, opts: [40, 80, 120, 200, 300], unit: "条", title: "聊天：每次看得到最近多少条", note: "摘要后面没整理的聊天快到这个数，就整理一次，留最近一半。也在聊天输入框上方的用量里。" },
+  { key: "historyTokens", def: 50000, opts: [20000, 30000, 50000, 80000, 120000], unit: "token", fmt: fmtTok, title: "聊天：每次带多少聊天原文", note: "摘要后面的聊天原样带给他，到这个数的八成就整理一次，留最近一半。也在聊天输入框上方的用量里。" },
+  { key: "sceneChatTokens", def: 6000, opts: [3000, 6000, 10000], unit: "token", fmt: fmtTok, title: "共读、共写里带多少主聊天", note: "进到共读、共写，也带上主聊天最近的这么多，他在哪都接得上平时聊的。" },
   { key: "recallCount", def: 5, opts: [0, 3, 5, 8], unit: "张", title: "普通记忆：每次自动想起最多几张", note: "按你最新说的话，找最相关的几张附上；对不上就一张也不放。常驻的不算在里面（最多 20 张，一直带着）。" },
   { key: "readGistChars", def: 5000, opts: [3000, 5000, 8000, 15000], unit: "字", fmt: n => `${n / 1000} 千`, title: "共读：原文攒到多少字整理一次前情", note: "上次整理之后读过的原文他都看得见。也在读书页 Aa 里。" },
-  { key: "writeLimit", def: 60, opts: [30, 60, 100, 200], unit: "句", title: "共写：每次看得到最近多少句讨论", note: "到九成就整理成讨论摘要（只在那本书里）。也在共写「⋯」里。" },
+  { key: "writeTokens", def: 30000, opts: [10000, 20000, 30000, 50000], unit: "token", fmt: fmtTok, title: "共写：每次带多少讨论原文", note: "到八成就整理成讨论摘要（只在那本书里），留最近一半。也在共写「⋯」里。" },
 ];
 const val = r => Number(store.settings[r.key] ?? r.def);
 const groups = computed(() => store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })).filter(g => g.models.length));

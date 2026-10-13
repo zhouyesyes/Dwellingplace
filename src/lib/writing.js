@@ -6,6 +6,7 @@
 //                    atts：卡片上的图片、文件 [{ kind: "image", img } | { kind: "pdf" | "text", name, … }]（和聊天里的附件一样）
 //   store.writeNotes [{ id, projectId, cardId, from, text, ts, seen }]     便利贴：贴在卡片上
 //   wtalk:<项目 id>  和他讨论的记录 [{ id, from, text, atts, ts }]（单独存，会同步）
+import { tail, keepCount, sumTokens, writeTokens, AUTO, snapshotSum } from "./budget.js";
 import { reactive } from "vue";
 import { store, uid } from "../store/index.js";
 import { get, set, del } from "./kv.js";
@@ -198,7 +199,7 @@ export function writingSceneParts(p, list, me) {
   const memo = store.memories.find(m => m.id === p.memId);
   if (memo) out.push({ key: "memo", label: "你记着的这本书", text: `你之前记下的这本书：${memo.content}` });
   if (p.talkSum?.text) out.push({ key: "talkSum", label: "讨论摘要（只在这本书里）", text: `你们之前讨论的摘要（你自己整理的）：\n${p.talkSum.text}` });
-  const rest = talkAfterSum(p, list).slice(-talkLimit());
+  const rest = tail(talkAfterSum(p, list), talkLimit());
   const recent = rest.map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
   out.push({ key: "talk", label: `摘要之后的讨论（${rest.length} 句）`, text: `你们${p.talkSum?.text ? "接着" : "刚才"}在聊：\n${recent || "（刚坐下）"}` });
   const others = projects().filter(x => x.id !== p.id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 3);
@@ -223,19 +224,21 @@ export async function writingPrompt(role, p, atts = []) {
 }
 
 // ---------- 讨论摘要（只在这本书里，不进记忆库）----------
-// 和聊天一样：他每次看得到最近 talkLimit() 句讨论（书页「⋯」里调）；摘要后面没整理的快到上限，就把前面的和旧摘要合成新的一份，最近一半留着
-export const talkLimit = () => Math.max(4, Number(store.settings.writeLimit) || 60);
-export const talkAutoAt = () => talkLimit() - Math.min(10, Math.floor(talkLimit() / 5));
+// 和聊天一样按 token 算：摘要后面的讨论原文每次最多带 talkLimit()（默认 3 万，书页「⋯」里调）；到八成就把前面的和旧摘要合成新的一份，最近一半留着。
+// 旧的那份留一个版本（p.talkSumVers），能退回
+export const talkLimit = writeTokens;
+export const talkAutoAt = () => Math.round(writeTokens() * AUTO);
 export function talkAfterSum(p, list) {
   const i = p.talkSum?.upTo ? list.findIndex(m => m.id === p.talkSum.upTo) : -1;
   return i >= 0 ? list.slice(i + 1) : list;
 }
 const talkSumming = {};
-export async function compressTalk(role, p, { keep = Math.floor(talkLimit() / 2), why = "manual" } = {}) {
+export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
   if (talkSumming[p.id]) throw new Error("正在整理，等一下");
   const { oneShot, meName } = await import("./chat.js");
   const list = await loadTalk(p.id);
   const rest = talkAfterSum(p, list);
+  keep ??= keepCount(rest, writeTokens());
   const old = rest.slice(0, Math.max(0, rest.length - keep));
   if (old.length < 2) return 0;
   talkSumming[p.id] = true;
@@ -252,7 +255,10 @@ export async function compressTalk(role, p, { keep = Math.floor(talkLimit() / 2)
     const { takeSuggestions } = await import("./memoryTags.js");
     text = takeSuggestions(role, text, `共写《${p.title}》`);
     if (!text) return 0;
-    p.talkSum = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (p.talkSum?.count || 0) + old.length, at: Date.now(), why, last: old.length };
+    const { helperApi } = await import("./chat.js");
+    snapshotSum(p, "talkSum");
+    p.talkSum = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (p.talkSum?.count || 0) + old.length, at: Date.now(), why, last: old.length,
+      lastSpan: [old[0].ts, old[old.length - 1].ts], model: helperApi(role).model, tokens: sumTokens(old) };
     return old.length;
   } finally {
     delete talkSumming[p.id];
@@ -272,7 +278,7 @@ export async function talk(role, p, text, atts = []) {
   if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });
   await saveTalk(p.id);
   touch(p.id);
-  if (talkAfterSum(p, list).length >= talkAutoAt()) compressTalk(role, p, { why: "limit" }).catch(e => console.warn("讨论摘要没整理成", e));
+  if (sumTokens(talkAfterSum(p, list)) >= talkAutoAt()) compressTalk(role, p, { why: "limit" }).catch(e => console.warn("讨论摘要没整理成", e));
   return { reply, notes };
 }
 

@@ -2,6 +2,7 @@
 //   [记忆:标题|内容]
 //   [改记忆:#ab12|新的内容]   或   [改记忆:#ab12|新标题|新的内容]
 import { momentParts } from "./moment.js";
+import { tail, sceneChatTokens } from "./budget.js";
 import { store, uid, loadMessages } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 import { lettersOf } from "./letters.js";
@@ -137,7 +138,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
 }
 
 // 共读、共写这些场景里：场景自己的记忆放前面，这份全局记忆放在后面——
-// 记忆卡片、最近聊天的摘要、主聊天里最近的消息（「每次能看到多少条」的一半），这样他在哪都还是同一个他
+// 记忆卡片、最近聊天的摘要、主聊天里最近的消息（最近约 6 千 token，记忆设置里调），这样他在哪都还是同一个他
 export async function globalMemoryForScene(role, meName, { skip, query = "" } = {}) {
   const all = memoriesOf(role.id).filter(isLive);
   const pinned = all.filter(m => memKind(m) === "card" && accessOf(m) === "pinned");
@@ -148,9 +149,8 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
   let recent = "";
   if (thread) {
     const { pathOf, afterSummary, visibleText, splitBubbles } = await import("./chat.js");
-    const n = Math.floor(Math.max(2, Number(store.settings.historyLimit) || 80) / 2);
     const path = afterSummary(thread, pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error));
-    recent = path.slice(-n).map(m => {
+    recent = tail(path, sceneChatTokens()).map(m => {
       const t = m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
       return t ? `${m.from === "user" ? meName : "你"}：${t.length > 300 ? t.slice(0, 300) + "…" : t}` : "";
     }).filter(Boolean).join("\n");
