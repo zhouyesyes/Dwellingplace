@@ -14,6 +14,7 @@ import MemoryGuide from "../components/memory/MemoryGuide.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SumVersions from "../components/memory/SumVersions.vue";
 import TryRecall from "../components/memory/TryRecall.vue";
+import MemoryHealth from "../components/memory/MemoryHealth.vue";
 import { snapshotSum } from "../lib/budget.js";
 import MemorySettings from "../components/memory/MemorySettings.vue";
 import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
@@ -152,6 +153,7 @@ function editPal(x) {
 }
 const preview = ref(null);
 const tryOpen = ref(false);
+const healthOpen = ref(false);
 async function showChat() { preview.value = { title: "聊天时发给他的", parts: await chatPreview(role.value) }; }
 
 const imgUrls = reactive({});
@@ -240,12 +242,14 @@ function remove() {
     <MemoryGuide :open="guideOpen" :him="role?.name || '他'" @close="guideOpen = false" />
     <PromptPreview :open="!!preview" :title="preview?.title" :parts="preview?.parts" @close="preview = null" />
     <TryRecall v-if="role" :open="tryOpen" :role="role" @close="tryOpen = false" />
+    <MemoryHealth v-if="role" :open="healthOpen" :role="role" @close="healthOpen = false" @view="m => { healthOpen = false; viewing = m; }" />
 
     <SceneMemory v-if="role && view === 'scene'" :role="role" />
 
     <template v-if="view === 'global'">
     <button v-if="role" class="peek" @click="showChat">看看聊天时发给{{ role.name }}的全部 ›</button>
     <button v-if="role" class="peek" @click="tryOpen = true">试试{{ role.name }}翻记忆会翻到什么 ›</button>
+    <button v-if="role" class="peek" @click="healthOpen = true">记忆体检 ›</button>
 
 
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />

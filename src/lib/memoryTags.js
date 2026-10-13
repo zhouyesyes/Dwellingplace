@@ -74,10 +74,16 @@ export function recallCards(roleId, text, n = recallCount(), { exclude = [] } = 
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, n).map(x => x.m);
 }
+// 卡片被用上了（自动想起、他翻到）：记一下，健康检查里能看出哪些很久没用过
+export function markUsed(list) {
+  const now = Date.now();
+  for (const m of list) { m.usedAt = now; m.useCount = (m.useCount || 0) + 1; }
+}
 // 附在【此刻】里的：这次自动想起来的几张（记一笔，记忆库里能看到最近想起了什么、因为哪句话）
 export function recalledForAI(role, text) {
   const list = recallCards(role.id, text);
   if (list.length) {
+    markUsed(list);
     store.recallLog ??= [];
     store.recallLog.unshift({ roleId: role.id, ts: Date.now(), q: String(text).slice(0, 60), ids: list.map(m => m.id) });
     store.recallLog.splice(30);

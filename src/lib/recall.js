@@ -1,7 +1,7 @@
 // 翻聊天记录、记忆卡片：他用「翻记忆」，你在记忆页里搜，用的都是这里
 import { store, threadsOf, loadMessages, roleById } from "../store/index.js";
 import { activePath } from "./tree.js";
-import { memoriesOf } from "./memoryTags.js";
+import { memoriesOf, markUsed } from "./memoryTags.js";
 import { lettersOf } from "./letters.js";
 import { exactRank, bm25Rank, fuse, parseWhen, parseKinds, KINDS } from "./rank.js";
 
@@ -120,7 +120,9 @@ export async function recallForAI(role, raw, me, { skip } = {}) {
   const r = await searchAll(role, raw, me, { skip });
   const scope = [r.kinds && [...r.kinds].map(k => KINDS[k]).join("、"), r.when && `${new Date(r.when[0]).toLocaleDateString("zh-CN")} 到 ${new Date(r.when[1] - 1).toLocaleDateString("zh-CN")}`].filter(Boolean).join("，");
   store.searchLog ??= [];
-  store.searchLog.unshift({ roleId: role.id, ts: Date.now(), q: String(raw).slice(0, 60), count: r.hits.length });
+  const cards = r.hits.filter(d => d.kind === "card").map(d => d.card);
+  markUsed(cards);
+  store.searchLog.unshift({ roleId: role.id, ts: Date.now(), q: String(raw).slice(0, 60), count: r.hits.length, ids: cards.map(m => m.id) });
   store.searchLog.splice(50);
   const head = scope ? `（只在 ${scope} 里找的）\n` : "";
   return { count: r.hits.length, text: r.hits.length ? head + r.hits.map(d => hitLine(d, r.q, me, role)).join("\n") : `${head}（没有找到和「${r.q || raw}」有关的。换个说法、少一点字、或者放宽范围和时间再找找，或者就照实说记不清了。）` };
