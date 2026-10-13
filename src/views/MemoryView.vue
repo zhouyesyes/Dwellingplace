@@ -3,11 +3,14 @@
 //   全局记忆：记忆卡片、聊天摘要、从共读共写整理来的（在哪都带着）
 //   场景记忆：共读、共写里才带的（每本书他能看见什么、多少字）
 // 每一处都能「看看发给他的」，右上角旁边有说明书
-import { chatPreview, summarizeThread, describeError } from "../lib/chat.js";
+import { chatPreview, summarizeThread, describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
+import { newReadingForAI } from "../lib/reading.js";
+import { newLettersForAI } from "../lib/letters.js";
 import SceneMemory from "../components/memory/SceneMemory.vue";
 import PromptPreview from "../components/memory/PromptPreview.vue";
 import MemoryGuide from "../components/memory/MemoryGuide.vue";
+import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import { ref, reactive, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
@@ -58,11 +61,21 @@ function saveSum() {
 async function sumNow() {
   sumBusy.value = true;
   try {
-    const n = await summarizeThread(sumEdit.value.t, role.value, { keep: 6 });
+    const n = await summarizeThread(sumEdit.value.t, role.value);
     sumEdit.value.text = sumEdit.value.t.summary?.text || "";
     toast(n ? `把 ${n} 条聊天整理进去了` : "没有新的聊天要整理");
   } catch (e) { toast(`没整理成：${describeError(e)}`, 4000); } finally { sumBusy.value = false; }
 }
+// 临时带着的：附在新消息前面的【此刻】里，有的时候才有（只是看看，不会记成他看过了）
+const moment = computed(() => {
+  if (!role.value) return [];
+  void store.bookNotes?.length; void store.letters?.length; // 这些变了重新算
+  const me = meName(role.value);
+  return [
+    { key: "read", label: "共读：在读的书", text: newReadingForAI(role.value, me, { peek: true }).replace(/^\n# 共读\n/, ""), rule: "最近 3 天读过书，就带上最近读的那一本：读到哪、他记的前情（截 600 字）。3 天没读就不带。你新划的线、写的批注、读后感，他下一次聊天时看到一次（最多 4 条），看过就不再带。" },
+    { key: "letters", label: "信箱：没读的来信", text: newLettersForAI(role.value, me, { peek: true }).replace(/^\n# 信箱\n/, ""), rule: "你写的信，他下一次聊天时读一次（一次最多 3 封），读过就不再带；上了锁的只告诉他有几封。" },
+  ];
+});
 const preview = ref(null);
 async function showChat() { preview.value = { title: "聊天时发给他的", parts: await chatPreview(role.value) }; }
 
@@ -192,6 +205,13 @@ function remove() {
       </article>
       <p v-if="!sums.length" class="empty-hint small">还没有聊天摘要。聊久了会自己整理，也可以在聊天的小世界里点「摘要记忆 → 现在整理」。</p>
 
+      <p class="sec">临时带着的<small>附在新消息前面的【此刻】里，有的时候才有</small></p>
+      <article v-for="x in moment" :key="x.key" class="sum tmp">
+        <div class="meta"><span>{{ x.label }}</span><span :class="x.text ? 'on' : ''">{{ x.text ? "现在带着" : "现在没有" }}</span></div>
+        <p v-if="x.text">{{ x.text }}</p>
+        <small class="rule">{{ x.rule }}</small>
+      </article>
+
       <template v-if="derived.length">
         <p class="sec">从共读、共写整理来的<small>在全局记忆里排在卡片后面</small></p>
         <article v-for="m in derived" :key="m.id" class="sum" @click="viewing = m">
@@ -205,8 +225,9 @@ function remove() {
 
     <Sheet :open="!!sumEdit" title="聊天摘要" @close="sumEdit = null">
       <template v-if="sumEdit">
+        <SummaryInfo :thread="sumEdit.t" />
         <BigTextarea v-model="sumEdit.text" rows="10" title="聊天摘要" />
-        <p class="tip">一直只有一份：每次整理都是旧摘要 + 新聊的，合成新的一份（用整理模型）。看到错的可以直接改。</p>
+        <p class="tip">用整理模型。看到错的可以直接改。</p>
         <div class="edit-actions">
           <button class="btn soft" :disabled="sumBusy" @click="sumNow">{{ sumBusy ? "在整理……" : "现在整理" }}</button>
           <button class="btn" @click="saveSum">保存</button>
@@ -306,6 +327,9 @@ function remove() {
 .sum h3 { margin: 0 0 4px; font-size: .95rem; }
 .sum p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .empty-hint.small { font-size: .8rem; }
+.tmp { cursor: default; }
+.tmp .on { color: #c9304c; font-weight: 600; }
+.tmp .rule { display: block; margin-top: 6px; font-size: .7rem; line-height: 1.6; color: var(--text-3); }
 .tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }
 .views button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; color: var(--text-2); font-size: 0.9rem; }
 .views button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }

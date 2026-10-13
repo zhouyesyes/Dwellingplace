@@ -460,9 +460,9 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="pr-row"><span>翻页</span>
           <div class="fonts"><button :class="{ on: paged }" @click="store.readerPrefs.mode = 'page'">一屏一页</button><button :class="{ on: !paged }" @click="store.readerPrefs.mode = 'scroll'">上下滚动</button></div>
         </div>
-        <div class="pr-row col"><span>每读多少字，{{ role?.name || "他" }}整理一次前情</span>
-          <div class="fonts"><button v-for="n in [2000, 3000, 5000, 8000]" :key="n" :class="{ on: (store.settings.readGistChars || 3000) === n }" @click="store.settings.readGistChars = n">{{ n / 1000 }} 千字</button></div>
-          <small>整理得勤，他记得细一点，也多花一点；用的是「设置 → API」里的整理模型。</small>
+        <div class="pr-row col"><span>原文攒到多少字，{{ role?.name || "他" }}整理一次前情</span>
+          <div class="fonts"><button v-for="n in [3000, 5000, 8000, 15000]" :key="n" :class="{ on: (store.settings.readGistChars || 5000) === n }" @click="store.settings.readGistChars = n">{{ n / 1000 }} 千字</button></div>
+          <small>和聊天一样：上次整理之后读过的原文，{{ role?.name || "他" }}每次都看得见；攒到这么多字就整理一次，前面的并进「读到这里的印象」，最近的一半留着原文。用的是「设置 → API」里的整理模型。</small>
         </div>
         <div class="pr-row"><span>字号</span>
           <input v-model.number="store.readerPrefs.size" type="range" min="14" max="26" step="1" /><b>{{ prefs.size }}</b>

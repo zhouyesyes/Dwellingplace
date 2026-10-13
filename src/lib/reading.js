@@ -67,11 +67,29 @@ export async function updateGist(role, b, upTo) {
   }
 }
 // 一起读 / 问问他之后：离上次的印象读过三千来字了，就在后台更新一下（下一次就带上新的）
+// 和聊天一样：上次整理之后读过的原文，他每次都看得见；攒到 every 字（读书页 Aa 里能调）就整理一次——
+// 把前面的并进「读到这里的印象」，最近的一半留着原文不动
+export const gistEvery = () => Number(store.settings.readGistChars) || 5000;
 export async function maybeGist(role, b, upTo) {
   const book = await loadBook(b.id);
   const from = b.gist?.upTo || { ch: 0, p: 0 };
-  const every = Number(store.settings.readGistChars) || 3000; // 每读多少字整理一次（共读的 Aa 里能调）
-  if (before(from, upTo) && textBetween(book, from, upTo, every + 200).length >= every) updateGist(role, b, upTo).catch(e => console.warn("共读印象没更新", e));
+  const every = gistEvery();
+  if (!before(from, upTo) || textBetween(book, from, upTo, every + 200).length < every) return;
+  // 从 upTo 往前留下大约一半的原文，切在那一段
+  let cut = { ...upTo }, n = 0;
+  while (before(from, cut) && n < every / 2) {
+    if (cut.p > 0) cut = { ch: cut.ch, p: cut.p - 1 };
+    else if (cut.ch > 0) cut = { ch: cut.ch - 1, p: (book.chapters[cut.ch - 1]?.paras.length || 1) - 1 };
+    else break;
+    n += (book.chapters[cut.ch]?.paras[cut.p] || "").length;
+  }
+  if (before(from, cut)) updateGist(role, b, cut).catch(e => console.warn("共读印象没更新", e));
+}
+// 上次整理之后、到 to 之前（不含）读过的原文：他每次都看得见（太长留后面的）
+export async function sinceGist(b, to, max = gistEvery() * 1.5) {
+  const book = await loadBook(b.id);
+  const from = b.gist?.upTo || { ch: 0, p: 0 };
+  return before(from, to) ? textBetween(book, from, to, max) : "";
 }
 // 共读的场景记忆（给他看的「这本书你们读到哪了」），一段一段分好：
 // 这本书的前情印象 → 最近的划线批注 → 他为这本书记的读书笔记 → 其他也在读的书（短短一句）
@@ -82,8 +100,9 @@ export async function readingPreview(role, b) {
   return [
     { label: "开头", text: `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。` },
     ...readingSceneParts(b, me).map(x => ({ label: `场景记忆 · ${x.label}`, text: x.text })),
-    { label: "全局记忆（排在场景后面）", text: globalMemoryForScene(role, me, { skip: "read" }) || "（没有）" },
-    { label: "然后是这次的原文", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从他上次读到的地方到你这一页的全部原文（超过 10 页会先问你）。" },
+    { label: "全局记忆（排在场景后面，含主聊天最近的一半消息）", text: (await globalMemoryForScene(role, me, { skip: "read" })) || "（没有）" },
+    { label: "上次整理之后读过的原文（他都看得见）", text: (await sinceGist(b, b.pos || { ch: 0, p: 0 })) || "（刚整理过，或者还没读）" },
+    { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从他上次一起读到的地方到你这一页（新读的超过 10 页会先问你）。" },
   ];
 }
 export function readingSceneParts(b, me) {
@@ -97,12 +116,13 @@ export function readingSceneParts(b, me) {
   if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》：${x.gist.text.slice(0, 200)}`).join("\n")}` });
   return out;
 }
-function bookContext(b, me, role) {
+async function bookContext(b, me, role) {
   const scene = readingSceneParts(b, me).map(x => x.text).join("\n\n");
-  return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? globalMemoryForScene(role, me, { skip: "read" }) : ""].filter(Boolean).join("\n");
+  return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? await globalMemoryForScene(role, me, { skip: "read" }) : ""].filter(Boolean).join("\n");
 }
 
-export function newReadingForAI(role, who) {
+// peek：只是看看（记忆库里用），不把便利贴、读后感记成「他看过了」
+export function newReadingForAI(role, who, { peek = false } = {}) {
   const parts = [];
   const recent = [...(store.books || [])].filter(b => b.readAt && Date.now() - b.readAt < 3 * 86400_000).sort((a, b) => b.readAt - a.readAt)[0];
   if (recent) {
@@ -115,13 +135,13 @@ export function newReadingForAI(role, who) {
   for (const n of fresh) {
     const b = store.books.find(x => x.id === n.bookId);
     if (!b) continue;
-    parts.push(`${who}在《${b.title}》「${b.chapters[n.ch]?.title || ""}」贴了一张便利贴——原文：「${n.quote}」，${who}写：${n.text}`);
-    n.seen = true;
+    parts.push(`${who}在《${b.title}》「${b.chapters[n.ch]?.title || ""}」${n.text ? "写了一条批注" : "划了一句"}——原文：「${n.quote}」${n.text ? `，${who}写：${n.text}` : ""}`);
+    if (!peek) n.seen = true;
   }
   for (const b of store.books || []) {
     if (b.mine?.text && !b.mine.seen) {
       parts.push(`${who}读完了《${b.title}》，打了 ${b.mine.stars} 颗星，写了读后感：${b.mine.text.slice(0, 500)}`);
-      b.mine.seen = true;
+      if (!peek) b.mine.seen = true;
     }
   }
   return parts.length ? `\n# 共读\n${parts.join("\n")}` : "";
@@ -178,7 +198,8 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
-    bookContext(b, me, role),
+    await bookContext(b, me, role),
+    await (async () => { const t = await sinceGist(b, { ch, p: Math.max(0, p - 1) }); return t ? `（上次整理前情之后，你们读过的原文：）\n${t}` : ""; })(),
     part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
     question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
@@ -229,13 +250,15 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
     if (it.ch !== last) { lines.push(`【${book.chapters[it.ch]?.title || `第 ${it.ch + 1} 章`}】`); last = it.ch; }
     lines.push(`[${it.ch + 1}.${it.p}] ${it.t}`);
   }
+  const earlier = await sinceGist(b, from);
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
-    bookContext(b, me, role),
-    `下面是${me}从你上次一起读到的地方、一直读到现在的这几页。每段前面方括号里是「章.段」号：`,
+    await bookContext(b, me, role),
+    earlier ? `\n（上次整理前情之后、你们已经读过的原文，接着前情看：）\n${earlier}` : "",
+    `\n下面是${me}从你上次一起读到的地方、一直读到现在的这几页（这次新读的）。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
-    `你也读一读。挑两三处真让你有感觉的句子（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
+    `你也读一读这次新读的。挑两三处真让你有感觉的句子（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
     `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
     `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");

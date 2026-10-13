@@ -1,7 +1,7 @@
 // 共写：书桌上的书。一本书一个项目，里面是一张张卡片（人物、设定、大纲、灵感、片段……），不一定按章节。
-//   store.writings   [{ id, title, color, pitch, synopsis, cover, banner, bg, bubbleMe, bubbleAi, createdAt, updatedAt, memId, sinceSum }]
+//   store.writings   [{ id, title, color, pitch, synopsis, cover, banner, bg, bubbleMe, bubbleAi, createdAt, updatedAt, memId, talkSum, folders }]
 //                    pitch：一句话的定位；synopsis：简介；cover / banner / bg：封面、页头图、讨论页背景（图片 id）；bubbleMe / bubbleAi：气泡颜色
-//                    color：书脊颜色的编号；memId：这本书在他记忆库里那张总结卡；sinceSum：上次总结以后又聊了几句
+//                    color：书脊颜色的编号；memId：这本书在他记忆库里那张总结卡（手动记的）；talkSum：讨论摘要（只在这本书里）；folders：资料夹的顺序
 //   store.writeCards [{ id, projectId, type, title, content, atts, from, ts }]   from："me" 或 "ai"（他提的新卡片）
 //                    atts：卡片上的图片、文件 [{ kind: "image", img } | { kind: "pdf" | "text", name, … }]（和聊天里的附件一样）
 //   store.writeNotes [{ id, projectId, cardId, from, text, ts, seen }]     便利贴：贴在卡片上
@@ -197,8 +197,10 @@ export function writingSceneParts(p, list, me) {
   const out = [{ key: "cards", label: "定位、简介和资料", text: `这本书的定位、简介和资料（按${me}排的顺序）：\n${projectText(p)}` }];
   const memo = store.memories.find(m => m.id === p.memId);
   if (memo) out.push({ key: "memo", label: "你记着的这本书", text: `你之前记下的这本书：${memo.content}` });
-  const recent = list.slice(-16).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
-  out.push({ key: "talk", label: "刚才的讨论（最近 16 句）", text: `你们刚才在聊：\n${recent || "（刚坐下）"}` });
+  if (p.talkSum?.text) out.push({ key: "talkSum", label: "讨论摘要（只在这本书里）", text: `你们之前讨论的摘要（你自己整理的）：\n${p.talkSum.text}` });
+  const rest = talkAfterSum(p, list).slice(-talkLimit());
+  const recent = rest.map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
+  out.push({ key: "talk", label: `摘要之后的讨论（${rest.length} 句）`, text: `你们${p.talkSum?.text ? "接着" : "刚才"}在聊：\n${recent || "（刚坐下）"}` });
   const others = projects().filter(x => x.id !== p.id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 3);
   if (others.length) out.push({ key: "others", label: "其他在写的书", text: `（别的书，别和这本弄混）${me}还在写：${others.map(x => `《${x.title}》${x.pitch ? `（${x.pitch}）` : ""}`).join("、")}` });
   return out;
@@ -213,11 +215,45 @@ export async function writingPrompt(role, p, atts = []) {
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
     `\n# 共写《${p.title}》（这次的场景，最要紧）\n${writingSceneParts(p, list, me).map(x => x.text).join("\n\n")}`,
-    globalMemoryForScene(role, me, { skip: "write" }),
+    await globalMemoryForScene(role, me, { skip: "write" }),
     `\n${rulesFor(me)}`,
     atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",
     `\n现在接着回${me}，像平时说话那样，几段就好。`,
   ].filter(Boolean).join("\n");
+}
+
+// ---------- 讨论摘要（只在这本书里，不进记忆库）----------
+// 和聊天一样：他每次看得到最近 talkLimit() 句讨论（书页「⋯」里调）；摘要后面没整理的快到上限，就把前面的和旧摘要合成新的一份，最近一半留着
+export const talkLimit = () => Math.max(4, Number(store.settings.writeLimit) || 60);
+export const talkAutoAt = () => talkLimit() - Math.min(10, Math.floor(talkLimit() / 5));
+export function talkAfterSum(p, list) {
+  const i = p.talkSum?.upTo ? list.findIndex(m => m.id === p.talkSum.upTo) : -1;
+  return i >= 0 ? list.slice(i + 1) : list;
+}
+const talkSumming = {};
+export async function compressTalk(role, p, { keep = Math.floor(talkLimit() / 2), why = "manual" } = {}) {
+  if (talkSumming[p.id]) throw new Error("正在整理，等一下");
+  const { oneShot, meName } = await import("./chat.js");
+  const list = await loadTalk(p.id);
+  const rest = talkAfterSum(p, list);
+  const old = rest.slice(0, Math.max(0, rest.length - keep));
+  if (old.length < 2) return 0;
+  talkSumming[p.id] = true;
+  try {
+    const me = meName(role);
+    const prev = p.talkSum?.text;
+    const text = (await oneShot(role, [
+      `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
+      prev ? `你以前整理过的讨论摘要：\n${prev}\n` : "",
+      `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
+      `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份讨论摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。按先后，简洁，不超过 800 字。只写摘要本身。`,
+    ].filter(Boolean).join("\n"), { helper: true })).trim();
+    if (!text) return 0;
+    p.talkSum = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (p.talkSum?.count || 0) + old.length, at: Date.now(), why, last: old.length };
+    return old.length;
+  } finally {
+    delete talkSumming[p.id];
+  }
 }
 
 // 在书桌前和他讨论：说一句，他回一句
@@ -233,8 +269,7 @@ export async function talk(role, p, text, atts = []) {
   if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });
   await saveTalk(p.id);
   touch(p.id);
-  p.sinceSum = (p.sinceSum || 0) + 1;
-  if (p.sinceSum >= (Number(store.settings.writeSumEvery) || 8)) summarize(role, p).catch(e => console.warn("共写总结失败", e));
+  if (talkAfterSum(p, list).length >= talkAutoAt()) compressTalk(role, p, { why: "limit" }).catch(e => console.warn("讨论摘要没整理成", e));
   return { reply, notes };
 }
 

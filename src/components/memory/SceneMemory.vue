@@ -3,7 +3,7 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { store } from "../../store/index.js";
 import { meName } from "../../lib/chat.js";
-import { readingSceneParts, readingPreview } from "../../lib/reading.js";
+import { readingSceneParts, readingPreview, sinceGist, gistEvery } from "../../lib/reading.js";
 import { writingSceneParts, writingPrompt, loadTalk, projects, SPINES } from "../../lib/writing.js";
 import Sheet from "../Sheet.vue";
 import BigTextarea from "../BigTextarea.vue";
@@ -15,7 +15,12 @@ const me = computed(() => (props.role ? meName(props.role) : "我"));
 const books = computed(() => [...(store.books || [])].sort((a, b) => (b.readAt || 0) - (a.readAt || 0)));
 const pros = computed(() => [...projects()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
 const talks = reactive({});
-onMounted(async () => { for (const p of projects()) talks[p.id] = await loadTalk(p.id); });
+// 上次整理前情之后读过的原文（他每次都看得见）
+const raws = reactive({});
+onMounted(async () => {
+  for (const p of projects()) talks[p.id] = await loadTalk(p.id);
+  for (const b of store.books || []) raws[b.id] = await sinceGist(b, b.pos || { ch: 0, p: 0 });
+});
 const len = s => (s.length < 1000 ? `${s.length} 字` : `${(s.length / 1000).toFixed(1)} 千字`);
 const posOf = (b, pos) => (pos ? `${b.chapters[pos.ch]?.title || `第 ${pos.ch + 1} 章`}` : "还没开始");
 
@@ -46,7 +51,7 @@ function saveGist() {
       <div v-if="b.gist?.text" class="gist" role="button" @click="editGist(b)"><small>读到这里的印象 · 点一下可以改</small><p>{{ b.gist.text }}</p></div>
       <ul class="parts">
         <li v-for="x in readingSceneParts(b, me)" :key="x.key"><span>{{ x.label }}</span><em>{{ len(x.text) }}</em></li>
-        <li v-if="!readingSceneParts(b, me).length" class="none">还没有这本书的记忆</li>
+        <li><span>上次整理之后读过的原文</span><em>{{ len(raws[b.id] || "") }} / 攒到 {{ gistEvery() / 1000 }} 千字整理</em></li>
       </ul>
       <button class="btn soft small" @click="showBook(b)">看看发给{{ role?.name || "他" }}的</button>
     </article>
