@@ -7,6 +7,7 @@
 //   store.writeNotes [{ id, projectId, cardId, from, text, ts, seen }]     便利贴：贴在卡片上
 //   wtalk:<项目 id>  和他讨论的记录 [{ id, from, text, atts, ts }]（单独存，会同步）
 import { tail, keepCount, sumTokens, writeTokens, AUTO, snapshotSum } from "./budget.js";
+import { applyBoardTags, PROGRESS_MAX } from "./board.js";
 import { reactive } from "vue";
 import { store, uid } from "../store/index.js";
 import { get, set, del } from "./kv.js";
@@ -187,9 +188,10 @@ function applyTags(p, text) {
 
 function rulesFor(who) {
   return [
-    `你可以在回复里顺手做两件事（不是每次都要）：`,
+    `你可以在回复里顺手做这几件事（不是每次都要）：`,
     `- 给某张卡片贴便利贴（批注、建议、疑问）：另起一行写 [便签:卡片标题|想说的话]`,
     `- 提一张新卡片（${Object.values(CARD_TYPES).map(t => t.label).join("、")}）：另起一行写 [新卡片:类型|标题|内容]，${who}可以留下或者撕掉`,
+    `- 这本书有了进展、定下了下一步：另起一行写 [写书进度:现在到哪了|下一步]，各 ${PROGRESS_MAX} 字以内（会记进你的全局记忆，平时聊天也记得）`,
   ].join("\n");
 }
 
@@ -198,6 +200,7 @@ export function writingSceneParts(p, list, me) {
   const out = [{ key: "cards", label: "定位、简介和资料", text: `这本书的定位、简介和资料（按${me}排的顺序）：\n${projectText(p)}` }];
   const memo = store.memories.find(m => m.id === p.memId);
   if (memo) out.push({ key: "memo", label: "你记着的这本书", text: `你之前记下的这本书：${memo.content}` });
+  if (p.board?.progress || p.board?.next) out.push({ key: "board", label: "进度和下一步", text: `这本书现在到哪了：${p.board.progress || "—"}；下一步：${p.board.next || "—"}` });
   if (p.talkSum?.text) out.push({ key: "talkSum", label: "讨论摘要（只在这本书里）", text: `你们之前讨论的摘要（你自己整理的）：\n${p.talkSum.text}` });
   const rest = tail(talkAfterSum(p, list), talkLimit());
   const recent = rest.map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
@@ -250,10 +253,12 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
       prev ? `你以前整理过的讨论摘要：\n${prev}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
       `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份讨论摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。按先后，简洁，不超过 800 字。只写摘要本身。`,
+      `然后另起一行写这本书现在的进度：[写书进度:现在到哪了|下一步]，各 ${PROGRESS_MAX} 字以内。`,
       `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的设定），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
     const { takeSuggestions } = await import("./memoryTags.js");
     text = takeSuggestions(role, text, `共写《${p.title}》`);
+    text = applyBoardTags(role, text, { project: p }).text;
     if (!text) return 0;
     const { helperApi } = await import("./chat.js");
     snapshotSum(p, "talkSum");
@@ -273,7 +278,9 @@ export async function talk(role, p, text, atts = []) {
   else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
   const prompt = await writingPrompt(role, p, atts);
   const raw = await oneShot(role, prompt, { raw: true, attachments: atts });
-  const { text: rest, notes } = applyTags(p, raw);
+  const t0 = applyTags(p, raw);
+  const t1 = applyBoardTags(role, t0.text, { project: p });
+  const rest = t1.text, notes = [...t0.notes, ...t1.notes];
   const reply = visibleText(rest).trim();
   if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });
   await saveTalk(p.id);
@@ -326,7 +333,7 @@ export async function summarize(role, p) {
 
 // 聊天时他知道你们在写什么（系统提示里一行）
 export function writingForAI(who) {
-  const list = projects();
+  const list = projects().filter(p => !p.archived);
   if (!list.length) return "";
   return `\n# 共写\n你和${who}有一张书桌，一起琢磨${who}写的小说：${list.map(p => `《${p.title}》`).join("、")}。具体的讨论在书桌那边，平时聊天想起来可以问问进展。`;
 }

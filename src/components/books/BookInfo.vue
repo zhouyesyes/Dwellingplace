@@ -4,6 +4,7 @@ import { ref, computed } from "vue";
 import { store, MAIN, roleById } from "../../store/index.js";
 import { progressOf, fmtDur, notesOf, removeBook } from "../../lib/books.js";
 import { readingMemsOf, hisReview } from "../../lib/reading.js";
+import { bookImpression, rereadBook, roundOf, IMPRESSION_MAX } from "../../lib/board.js";
 import { pickAndCrop, deleteImage } from "../../lib/images.js";
 import { describeError } from "../../lib/chat.js";
 import { toast } from "../../lib/toast.js";
@@ -26,6 +27,7 @@ function saveReview() {
   if (!draft.value.stars) return toast("先点几颗星");
   b.value.mine = { stars: draft.value.stars, text: draft.value.text.trim(), at: Date.now(), seen: false };
   draft.value = null;
+  if (role.value) bookImpression(role.value, b.value).catch(e => console.warn("读完的印象没整理成", e)); // 板块记忆里的一句印象
 }
 const asking = ref(false);
 async function askReview() {
@@ -49,6 +51,17 @@ async function takeDown() {
   emit("close");
   await removeBook(x);
 }
+function editImpression() {
+  const t = prompt(`读完的印象（${IMPRESSION_MAX} 字以内，他一直记着）`, b.value.impression?.text || "");
+  if (t == null) return;
+  if (t.trim()) b.value.impression = { text: t.trim().slice(0, IMPRESSION_MAX), at: Date.now(), by: "me" };
+  else delete b.value.impression;
+}
+function reread() {
+  if (!confirm(`再读一遍《${b.value.title}》？这一遍的读后感和印象会收好留着，从头开始读第 ${roundOf(b.value) + 1} 遍。`)) return;
+  rereadBook(b.value);
+  toast(`第 ${roundOf(b.value)} 遍，从头开始`);
+}
 const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 - n);
 </script>
 
@@ -58,7 +71,7 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
       <div class="top">
         <div class="cv"><BookCover :book="b" /></div>
         <div class="meta">
-          <h3>{{ b.title }}</h3>
+          <h3>{{ b.title }}<small v-if="roundOf(b) > 1" class="round">第 {{ roundOf(b) }} 遍</small></h3>
           <p v-if="b.author" class="au">{{ b.author }}</p>
           <button class="btn small" @click="emit('read', b)">{{ b.pos?.p || b.pos?.ch ? "接着读" : "开始读" }}</button>
         </div>
@@ -83,7 +96,14 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
           <button v-else class="btn soft small" @click="startReview">读完了，打个分</button>
           <article v-if="b.his" class="rv his"><span class="st">{{ stars(b.his.stars) }}</span><p>{{ b.his.text }}</p><small>— {{ role?.name }}</small></article>
           <button v-if="role" class="btn soft small" :disabled="asking" @click="askReview">{{ asking ? "他在写……" : b.his ? "请他重写一篇" : `请${role.name}也写一篇` }}</button>
+          <article v-if="b.mine || b.impression" class="mem" @click="editImpression"><b>{{ role?.name }}记着的印象<template v-if="roundOf(b) > 1">（第 {{ roundOf(b) }} 遍）</template></b><p>{{ b.impression?.text || "读完以后会自己整理一句，点这里也能自己写" }}</p></article>
+          <button v-if="b.mine" class="btn soft small" @click="reread">再读一遍</button>
         </template>
+      </section>
+
+      <section v-if="b.past?.length">
+        <h4>以前读的几遍</h4>
+        <article v-for="x in [...b.past].reverse()" :key="x.round" class="mem"><b>第 {{ x.round }} 遍{{ x.mine?.stars ? " · " + stars(x.mine.stars) : "" }}</b><p>{{ x.impression?.text || x.mine?.text || "（没写读后感）" }}</p><small>{{ new Date(x.at).toLocaleDateString("zh-CN") }}</small></article>
       </section>
 
       <section v-if="b.gist?.text">
@@ -129,6 +149,7 @@ h4 { margin: 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
 .mem { width: 100%; padding: 10px 12px; border-left: 3px solid #b9cde3; background: var(--bg); border-radius: 4px 12px 12px 4px; }
 .mem b { font-size: .85rem; font-weight: 600; }
 .mem p { margin: 4px 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; }
+.round { margin-left: 8px; font-size: .7rem; font-weight: 500; color: #b05a6e; background: #fbe9ee; padding: 2px 8px; border-radius: 999px; vertical-align: middle; }
 .acts { gap: 0; align-items: stretch; }
 .acts .list-row { text-align: left; }
 .danger { color: var(--danger); }

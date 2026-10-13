@@ -6,6 +6,7 @@ import { roleById, mailThreadOf, threadsOf, loadMessages, saveMessages, messageC
 import { serversForMode, isMailServer, callTool } from "../lib/mcp.js";
 import { sendMessage, generating, pathOf, splitBubbles } from "../lib/chat.js";
 import { goBack } from "../lib/nav.js";
+import { palsOf, setPal, PAL_MAX } from "../lib/board.js";
 import { toast } from "../lib/toast.js";
 import Icon from "../components/Icon.vue";
 
@@ -38,6 +39,13 @@ async function loadPals() {
   } finally {
     loading.value = false;
   }
+}
+// 板块记忆：他记着的这个笔友（一句话）
+const noteOf = p => palsOf(role.value.id).find(x => x.email && x.email.toLowerCase() === String(p.email).toLowerCase() || (!x.email && x.name === p.name));
+function editNote(p) {
+  const t = prompt(`${role.value.name}记着的 ${p.name}（${PAL_MAX} 字以内）`, noteOf(p)?.note || "");
+  if (t == null) return;
+  setPal(role.value, { email: p.email, name: p.name, note: t }, "me");
 }
 const waiting = p => !p.last_from_me && p.received > 0; // 最后一封是对方发的：等他回
 const day = iso => { const d = new Date(iso); return `${d.getMonth() + 1}月${d.getDate()}日`; };
@@ -113,6 +121,7 @@ onMounted(() => { loadPals(); loadMsgs(); });
           <p class="pal-sub">{{ p.last_subject || "（没有主题）" }} · 来 {{ p.received }} 封 / 回 {{ p.sent }} 封<template v-if="p.unread"> · {{ p.unread }} 封没读</template></p>
           <div v-if="open[p.email]" class="pal-more">
             <p class="addr">{{ p.email }}</p>
+            <p class="palnote" @click.stop="editNote(p)"><b>{{ role.name }}记着：</b>{{ noteOf(p)?.note || "还没记，点这里写一句" }}</p>
             <p class="preview"><b>{{ p.last_from_me ? role.name : p.name }}：</b>{{ p.preview }}</p>
             <button class="btn soft small" :disabled="busy" @click.stop="ask(p)">让 {{ role.name }} 看看</button>
           </div>
@@ -156,6 +165,7 @@ onMounted(() => { loadPals(); loadMsgs(); });
 .pal-sub { margin: 3px 0 0; font-size: 0.78rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-more { margin-top: 6px; }
 .addr { margin: 0; font-size: 0.72rem; color: var(--text-2); }
+.palnote { margin: 4px 0 0; font-size: 0.78rem; line-height: 1.6; color: var(--text-2); background: var(--bg); border-radius: 10px; padding: 5px 9px; }
 .preview { margin: 4px 0 8px; font-size: 0.82rem; line-height: 1.6; }
 .talk { padding: 10px 12px; max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .b { margin: 0; padding: 8px 12px; border-radius: 14px; max-width: 85%; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }

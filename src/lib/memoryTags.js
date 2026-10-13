@@ -2,6 +2,7 @@
 //   [记忆:标题|内容]
 //   [改记忆:#ab12|新的内容]   或   [改记忆:#ab12|新标题|新的内容]
 import { momentParts } from "./moment.js";
+import { boardForAI, boardRule } from "./board.js";
 import { tail, sceneChatTokens } from "./budget.js";
 import { store, uid, loadMessages } from "../store/index.js";
 import { todayYmd } from "./dates.js";
@@ -120,6 +121,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
   const reads = all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 10);
   const writes = all.filter(m => memKind(m) === "write" && accessOf(m) !== "archived").slice(0, 6);
   const letters = lettersLog(role, meName);
+  const board = boardForAI(role);
   return [
     `\n# 你的记忆库（全局记忆）`,
     `这是你和${meName}之间的记忆，所有对话共用。聊天时自然地记得这些事，不用刻意复述。`,
@@ -127,6 +129,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
     pinned.length ? pinned.map(m => line(m)).join("\n") : "（还没有常驻的卡片）",
     recent.length ? `## 最近的记忆卡片\n${recent.map(m => line(m)).join("\n")}` : "",
     `其他记忆卡片平时不全放在这里：每次会按${meName}说的话，自动想起有关的几张，附在【此刻】里；想不起来就「翻记忆」。`,
+    board ? `## 板块记忆（在写的书、在读和读完的书、笔友：长期的进展，一直记着）\n${board}` : "",
     letters ? `## 你们来往的信（只记了标题和开头）\n${letters}` : "",
     reads.length ? `## 共读里你记下的读书笔记\n${reads.map(m => line(m, 200)).join("\n")}` : "",
     writes.length ? `## 共写：你们在写的书（你自己记的总结）\n${writes.map(m => line(m, 300)).join("\n")}` : "",
@@ -134,6 +137,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
     `需要更新某张卡片时写：[改记忆:#编号|新的内容]（也可以 [改记忆:#编号|新标题|新的内容]）。能直接改的就改原卡，别留两张互相矛盾的。`,
     `某张卡片说的事已经不成立了（比如病好了、搬家了），写 [过时记忆:#编号]，它会留作历史，不再当成现在的事。不常用了但还成立的写 [归档记忆:#编号]；特别要紧、想一直记着的写 [常驻记忆:#编号]（最多 ${PIN_MAX} 张）。`,
     `只记真正重要的事，不要每次都写；标题简短，内容一两句话。`,
+    boardRule(meName),
   ].filter(Boolean).join("\n");
 }
 
@@ -155,9 +159,11 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
       return t ? `${m.from === "user" ? meName : "你"}：${t.length > 300 ? t.slice(0, 300) + "…" : t}` : "";
     }).filter(Boolean).join("\n");
   }
+  const board = boardForAI(role, { skip });
   const moment = momentParts(role, meName, { peek: true, brief: true }).filter(p => p.text).map(p => `【${p.title}】\n${p.text}`).join("\n");
   const parts = [
     cards.length ? `记忆卡片（常驻的，和这次可能相关的）：\n${cards.map(m => line(m, 160)).join("\n")}` : "",
+    board ? `板块记忆（长期的进展）：\n${board}` : "",
     moment ? `最近 24 小时（【此刻】）：\n${moment}` : "",
     thread?.summary?.text ? `聊天的摘要记忆：\n${thread.summary.text.slice(0, 1500)}` : "",
     recent ? `平时聊天里最近说的（最近的在最后）：\n${recent}` : "",
