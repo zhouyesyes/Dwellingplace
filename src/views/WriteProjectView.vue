@@ -5,7 +5,7 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, BUBBLE_COLORS } from "../store/index.js";
-import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
+import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, compressTalk, talkLimit, talkAutoAt, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
 import { pickFile, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
 import TalkDrawer from "../components/write/TalkDrawer.vue";
@@ -208,6 +208,24 @@ async function drop() {
   router.replace("/write");
   await removeProject(x);
 }
+// 讨论摘要（只在这本书里）
+const talkSumEdit = ref(null);
+const talkSumBusy = ref(false);
+const openTalkSum = () => (talkSumEdit.value = { text: p.value.talkSum?.text || "" });
+function saveTalkSum() {
+  const text = talkSumEdit.value.text.trim();
+  if (text) p.value.talkSum = { ...(p.value.talkSum || { upTo: null, count: 0 }), text, at: Date.now(), why: "edited" };
+  else delete p.value.talkSum;
+  talkSumEdit.value = null;
+}
+async function talkSumNow() {
+  talkSumBusy.value = true;
+  try {
+    const n = await compressTalk(role.value, p.value);
+    talkSumEdit.value = { text: p.value.talkSum?.text || "" };
+    toast(n ? `把 ${n} 句讨论整理进去了` : `还没有要整理的（最近 ${Math.floor(talkLimit() / 2)} 句留着原样）`);
+  } catch (e) { toast(describeError(e), 4000); } finally { talkSumBusy.value = false; }
+}
 const summing = ref(false);
 async function sumNow() {
   summing.value = true;
@@ -313,23 +331,42 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </template>
     </Sheet>
 
+    <!-- 讨论摘要：只在这本书里，不进记忆库 -->
+    <Sheet :open="!!talkSumEdit" title="讨论摘要" @close="talkSumEdit = null">
+      <template v-if="talkSumEdit">
+        <div class="ts-info">
+          <p v-if="p.talkSum?.text">已经整理了 <b>{{ p.talkSum.count }}</b> 句讨论{{ p.talkSum.at ? `，上一次 ${new Date(p.talkSum.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "" }}{{ p.talkSum.why === "limit" ? "（快到上限，自动整理的）" : p.talkSum.why === "manual" ? "（你点「现在整理」整理的）" : "" }}。</p>
+          <p v-else>还没有讨论摘要。</p>
+          <p class="rule">这份只在《{{ p.title }}》的讨论里给{{ him }}看，不进记忆库。{{ him }}每次看得到最近 {{ talkLimit() }} 句；摘要后面没整理的讨论到 {{ talkAutoAt() }} 句就自动整理：把这份和后面的合成新的一份，最近 {{ Math.floor(talkLimit() / 2) }} 句留着原样。用整理模型。</p>
+        </div>
+        <BigTextarea v-model="talkSumEdit.text" rows="9" title="讨论摘要" placeholder="还没有：讨论多了会自己整理，也可以点「现在整理」" />
+        <div class="row edit-actions">
+          <button class="btn soft" :disabled="talkSumBusy" @click="talkSumNow">{{ talkSumBusy ? "在整理……" : "现在整理" }}</button>
+          <button class="btn" @click="saveTalkSum">保存</button>
+        </div>
+      </template>
+    </Sheet>
+
     <Sheet :open="menu" :title="`《${p.title}》`" @close="menu = false">
       <div class="menu">
-        <p v-if="memo" class="memo"><b>{{ him }}记着的：</b>{{ memo.content }}</p>
-        <button class="list-row" :disabled="summing" @click="sumNow">{{ summing ? "在整理……" : `让${him}把最近的讨论记进记忆库` }}</button>
+        <button class="list-row" @click="menu = false; openTalkSum()"><Icon name="memory" :size="20" /><span class="grow">讨论摘要<small class="sub">{{ p.talkSum?.text ? `${p.talkSum.count} 句讨论整理成的，只在这本书里` : "讨论多了会自己整理，只在这本书里" }}</small></span></button>
+        <div class="section-label">{{ him }}每次看得到最近多少句讨论</div>
+        <div class="seg"><button v-for="n in [30, 60, 100, 200]" :key="n" :class="{ on: talkLimit() === n }" @click="store.settings.writeLimit = n">{{ n }} 句</button></div>
 
         <div class="section-label">这一页的样子</div>
         <div class="list-row"><Icon name="image" :size="20" /><span class="grow">背景</span>
           <button v-if="p.bg" class="btn soft small" @click="clearImage('bg')">恢复默认</button>
           <button class="btn soft small" @click="menu = false; changeBg()">换背景</button></div>
-        <div class="section-label">聊几轮，{{ him }}把讨论记进记忆库一次</div>
-        <div class="seg"><button v-for="n in [4, 8, 12, 20]" :key="n" :class="{ on: (store.settings.writeSumEvery || 8) === n }" @click="store.settings.writeSumEvery = n">{{ n }} 轮</button></div>
         <div class="section-label">共写室的字号</div>
         <div class="seg"><button v-for="(f, k) in FONTS" :key="k" :class="{ on: (store.settings.writeFont || 'standard') === k }" @click="store.settings.writeFont = k">{{ f[0] }}</button></div>
         <div class="section-label">我的气泡</div>
         <div class="swatch-row"><ColorSwatches :model-value="p.bubbleMe || '#ffffff'" :colors="BUBBLE_COLORS" @update:model-value="v => (p.bubbleMe = v)" /></div>
         <div class="section-label">{{ him }}的字的颜色</div>
         <div class="swatch-row"><ColorSwatches :model-value="p.aiInk || INKS[0]" :colors="INKS" @update:model-value="v => (p.aiInk = v)" /></div>
+
+        <div class="section-label">记忆库（全局）</div>
+        <p v-if="memo" class="memo"><b>{{ him }}记着的：</b>{{ memo.content }}</p>
+        <button class="list-row" :disabled="summing" @click="sumNow">{{ summing ? "在整理……" : `让${him}把这本书记进记忆库${memo ? "（更新）" : ""}` }}<small class="sub">手动的：记了以后平时聊天他也知道这本书写到哪了</small></button>
 
         <button class="list-row danger" @click="drop">从书桌上拿走</button>
       </div>
@@ -408,6 +445,10 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .menu .list-row { gap: 10px; }
 .memo { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: var(--bg); font-size: .82rem; line-height: 1.7; color: var(--text-2); }
 .memo b { color: var(--text); font-weight: 600; }
+.menu .sub { display: block; font-size: .72rem; color: var(--text-3); font-weight: 400; }
+.ts-info { font-size: .76rem; line-height: 1.7; color: var(--text-2); margin: 0 2px 10px; }
+.ts-info p { margin: 0 0 2px; }
+.ts-info .rule { color: var(--text-3); margin-top: 4px; }
 .swatch-row { padding: 4px 4px 10px; }
 .edit-actions { justify-content: flex-end; margin-top: 12px; }
 .att-btn { align-self: flex-start; display: flex; align-items: center; gap: 4px; }

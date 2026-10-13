@@ -16,6 +16,7 @@ import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
 import WorldDrawer from "../components/WorldDrawer.vue";
+import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SearchPanel from "../components/SearchPanel.vue";
 import LinkCard from "../components/LinkCard.vue";
 import { cardOf, urlsIn, onlyUrl } from "../lib/linkcard.js";
@@ -504,7 +505,7 @@ function saveSummary() {
 async function compressNow() {
   sumBusy.value = true;
   try {
-    const n = await summarizeThread(thread.value, role.value, { keep: 6 });
+    const n = await summarizeThread(thread.value, role.value);
     sumEdit.value = { text: thread.value.summary?.text || "" };
     toast(n ? `把 ${n} 条聊天整理进去了` : "没有新的聊天要整理");
   } catch (e) {
@@ -749,9 +750,9 @@ async function changeAvatarOf(who) {
     <!-- 摘要记忆：这个对话前面的聊天整理成的一份（一直只有一份：每次整理都是旧摘要 + 新聊天合成新的） -->
     <Sheet :open="!!sumEdit" title="摘要记忆" @close="sumEdit = null">
       <template v-if="sumEdit">
-        <p class="sum-meta">{{ thread?.summary?.text ? `${thread.summary.count || 0} 条聊天整理成的${thread.summary.from ? `，从「${thread.summary.from}」带过来` : ""}${thread.summary.at ? ` · ${new Date(thread.summary.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}` : "还没有摘要。" }}</p>
+        <SummaryInfo :thread="thread" />
         <BigTextarea v-model="sumEdit.text" rows="10" title="摘要记忆" placeholder="还没有摘要：点下面「现在整理」，或者聊久了会自己整理" />
-        <p class="sum-tip">每次整理都是把以前的摘要和新聊的合在一起，整理成新的一份（用「设置 → API」里的整理模型）；最近 6 条不动。看到错的可以直接改。换到新对话时，这份摘要会跟着过去。</p>
+        <p class="sum-tip">用「设置 → API」里的整理模型。看到错的可以直接改。换到新对话时，这份摘要会跟着过去。</p>
         <div class="edit-actions">
           <button class="btn soft" :disabled="sumBusy" @click="compressNow">{{ sumBusy ? "在整理……" : "现在整理" }}</button>
           <button class="btn" @click="saveSummary">保存</button>

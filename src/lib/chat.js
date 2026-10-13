@@ -168,7 +168,8 @@ export async function chatPreview(role) {
     const n = Math.min(rest.length, Number(store.settings.historyLimit) || 80);
     parts.push({ label: "最近的聊天", text: `摘要后面的聊天，他每次最多看到最近 ${Number(store.settings.historyLimit) || 80} 条（现在是 ${n} 条，原样发过去，这里不重复列出）。` });
   }
-  parts.push({ label: "【此刻】附注", text: "每次附在你最新那条消息前面：现在的时间、离上一条隔了多久；接了心潮的话是此刻的心境；还没读的来信；你最近在读哪本、读到哪、刚贴的划线和批注、他记的这本书的前情（截 600 字）。" });
+  const moment = [newLettersForAI(role, meName(role), { peek: true }), newReadingForAI(role, meName(role), { peek: true })].filter(Boolean).join("\n");
+  parts.push({ label: "【此刻】附注（附在你最新那条消息前面，每次不同）", text: `现在的时间、离上一条隔了多久${hasXinchao(role) ? "、此刻的心境" : ""}；还有这些临时带着的：${moment || "\n（现在没有）"}` });
   return parts;
 }
 
@@ -629,7 +630,7 @@ async function maybeCompress(thread, role, last) {
   if (!full && rest.length < early) return;
   const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : Math.floor(limit / 2);
   try {
-    const n = await summarizeThread(thread, role, { keep, path });
+    const n = await summarizeThread(thread, role, { keep, path, why: full ? "full" : "limit" });
     if (n && last) {
       last.notes = [...(last.notes || []), { text: `${role.name} 把前面 ${n} 条聊天整理进了摘要记忆（小世界里随时能看）`, detail: thread.summary.text }];
       saveMessages(thread.id);
@@ -638,9 +639,13 @@ async function maybeCompress(thread, role, last) {
     console.warn("整理摘要失败", e);
   }
 }
-// 把还没进摘要的聊天（留下最近 keep 条不动）和以前的摘要合在一起，整理成新的一份——一直只有一份，越往后越概括。
+// 什么时候自动整理：没整理的聊天快到「每次能看到多少条」（差几条的时候），或者上一次回复看的内容到了模型上限的七成
+export const autoAt = () => { const limit = Math.max(2, Number(store.settings.historyLimit) || 80); return Math.max(2, limit - Math.min(10, Math.floor(limit / 5))); };
+export const SUM_WHY = { limit: "没整理的聊天快到上限了，自动整理的", full: "内容快到模型上限的七成，自动整理的", manual: "你点「现在整理」整理的" };
+// 把还没进摘要的聊天（留下最近 keep 条不动，默认留「每次能看到多少条」的一半）和以前的摘要合在一起，整理成新的一份——一直只有一份，越往后越概括。
 // 用「整理用的模型」。返回这次整理进去了几条（0：没有要整理的）
-export async function summarizeThread(thread, role, { keep = 6, path } = {}) {
+export async function summarizeThread(thread, role, { keep, path, why = "manual" } = {}) {
+  keep ??= Math.floor(Math.max(2, Number(store.settings.historyLimit) || 80) / 2);
   if (compressing[thread.id]) throw new Error("正在整理，等一下");
   path ??= pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error);
   const rest = afterSummary(thread, path);
@@ -666,7 +671,7 @@ export async function summarizeThread(thread, role, { keep = 6, path } = {}) {
       `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写摘要本身。`,
     ].filter(Boolean).join("\n"), { helper: true });
     if (!text) return 0;
-    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from };
+    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from, why, last: old.length };
     return old.length;
   } finally {
     delete compressing[thread.id];

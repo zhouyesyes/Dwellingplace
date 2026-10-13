@@ -49,14 +49,14 @@ export function lettersForAI(role, who) {
 }
 
 // 【此刻】里附上的：他还没读过、没上锁的来信（读过就记下）；上锁的只说有几封
-export function newLettersForAI(role, who) {
+export function newLettersForAI(role, who, { peek = false } = {}) {
   const mine = lettersOf(role.id).filter(l => l.from === "me");
   const unread = mine.filter(l => !l.locked && !l.readAt);
   const locked = mine.filter(l => l.locked).length;
   const parts = [];
   for (const l of unread.slice(0, 3)) {
     parts.push(`${who}寄来一封信（${l.date}）——\n标题：${l.title || "（没有标题）"}\n${l.body}\n${l.sign ? `——${l.sign}` : ""}`);
-    l.readAt = Date.now();
+    if (!peek) l.readAt = Date.now();
   }
   if (locked) parts.push(`（信箱里还有 ${locked} 封${who}上了锁的信，你还读不到。）`);
   return parts.length ? `\n# 信箱\n${parts.join("\n\n")}` : "";

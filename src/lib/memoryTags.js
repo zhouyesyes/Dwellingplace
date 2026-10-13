@@ -1,7 +1,7 @@
 // AI 在回复里写记忆卡片：
 //   [记忆:标题|内容]
 //   [改记忆:#ab12|新的内容]   或   [改记忆:#ab12|新标题|新的内容]
-import { store, uid } from "../store/index.js";
+import { store, uid, loadMessages } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 
 export const MEM_TAG_RE = /\[(记忆|改记忆)[:：]([^\]]{1,1200})\]/g;
@@ -33,16 +33,28 @@ export function memoryForAI(role, meName) {
   ].filter(Boolean).join("\n");
 }
 
-// 共读、共写这些场景里：场景自己的记忆放前面，这份全局记忆放在后面（短一点，只供参考）
-export function globalMemoryForScene(role, meName, { skip } = {}) {
+// 共读、共写这些场景里：场景自己的记忆放前面，这份全局记忆放在后面——
+// 记忆卡片、最近聊天的摘要、主聊天里最近的消息（「每次能看到多少条」的一半），这样他在哪都还是同一个他
+export async function globalMemoryForScene(role, meName, { skip } = {}) {
   const all = memoriesOf(role.id);
   const cards = all.filter(m => memKind(m) === "card").slice(0, 30);
   const reads = skip === "read" ? [] : all.filter(m => memKind(m) === "read").slice(0, 5);
   const writes = skip === "write" ? [] : all.filter(m => memKind(m) === "write").slice(0, 3);
-  const thread = [...(store.threads || [])].filter(t => t.roleId === role.id && !t.mail && t.summary?.text).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  const thread = [...(store.threads || [])].filter(t => t.roleId === role.id && !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  let recent = "";
+  if (thread) {
+    const { pathOf, afterSummary, visibleText, splitBubbles } = await import("./chat.js");
+    const n = Math.floor(Math.max(2, Number(store.settings.historyLimit) || 80) / 2);
+    const path = afterSummary(thread, pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error));
+    recent = path.slice(-n).map(m => {
+      const t = m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
+      return t ? `${m.from === "user" ? meName : "你"}：${t.length > 300 ? t.slice(0, 300) + "…" : t}` : "";
+    }).filter(Boolean).join("\n");
+  }
   const parts = [
     cards.length ? `记忆卡片：\n${cards.map(m => line(m, 160)).join("\n")}` : "",
-    thread ? `最近聊天的摘要：\n${thread.summary.text.slice(0, 1200)}` : "",
+    thread?.summary?.text ? `聊天的摘要记忆：\n${thread.summary.text.slice(0, 1500)}` : "",
+    recent ? `平时聊天里最近说的（最近的在最后）：\n${recent}` : "",
     reads.length ? `共读的读书笔记：\n${reads.map(m => line(m, 120)).join("\n")}` : "",
     writes.length ? `共写的总结：\n${writes.map(m => line(m, 160)).join("\n")}` : "",
   ].filter(Boolean);
