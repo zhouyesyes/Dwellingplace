@@ -6,7 +6,7 @@ import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
-import { MEM_TAG_RE, memoryForAI, applyMemoryTags } from "./memoryTags.js";
+import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
@@ -669,7 +669,8 @@ export async function summarizeThread(thread, role, { keep, path, why = "manual"
       `下面是你和${me}${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n`,
       `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方。`,
       `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写摘要本身。`,
-    ].filter(Boolean).join("\n"), { helper: true });
+      suggestRule(me),
+    ].filter(Boolean).join("\n"), { helper: true, raw: true }).then(t => visibleText(takeSuggestions(role, t, "聊天摘要")).trim());
     if (!text) return 0;
     thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from, why, last: old.length };
     return old.length;

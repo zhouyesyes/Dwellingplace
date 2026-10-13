@@ -1,0 +1,59 @@
+<script setup>
+// 记忆设置：几个和记忆有关的数字、整理用的模型，放在一起（别的地方也还能改，改的是同一个）
+import { computed } from "vue";
+import { store } from "../../store/index.js";
+import Sheet from "../Sheet.vue";
+
+defineProps({ open: Boolean, him: String });
+defineEmits(["close"]);
+const ROWS = [
+  { key: "historyLimit", def: 80, opts: [40, 80, 120, 200, 300], unit: "条", title: "聊天：每次看得到最近多少条", note: "摘要后面没整理的聊天快到这个数，就整理一次，留最近一半。也在聊天输入框上方的用量里。" },
+  { key: "cardLimit", def: 40, opts: [20, 40, 60, 100], unit: "张", title: "记忆卡片：每次带最新的多少张", note: "钉住的卡片不算在里面，永远带着。更早的他想不起来时可以「翻记忆」去找。" },
+  { key: "readGistChars", def: 5000, opts: [3000, 5000, 8000, 15000], unit: "字", fmt: n => `${n / 1000} 千`, title: "共读：原文攒到多少字整理一次前情", note: "上次整理之后读过的原文他都看得见。也在读书页 Aa 里。" },
+  { key: "writeLimit", def: 60, opts: [30, 60, 100, 200], unit: "句", title: "共写：每次看得到最近多少句讨论", note: "到九成就整理成讨论摘要（只在那本书里）。也在共写「⋯」里。" },
+];
+const val = r => Number(store.settings[r.key]) || r.def;
+const groups = computed(() => store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })).filter(g => g.models.length));
+const helperKey = computed(() => {
+  const h = store.settings.helper;
+  return h && store.apis.some(a => a.id === h.apiId) ? `${h.apiId}\u0000${h.model}` : "";
+});
+function setHelper(v) {
+  if (!v) { store.settings.helper = null; return; }
+  const [apiId, model] = v.split("\u0000");
+  store.settings.helper = { apiId, model };
+}
+</script>
+
+<template>
+  <Sheet :open="open" title="记忆设置" @close="$emit('close')">
+    <div class="ms">
+      <div v-for="r in ROWS" :key="r.key" class="row">
+        <b>{{ r.title }}</b>
+        <div class="seg"><button v-for="n in r.opts" :key="n" :class="{ on: val(r) === n }" @click="store.settings[r.key] = n">{{ r.fmt ? r.fmt(n) : n }} {{ r.unit }}</button></div>
+        <small>{{ r.note }}</small>
+      </div>
+      <div class="row">
+        <b>整理用的模型</b>
+        <select :value="helperKey" @change="e => setHelper(e.target.value)">
+          <option value="">和{{ him }}一样</option>
+          <optgroup v-for="g in groups" :key="g.api.id" :label="g.api.name || '未命名'">
+            <option v-for="m in g.models" :key="m" :value="g.api.id + '\u0000' + m">{{ m }}</option>
+          </optgroup>
+        </select>
+        <small>聊天摘要、共读前情、共写讨论摘要、挑候选记忆用它，可以选便宜的（比如 DeepSeek）。{{ him }}说的话、批注、自己写的记忆不用它。</small>
+      </div>
+    </div>
+  </Sheet>
+</template>
+
+<style scoped>
+.ms { display: flex; flex-direction: column; gap: 18px; }
+.row { display: flex; flex-direction: column; gap: 8px; }
+.row b { font-size: .9rem; font-weight: 600; }
+.row small { font-size: .74rem; line-height: 1.6; color: var(--text-3); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { border: 0; background: var(--bg); padding: 6px 12px; border-radius: 999px; font-size: .82rem; color: var(--text-2); }
+.seg button.on { background: var(--ink); color: #fff; font-weight: 600; }
+select { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 8px 10px; font-size: .88rem; color: var(--text); }
+</style>

@@ -3,9 +3,48 @@
 //   [改记忆:#ab12|新的内容]   或   [改记忆:#ab12|新标题|新的内容]
 import { store, uid, loadMessages } from "../store/index.js";
 import { todayYmd } from "./dates.js";
+import { lettersOf } from "./letters.js";
 
 export const MEM_TAG_RE = /\[(记忆|改记忆)[:：]([^\]]{1,1200})\]/g;
-const MAX_FOR_AI = 40;
+// 每次带多少张记忆卡片（钉住的不算在里面，永远带着）：记忆库「记忆设置」里调
+export const cardLimit = () => Number(store.settings.cardLimit) || 40;
+// 记忆卡片：钉住的在最前，其余按新旧
+export const cardsForAI = (all, n = cardLimit()) => {
+  const cards = all.filter(m => memKind(m) === "card");
+  return [...cards.filter(m => m.pinned), ...cards.filter(m => !m.pinned).slice(0, n)];
+};
+// 你们来往的信：他读过的你的信、他写的信，留一行（标题 + 一句），他以后提得起来
+export function lettersLog(role, meName, n = 10) {
+  return lettersOf(role.id).filter(l => l.from !== "me" || l.readAt).slice(-n)
+    .map(l => `- [${l.date}] ${l.from === "me" ? `${meName}写给你` : `你写给${meName}`}「${l.title || "无题"}」：${(l.body || "").replace(/\s+/g, " ").slice(0, 40)}${(l.body || "").length > 40 ? "…" : ""}`).join("\n");
+}
+
+// ---------- 候选记忆 ----------
+// 整理摘要、前情、讨论摘要的时候，让整理模型顺手挑出值得单独记住的事，写成 [候选记忆:标题|内容]；
+// 先放在「待确认」里，你点「收下」才变成记忆卡片
+export const SUGGEST_RE = /\[候选记忆[:：]([^\]]{2,600})\]/g;
+export const suggestRule = me => `另外：如果这些里面有值得单独长久记住的事（${me}的喜好、经历、约定、重要的时刻），在最后另起一行写 [候选记忆:标题|内容]，最多 3 条，一两句话；没有就不写。`;
+export function takeSuggestions(role, text, src) {
+  const found = [...text.matchAll(SUGGEST_RE)];
+  if (found.length) {
+    store.memSuggest ??= [];
+    for (const [, inner] of found) {
+      const [title = "", ...rest] = inner.split(/[|｜]/).map(x => x.trim());
+      const content = rest.join(" ").trim() || title;
+      if (content && !store.memSuggest.some(x => x.roleId === role.id && x.content === content)) store.memSuggest.push({ id: uid(), roleId: role.id, title: title.slice(0, 40), content, src, ts: Date.now() });
+    }
+  }
+  return text.replace(SUGGEST_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+export const suggestionsOf = roleId => (store.memSuggest || []).filter(x => x.roleId === roleId);
+export function acceptSuggestion(x) {
+  store.memories.push({ id: uid(), roleId: x.roleId, title: x.title || x.content.slice(0, 12), content: x.content, img: null, date: todayYmd(), author: x.roleId, ts: Date.now() });
+  dropSuggestion(x);
+}
+export function dropSuggestion(x) {
+  const i = (store.memSuggest || []).indexOf(x);
+  if (i >= 0) store.memSuggest.splice(i, 1);
+}
 
 export const memoriesOf = roleId =>
   store.memories.filter(m => m.roleId === roleId).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
@@ -17,14 +56,16 @@ const line = (m, n = 300) => `- #${m.id.slice(0, 4)} [${m.date}] ${m.title}：${
 // 给 AI 看的全局记忆（同一个角色的所有对话共用）：先是记忆卡片，再是从共读、共写整理过来的（分开标好）
 export function memoryForAI(role, meName) {
   const all = memoriesOf(role.id);
-  const cards = all.filter(m => memKind(m) === "card").slice(0, MAX_FOR_AI);
+  const cards = cardsForAI(all);
   const reads = all.filter(m => memKind(m) === "read").slice(0, 10);
   const writes = all.filter(m => memKind(m) === "write").slice(0, 6);
+  const letters = lettersLog(role, meName);
   return [
     `\n# 你的记忆库（全局记忆）`,
     `这是你和${meName}之间的记忆，所有对话共用。聊天时自然地记得这些事，不用刻意复述。`,
     `## 记忆卡片`,
-    cards.length ? cards.map(m => line(m)).join("\n") : "（还没有记忆卡片）",
+    cards.length ? cards.map(m => line(m) + (m.pinned ? "（钉住的，很重要）" : "")).join("\n") : "（还没有记忆卡片）",
+    letters ? `## 你们来往的信（只记了标题和开头）\n${letters}` : "",
     reads.length ? `## 共读里你记下的读书笔记\n${reads.map(m => line(m, 200)).join("\n")}` : "",
     writes.length ? `## 共写：你们在写的书（你自己记的总结）\n${writes.map(m => line(m, 300)).join("\n")}` : "",
     `如果这次聊天里有值得长久记住的事（关于${meName}的喜好、经历、约定、重要的时刻），可以在回复末尾另起一行写：[记忆:标题|内容]`,
@@ -37,7 +78,7 @@ export function memoryForAI(role, meName) {
 // 记忆卡片、最近聊天的摘要、主聊天里最近的消息（「每次能看到多少条」的一半），这样他在哪都还是同一个他
 export async function globalMemoryForScene(role, meName, { skip } = {}) {
   const all = memoriesOf(role.id);
-  const cards = all.filter(m => memKind(m) === "card").slice(0, 30);
+  const cards = cardsForAI(all, Math.min(30, cardLimit()));
   const reads = skip === "read" ? [] : all.filter(m => memKind(m) === "read").slice(0, 5);
   const writes = skip === "write" ? [] : all.filter(m => memKind(m) === "write").slice(0, 3);
   const thread = [...(store.threads || [])].filter(t => t.roleId === role.id && !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
