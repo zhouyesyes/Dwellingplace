@@ -1,8 +1,9 @@
 <script setup>
 // 共写一本书的「资料」：和小世界一样从右边滑出半边。
-// 最上面是这本书：封面、书名、书脊颜色、一句话定位、简介；下面是资料夹（人物、设定、大纲……一类一个），点开看里面的卡片
+// 最上面是这本书：封面、书名、书脊颜色、一句话定位、简介；下面是资料夹（人物、设定、大纲……一类一个），点开看里面的卡片。
+// 「排序」：资料夹、夹里的卡片都可以往前往后挪——发给他的时候就按这个顺序
 import { ref, computed, watch } from "vue";
-import { cardsOf, notesOfCard, CARD_TYPES, SPINES, cardBg } from "../../lib/writing.js";
+import { cardsOf, notesOfCard, CARD_TYPES, SPINES, cardBg, folderOrder, moveFolder, moveCard } from "../../lib/writing.js";
 import Icon from "../Icon.vue";
 import AttList from "./AttList.vue";
 import WriteCover from "./WriteCover.vue";
@@ -11,9 +12,11 @@ import { vAutoGrow } from "../../lib/autogrow.js";
 const props = defineProps({ open: Boolean, book: Object, him: String, wf: { type: Number, default: 1 } });
 const emit = defineEmits(["close", "cover", "card", "new", "import"]);
 const folder = ref(null); // 打开的资料夹（类型）
-watch(() => props.open, o => { if (!o) folder.value = null; });
+const sorting = ref(false);
+watch(() => props.open, o => { if (!o) { folder.value = null; sorting.value = false; } });
+const folders = computed(() => (props.book ? folderOrder(props.book) : []));
 const all = computed(() => (props.book ? cardsOf(props.book.id) : []));
-const inFolder = computed(() => all.value.filter(c => c.type === folder.value).sort((a, b) => b.ts - a.ts));
+const inFolder = computed(() => all.value.filter(c => c.type === folder.value));
 const count = k => all.value.filter(c => c.type === k).length;
 const fresh = k => all.value.some(c => c.type === k && notesOfCard(c.id).some(n => n.from === "ai" && !n.seen));
 const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title || "无题").join("、");
@@ -27,6 +30,7 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
           <div class="sp-head">
             <button v-if="folder" class="x" aria-label="回资料夹" @click="folder = null"><Icon name="back" :size="18" /></button>
             <h2 class="script">{{ folder ? CARD_TYPES[folder].label : "这本书" }}</h2>
+            <button class="sortbtn" :class="{ on: sorting }" @click="sorting = !sorting">{{ sorting ? "排好了" : "排序" }}</button>
             <button class="x" aria-label="关上" @click="emit('close')"><Icon name="close" :size="18" /></button>
           </div>
 
@@ -40,14 +44,18 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
               <textarea v-model="book.synopsis" v-auto-grow class="syn" rows="3" :placeholder="`写一段简介：这本书讲什么、想写成什么样。${him}讨论时会看着它`" />
             </div>
 
-            <p class="sec">资料夹</p>
+            <p class="sec">资料夹<small v-if="sorting">　点 ‹ › 挪位置，{{ him }}看资料就按这个顺序</small></p>
             <div class="folders">
-              <button v-for="(t, k) in CARD_TYPES" :key="k" class="folder" :class="{ empty: !count(k) }" @click="folder = k">
+              <div v-for="(k, i) in folders" :key="k" class="folder" :class="['c' + (Object.keys(CARD_TYPES).indexOf(k) % 7), { empty: !count(k) }]" role="button" tabindex="0" @click="!sorting && (folder = k)">
                 <i class="tab" />
-                <b><i class="mark" />{{ t.label }}</b>
+                <b><i class="mark" />{{ CARD_TYPES[k].label }}</b>
                 <small>{{ count(k) ? peek(k) : "空的" }}</small>
                 <em>{{ count(k) }}<i v-if="fresh(k)" class="dot" /></em>
-              </button>
+                <div v-if="sorting" class="mv">
+                  <button :disabled="i === 0" aria-label="往前" @click.stop="moveFolder(book, k, -1)">‹</button>
+                  <button :disabled="i === folders.length - 1" aria-label="往后" @click.stop="moveFolder(book, k, 1)">›</button>
+                </div>
+              </div>
             </div>
           </template>
 
@@ -57,7 +65,11 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
               <button class="btn soft small" @click="emit('import', folder)"><Icon name="upload" :size="15" /> 导入图片、文件</button>
             </div>
             <div class="cards">
-              <div v-for="c in inFolder" :key="c.id" class="card" role="button" tabindex="0" :style="{ background: cardBg(c) }" @click="emit('card', c)">
+              <div v-for="(c, i) in inFolder" :key="c.id" class="card" role="button" tabindex="0" :style="{ background: cardBg(c) }" @click="!sorting && emit('card', c)">
+                <div v-if="sorting" class="mv v">
+                  <button :disabled="i === 0" aria-label="往上" @click.stop="moveCard(c, -1)">↑</button>
+                  <button :disabled="i === inFolder.length - 1" aria-label="往下" @click.stop="moveCard(c, 1)">↓</button>
+                </div>
                 <b>{{ c.title || "无题" }}</b>
                 <p v-if="c.content">{{ c.content }}</p>
                 <AttList v-if="c.atts?.length" :atts="c.atts.slice(0, 3)" small />
@@ -100,7 +112,7 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 .folders { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 10px; }
 /* 资料夹是白的，只有标题前一个小色点 */
 .folder {
-  position: relative; border: 0; text-align: left; padding: 14px 12px 10px; min-height: 84px; border-radius: 4px 14px 14px 14px; margin-top: 8px;
+  position: relative; border: 0; text-align: left; cursor: pointer; padding: 14px 12px 10px; min-height: 84px; border-radius: 4px 14px 14px 14px; margin-top: 8px;
   background: #fff; box-shadow: 0 3px 12px rgba(40, 40, 60, .07); display: flex; flex-direction: column; gap: 3px;
 }
 .folder .tab { position: absolute; top: -8px; left: 0; width: 42%; height: 12px; border-radius: 6px 10px 0 0; background: #ebebef; }
@@ -108,12 +120,15 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 .folder.empty .tab { background: #e6e6ea; }
 .folder b { font-size: calc(.95rem * var(--wf, 1)); display: flex; align-items: center; gap: 7px; }
 .mark { width: 7px; height: 7px; border-radius: 50%; background: #ffadc6; flex: none; }
-.folder:nth-child(7n+2) .mark { background: #ffcb85; }
-.folder:nth-child(7n+3) .mark { background: #8fd3f4; }
-.folder:nth-child(7n+4) .mark { background: #a6e3a1; }
-.folder:nth-child(7n+5) .mark { background: #bfa8f6; }
-.folder:nth-child(7n+6) .mark { background: #ffa494; }
-.folder:nth-child(7n+7) .mark { background: #c9c3ba; }
+.c1 .mark { background: #ffcb85; } .c2 .mark { background: #8fd3f4; } .c3 .mark { background: #a6e3a1; }
+.c4 .mark { background: #bfa8f6; } .c5 .mark { background: #ffa494; } .c6 .mark { background: #c9c3ba; }
+.sortbtn { border: 0; background: rgba(255, 255, 255, .8); border-radius: 999px; padding: 7px 14px; font-size: .8rem; color: var(--text-2); }
+.sortbtn.on { background: var(--ink); color: #fff; font-weight: 600; }
+.sec small { font-weight: 400; color: var(--text-3); font-size: .72rem; }
+.mv { position: absolute; right: 8px; top: 8px; display: flex; gap: 4px; }
+.mv button { width: 26px; height: 26px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; font-size: 1rem; line-height: 1; display: grid; place-items: center; }
+.mv button:disabled { opacity: .2; }
+.card { position: relative; }
 .folder small { font-size: calc(.7rem * var(--wf, 1)); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .folder em { position: absolute; right: 12px; bottom: 8px; font-style: normal; font-size: 1.15rem; font-weight: 300; color: var(--text-3); }
 .dot { position: absolute; top: 0; right: -8px; width: 7px; height: 7px; border-radius: 50%; background: #6aa7e0; }

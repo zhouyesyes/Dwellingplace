@@ -34,7 +34,6 @@ onMounted(async () => {
 });
 
 // ---------- 样子：页头图、背景、气泡 ----------
-const banner = useImage(() => p.value?.banner);
 const bg = useImage(() => p.value?.bg);
 const spine = computed(() => SPINES[(p.value?.color || 0) % SPINES.length]);
 const textOn = c => {
@@ -45,9 +44,11 @@ const textOn = c => {
 // 共写室自己的字号（和聊天的分开调）
 const FONTS = { small: ["小", 0.92], standard: ["标准", 1.05], large: ["大", 1.18], xl: ["特大", 1.32] };
 const wf = computed(() => FONTS[store.settings.writeFont]?.[1] || FONTS.standard[1]);
+// 我的话有气泡（换气泡颜色）；他的话没有气泡，直接占满一行（换字的颜色）
+const INKS = ["#2f2f36", "#4a4f5c", "#2f4a6b", "#3d5a4a", "#5a4632", "#6b3f4f", "#4b3f6b"];
 const look = computed(() => {
-  const me = p.value?.bubbleMe || "#ffffff", ai = p.value?.bubbleAi || role.value?.bubbleColor || BUBBLE_COLORS[3];
-  return { "--spine": spine.value, "--me": me, "--me-text": textOn(me), "--ai": ai, "--ai-text": textOn(ai), "--wf": wf.value, "--dock": dockH.value + "px" };
+  const me = p.value?.bubbleMe || "#ffffff";
+  return { "--spine": spine.value, "--me": me, "--me-text": textOn(me), "--ai-ink": p.value?.aiInk || INKS[0], "--wf": wf.value, "--dock": dockH.value + "px" };
 });
 // 输入框浮在最下面，讨论从它后面滑过去：量一下它多高，讨论底下留出这么多
 const dock = ref(null);
@@ -66,7 +67,6 @@ async function swapImage(key, aspect, title) {
   p.value[key] = id;
   if (old) deleteImage(old);
 }
-const changeBanner = () => swapImage("banner", innerWidth / (Math.min(innerWidth * 0.46, 220) + 47), "调整页头图");
 const changeBg = () => swapImage("bg", innerWidth / innerHeight, "调整背景");
 const changeCover = () => swapImage("cover", 2 / 3, "调整封面");
 function clearImage(key) { deleteImage(p.value[key]); p.value[key] = null; }
@@ -221,11 +221,11 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
   <div v-if="p" class="proj" :class="{ 'has-bg': bg }" :style="look">
     <div class="page-bg" :style="bg ? { backgroundImage: `url(${bg})` } : {}" />
 
-    <!-- 页头：一条短短的图，往下慢慢淡掉；上面是返回、搜索、资料、更多 -->
-    <header class="banner" :style="banner ? { backgroundImage: `url(${banner})` } : {}">
+    <!-- 顶上：返回、书名，右边搜索、资料、更多（浮在讨论上面，讨论从下面滑过去） -->
+    <header class="top">
       <div class="bar">
         <button class="glass" aria-label="回书桌" @click="goBack(router, '/write')"><Icon name="back" :size="20" /></button>
-        <span class="grow" />
+        <b class="ttl">{{ p.title }}</b>
         <button class="glass" aria-label="搜索和收藏" @click="finder = true"><Icon name="search" :size="19" /></button>
         <button class="glass" aria-label="资料" @click="shelf = true"><Icon name="folder" :size="19" /><i v-if="freshCount" class="dot" /></button>
         <button class="glass" aria-label="更多" @click="menu = true"><Icon name="more" :size="19" /></button>
@@ -319,9 +319,6 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <button class="list-row" :disabled="summing" @click="sumNow">{{ summing ? "在整理……" : `让${him}把最近的讨论记进记忆库` }}</button>
 
         <div class="section-label">这一页的样子</div>
-        <div class="list-row"><Icon name="image" :size="20" /><span class="grow">页头图</span>
-          <button v-if="p.banner" class="btn soft small" @click="clearImage('banner')">恢复默认</button>
-          <button class="btn soft small" @click="menu = false; changeBanner()">换一张</button></div>
         <div class="list-row"><Icon name="image" :size="20" /><span class="grow">背景</span>
           <button v-if="p.bg" class="btn soft small" @click="clearImage('bg')">恢复默认</button>
           <button class="btn soft small" @click="menu = false; changeBg()">换背景</button></div>
@@ -331,8 +328,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="seg"><button v-for="(f, k) in FONTS" :key="k" :class="{ on: (store.settings.writeFont || 'standard') === k }" @click="store.settings.writeFont = k">{{ f[0] }}</button></div>
         <div class="section-label">我的气泡</div>
         <div class="swatch-row"><ColorSwatches :model-value="p.bubbleMe || '#ffffff'" :colors="BUBBLE_COLORS" @update:model-value="v => (p.bubbleMe = v)" /></div>
-        <div class="section-label">{{ him }}的气泡</div>
-        <div class="swatch-row"><ColorSwatches :model-value="p.bubbleAi || role?.bubbleColor || BUBBLE_COLORS[3]" :colors="BUBBLE_COLORS" @update:model-value="v => (p.bubbleAi = v)" /></div>
+        <div class="section-label">{{ him }}的字的颜色</div>
+        <div class="swatch-row"><ColorSwatches :model-value="p.aiInk || INKS[0]" :colors="INKS" @update:model-value="v => (p.aiInk = v)" /></div>
 
         <button class="list-row danger" @click="drop">从书桌上拿走</button>
       </div>
@@ -344,20 +341,17 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 /* 整页固定、里面自己滚：输入框不会被 iPhone 的键盘顶来顶去。页头和输入框都浮在讨论上面，讨论从它们下面滑过去 */
 .proj { position: fixed; inset: 0; height: 100dvh; overflow: hidden; }
 .page-bg { position: absolute; inset: 0; background: var(--bg); background-size: cover; background-position: center; }
-.banner {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: calc(var(--safe-top) + min(46vw, 220px)); pointer-events: none;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--spine) 60%, #fff) 0%, color-mix(in srgb, var(--spine) 25%, #fff) 70%);
-  background-size: cover; background-position: center;
-  -webkit-mask-image: linear-gradient(#000 40%, rgba(0, 0, 0, .55) 70%, transparent); mask-image: linear-gradient(#000 40%, rgba(0, 0, 0, .55) 70%, transparent);
-}
+.top { position: absolute; top: 0; left: 0; right: 0; z-index: 2; pointer-events: none; padding-bottom: 22px; background: linear-gradient(var(--bg) 55%, transparent); }
+.has-bg .top { background: none; }
 .bar { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 14px 0; }
+.ttl { flex: 1; min-width: 0; font-size: calc(1.05rem * var(--wf)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
 .bar button { pointer-events: auto; }
 .glass { position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; color: var(--ink); background: rgba(255, 255, 255, .72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(40, 40, 60, .1); }
 .glass .dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: #6aa7e0; box-shadow: 0 0 0 2px #fff; }
 .grow { flex: 1; }
 .msgs {
   position: absolute; inset: 0; z-index: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch;
-  padding: calc(var(--safe-top) + min(46vw, 220px) * .62) max(18px, calc((100% - 760px) / 2)) calc(var(--dock) + var(--safe-bottom) + 24px);
+  padding: calc(var(--safe-top) + 72px) max(18px, calc((100% - 760px) / 2)) calc(var(--dock) + var(--safe-bottom) + 24px);
 }
 .msgs > :first-child { margin-top: auto; }
 .hint { text-align: center; color: var(--text-3); font-size: calc(.8rem * var(--wf)); line-height: 1.8; margin: 22px 10px; }
@@ -366,7 +360,9 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .m p { margin: 0; padding: 10px 14px; border-radius: 18px; font-size: calc(.92rem * var(--wf)); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; -webkit-touch-callout: none; }
 .m.me { align-self: flex-end; align-items: flex-end; }
 .m.me p { background: var(--me); color: var(--me-text); box-shadow: var(--shadow-soft); border-bottom-right-radius: 6px; }
-.m.ai p { background: var(--ai); color: var(--ai-text); border-bottom-left-radius: 6px; }
+.m.ai { max-width: 100%; align-self: stretch; }
+.m.ai p { padding: 4px 2px; color: var(--ai-ink); }
+.has-bg .m.ai p { background: rgba(255, 255, 255, .72); padding: 10px 14px; }
 .fav { font-style: normal; color: #e0a53a; font-size: .7rem; margin-left: 6px; }
 .edited { font-size: .66rem; color: var(--text-3); padding: 0 6px; }
 .m.flash p { animation: flash 1.8s ease-out; }
