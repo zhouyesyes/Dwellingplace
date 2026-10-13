@@ -68,10 +68,16 @@ async function docsOf(role, me, skip) {
     });
     if (t.summary?.text) docs.push({ kind: "sum", text: t.summary.text, ts: t.summary.at, where: `对话「${t.title || ""}」的摘要` });
   }
-  const { projects, loadTalk } = await import("./writing.js");
-  for (const p of projects()) {
-    for (const m of await loadTalk(p.id)) if (m.text) docs.push({ kind: "write", text: m.text, ts: m.ts, who: name(m.from), where: `共写《${p.title}》` });
-    if (p.talkSum?.text) docs.push({ kind: "sum", text: p.talkSum.text, ts: p.talkSum.at, where: `共写《${p.title}》的讨论摘要` });
+  const { projects, loadTalk, ideaBox, cardsOf } = await import("./writing.js");
+  const box = ideaBox();
+  if (box) for (const c of cardsOf(box.id)) {
+    const g = (box.groups || []).find(x => x.id === c.groupId);
+    docs.push({ kind: "write", text: `${c.title} ${c.content} ${(c.tags || []).join(" ")}`, ts: c.ts, who: c.from === "ai" ? role.name : me, where: g ? `灵感抽屉·以前的书《${g.title}》的卡片` : "灵感抽屉的卡片" });
+  }
+  for (const p of [...projects(), ...(box ? [box] : [])]) {
+    const at = p.kind === "ideas" ? "灵感抽屉" : `共写《${p.title}》`;
+    for (const m of await loadTalk(p.id)) if (m.text) docs.push({ kind: "write", text: m.text, ts: m.ts, who: name(m.from), where: at });
+    if (p.talkSum?.text) docs.push({ kind: "sum", text: p.talkSum.text, ts: p.talkSum.at, where: `${at}的讨论摘要` });
   }
   for (const n of store.bookNotes || []) {
     const b = (store.books || []).find(x => x.id === n.bookId);

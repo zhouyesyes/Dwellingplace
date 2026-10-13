@@ -3,7 +3,7 @@
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
-import { projects, newProject, cardsOf, freshNotes, SPINES } from "../lib/writing.js";
+import { projects, newProject, cardsOf, freshNotes, SPINES, ideaBox, openIdeaBox } from "../lib/writing.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 
@@ -15,6 +15,15 @@ function add() {
   if (!t?.trim()) return;
   router.push(`/write/${newProject(t).id}`);
 }
+// 灵感抽屉：书桌外面单独一个地方
+const box = computed(() => ideaBox());
+const boxInfo = computed(() => {
+  const b = box.value;
+  if (!b) return "还没有灵感卡片和以前的书";
+  const n = cardsOf(b.id).filter(c => !c.groupId).length;
+  return `${n} 张灵感 · ${(b.groups || []).length} 本以前的书`;
+});
+const goBox = () => router.push(`/write/${openIdeaBox().id}`);
 const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 </script>
 
@@ -26,6 +35,13 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
       <button class="icon-btn" aria-label="放一本新书" @click="add"><Icon name="plus" /></button>
     </header>
     <div class="title"><h1>共写</h1><span class="side">at the desk<br />with {{ role?.name || "him" }}</span></div>
+
+    <button class="drawer-in" @click="goBox">
+      <span class="knob" />
+      <span class="grow"><b>灵感抽屉</b><small>{{ boxInfo }}</small></span>
+      <span v-if="box && freshNotes(box.id).length" class="fresh">{{ freshNotes(box.id).length }} 张新便利贴</span>
+      <Icon name="right" :size="16" class="chev" />
+    </button>
 
     <div class="list">
       <button v-for="b in books" :key="b.id" class="book" :class="{ arch: b.archived }" @click="router.push(`/write/${b.id}`)">
@@ -54,5 +70,9 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
 .book.add { color: var(--text-2); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); }
 .fresh { font-size: .7rem; color: #4d7aa3; background: #e4eefa; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .chev { color: var(--text-3); }
+.drawer-in { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; border: 0; margin-bottom: 18px; padding: 16px 16px; border-radius: 14px; background: linear-gradient(#f6efe4, #efe5d6); box-shadow: inset 0 -3px 0 rgba(120, 90, 50, .12), var(--shadow-soft); }
+.drawer-in .knob { width: 26px; height: 8px; border-radius: 4px; background: #c9b08a; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .2); flex: none; }
+.drawer-in b { display: block; font-size: 1rem; font-weight: 600; }
+.drawer-in small { font-size: .75rem; color: var(--text-3); }
 .book.arch { opacity: .55; }
 </style>

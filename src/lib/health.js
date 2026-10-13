@@ -36,7 +36,7 @@ function similarPairs(cards) {
 
 export async function healthOf(role, me) {
   const { pathOf, afterSummary, buildSystem, summaryForAI, autoAt } = await import("./chat.js");
-  const { projects, loadTalk, talkAfterSum, talkAutoAt } = await import("./writing.js");
+  const { projects, loadTalk, talkAfterSum, talkAutoAt, ideaBox } = await import("./writing.js");
   const { rawSince, sumEvery, imprEvery } = await import("./reading.js");
   const all = memoriesOf(role.id);
   const cards = all.filter(m => memKind(m) === "card");
@@ -69,10 +69,10 @@ export async function healthOf(role, me) {
     const rest = sumTokens(afterSummary(t, path));
     rooms.push({ kind: t.mail ? "邮箱" : "聊天", name: t.title || "对话", at: t.summary?.at, times: (t.summaryVers?.length || 0) + (t.summary?.text ? 1 : 0), now: rest, limit: autoAt(), unit: "token", sum: !!t.summary?.text });
   }
-  for (const p of projects().filter(p => !p.archived)) {
+  for (const p of [...projects().filter(p => !p.archived), ...(ideaBox() ? [ideaBox()] : [])]) {
     const list = await loadTalk(p.id);
     if (!list.length) continue;
-    rooms.push({ kind: "共写", name: `《${p.title}》`, at: p.talkSum?.at, times: (p.talkSumVers?.length || 0) + (p.talkSum?.text ? 1 : 0), now: sumTokens(talkAfterSum(p, list)), limit: talkAutoAt(), unit: "token", sum: !!p.talkSum?.text });
+    rooms.push({ kind: "共写", name: p.kind === "ideas" ? "灵感抽屉" : `《${p.title}》`, at: p.talkSum?.at, times: (p.talkSumVers?.length || 0) + (p.talkSum?.text ? 1 : 0), now: sumTokens(talkAfterSum(p, list)), limit: talkAutoAt(), unit: "token", sum: !!p.talkSum?.text });
   }
   for (const b of (store.books || []).filter(b => b.readAt && !b.mine)) {
     const segs = b.gist?.segs?.length || (b.gist?.text ? 1 : 0);

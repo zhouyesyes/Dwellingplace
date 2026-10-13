@@ -29,8 +29,70 @@ export const TINTS = { white: "#ffffff", mint: "#e3f3ec", cream: "#fbf3df", pink
 export const cardBg = c => TINTS[c.tint] || (c.from === "ai" ? TINTS.blue : TINTS.white);
 export const SPINES = ["#ffadc6", "#ffcb85", "#ffe17d", "#a6e3a1", "#8fd3f4", "#bfa8f6", "#ffa494", "#7fdcd0"];
 
-export const projects = () => store.writings || [];
-export const projectById = id => projects().find(p => p.id === id);
+// 书桌上在写的书（灵感抽屉不算）
+export const projects = () => (store.writings || []).filter(p => p.kind !== "ideas");
+export const projectById = id => (store.writings || []).find(p => p.id === id);
+
+// ---------- 灵感抽屉 ----------
+// 书桌外面一个单独的地方（p.kind = "ideas"，只有一个），不属于哪本在写的书：
+//   杂乱的灵感卡片（c.groupId 为空），和以前的书的复盘——一本一个小集子（p.groups [{ id, title, tags, ts }]），里面只有卡片，没有资料夹。
+//   卡片和集子都能加标签（c.tags / g.tags，只有这里有）。打开也是和他聊，东西都在右边半开的抽屉里。
+//   大概的样子（几张灵感、常用的标签、有哪些以前的书）放进全局记忆的板块里
+export const ideaBox = () => (store.writings || []).find(p => p.kind === "ideas") || null;
+export function openIdeaBox() {
+  let p = ideaBox();
+  if (!p) {
+    p = newProject("灵感抽屉");
+    Object.assign(p, { kind: "ideas", groups: [] });
+  }
+  return p;
+}
+export const tagsOf = s => [...new Set(String(s || "").split(/[\s,，、#]+/).map(t => t.trim()).filter(Boolean))].slice(0, 12);
+export function addGroup(p, title) {
+  p.groups ??= [];
+  const g = { id: uid(), title: title.trim().slice(0, 60), tags: [], ts: Date.now() };
+  p.groups.push(g);
+  return g;
+}
+export function removeGroup(p, g) {
+  for (const c of cardsOf(p.id).filter(c => c.groupId === g.id)) delete c.groupId; // 卡片留着，变回杂乱的灵感
+  p.groups.splice(p.groups.indexOf(g), 1);
+}
+export function allTags(p) {
+  const n = {};
+  for (const c of cardsOf(p.id)) for (const t of c.tags || []) n[t] = (n[t] || 0) + 1;
+  for (const g of p.groups || []) for (const t of g.tags || []) n[t] = (n[t] || 0) + 1;
+  return Object.entries(n).sort((a, b) => b[1] - a[1]).map(([t, k]) => ({ t, k }));
+}
+const tagLine = tags => (tags?.length ? `〔${tags.join("、")}〕` : "");
+function ideaText(p, limit = 12000) {
+  const out = [];
+  let n = 0;
+  const push = line => { if (n + line.length > limit) return false; out.push(line); n += line.length; return true; };
+  const card = c => `- ${c.title || "（无题）"}${tagLine(c.tags)}：${c.content.replace(/\n{2,}/g, "\n").slice(0, 500)}${(c.atts || []).length ? `（附了 ${c.atts.length} 个图片、文件）` : ""}`;
+  const loose = cardsOf(p.id).filter(c => !c.groupId);
+  if (loose.length) push(`【杂乱的灵感】`);
+  for (const c of [...loose].reverse()) if (!push(card(c))) { out.push("……（还有一些，太长没放进来）"); break; }
+  for (const g of p.groups || []) {
+    if (!push(`【以前的书《${g.title}》${tagLine(g.tags)}】`)) break;
+    for (const c of cardsOf(p.id).filter(c => c.groupId === g.id)) if (!push(card(c))) break;
+  }
+  return out.join("\n") || "（抽屉还是空的）";
+}
+// 全局记忆里放的大概样子
+export function ideaBoard() {
+  const p = ideaBox();
+  if (!p) return "";
+  const cards = cardsOf(p.id);
+  const loose = cards.filter(c => !c.groupId);
+  if (!cards.length && !(p.groups || []).length) return "";
+  const tags = allTags(p).slice(0, 8).map(x => `${x.t}（${x.k}）`).join("、");
+  return [
+    `- 杂乱的灵感 ${loose.length} 张${loose.length ? `，最近的：${loose.slice(-3).reverse().map(c => c.title || c.content.slice(0, 12)).join("、")}` : ""}`,
+    (p.groups || []).length ? `- 以前的书：${p.groups.map(g => `《${g.title}》${tagLine(g.tags)}`).join("、")}` : "",
+    tags ? `- 常用的标签：${tags}` : "",
+  ].filter(Boolean).join("\n");
+}
 // 卡片按自己排的顺序（c.order）；没排过的按放上来的先后
 const ordOf = c => (c.order ?? c.ts);
 export const cardsOf = pid => (store.writeCards || []).filter(c => c.projectId === pid).sort((a, b) => ordOf(a) - ordOf(b));
@@ -102,12 +164,14 @@ export async function toAtt(file) {
   return fileToAttachment(file);
 }
 // 导入：每个文件变成一张卡片（文本文件的字直接放进卡片里；图片、PDF 挂在卡片上）
-export async function importFiles(pid, files, type = "ref") {
+export async function importFiles(pid, files, type = "ref", extra = {}) {
   const out = [];
   for (const f of files) {
     const a = await toAtt(f);
     const title = f.name.replace(/\.[^.]+$/, "").slice(0, 60);
-    out.push(a.kind === "text" ? addCard(pid, { type, title, content: a.text }) : addCard(pid, { type, title, atts: [a] }));
+    const c = a.kind === "text" ? addCard(pid, { type, title, content: a.text }) : addCard(pid, { type, title, atts: [a] });
+    Object.assign(c, extra);
+    out.push(c);
   }
   return out;
 }
@@ -178,6 +242,11 @@ function applyTags(p, text) {
   });
   text = text.replace(CARD_TAG, (_, inner) => {
     const [type = "", title = "", ...rest] = inner.split(/[|｜]/).map(s => s.trim());
+    if (p.kind === "ideas") { // 灵感抽屉：第一段是标签
+      const content = rest.join("｜").trim();
+      if (content) { const c = addCard(p.id, { type: "idea", title, content, from: "ai" }); c.tags = tagsOf(type); notes.push(`放了一张灵感卡片「${title || "无题"}」`); }
+      return "";
+    }
     const key = Object.keys(CARD_TYPES).find(k => CARD_TYPES[k].label === type) || "idea";
     const content = rest.join("｜").trim();
     if (content) { addCard(p.id, { type: key, title, content, from: "ai" }); notes.push(`放了一张新卡片「${title || "无题"}」`); }
@@ -195,8 +264,17 @@ function rulesFor(who) {
   ].join("\n");
 }
 
+function ideaRules(who) {
+  return [
+    `你可以在回复里顺手做这几件事（不是每次都要）：`,
+    `- 给某张卡片贴便利贴：另起一行写 [便签:卡片标题|想说的话]`,
+    `- 放一张新的灵感卡片：另起一行写 [新卡片:标签（几个词，空格隔开，可以不写）|标题|内容]，${who}可以留下或者撕掉`,
+  ].join("\n");
+}
+
 // 共写的场景记忆，一段一段分好：这本书（定位、简介、资料按顺序）→ 你记着的这本书的总结 → 刚才的讨论 → 其他在写的书（短短一句）
 export function writingSceneParts(p, list, me) {
+  if (p.kind === "ideas") return ideaSceneParts(p, list, me);
   const out = [{ key: "cards", label: "定位、简介和资料", text: `这本书的定位、简介和资料（按${me}排的顺序）：\n${projectText(p)}` }];
   const memo = store.memories.find(m => m.id === p.memId);
   if (memo) out.push({ key: "memo", label: "你记着的这本书", text: `你之前记下的这本书：${memo.content}` });
@@ -209,6 +287,15 @@ export function writingSceneParts(p, list, me) {
   if (others.length) out.push({ key: "others", label: "其他在写的书", text: `（别的书，别和这本弄混）${me}还在写：${others.map(x => `《${x.title}》${x.pitch ? `（${x.pitch}）` : ""}`).join("、")}` });
   return out;
 }
+function ideaSceneParts(p, list, me) {
+  const out = [{ key: "cards", label: "抽屉里的灵感和以前的书", text: `灵感抽屉里有（新的灵感在前；以前的书一本一组）：\n${ideaText(p)}` }];
+  if (p.talkSum?.text) out.push({ key: "talkSum", label: "讨论摘要（只在抽屉这里）", text: `你们之前在这里聊的摘要（你自己整理的）：\n${p.talkSum.text}` });
+  const rest = tail(talkAfterSum(p, list), talkLimit());
+  out.push({ key: "talk", label: `摘要之后的讨论（${rest.length} 句）`, text: `你们${p.talkSum?.text ? "接着" : "刚才"}在聊：\n${rest.map(m => `${m.from === "me" ? me : "你"}：${m.text}`).join("\n") || "（刚打开抽屉）"}` });
+  const books = projects().filter(x => !x.archived);
+  if (books.length) out.push({ key: "others", label: "书桌上在写的书", text: `（书桌上在写的，别弄混）${books.map(x => `《${x.title}》`).join("、")}` });
+  return out;
+}
 // 讨论时给他看的全部：场景记忆在前，全局记忆在后（记忆库里「看看发给他的」也是这一份）
 export async function writingPrompt(role, p, atts = []) {
   const { meName } = await import("./chat.js");
@@ -217,10 +304,12 @@ export async function writingPrompt(role, p, atts = []) {
   const list = await loadTalk(p.id);
   return [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
-    `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
-    `\n# 共写《${p.title}》（这次的场景，最要紧）\n${writingSceneParts(p, list, me).map(x => x.text).join("\n\n")}`,
+    p.kind === "ideas"
+      ? `${me}是写小说的人。你们在翻${me}的灵感抽屉：这里放着还没成书的灵感、以前写过的书的复盘，不属于书桌上哪一本。陪${me}聊聊：哪些灵感能连起来、能长成什么，以前的书有什么可以带走的。说真实的想法，别空泛。`
+      : `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
+    `\n# ${p.kind === "ideas" ? "灵感抽屉" : `共写《${p.title}》`}（这次的场景，最要紧）\n${writingSceneParts(p, list, me).map(x => x.text).join("\n\n")}`,
     await globalMemoryForScene(role, me, { skip: "write", query: [...list].reverse().find(m => m.from === "me")?.text || "" }),
-    `\n${rulesFor(me)}`,
+    `\n${p.kind === "ideas" ? ideaRules(me) : rulesFor(me)}`,
     atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",
     `\n现在接着回${me}，像平时说话那样，几段就好。`,
   ].filter(Boolean).join("\n");
@@ -249,16 +338,16 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
     const me = meName(role);
     const prev = p.talkSum?.text;
     let text = (await oneShot(role, [
-      `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
+      p.kind === "ideas" ? `你和${me}在翻${me}的灵感抽屉（还没成书的灵感、以前的书的复盘）。` : `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
       prev ? `你以前整理过的讨论摘要：\n${prev}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
       `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份讨论摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。按先后，简洁，不超过 800 字。只写摘要本身。`,
-      `然后另起一行写这本书现在的进度：[写书进度:现在到哪了|下一步]，各 ${PROGRESS_MAX} 字以内。`,
+      p.kind === "ideas" ? "" : `然后另起一行写这本书现在的进度：[写书进度:现在到哪了|下一步]，各 ${PROGRESS_MAX} 字以内。`,
       `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的设定），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
     const { takeSuggestions } = await import("./memoryTags.js");
     text = takeSuggestions(role, text, `共写《${p.title}》`);
-    text = applyBoardTags(role, text, { project: p }).text;
+    if (p.kind !== "ideas") text = applyBoardTags(role, text, { project: p }).text;
     if (!text) return 0;
     const { helperApi } = await import("./chat.js");
     snapshotSum(p, "talkSum");
@@ -296,8 +385,8 @@ export async function reviewCard(role, c) {
   const me = meName(role);
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
-    `你是${me}写《${p.title}》时的写作伙伴。这本书的其他卡片：\n${projectText(p, 5000)}`,
-    `\n${me}想听你说说这一张【${CARD_TYPES[c.type]?.label}】「${c.title}」：\n${c.content}`,
+    p.kind === "ideas" ? `你是${me}的写作伙伴，在翻${me}的灵感抽屉。抽屉里还有：\n${ideaText(p, 5000)}` : `你是${me}写《${p.title}》时的写作伙伴。这本书的其他卡片：\n${projectText(p, 5000)}`,
+    `\n${me}想听你说说这一张${p.kind === "ideas" ? "" : `【${CARD_TYPES[c.type]?.label}】`}「${c.title}」${tagLine(c.tags)}：\n${c.content}`,
     notesOfCard(c.id).length ? `\n上面已经贴着的便利贴：\n${notesOfCard(c.id).map(n => `- ${n.from === "me" ? me : "你"}：${n.text}`).join("\n")}` : "",
     `\n写一张便利贴贴在这张卡片上：具体的想法、建议或者疑问，用你自己的口吻，150 字以内。只写便利贴上的字。`,
   ].filter(Boolean).join("\n");
