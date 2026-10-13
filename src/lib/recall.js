@@ -2,6 +2,8 @@
 import { store, threadsOf, loadMessages, roleById } from "../store/index.js";
 import { activePath } from "./tree.js";
 import { memoriesOf } from "./memoryTags.js";
+import { lettersOf } from "./letters.js";
+import { exactRank, bm25Rank, fuse, parseWhen, parseKinds, KINDS } from "./rank.js";
 
 const terms = q => String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
 const hit = (text, ts) => { const t = String(text || "").toLowerCase(); return ts.length && ts.every(w => t.includes(w)); };
@@ -39,18 +41,89 @@ export function searchCards(roleId, q) {
   return ts.length ? memoriesOf(roleId).filter(m => ["valid", "obsolete", undefined].includes(m.status) && hit(`${m.title} ${m.content} ${m.date} ${(m.tags || []).join(" ")}`, ts)) : [];
 }
 
+// ---------- 他翻记忆 ----------
+// [翻记忆:关键词] 或 [翻记忆:关键词|范围|时间]：范围是 聊天 / 共读 / 共写 / 信 / 卡片 / 摘要，时间像「最近一周」「上个月」「2026-10」「10月3日」。
+// 去哪找：所有对话（含邮箱那边）里你们说的话、共写的讨论、书里的划线批注、来往的信、记忆卡片、各处的摘要。
+// 怎么排：精确 + BM25，RRF 合起来（见 rank.js）。聊天找到的那句，前后各带一句
+export function parseRecall(raw) {
+  const [q = "", ...rest] = String(raw || "").split(/[|｜]/).map(s => s.trim());
+  let kinds = null, when = null;
+  for (const x of rest) {
+    const w = parseWhen(x);
+    if (w) { when = w; continue; }
+    const k = parseKinds(x);
+    if (k) kinds = k;
+  }
+  return { q, kinds, when };
+}
+async function docsOf(role, me, skip) {
+  const docs = [];
+  const name = f => (f === "user" || f === "me" ? me : role.name);
+  for (const t of threadsOf(role.id)) {
+    const path = activePath(await loadMessages(t.id), t.sel || {}).filter(m => !m.pending && !m.error && (m.from === "user" || m.from === "ai"));
+    path.forEach((m, i) => {
+      const text = plainOf(m);
+      if (!text || skip?.has(m.id)) return; // 他眼前就看得到的（这个对话最近的）不用翻
+      docs.push({ kind: "chat", text, ts: m.ts, who: name(m.from), where: t.mail ? "邮箱那边" : `「${t.title || "对话"}」`, prev: path[i - 1], next: path[i + 1] });
+    });
+    if (t.summary?.text) docs.push({ kind: "sum", text: t.summary.text, ts: t.summary.at, where: `对话「${t.title || ""}」的摘要` });
+  }
+  const { projects, loadTalk } = await import("./writing.js");
+  for (const p of projects()) {
+    for (const m of await loadTalk(p.id)) if (m.text) docs.push({ kind: "write", text: m.text, ts: m.ts, who: name(m.from), where: `共写《${p.title}》` });
+    if (p.talkSum?.text) docs.push({ kind: "sum", text: p.talkSum.text, ts: p.talkSum.at, where: `共写《${p.title}》的讨论摘要` });
+  }
+  for (const n of store.bookNotes || []) {
+    const b = (store.books || []).find(x => x.id === n.bookId);
+    if (!b || !(n.text || n.quote)) continue;
+    docs.push({ kind: "read", text: `${n.quote ? `「${n.quote}」` : ""}${n.text ? " " + n.text : ""}`, ts: n.ts, who: n.from === "me" ? me : role.name, where: `共读《${b.title}》${n.text ? "的批注" : "的划线"}` });
+  }
+  for (const b of store.books || []) for (const x of b.imprs || []) docs.push({ kind: "read", text: x.text, ts: x.at, who: role.name, where: `共读《${b.title}》的中途印象` });
+  for (const l of lettersOf(role.id)) {
+    if (l.locked) continue;
+    docs.push({ kind: "letter", text: `${l.title} ${l.body}`, ts: l.ts, who: l.from === "me" ? me : role.name, where: `信「${l.title || "没有标题"}」` });
+  }
+  for (const m of memoriesOf(role.id)) {
+    if (!["valid", "obsolete", undefined].includes(m.status)) continue;
+    docs.push({ kind: "card", text: `${m.title} ${m.content} ${(m.tags || []).join(" ")}`, ts: m.ts, card: m, pinned: m.access === "pinned", importance: m.importance, obsolete: m.status === "obsolete" });
+  }
+  return docs;
+}
+export async function searchAll(role, raw, me, { limit = 16, skip } = {}) {
+  const { q, kinds, when } = parseRecall(raw);
+  let docs = await docsOf(role, me, skip);
+  if (kinds) docs = docs.filter(d => kinds.has(d.kind));
+  if (when) docs = docs.filter(d => d.ts >= when[0] && d.ts < when[1]);
+  // 只给了范围、时间，没给关键词：按时间排
+  const ranked = q ? fuse([exactRank(docs, q), bm25Rank(docs, q)]) : docs.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  // 别让一种挤满：卡片最多 6、摘要最多 3
+  const cap = { card: 6, sum: 3 }, n = {};
+  const out = [];
+  for (const d of ranked) {
+    n[d.kind] = (n[d.kind] || 0) + 1;
+    if (cap[d.kind] && n[d.kind] > cap[d.kind]) continue;
+    out.push(d);
+    if (out.length >= limit) break;
+  }
+  return { q, kinds, when, hits: out, pool: docs.length };
+}
+const day = ts => new Date(ts).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const short = (s, n) => { const t = String(s || "").replace(/\s+/g, " "); return t.length > n ? t.slice(0, n) + "…" : t; };
+export function hitLine(d, q, me, role) {
+  if (d.kind === "card") return `· 记忆卡片 #${d.card.id.slice(0, 4)} [${d.card.date}] ${d.card.title}：${short(d.card.content, 300)}${d.obsolete ? "（已过时：以前是这样，现在不是了）" : ""}`;
+  if (d.kind === "sum") return `· ${d.where}里：${snippet(d.text, q, 120)}`;
+  const ctx = d.kind === "chat" ? [d.prev && `前一句 ${d.prev.from === "user" ? me : role.name}：${short(plainOf(d.prev), 50)}`, d.next && `后一句 ${d.next.from === "user" ? me : role.name}：${short(plainOf(d.next), 50)}`].filter(Boolean).join("；") : "";
+  return `· ${d.where} [${day(d.ts)}] ${d.who}：${snippet(d.text, q, 80)}${ctx ? `（${ctx}）` : ""}`;
+}
 // 给他看的结果
-export async function recallForAI(role, q, me) {
-  const cards = searchCards(role.id, q).slice(0, 8);
-  const chats = (await searchChats(role.id, q, { limit: 12 }));
-  const sums = threadsOf(role.id).map(t => t.summary?.text).filter(s => s && hit(s, terms(q)));
-  const day = ts => new Date(ts).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  const lines = [
-    ...cards.map(c => `· 记忆卡片 [${c.date}] ${c.title}：${c.content.slice(0, 300)}${c.status === "obsolete" ? "（已过时：以前是这样，现在不是了）" : ""}`),
-    ...sums.map(s => `· 你整理过的摘要里：${snippet(s, q, 120)}`),
-    ...chats.map(r => `· 聊天 [${day(r.m.ts)}] ${r.m.from === "user" ? me : role.name}：${snippet(r.text, q, 80)}`),
-  ];
-  return { count: cards.length + chats.length + sums.length, text: lines.length ? lines.join("\n") : `（没有找到和「${q}」有关的。换个说法、少一点字再找找，或者就照实说记不清了。）` };
+export async function recallForAI(role, raw, me, { skip } = {}) {
+  const r = await searchAll(role, raw, me, { skip });
+  const scope = [r.kinds && [...r.kinds].map(k => KINDS[k]).join("、"), r.when && `${new Date(r.when[0]).toLocaleDateString("zh-CN")} 到 ${new Date(r.when[1] - 1).toLocaleDateString("zh-CN")}`].filter(Boolean).join("，");
+  store.searchLog ??= [];
+  store.searchLog.unshift({ roleId: role.id, ts: Date.now(), q: String(raw).slice(0, 60), count: r.hits.length });
+  store.searchLog.splice(50);
+  const head = scope ? `（只在 ${scope} 里找的）\n` : "";
+  return { count: r.hits.length, text: r.hits.length ? head + r.hits.map(d => hitLine(d, r.q, me, role)).join("\n") : `${head}（没有找到和「${r.q || raw}」有关的。换个说法、少一点字、或者放宽范围和时间再找找，或者就照实说记不清了。）` };
 }
 
 // 你收藏的聊天
