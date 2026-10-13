@@ -7,6 +7,7 @@
 import { store, uid } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
+import { globalMemoryForScene } from "./memoryTags.js";
 
 export const NOTE_RE = /\[便利贴[:：]([^\]]{2,1200})\]/g;
 export const READ_MEM_RE = /\[读书笔记[:：]([^\]]{2,1200})\]/g;
@@ -72,15 +73,33 @@ export async function maybeGist(role, b, upTo) {
   const every = Number(store.settings.readGistChars) || 3000; // 每读多少字整理一次（共读的 Aa 里能调）
   if (before(from, upTo) && textBetween(book, from, upTo, every + 200).length >= every) updateGist(role, b, upTo).catch(e => console.warn("共读印象没更新", e));
 }
-// 给他看的「这本书你们读到哪了」：印象 + 最近的便利贴 + 他的读书笔记
-function bookContext(b, me) {
+// 共读的场景记忆（给他看的「这本书你们读到哪了」），一段一段分好：
+// 这本书的前情印象 → 最近的划线批注 → 他为这本书记的读书笔记 → 其他也在读的书（短短一句）
+// 记忆库里「看看发给他的」：问问他 / 一起读时，原文前面给他看的这一份（场景记忆在前，全局记忆在后）
+export async function readingPreview(role, b) {
+  const { meName } = await import("./chat.js");
+  const me = meName(role);
+  return [
+    { label: "开头", text: `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。` },
+    ...readingSceneParts(b, me).map(x => ({ label: `场景记忆 · ${x.label}`, text: x.text })),
+    { label: "全局记忆（排在场景后面）", text: globalMemoryForScene(role, me, { skip: "read" }) || "（没有）" },
+    { label: "然后是这次的原文", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从他上次读到的地方到你这一页的全部原文（超过 10 页会先问你）。" },
+  ];
+}
+export function readingSceneParts(b, me) {
   const out = [];
-  if (b.gist?.text) out.push(`你们读到这里的前情（你自己记的）：\n${b.gist.text}`);
-  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text.slice(0, 120)}`);
-  if (notes.length) out.push(`这本书里你们最近贴的便利贴：\n${notes.join("\n")}`);
+  if (b.gist?.text) out.push({ key: "gist", label: "读到这里的印象", text: `你们读到这里的前情（你自己记的）：\n${b.gist.text}` });
+  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
+  if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
   const mems = readingMemsOf(b.id).slice(0, 5).map(m => `- ${m.content.slice(0, 140)}`);
-  if (mems.length) out.push(`你为这本书记过的读书笔记：\n${mems.join("\n")}`);
-  return out.join("\n\n");
+  if (mems.length) out.push({ key: "mems", label: "这本书的读书笔记", text: `你为这本书记过的读书笔记：\n${mems.join("\n")}` });
+  const others = (store.books || []).filter(x => x.id !== b.id && x.gist?.text).sort((x, y) => (y.readAt || 0) - (x.readAt || 0)).slice(0, 3);
+  if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》：${x.gist.text.slice(0, 200)}`).join("\n")}` });
+  return out;
+}
+function bookContext(b, me, role) {
+  const scene = readingSceneParts(b, me).map(x => x.text).join("\n\n");
+  return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? globalMemoryForScene(role, me, { skip: "read" }) : ""].filter(Boolean).join("\n");
 }
 
 export function newReadingForAI(role, who) {
@@ -159,7 +178,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
-    bookContext(b, me),
+    bookContext(b, me, role),
     part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
     question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
@@ -213,7 +232,7 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
-    bookContext(b, me),
+    bookContext(b, me, role),
     `下面是${me}从你上次一起读到的地方、一直读到现在的这几页。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
     `你也读一读。挑两三处真让你有感觉的句子（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,

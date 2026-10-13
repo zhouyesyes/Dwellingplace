@@ -154,6 +154,24 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
   return lines.filter(Boolean).join("\n");
 }
 
+// 记忆库里「看看聊天时发给他的」：系统提示（全局记忆在里面）、摘要记忆、最近能看到的聊天条数。
+// 每次附在新消息前的【此刻】（时间、心境、新来信、在读什么）每次都不一样，这里只说一声
+export async function chatPreview(role) {
+  const thread = threadsOf(role.id).filter(t => !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  const system = buildSystem(role, []);
+  const parts = [{ label: "系统提示（说话方式、规矩、全局记忆都在这里）", text: system }];
+  if (thread) {
+    const sum = summaryForAI(thread);
+    if (sum) parts.push({ label: `摘要记忆（对话「${thread.title}」）`, text: sum });
+    const path = pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event");
+    const rest = afterSummary(thread, path);
+    const n = Math.min(rest.length, Number(store.settings.historyLimit) || 80);
+    parts.push({ label: "最近的聊天", text: `摘要后面的聊天，他每次最多看到最近 ${Number(store.settings.historyLimit) || 80} 条（现在是 ${n} 条，原样发过去，这里不重复列出）。` });
+  }
+  parts.push({ label: "【此刻】附注", text: "每次附在你最新那条消息前面：现在的时间、离上一条隔了多久；接了心潮的话是此刻的心境；还没读的来信；你最近在读哪本、读到哪、刚贴的划线和批注、他记的这本书的前情（截 600 字）。" });
+  return parts;
+}
+
 // 邮箱页：这里是 TA 打理自己邮箱的地方
 function mailForAI(who) {
   return [
@@ -594,7 +612,7 @@ export function afterSummary(thread, history) {
 }
 export function summaryForAI(thread) {
   const s = thread?.summary;
-  return s?.text ? `【之前的聊天，你自己整理成的摘要（更早的 ${s.count} 条）】\n${s.text}\n【摘要到这里，后面是接着聊的】` : "";
+  return s?.text ? `【之前的聊天，你自己整理成的摘要（${s.from ? `从「${s.from}」那个对话带过来的；` : ""}更早的 ${s.count} 条）】\n${s.text}\n【摘要到这里，后面是接着聊的】` : "";
 }
 const compressing = {};
 async function maybeCompress(thread, role, last) {
@@ -610,8 +628,24 @@ async function maybeCompress(thread, role, last) {
   const early = Math.max(2, limit - Math.min(10, Math.floor(limit / 5))); // 100 条的话，到 90 条就整理
   if (!full && rest.length < early) return;
   const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : Math.floor(limit / 2);
-  const old = rest.slice(0, rest.length - keep);
-  if (old.length < 2) return;
+  try {
+    const n = await summarizeThread(thread, role, { keep, path });
+    if (n && last) {
+      last.notes = [...(last.notes || []), { text: `${role.name} 把前面 ${n} 条聊天整理进了摘要记忆（小世界里随时能看）`, detail: thread.summary.text }];
+      saveMessages(thread.id);
+    }
+  } catch (e) {
+    console.warn("整理摘要失败", e);
+  }
+}
+// 把还没进摘要的聊天（留下最近 keep 条不动）和以前的摘要合在一起，整理成新的一份——一直只有一份，越往后越概括。
+// 用「整理用的模型」。返回这次整理进去了几条（0：没有要整理的）
+export async function summarizeThread(thread, role, { keep = 6, path } = {}) {
+  if (compressing[thread.id]) throw new Error("正在整理，等一下");
+  path ??= pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error);
+  const rest = afterSummary(thread, path);
+  const old = rest.slice(0, Math.max(0, rest.length - keep));
+  if (old.length < 2) return 0;
   compressing[thread.id] = true;
   try {
     const me = meName(role);
@@ -631,12 +665,9 @@ async function maybeCompress(thread, role, last) {
       `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方。`,
       `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写摘要本身。`,
     ].filter(Boolean).join("\n"), { helper: true });
-    if (!text) return;
-    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now() };
-    last.notes = [...(last.notes || []), { text: `${role.name} 把前面 ${old.length} 条聊天整理成了摘要（点开看）`, detail: thread.summary.text }];
-    saveMessages(thread.id);
-  } catch (e) {
-    console.warn("整理摘要失败", e);
+    if (!text) return 0;
+    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from };
+    return old.length;
   } finally {
     delete compressing[thread.id];
   }

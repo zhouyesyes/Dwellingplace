@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment } from "../lib/chat.js";
+import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError } from "../lib/chat.js";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
@@ -333,7 +333,8 @@ const threadsOpen = ref(false);
 const threadList = computed(() => (role.value ? threadsOf(role.value.id) : []));
 async function newThread() {
   threadsOpen.value = false;
-  const t = createThread(role.value.id);
+  // 换窗：这个对话的摘要记忆跟着走
+  const t = createThread(role.value.id, thread.value);
   await openThread(t.id);
 }
 async function switchThread(id) {
@@ -486,6 +487,31 @@ async function removeMsg() {
   actionMsg.value = null;
   if (!confirm(vers(m).list.length > 1 ? "删除这个版本（以及它后面的对话）？其他版本会保留。" : "删除这条消息（以及它后面的对话）？")) return;
   await deleteMessage(thread.value, m.id);
+}
+
+// ---------- 摘要记忆 ----------
+const sumEdit = ref(null);
+const sumBusy = ref(false);
+function openSummary() { sumEdit.value = { text: thread.value?.summary?.text || "" }; }
+function saveSummary() {
+  const t = thread.value, text = sumEdit.value.text.trim();
+  if (!t) return;
+  if (!text) delete t.summary;
+  else t.summary = { ...(t.summary || { upTo: null, count: 0 }), text, at: Date.now(), edited: true };
+  sumEdit.value = null;
+  toast("存好了");
+}
+async function compressNow() {
+  sumBusy.value = true;
+  try {
+    const n = await summarizeThread(thread.value, role.value, { keep: 6 });
+    sumEdit.value = { text: thread.value.summary?.text || "" };
+    toast(n ? `把 ${n} 条聊天整理进去了` : "没有新的聊天要整理");
+  } catch (e) {
+    toast(`没整理成：${describeError(e)}`, 4000);
+  } finally {
+    sumBusy.value = false;
+  }
 }
 
 const worldOpen = ref(false); // 小世界：右边滑出来的半边
@@ -718,7 +744,20 @@ async function changeAvatarOf(who) {
       <p v-else class="tip">在「设置 → API」里给模型点星标，就会出现在这里</p>
     </Sheet>
 
-    <WorldDrawer :open="worldOpen" :role="role" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" @search="worldOpen = false; searchOpen = true" />
+    <WorldDrawer :open="worldOpen" :role="role" :thread="thread" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" @search="worldOpen = false; searchOpen = true" @summary="worldOpen = false; openSummary()" />
+
+    <!-- 摘要记忆：这个对话前面的聊天整理成的一份（一直只有一份：每次整理都是旧摘要 + 新聊天合成新的） -->
+    <Sheet :open="!!sumEdit" title="摘要记忆" @close="sumEdit = null">
+      <template v-if="sumEdit">
+        <p class="sum-meta">{{ thread?.summary?.text ? `${thread.summary.count || 0} 条聊天整理成的${thread.summary.from ? `，从「${thread.summary.from}」带过来` : ""}${thread.summary.at ? ` · ${new Date(thread.summary.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}` : "还没有摘要。" }}</p>
+        <BigTextarea v-model="sumEdit.text" rows="10" title="摘要记忆" placeholder="还没有摘要：点下面「现在整理」，或者聊久了会自己整理" />
+        <p class="sum-tip">每次整理都是把以前的摘要和新聊的合在一起，整理成新的一份（用「设置 → API」里的整理模型）；最近 6 条不动。看到错的可以直接改。换到新对话时，这份摘要会跟着过去。</p>
+        <div class="edit-actions">
+          <button class="btn soft" :disabled="sumBusy" @click="compressNow">{{ sumBusy ? "在整理……" : "现在整理" }}</button>
+          <button class="btn" @click="saveSummary">保存</button>
+        </div>
+      </template>
+    </Sheet>
     <SearchPanel :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="id => { searchOpen = false; router.push(`/chat/${role.id}/${id}`); }" />
 
     <!-- 消息操作：手指旁边一列小选项 -->
@@ -985,4 +1024,6 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .bubble-pick { padding: 12px; }
 .tip { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 14px 0 0; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.sum-meta { margin: 0 0 10px; font-size: .78rem; color: var(--text-3); }
+.sum-tip { margin: 10px 2px 0; font-size: .74rem; line-height: 1.7; color: var(--text-3); }
 </style>
