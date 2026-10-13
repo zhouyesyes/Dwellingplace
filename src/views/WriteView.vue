@@ -9,7 +9,7 @@ import Icon from "../components/Icon.vue";
 
 const router = useRouter();
 const role = computed(() => roleById(MAIN));
-const books = computed(() => [...projects()].sort((a, b) => b.updatedAt - a.updatedAt));
+const books = computed(() => [...projects()].sort((a, b) => !!a.archived - !!b.archived || b.updatedAt - a.updatedAt)); // 归档的排后面
 function add() {
   const t = prompt("新书的名字");
   if (!t?.trim()) return;
@@ -28,9 +28,9 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
     <div class="title"><h1>共写</h1><span class="side">at the desk<br />with {{ role?.name || "him" }}</span></div>
 
     <div class="list">
-      <button v-for="b in books" :key="b.id" class="book" @click="router.push(`/write/${b.id}`)">
+      <button v-for="b in books" :key="b.id" class="book" :class="{ arch: b.archived }" @click="router.push(`/write/${b.id}`)">
         <i class="spine" :style="{ background: SPINES[b.color % SPINES.length] }" />
-        <span class="grow"><b>{{ b.title }}</b><small>{{ b.pitch ? b.pitch + " · " : "" }}{{ cardsOf(b.id).length }} 张卡片 · {{ when(b.updatedAt) }}</small></span>
+        <span class="grow"><b>{{ b.title }}</b><small>{{ b.pitch ? b.pitch + " · " : "" }}{{ cardsOf(b.id).length }} 张卡片 · {{ when(b.updatedAt) }}{{ b.archived ? " · 已归档" : "" }}</small></span>
         <span v-if="freshNotes(b.id).length" class="fresh">{{ freshNotes(b.id).length }} 张新便利贴</span>
         <Icon name="right" :size="16" class="chev" />
       </button>
@@ -54,4 +54,5 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
 .book.add { color: var(--text-2); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); }
 .fresh { font-size: .7rem; color: #4d7aa3; background: #e4eefa; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .chev { color: var(--text-3); }
+.book.arch { opacity: .55; }
 </style>

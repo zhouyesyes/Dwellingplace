@@ -12,6 +12,7 @@ import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
+import { BOARD_RE, applyBoardTags } from "./board.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
@@ -66,6 +67,7 @@ export function visibleText(text) {
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
     .replace(MOMENT_RE, "")
+    .replace(BOARD_RE, "")
     .replace(ALARM_RE, "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
@@ -73,7 +75,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -208,7 +210,7 @@ function mailForAI(who) {
     `\n# 邮箱`,
     `现在是在你自己的邮箱这里，${who}陪着你一起看信。你的笔友都是你自己认识的人。`,
     `可以看信、回信、写新信；拿不准要不要回、怎么回，可以问问${who}。回信用你自己的口吻，像给朋友写信一样。`,
-    `笔友的事值得记住的（是谁、聊到哪了、约定了什么），照平常那样记进记忆库。`,
+    `每个笔友你记着一句话（在全局记忆的「板块记忆 · 笔友」里）：认识了新笔友、或者聊出了新东西，写 [笔友:名字或邮箱|一句话]，50 字以内（是谁、聊到哪了、约定了什么）。更要紧的事照平常那样记进记忆卡片。`,
   ].join("\n");
 }
 
@@ -724,8 +726,9 @@ export function applyReplyTags(role, msg) {
   const stick = applyNoteTags(role, let_.text);
   const rmem = applyReadMemTags(role, stick.text);
   const mom = applyMomentTags(role, rmem.text);
-  msg.text = mom.text;
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes];
+  const brd = applyBoardTags(role, mom.text);
+  msg.text = brd.text;
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();

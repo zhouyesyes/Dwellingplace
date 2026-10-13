@@ -6,6 +6,8 @@
 import { chatPreview, summarizeThread, describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
 import { momentParts, momentsOf, removeMoment, ago, MOMENT_MAX } from "../lib/moment.js";
+import { projects } from "../lib/writing.js";
+import { setProgress, palsOf, setPal, removePal, roundOf, PROGRESS_MAX, IMPRESSION_MAX, PAL_MAX } from "../lib/board.js";
 import SceneMemory from "../components/memory/SceneMemory.vue";
 import PromptPreview from "../components/memory/PromptPreview.vue";
 import MemoryGuide from "../components/memory/MemoryGuide.vue";
@@ -123,6 +125,30 @@ const moment = computed(() => {
   return momentParts(role.value, meName(role.value), { peek: true }).map(p => ({ ...p, ...RULES[p.key] }));
 });
 const selfMoments = computed(() => (void now.value, void store.moments?.length, role.value ? momentsOf(role.value.id) : []));
+// 板块记忆：长期的进展（在写的书、在读和读完的书、笔友），点一行能改
+const boardWrite = computed(() => projects().filter(x => !x.archived).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+const boardRead = computed(() => (store.books || []).filter(b => b.readAt || b.mine).sort((a, b) => !!a.mine - !!b.mine || (b.readAt || 0) - (a.readAt || 0)));
+const boardPals = computed(() => (void store.penpals?.length, role.value ? palsOf(role.value.id) : []));
+function editProgress(x) {
+  const progress = prompt(`《${x.title}》现在到哪了？（${PROGRESS_MAX} 字以内）`, x.board?.progress || "");
+  if (progress == null) return;
+  const next = prompt("下一步要做什么？", x.board?.next || "");
+  if (next != null) setProgress(x, { progress, next }, "me");
+}
+function editImpression(b) {
+  const t = prompt(`《${b.title}》读完的印象（${IMPRESSION_MAX} 字以内）`, b.impression?.text || "");
+  if (t == null) return;
+  if (t.trim()) b.impression = { text: t.trim().slice(0, IMPRESSION_MAX), at: Date.now(), by: "me" };
+  else delete b.impression;
+}
+function editPal(x) {
+  const name = x ? x.name || x.email : prompt("笔友的名字或邮箱");
+  if (!name?.trim()) return;
+  const t = prompt(`${role.value.name}记着的 ${name}（${PAL_MAX} 字以内）`, x?.note || "");
+  if (t == null) return;
+  if (x) Object.assign(x, { note: t.trim().slice(0, PAL_MAX), at: Date.now(), by: "me" });
+  else setPal(role.value, /@/.test(name) ? { email: name.trim(), note: t } : { name: name.trim(), note: t }, "me");
+}
 const preview = ref(null);
 async function showChat() { preview.value = { title: "聊天时发给他的", parts: await chatPreview(role.value) }; }
 
@@ -277,6 +303,23 @@ function remove() {
         </ul>
         <p v-else-if="x.text" class="pre">{{ x.text }}</p>
         <small class="rule">{{ x.rule }}</small>
+      </article>
+
+      <p class="sec">板块记忆<small>长期的进展，一直放在全局记忆里；点一行能改</small></p>
+      <article class="sum tmp board">
+        <div class="meta"><span>共写：在写的书</span><span>归档了就不再记</span></div>
+        <button v-for="x in boardWrite" :key="x.id" class="brow" @click="editProgress(x)"><b>《{{ x.title }}》</b><span>{{ x.board?.progress || x.board?.next ? `现在：${x.board.progress || "—"}；下一步：${x.board.next || "—"}` : "还没记进度" }}</span></button>
+        <p v-if="!boardWrite.length" class="none">书桌上没有在写的书</p>
+      </article>
+      <article class="sum tmp board">
+        <div class="meta"><span>共读：在读和读完的书</span><span>读完的记一句印象</span></div>
+        <button v-for="b in boardRead" :key="b.id" class="brow" :disabled="!b.mine" @click="editImpression(b)"><b>《{{ b.title }}》<template v-if="roundOf(b) > 1">（第 {{ roundOf(b) }} 次）</template></b><span>{{ b.mine ? b.impression?.text || "读完了，印象还没整理（点这里写）" : `在读，读到第 ${(b.pos?.ch || 0) + 1} / ${b.chapters.length} 章` }}</span></button>
+        <p v-if="!boardRead.length" class="none">还没开始读书</p>
+      </article>
+      <article class="sum tmp board">
+        <div class="meta"><span>邮箱：笔友</span><button class="add" @click="editPal()">＋ 记一个</button></div>
+        <div v-for="x in boardPals" :key="x.id" class="brow pal" @click="editPal(x)"><b>{{ x.name || x.email }}</b><span>{{ x.note || "—" }}</span><button aria-label="删掉" @click.stop="removePal(x)"><Icon name="close" :size="14" /></button></div>
+        <p v-if="!boardPals.length" class="none">还没记笔友。{{ role.name }}在邮箱里会自己记，邮箱页点开笔友也能写。</p>
       </article>
 
       <template v-if="letterLines">
@@ -449,6 +492,14 @@ function remove() {
 .mem-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .mem-acts .btn { display: inline-flex; align-items: center; gap: 4px; }
 .tmp .on { color: #c9304c; font-weight: 600; }
+.board { display: flex; flex-direction: column; gap: 6px; }
+.brow { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%; border: 0; background: rgba(0, 0, 0, .03); border-radius: 12px; padding: 8px 12px; font-size: .84rem; color: var(--text-2); cursor: pointer; }
+.brow:disabled { cursor: default; color: var(--text-2); opacity: 1; }
+.brow b { font-size: .86rem; color: var(--text); font-weight: 600; }
+.brow.pal { position: relative; padding-right: 34px; }
+.brow.pal button { position: absolute; right: 6px; top: 6px; border: 0; background: none; color: var(--text-3); padding: 4px; display: grid; place-items: center; }
+.board .none { font-size: .8rem; color: var(--text-3); margin: 2px 0; }
+.board .add { border: 0; background: none; color: var(--text-2); font-size: .76rem; padding: 0; }
 .moms { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .moms li { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--text-2); background: rgba(0, 0, 0, .03); border-radius: 12px; padding: 6px 6px 6px 12px; }
 .moms li span { flex: 1; min-width: 0; }

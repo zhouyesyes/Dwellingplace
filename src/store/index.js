@@ -229,6 +229,7 @@ function migrate() {
   store.books ??= []; // 共读的书架
   store.bookNotes ??= []; // 书里的便利贴
   store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）
+  store.penpals ??= []; // 板块记忆：他记着的笔友，每人一句话
   store.readingLog ??= {}; // 每天读了多久（秒）
   store.writings ??= []; // 共写：书桌上的书
   store.writeCards ??= []; // 共写的卡片

@@ -19,6 +19,7 @@ import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import SumVersions from "../components/memory/SumVersions.vue";
+import { setProgress, PROGRESS_MAX } from "../lib/board.js";
 import { snapshotSum, sumTokens, fmtTok } from "../lib/budget.js";
 
 const route = useRoute();
@@ -211,6 +212,20 @@ async function drop() {
   router.replace("/write");
   await removeProject(x);
 }
+// 板块记忆：这本书现在到哪了、下一步（他一直记着，直到归档）
+function editProgress() {
+  const progress = prompt(`《${p.value.title}》现在到哪了？（${PROGRESS_MAX} 字以内）`, p.value.board?.progress || "");
+  if (progress == null) return;
+  const next = prompt("下一步要做什么？", p.value.board?.next || "");
+  if (next == null) return;
+  setProgress(p.value, { progress, next }, "me");
+  toast("记好了");
+}
+function toggleArchive() {
+  if (!p.value.archived && !confirm(`把《${p.value.title}》归档？${him.value}就不再一直记着它的进度了（书和讨论都还在）。`)) return;
+  p.value.archived = !p.value.archived;
+  toast(p.value.archived ? "归档了" : "放回书桌了");
+}
 // 讨论摘要（只在这本书里）
 const talkSumEdit = ref(null);
 const talkSumBusy = ref(false);
@@ -370,9 +385,11 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="swatch-row"><ColorSwatches :model-value="p.aiInk || INKS[0]" :colors="INKS" @update:model-value="v => (p.aiInk = v)" /></div>
 
         <div class="section-label">记忆库（全局）</div>
+        <button class="list-row" @click="menu = false; editProgress()"><Icon name="memory" :size="20" /><span class="grow">进度和下一步<small class="sub">{{ p.board?.progress || p.board?.next ? `现在：${p.board.progress || "—"}；下一步：${p.board.next || "—"}` : `还没记。${him}讨论时、整理讨论时会自己记，你也可以写` }}</small></span></button>
         <p v-if="memo" class="memo"><b>{{ him }}记着的：</b>{{ memo.content }}</p>
         <button class="list-row" :disabled="summing" @click="sumNow">{{ summing ? "在整理……" : `让${him}把这本书记进记忆库${memo ? "（更新）" : ""}` }}<small class="sub">手动的：记了以后平时聊天他也知道这本书写到哪了</small></button>
 
+        <button class="list-row" @click="toggleArchive">{{ p.archived ? "取消归档" : "归档这本书" }}<small class="sub">{{ p.archived ? "放回书桌，他重新记着进度" : `写完了或者先放下：${him}就不再一直记着它的进度` }}</small></button>
         <button class="list-row danger" @click="drop">从书桌上拿走</button>
       </div>
     </Sheet>

@@ -282,5 +282,6 @@ export async function hisReview(role, b) {
   const stars = m ? Number(m[1]) : 4;
   const text = raw.replace(/^\s*[1-5][^\n]*\n?/, "").trim() || raw.trim();
   b.his = { stars, text, at: Date.now() };
+  import("./board.js").then(m => m.bookImpression(role, b)).catch(e => console.warn("读完的印象没整理成", e)); // 板块记忆里的一句印象
   return b.his;
 }
