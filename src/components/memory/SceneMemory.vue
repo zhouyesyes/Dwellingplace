@@ -4,7 +4,7 @@ import { ref, reactive, computed, onMounted } from "vue";
 import { store } from "../../store/index.js";
 import { meName } from "../../lib/chat.js";
 import { readingSceneParts, readingPreview, rawSince, sumEvery, SUM_FORCE } from "../../lib/reading.js";
-import { writingSceneParts, writingPrompt, loadTalk, projects, SPINES } from "../../lib/writing.js";
+import { writingSceneParts, writingPrompt, loadTalk, projects, ideaBox, SPINES } from "../../lib/writing.js";
 import Sheet from "../Sheet.vue";
 import BigTextarea from "../BigTextarea.vue";
 import PromptPreview from "./PromptPreview.vue";
@@ -13,12 +13,12 @@ const props = defineProps({ role: Object });
 const me = computed(() => (props.role ? meName(props.role) : "我"));
 // 正在读的那本在最上面
 const books = computed(() => [...(store.books || [])].sort((a, b) => (b.readAt || 0) - (a.readAt || 0)));
-const pros = computed(() => [...projects()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+const pros = computed(() => [...projects().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)), ...(ideaBox() ? [ideaBox()] : [])]); // 灵感抽屉排最后
 const talks = reactive({});
 // 上次整理前情之后读过的原文（他每次都看得见）
 const raws = reactive({});
 onMounted(async () => {
-  for (const p of projects()) talks[p.id] = await loadTalk(p.id);
+  for (const p of pros.value) talks[p.id] = await loadTalk(p.id);
   for (const b of store.books || []) raws[b.id] = await rawSince(b);
 });
 const num = n => (n < 1000 ? `${n} 字` : n < 10000 ? `${(n / 1000).toFixed(1)} 千字` : `${+(n / 10000).toFixed(1)} 万字`);

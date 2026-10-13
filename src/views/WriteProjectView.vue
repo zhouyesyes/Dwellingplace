@@ -5,11 +5,12 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, BUBBLE_COLORS } from "../store/index.js";
-import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, compressTalk, talkLimit, talkAutoAt, talkAfterSum, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
+import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, compressTalk, talkLimit, talkAutoAt, talkAfterSum, toAtt, importFiles, tagsOf, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
 import { pickFile, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
 import TalkDrawer from "../components/write/TalkDrawer.vue";
 import BookDrawer from "../components/write/BookDrawer.vue";
+import IdeaDrawer from "../components/write/IdeaDrawer.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 import { vAutoGrow } from "../lib/autogrow.js";
@@ -27,6 +28,7 @@ const router = useRouter();
 const p = computed(() => projectById(route.params.id));
 const role = computed(() => roleById(MAIN));
 const him = computed(() => role.value?.name || "他");
+const isBox = computed(() => p.value?.kind === "ideas"); // 灵感抽屉：讨论一样，抽屉里是杂乱的灵感和以前的书，卡片有标签
 onMounted(async () => {
   if (!p.value) return router.replace("/write");
   msgs.value = await loadTalk(p.value.id);
@@ -78,9 +80,11 @@ function clearImage(key) { deleteImage(p.value[key]); p.value[key] = null; }
 const shelf = ref(false);
 const edit = ref(null); // 正在看 / 改的卡片（副本）
 const editing = ref(null); // 原卡片
-function openCard(c, type = "idea") {
+function openCard(c, init = "idea") {
   editing.value = c;
-  edit.value = c ? { ...c, atts: [...(c.atts || [])] } : { type, title: "", content: "", atts: [] };
+  const extra = typeof init === "object" ? init : {}; // 灵感抽屉：{ tags, groupId }
+  edit.value = c ? { ...c, atts: [...(c.atts || [])] } : { type: typeof init === "string" ? init : "idea", title: "", content: "", atts: [], ...extra };
+  edit.value._tags = (edit.value.tags || []).join(" ");
   for (const n of c ? notesOfCard(c.id) : []) n.seen = true;
 }
 function saveCard() {
@@ -88,6 +92,10 @@ function saveCard() {
   if (!e.title.trim() && !e.content.trim() && !e.atts.length) return toast("卡片还是空的");
   if (editing.value) Object.assign(editing.value, { type: e.type, tint: e.tint, title: e.title.trim(), content: e.content.trim(), atts: e.atts, ts: Date.now(), from: "me" });
   else { editing.value = addCard(p.value.id, e); editing.value.tint = e.tint; }
+  if (isBox.value) {
+    editing.value.tags = tagsOf(e._tags);
+    if (e.groupId) editing.value.groupId = e.groupId; else delete editing.value.groupId;
+  }
   edit.value = null;
 }
 function dropCard() {
@@ -111,7 +119,7 @@ async function importMany(type) {
   const files = await pickFile(ACCEPT, true);
   if (!files.length) return;
   try {
-    const made = await importFiles(p.value.id, files, type);
+    const made = typeof type === "object" ? await importFiles(p.value.id, files, "idea", type) : await importFiles(p.value.id, files, type);
     toast(`放进来 ${made.length} 张卡片`);
   } catch (e) {
     toast(e.message, 4000);
@@ -264,14 +272,15 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <button class="glass" aria-label="回书桌" @click="goBack(router, '/write')"><Icon name="back" :size="20" /></button>
         <b class="ttl">{{ p.title }}</b>
         <button class="glass" aria-label="搜索和收藏" @click="finder = true"><Icon name="search" :size="19" /></button>
-        <button class="glass" aria-label="资料" @click="shelf = true"><Icon name="folder" :size="19" /><i v-if="freshCount" class="dot" /></button>
+        <button class="glass" :aria-label="isBox ? '抽屉' : '资料'" @click="shelf = true"><Icon name="folder" :size="19" /><i v-if="freshCount" class="dot" /></button>
         <button class="glass" aria-label="更多" @click="menu = true"><Icon name="more" :size="19" /></button>
       </div>
     </header>
 
     <!-- 讨论 -->
     <div ref="box" class="msgs">
-      <p v-if="!msgs.length" class="hint">坐下来，和{{ him }}聊聊这本书：卡在哪、想试什么、哪里不对劲。<br />他会看着右上角「资料」里的定位、简介和卡片说。</p>
+      <p v-if="!msgs.length && isBox" class="hint">拉开灵感抽屉，和{{ him }}翻翻：还没成书的灵感、以前写过的书。<br />右上角是抽屉，卡片可以加标签。</p>
+      <p v-else-if="!msgs.length" class="hint">坐下来，和{{ him }}聊聊这本书：卡在哪、想试什么、哪里不对劲。<br />他会看着右上角「资料」里的定位、简介和卡片说。</p>
       <div v-for="m in msgs" :id="'wm-' + m.id" :key="m.id" class="m" :class="[m.from, { flash: flash === m.id }]">
         <AttList v-if="m.atts?.length" :atts="m.atts" small />
         <p v-if="m.text" role="button" @click="openActions(m, $event)">{{ m.text }}<i v-if="m.fav" class="fav">★</i></p>
@@ -289,13 +298,18 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </div>
     </div>
 
-    <BookDrawer :open="shelf" :book="p" :him="him" :wf="wf" @close="shelf = false" @cover="changeCover" @card="c => openCard(c)" @new="t => openCard(null, t)" @import="importMany" />
+    <IdeaDrawer v-if="isBox" :open="shelf" :box="p" :him="him" :wf="wf" @close="shelf = false" @card="c => openCard(c)" @new="x => openCard(null, x)" @import="importMany" />
+    <BookDrawer v-else :open="shelf" :book="p" :him="him" :wf="wf" @close="shelf = false" @cover="changeCover" @card="c => openCard(c)" @new="t => openCard(null, t)" @import="importMany" />
     <TalkDrawer :open="finder" :msgs="msgs" :me="role ? meName(role) : '我'" :him="him" @close="finder = false" @go="goMsg" @fav="favMsg" />
 
     <!-- 一张卡片 -->
     <Sheet :open="!!edit" :z="850" @close="edit = null">
       <div v-if="edit" class="ed">
-        <div class="types"><button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: edit.type === k }" @click="edit.type = k">{{ t.label }}</button></div>
+        <template v-if="isBox">
+          <select v-model="edit.groupId" class="input grp-sel"><option :value="undefined">杂乱的灵感</option><option v-for="g in p.groups || []" :key="g.id" :value="g.id">以前的书《{{ g.title }}》</option></select>
+          <input v-model="edit._tags" class="input" placeholder="标签：几个词，空格隔开（比如 科幻 雨天 人物）" />
+        </template>
+        <div v-else class="types"><button v-for="(t, k) in CARD_TYPES" :key="k" :class="{ on: edit.type === k }" @click="edit.type = k">{{ t.label }}</button></div>
         <div class="tints"><button v-for="(c, k) in TINTS" :key="k" :style="{ background: c }" :class="{ on: (edit.tint || 'white') === k }" :aria-label="k" @click="edit.tint = k" /></div>
         <input v-model="edit.title" class="input" placeholder="标题（比如人物的名字）" maxlength="60" />
         <textarea v-model="edit.content" class="input body" rows="8" placeholder="写下来，长短都行" />
@@ -384,6 +398,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="section-label">{{ him }}的字的颜色</div>
         <div class="swatch-row"><ColorSwatches :model-value="p.aiInk || INKS[0]" :colors="INKS" @update:model-value="v => (p.aiInk = v)" /></div>
 
+        <template v-if="!isBox">
         <div class="section-label">记忆库（全局）</div>
         <button class="list-row" @click="menu = false; editProgress()"><Icon name="memory" :size="20" /><span class="grow">进度和下一步<small class="sub">{{ p.board?.progress || p.board?.next ? `现在：${p.board.progress || "—"}；下一步：${p.board.next || "—"}` : `还没记。${him}讨论时、整理讨论时会自己记，你也可以写` }}</small></span></button>
         <p v-if="memo" class="memo"><b>{{ him }}记着的：</b>{{ memo.content }}</p>
@@ -391,6 +406,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
         <button class="list-row" @click="toggleArchive">{{ p.archived ? "取消归档" : "归档这本书" }}<small class="sub">{{ p.archived ? "放回书桌，他重新记着进度" : `写完了或者先放下：${him}就不再一直记着它的进度` }}</small></button>
         <button class="list-row danger" @click="drop">从书桌上拿走</button>
+        </template>
       </div>
     </Sheet>
   </div>
@@ -442,6 +458,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .seg button.on { background: var(--ink); color: #fff; font-weight: 600; }
 .ed { display: flex; flex-direction: column; gap: 10px; max-height: 78vh; overflow-y: auto; }
 .types { display: flex; gap: 6px; flex-wrap: wrap; }
+.grp-sel { font-size: .88rem; }
 .types button { border: 0; background: var(--bg-deep); padding: 5px 12px; border-radius: 999px; font-size: .8rem; color: var(--text-2); }
 .types button.on { background: var(--ink); color: #fff; }
 .tints { display: flex; gap: 8px; padding: 3px; }
