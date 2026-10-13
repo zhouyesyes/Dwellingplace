@@ -3,7 +3,7 @@
 import { ref, computed } from "vue";
 import { store, MAIN, roleById } from "../../store/index.js";
 import { progressOf, fmtDur, notesOf, removeBook } from "../../lib/books.js";
-import { readingMemsOf, hisReview } from "../../lib/reading.js";
+import { readingMemsOf, hisReview, writeImpression } from "../../lib/reading.js";
 import { bookImpression, rereadBook, roundOf, IMPRESSION_MAX } from "../../lib/board.js";
 import { pickAndCrop, deleteImage } from "../../lib/images.js";
 import { describeError } from "../../lib/chat.js";
@@ -51,6 +51,23 @@ async function takeDown() {
   emit("close");
   await removeBook(x);
 }
+// 他的中途印象、前情梗概、以前写的读后感：默认收着
+const showImprs = ref(false);
+const showSegs = ref(false);
+const showOld = ref(false);
+// pos 是「到这里之前」：正好在一章开头，说成上一章读完
+const chOf = pos => {
+  if (!pos) return "";
+  const c = pos.p === 0 && pos.ch > 0 ? pos.ch - 1 : Math.min(pos.ch, b.value.chapters.length - 1);
+  const t = b.value.chapters[c]?.title || `第 ${c + 1} 章`;
+  return pos.p === 0 && pos.ch > 0 ? `${t}（读完）` : t;
+};
+const dayOf = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+const imprBusy = ref(false);
+async function imprNow() {
+  imprBusy.value = true;
+  try { await writeImpression(role.value, b.value); toast("写好了"); } catch (e) { toast(describeError(e), 4000); } finally { imprBusy.value = false; }
+}
 function editImpression() {
   const t = prompt(`读完的印象（${IMPRESSION_MAX} 字以内，他一直记着）`, b.value.impression?.text || "");
   if (t == null) return;
@@ -94,7 +111,9 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
         <template v-else>
           <article v-if="b.mine" class="rv mine" @click="startReview"><span class="st">{{ stars(b.mine.stars) }}</span><p>{{ b.mine.text || "（只打了星）" }}</p><small>— 我</small></article>
           <button v-else class="btn soft small" @click="startReview">读完了，打个分</button>
-          <article v-if="b.his" class="rv his"><span class="st">{{ stars(b.his.stars) }}</span><p>{{ b.his.text }}</p><small>— {{ role?.name }}</small></article>
+          <article v-if="b.his" class="rv his"><span class="st">{{ stars(b.his.stars) }}</span><p>{{ b.his.text }}</p><small>— {{ role?.name }}{{ b.his.at ? ` · ${dayOf(b.his.at)}` : "" }}</small></article>
+          <button v-if="b.hisOld?.length" class="btn soft small" @click="showOld = !showOld">{{ showOld ? "收起" : `他以前写的 ${b.hisOld.length} 篇` }}</button>
+          <template v-if="showOld"><article v-for="(x, i) in [...b.hisOld].reverse()" :key="i" class="rv his old"><span class="st">{{ stars(x.stars) }}</span><p>{{ x.text }}</p><small>{{ dayOf(x.at) }}</small></article></template>
           <button v-if="role" class="btn soft small" :disabled="asking" @click="askReview">{{ asking ? "他在写……" : b.his ? "请他重写一篇" : `请${role.name}也写一篇` }}</button>
           <article v-if="b.mine || b.impression" class="mem" @click="editImpression"><b>{{ role?.name }}记着的印象<template v-if="roundOf(b) > 1">（第 {{ roundOf(b) }} 遍）</template></b><p>{{ b.impression?.text || "读完以后会自己整理一句，点这里也能自己写" }}</p></article>
           <button v-if="b.mine" class="btn soft small" @click="reread">再读一遍</button>
@@ -103,12 +122,29 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
 
       <section v-if="b.past?.length">
         <h4>以前读的几遍</h4>
-        <article v-for="x in [...b.past].reverse()" :key="x.round" class="mem"><b>第 {{ x.round }} 遍{{ x.mine?.stars ? " · " + stars(x.mine.stars) : "" }}</b><p>{{ x.impression?.text || x.mine?.text || "（没写读后感）" }}</p><small>{{ new Date(x.at).toLocaleDateString("zh-CN") }}</small></article>
+        <article v-for="x in [...b.past].reverse()" :key="x.round" class="mem"><b>第 {{ x.round }} 遍{{ x.mine?.stars ? " · " + stars(x.mine.stars) : "" }}</b><p>{{ x.impression?.text || x.mine?.text || "（没写读后感）" }}</p>
+          <details v-if="x.his?.text || x.imprs?.length" class="past-more"><summary>他那一遍的读后感和中途印象</summary><p v-if="x.his?.text">{{ x.his.text }}</p><p v-for="(m, k) in x.imprs || []" :key="k" class="im">{{ k + 1 }}. {{ m.text }}</p></details>
+          <small>{{ new Date(x.at).toLocaleDateString("zh-CN") }}</small></article>
+      </section>
+
+      <section v-if="role && (b.imprs?.length || b.readAt)">
+        <h4>{{ role.name }} 的中途印象<small class="h-sub">每读 2 万字写一句，平时只带最新的</small></h4>
+        <article v-if="b.imprs?.length" class="mem"><p>{{ b.imprs.at(-1).text }}</p><small>读到{{ chOf(b.imprs.at(-1).upTo) }} · {{ dayOf(b.imprs.at(-1).at) }}</small></article>
+        <div class="row-btns">
+          <button v-if="b.imprs?.length > 1" class="btn soft small" @click="showImprs = !showImprs">{{ showImprs ? "收起" : `看他的理解怎么变的（${b.imprs.length} 版）` }}</button>
+          <button class="btn soft small" :disabled="imprBusy" @click="imprNow">{{ imprBusy ? "他在想……" : "让他现在写一句" }}</button>
+        </div>
+        <template v-if="showImprs">
+          <article v-for="(x, i) in [...b.imprs].reverse()" :key="i" class="mem old"><p>{{ x.text }}</p><small>第 {{ b.imprs.length - i }} 版 · 读到{{ chOf(x.upTo) }} · {{ dayOf(x.at) }}</small></article>
+        </template>
       </section>
 
       <section v-if="b.gist?.text">
-        <h4>{{ role?.name }} 读到这里的印象</h4>
-        <article class="mem"><p>{{ b.gist.text }}</p><small>记到{{ b.chapters[b.gist.upTo.ch]?.title || `第 ${b.gist.upTo.ch + 1} 章` }}</small></article>
+        <h4>前情梗概<small class="h-sub">整理模型客观记的，6 万字整理一段</small></h4>
+        <button class="btn soft small" @click="showSegs = !showSegs">{{ showSegs ? "收起" : `看看（${b.gist.segs?.length || 1} 段，记到${chOf(b.gist.upTo)}）` }}</button>
+        <template v-if="showSegs">
+          <article v-for="(x, i) in b.gist.segs || [{ text: b.gist.text, upTo: b.gist.upTo, at: b.gist.at }]" :key="i" class="mem old"><p>{{ x.text }}</p><small>第 {{ i + 1 }} 段{{ x.from ? ` · ${chOf(x.from)} 到 ${chOf(x.upTo)}` : "" }}{{ x.model ? ` · ${x.model}` : "" }}</small></article>
+        </template>
       </section>
 
       <section v-if="mems.length">
@@ -149,6 +185,12 @@ h4 { margin: 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
 .mem { width: 100%; padding: 10px 12px; border-left: 3px solid #b9cde3; background: var(--bg); border-radius: 4px 12px 12px 4px; }
 .mem b { font-size: .85rem; font-weight: 600; }
 .mem p { margin: 4px 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; }
+.h-sub { margin-left: 8px; font-size: .68rem; font-weight: 400; color: var(--text-3); }
+.row-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mem.old, .rv.old { margin-top: 8px; opacity: .85; }
+.past-more { margin: 4px 0; font-size: .8rem; color: var(--text-2); }
+.past-more summary { cursor: pointer; color: var(--text-3); font-size: .74rem; }
+.past-more .im { margin: 2px 0; }
 .round { margin-left: 8px; font-size: .7rem; font-weight: 500; color: #b05a6e; background: #fbe9ee; padding: 2px 8px; border-radius: 999px; vertical-align: middle; }
 .acts { gap: 0; align-items: stretch; }
 .acts .list-row { text-align: left; }

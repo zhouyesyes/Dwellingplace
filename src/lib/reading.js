@@ -2,9 +2,9 @@
 //   系统提示：有个书架；他可以写 [便利贴:书名|原文里的一小句|想说的话]，贴在那句话旁边
 //   【此刻】：24 小时里读过的书、来往的划线批注（见 moment.js）
 //   读书笔记：他读到觉得有意思、对自己有用的，写 [读书笔记:书名|标题|内容]，记进他的记忆库（带着是哪本书）
-//   读到这里的印象（b.gist = { text, upTo: {ch, p}, at }）：每读过三千来字（可以调），用「整理用的模型」把前情缩成一小段。
-//   一起读、问问他、写读后感、平时聊天，都带着它（和这本书最近的便利贴、他的读书笔记），他才接得上前面
-import { store, uid } from "../store/index.js";
+//   前情（整理模型，客观的梗概，一段段接起来）和他自己的中途印象（每 2 万字一句），见下面「前情和中途印象」。
+//   一起读、问问他、写读后感，都带着它们（和这本书最近的便利贴、他的读书笔记），他才接得上前面
+import { store, uid, apiFor, modelFor } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
 import { globalMemoryForScene, takeSuggestions, newMemory } from "./memoryTags.js";
@@ -27,10 +27,15 @@ export function readingForAI(role, who) {
   ].join("\n");
 }
 
-// ---------- 读到这里的印象 ----------
+// ---------- 前情（整理模型）和他的中途印象（他自己） ----------
+// 前情 b.gist = { segs: [{ text, from, upTo, at, model, chars }], text, upTo, at }
+//   读过的原文攒到 6 万字（可以调），等这一章读完再整理；一直没读完一章，到 7 万字就直接整理。
+//   每次只整理新读的那一段，写成客观的故事梗概（不带感情），一段段接起来；整理到哪之后的原文，他每次都看得见。
+// 中途印象 b.imprs = [{ text, upTo, at, model }]：每读 2 万字（可以调），他用自己的模型写一句 100 字以内的印象，
+//   结合前情、看得见的原文、以前的印象——可能会推翻以前的想法。每一版都留着（回看他的理解怎么变的），平时只带最新的一版。
 const before = (a, b) => a.ch < b.ch || (a.ch === b.ch && a.p < b.p);
 // 从 from 读到 to（不含 to）的原文，太长就只留后面 max 个字
-function textBetween(book, from, to, max) {
+function textBetween(book, from, to, max = Infinity) {
   const out = [];
   for (let c = from.ch; c <= to.ch && c < book.chapters.length; c++) {
     const ps = book.chapters[c].paras || [];
@@ -40,57 +45,108 @@ function textBetween(book, from, to, max) {
   const t = out.join("\n");
   return t.length > max ? "……" + t.slice(-max) : t;
 }
+// 两处之间有多少字（不拼字符串）
+function charsBetween(book, from, to) {
+  let n = 0;
+  for (let c = from.ch; c <= to.ch && c < book.chapters.length; c++) {
+    const ps = book.chapters[c].paras || [];
+    const a = c === from.ch ? from.p : 0, z = c === to.ch ? Math.min(to.p, ps.length) : ps.length;
+    for (let i = a; i < z; i++) n += ps[i].length;
+  }
+  return n;
+}
+export const sumEvery = () => Number(store.settings.readSumChars) || 60000;
+export const SUM_FORCE = 10000; // 一直没读完一章：多读这么多字就直接整理
+export const imprEvery = () => Number(store.settings.readImprChars) || 20000;
+export const IMPR_MAX = 100;
+export const latestImpr = b => (b.imprs || []).at(-1) || null;
+const START = { ch: 0, p: 0 };
+
 const gisting = {};
+// 把前情 upTo 之前、上次整理之后的那一段整理成一段客观的梗概，接在前面那几段后面
 export async function updateGist(role, b, upTo) {
   if (gisting[b.id]) return;
   gisting[b.id] = true;
   try {
-    const { oneShot, meName } = await import("./chat.js");
+    const { oneShot, meName, helperApi } = await import("./chat.js");
     const me = meName(role);
     const book = await loadBook(b.id);
-    const from = b.gist?.upTo || { ch: 0, p: 0 };
+    const from = b.gist?.upTo || START;
     if (!before(from, upTo)) return;
-    const seg = textBetween(book, from, upTo, 9000);
+    const seg = textBetween(book, from, upTo);
     if (seg.length < 200) return;
-    const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-8).map(n => `- ${n.from === "me" ? me : "你"}：${n.text.slice(0, 100)}`);
+    const prevText = b.gist?.text || "";
     const prompt = [
-      `你在和${me}一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
-      b.gist?.text ? `你之前记下的「读到这里的印象」：\n${b.gist.text}` : "",
-      `接下来读到的原文：\n${seg}`,
-      notes.length ? `你们最近在书页边上贴的便利贴：\n${notes.join("\n")}` : "",
-      `把${b.gist?.text ? "以前的印象和这一段" : "这一段"}合起来，写一段新的「读到这里的印象」，给以后接着读的自己看：故事讲到哪了、主要人物和他们的关系、发生过的重要的事、埋下的伏笔，最后一两句你自己读着的感受。用你自己的口吻，不超过 600 字，只写内容。`,
-      `另外：如果你们在书页边上的批注里，有关于${me}、或者你自己想长久记住的事（不是书里的情节），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
+      `这是《${b.title}》${b.author ? `（${b.author}）` : ""}的一段原文，${me}和朋友在一起读。`,
+      prevText ? `前面的梗概（已经整理过的，接着它往下写，不用重复）：\n${prevText.length > 3000 ? "……" + prevText.slice(-3000) : prevText}` : "",
+      `这次要整理的原文：\n${seg}`,
+      `把这次的原文整理成客观的故事梗概，给以后接着读的人看：发生了什么、按先后顺序、出场的人物和他们的关系、重要的细节和伏笔。只客观讲故事，不要评价，不要抒情，不要写读者的感受。只整理这次的原文，不超过 ${Math.max(600, Math.min(1500, Math.round(seg.length / 40)))} 字，只写梗概本身。`,
     ].filter(Boolean).join("\n\n");
-    const text = takeSuggestions(role, await oneShot(role, prompt, { helper: true, raw: true }), `共读《${b.title}》`).trim();
-    if (text) b.gist = { text: text.slice(0, 1500), upTo, at: Date.now() };
+    const text = (await oneShot(role, prompt, { helper: true, raw: true })).trim();
+    if (!text) return;
+    const segs = [...(b.gist?.segs || (prevText ? [{ text: prevText, from: START, upTo: from, at: b.gist?.at }] : [])), { text: text.slice(0, 3000), from, upTo, at: Date.now(), model: helperApi(role).model, chars: seg.length }];
+    b.gist = { segs, text: segs.map(s => s.text).join("\n\n"), upTo, at: Date.now() };
   } finally {
     delete gisting[b.id];
   }
 }
-// 一起读 / 问问他之后：离上次的印象读过三千来字了，就在后台更新一下（下一次就带上新的）
-// 和聊天一样：上次整理之后读过的原文，他每次都看得见；攒到 every 字（读书页 Aa 里能调）就整理一次——
-// 把前面的并进「读到这里的印象」，最近的一半留着原文不动
-export const gistEvery = () => Number(store.settings.readGistChars) || 5000;
+// 一起读 / 问问他之后：攒够了就在后台整理（下一次就带上新的）
 export async function maybeGist(role, b, upTo) {
   const book = await loadBook(b.id);
-  const from = b.gist?.upTo || { ch: 0, p: 0 };
-  const every = gistEvery();
-  if (!before(from, upTo) || textBetween(book, from, upTo, every + 200).length < every) return;
-  // 从 upTo 往前留下大约一半的原文，切在那一段
-  let cut = { ...upTo }, n = 0;
-  while (before(from, cut) && n < every / 2) {
-    if (cut.p > 0) cut = { ch: cut.ch, p: cut.p - 1 };
-    else if (cut.ch > 0) cut = { ch: cut.ch - 1, p: (book.chapters[cut.ch - 1]?.paras.length || 1) - 1 };
-    else break;
-    n += (book.chapters[cut.ch]?.paras[cut.p] || "").length;
-  }
-  if (before(from, cut)) updateGist(role, b, cut).catch(e => console.warn("共读印象没更新", e));
+  const from = b.gist?.upTo || START;
+  const every = sumEvery();
+  if (!before(from, upTo) || charsBetween(book, from, upTo) < every) return;
+  // 等一章读完：切在最近读完的那一章末尾（这一章的开头）；一直没读完一章，多读 1 万字就切在现在
+  const end = upTo.p >= (book.chapters[upTo.ch]?.paras.length || 0) ? { ch: upTo.ch + 1, p: 0 } : { ch: upTo.ch, p: 0 };
+  let cut = null;
+  if (before(from, end) && charsBetween(book, from, end) >= every) cut = end.ch >= book.chapters.length ? upTo : end;
+  else if (charsBetween(book, from, upTo) >= every + SUM_FORCE) cut = upTo;
+  if (cut) updateGist(role, b, cut).catch(e => console.warn("共读前情没整理成", e));
 }
 // 上次整理之后、到 to 之前（不含）读过的原文：他每次都看得见（太长留后面的）
-export async function sinceGist(b, to, max = gistEvery() * 1.5) {
+export async function sinceGist(b, to, max = sumEvery() + SUM_FORCE + 5000) {
   const book = await loadBook(b.id);
-  const from = b.gist?.upTo || { ch: 0, p: 0 };
+  const from = b.gist?.upTo || START;
   return before(from, to) ? textBetween(book, from, to, max) : "";
+}
+export async function rawSince(b, to = b.pos || START) {
+  const book = await loadBook(b.id);
+  const from = b.gist?.upTo || START;
+  return before(from, to) ? charsBetween(book, from, to) : 0;
+}
+
+// 他的中途印象：离上一次印象又读了 2 万字，就写一句新的（用他自己的模型）
+const imprBusy = {};
+export async function maybeImpression(role, b, upTo) {
+  if (imprBusy[b.id]) return;
+  const book = await loadBook(b.id);
+  const from = latestImpr(b)?.upTo || START;
+  if (!before(from, upTo) || charsBetween(book, from, upTo) < imprEvery()) return;
+  imprBusy[b.id] = true;
+  try { await writeImpression(role, b, upTo); } catch (e) { console.warn("中途印象没写成", e); } finally { delete imprBusy[b.id]; }
+}
+export async function writeImpression(role, b, upTo = b.hisPos ? { ch: b.hisPos.ch, p: b.hisPos.p + 1 } : b.pos || START) {
+  const { oneShot, meName } = await import("./chat.js");
+  const me = meName(role);
+  const book = await loadBook(b.id);
+  const olds = b.imprs || [];
+  const raw = await sinceGist(b, upTo);
+  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}：${(n.text || "（划线）").slice(0, 80)}`);
+  const prompt = [
+    role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
+    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${book.chapters[Math.min(upTo.ch, book.chapters.length - 1)]?.title || ""}」。`,
+    b.gist?.text ? `前情梗概（整理好的）：\n${b.gist.text}` : "",
+    raw ? `之后读过的原文：\n${raw}` : "",
+    notes.length ? `你们在书页边上写的批注：\n${notes.join("\n")}` : "",
+    olds.length ? `你以前写下的中途印象（从早到晚）：\n${olds.map((x, i) => `${i + 1}. ${x.text}`).join("\n")}` : "",
+    `读到这里，写一句你现在对这本书的印象：用你自己的口吻，是你真实的理解和感受${olds.length ? "；和以前想的不一样也没关系，可以推翻自己" : ""}。${IMPR_MAX} 字以内，只写这一句。`,
+  ].filter(Boolean).join("\n\n");
+  const text = (await oneShot(role, prompt, { raw: true })).trim().replace(/^["“「]|["”」]$/g, "").slice(0, IMPR_MAX);
+  if (!text) return null;
+  b.imprs ??= [];
+  const x = { text, upTo, at: Date.now(), model: modelFor(null, role) || apiFor(null, role)?.model || "" };
+  b.imprs.push(x);
+  return x;
 }
 // 共读的场景记忆（给他看的「这本书你们读到哪了」），一段一段分好：
 // 这本书的前情印象 → 最近的划线批注 → 他为这本书记的读书笔记 → 其他也在读的书（短短一句）
@@ -102,19 +158,21 @@ export async function readingPreview(role, b) {
     { label: "开头", text: `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。` },
     ...readingSceneParts(b, me).map(x => ({ label: `场景记忆 · ${x.label}`, text: x.text })),
     { label: "全局记忆（排在场景后面，含主聊天最近的消息）", text: (await globalMemoryForScene(role, me, { skip: "read" })) || "（没有）" },
-    { label: "上次整理之后读过的原文（他都看得见）", text: (await sinceGist(b, b.pos || { ch: 0, p: 0 })) || "（刚整理过，或者还没读）" },
+    { label: "上次整理前情之后读过的原文（他都看得见）", text: (await sinceGist(b, b.pos || { ch: 0, p: 0 })) || "（刚整理过，或者还没读）" },
     { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从他上次一起读到的地方到你这一页（新读的超过 10 页会先问你）。" },
   ];
 }
 export function readingSceneParts(b, me) {
   const out = [];
-  if (b.gist?.text) out.push({ key: "gist", label: "读到这里的印象", text: `你们读到这里的前情（你自己记的）：\n${b.gist.text}` });
+  if (b.gist?.text) out.push({ key: "gist", label: "前情梗概", text: `这本书前面的梗概（整理模型客观记的，一段段接着）：\n${b.gist.text}` });
+  const im = latestImpr(b);
+  if (im) out.push({ key: "impr", label: "你最新的中途印象", text: `你读到「${b.chapters[Math.min(im.upTo.p === 0 && im.upTo.ch > 0 ? im.upTo.ch - 1 : im.upTo.ch, b.chapters.length - 1)]?.title || ""}」时写下的印象：${im.text}` });
   const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
   if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
   const mems = readingMemsOf(b.id).slice(0, 5).map(m => `- ${m.content.slice(0, 140)}`);
   if (mems.length) out.push({ key: "mems", label: "这本书的读书笔记", text: `你为这本书记过的读书笔记：\n${mems.join("\n")}` });
-  const others = (store.books || []).filter(x => x.id !== b.id && x.gist?.text).sort((x, y) => (y.readAt || 0) - (x.readAt || 0)).slice(0, 3);
-  if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》：${x.gist.text.slice(0, 200)}`).join("\n")}` });
+  const others = (store.books || []).filter(x => x.id !== b.id && x.readAt && !x.mine).sort((x, y) => (y.readAt || 0) - (x.readAt || 0)).slice(0, 3);
+  if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》${latestImpr(x) ? `：${latestImpr(x).text}` : ""}`).join("\n")}` });
   return out;
 }
 async function bookContext(b, me, role, query = "") {
@@ -188,6 +246,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   if (!text) throw new Error("他没有写什么");
   markHisPos(b, ch, p);
   maybeGist(role, b, { ch, p }).catch(() => {});
+  maybeImpression(role, b, { ch, p: p + 1 }).catch(() => {});
   return { text, notes };
 }
 
@@ -259,29 +318,38 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
   const end = items[items.length - 1];
   markHisPos(b, end.ch, end.p);
   maybeGist(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
+  maybeImpression(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
   return { notes: out.slice(0, 4), memNotes: notes, upTo: { ch: end.ch, p: end.p }, count: items.length };
 }
 
-// 他的读后感：看过的便利贴、记下的读书笔记都给他，打几颗星、写一段
+// 他的读后感：前情、他的中途印象、便利贴、读书笔记、你的读后感（重读的还有以前几遍的）都给他，打几颗星、写一篇（最多 3000 字）。
+// 重写不覆盖：旧的那篇收进 b.hisOld，每篇都标着是第几遍读的
+export const REVIEW_MAX = 3000;
 export async function hisReview(role, b) {
   const { oneShot, meName } = await import("./chat.js");
   const me = meName(role);
-  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-12).map(n => `- ${n.from === "me" ? me : "你"}：${n.text.slice(0, 120)}`);
+  const round = b.round || 1;
+  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-16).map(n => `- ${n.from === "me" ? me : "你"}：${(n.text || "（划线）").slice(0, 120)}`);
   const mems = readingMemsOf(b.id).slice(0, 8).map(m => `- ${m.content.slice(0, 160)}`);
+  const past = (b.past || []).map(x => `第 ${x.round} 遍：${x.his?.text ? `你当时的读后感（${x.his.stars} 星）：${x.his.text.slice(0, 800)}` : x.impression?.text || "（没写）"}`);
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
-    `你和${me}一起读完了《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
-    b.gist?.text ? `你记下的这本书的印象：\n${b.gist.text}` : "",
+    `你和${me}${round > 1 ? `第 ${round} 遍` : ""}读完了《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
+    b.gist?.text ? `这本书的梗概：\n${b.gist.text}` : "",
+    b.imprs?.length ? `你一路读下来写的中途印象（从早到晚）：\n${b.imprs.map((x, i) => `${i + 1}. ${x.text}`).join("\n")}` : "",
     notes.length ? `你们在书里贴过的便利贴：\n${notes.join("\n")}` : "",
     mems.length ? `你记下的读书笔记：\n${mems.join("\n")}` : "",
-    b.mine?.text ? `${me}的读后感（${b.mine.stars} 星）：${b.mine.text.slice(0, 600)}` : "",
-    `现在写你自己的读后感：第一行只写 1 到 5 的数字，是你给这本书的星级；从第二行开始写读后感，用你自己的口吻，写真实的感受，200 字以内。`,
+    past.length ? `以前读的几遍：\n${past.join("\n")}` : "",
+    b.his?.text ? `你这一遍之前写过一篇（这次重写，可以不一样）：${b.his.text.slice(0, 600)}` : "",
+    b.mine?.text ? `${me}的读后感（${b.mine.stars} 星）：${b.mine.text.slice(0, 1500)}` : "",
+    `现在写你自己的读后感：第一行只写 1 到 5 的数字，是你给这本书的星级；从第二行开始写读后感，用你自己的口吻，写真实的感受和想法${round > 1 ? "，也可以写这一遍和以前读的时候有什么不一样" : ""}。想写多长写多长，最多 ${REVIEW_MAX} 字。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt);
   const m = raw.match(/^\s*([1-5])/);
   const stars = m ? Number(m[1]) : 4;
-  const text = raw.replace(/^\s*[1-5][^\n]*\n?/, "").trim() || raw.trim();
-  b.his = { stars, text, at: Date.now() };
+  const text = (raw.replace(/^\s*[1-5][^\n]*\n?/, "").trim() || raw.trim()).slice(0, REVIEW_MAX);
+  if (b.his?.text) (b.hisOld ??= []).push(b.his);
+  b.his = { stars, text, at: Date.now(), round };
   import("./board.js").then(m => m.bookImpression(role, b)).catch(e => console.warn("读完的印象没整理成", e)); // 板块记忆里的一句印象
   return b.his;
 }
