@@ -1,9 +1,17 @@
 <script setup>
-// 记忆库：每个角色一个抽屉，里面是一张张记忆卡片（搜聊天和收藏搬到小世界里了）
+// 记忆库：每个角色一个抽屉。分两页——
+//   全局记忆：记忆卡片、聊天摘要、从共读共写整理来的（在哪都带着）
+//   场景记忆：共读、共写里才带的（每本书他能看见什么、多少字）
+// 每一处都能「看看发给他的」，右上角旁边有说明书
+import { chatPreview, summarizeThread, describeError } from "../lib/chat.js";
+import { toast } from "../lib/toast.js";
+import SceneMemory from "../components/memory/SceneMemory.vue";
+import PromptPreview from "../components/memory/PromptPreview.vue";
+import MemoryGuide from "../components/memory/MemoryGuide.vue";
 import { ref, reactive, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, uid, roleById, authorInfo } from "../store/index.js";
-import { memoriesOf } from "../lib/memoryTags.js";
+import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
+import { memoriesOf, memKind } from "../lib/memoryTags.js";
 import { todayYmd } from "../lib/dates.js";
 import { imageURL, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import Sheet from "../components/Sheet.vue";
@@ -30,12 +38,33 @@ const switchOpen = ref(false);
 // 接了心潮的角色：记忆都在心潮里
 const xinchao = computed(() => hasXinchao(role.value));
 
+const view = ref("global"); // global：全局记忆；scene：场景记忆
+const guideOpen = ref(false);
 const query = ref("");
-const cards = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  const list = tab.value ? memoriesOf(tab.value) : [];
-  return q ? list.filter(m => (m.title + m.content + m.date).toLowerCase().includes(q)) : list;
-});
+const hit = m => { const q = query.value.trim().toLowerCase(); return !q || (m.title + m.content + m.date).toLowerCase().includes(q); };
+const cards = computed(() => (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) === "card" && hit(m)));
+// 从共读、共写整理过来的（也在全局记忆里，排在记忆卡片后面）
+const derived = computed(() => (tab.value ? memoriesOf(tab.value) : []).filter(m => memKind(m) !== "card" && hit(m)));
+// 每个对话的摘要记忆
+const sums = computed(() => (tab.value ? threadsOf(tab.value) : []).filter(t => t.summary?.text && !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+const sumEdit = ref(null);
+const sumBusy = ref(false);
+function saveSum() {
+  const { t, text } = sumEdit.value;
+  if (text.trim()) t.summary = { ...t.summary, text: text.trim(), at: Date.now(), edited: true };
+  else delete t.summary;
+  sumEdit.value = null;
+}
+async function sumNow() {
+  sumBusy.value = true;
+  try {
+    const n = await summarizeThread(sumEdit.value.t, role.value, { keep: 6 });
+    sumEdit.value.text = sumEdit.value.t.summary?.text || "";
+    toast(n ? `把 ${n} 条聊天整理进去了` : "没有新的聊天要整理");
+  } catch (e) { toast(`没整理成：${describeError(e)}`, 4000); } finally { sumBusy.value = false; }
+}
+const preview = ref(null);
+async function showChat() { preview.value = { title: "聊天时发给他的", parts: await chatPreview(role.value) }; }
 
 const imgUrls = reactive({});
 function imgOf(m) {
@@ -110,9 +139,23 @@ function remove() {
       </div>
     </div>
 
+    <div v-if="role" class="views">
+      <button :class="{ on: view === 'global' }" @click="view = 'global'">全局记忆</button>
+      <button :class="{ on: view === 'scene' }" @click="view = 'scene'">场景记忆</button>
+      <button class="guide-btn" aria-label="说明书" @click="guideOpen = true">?</button>
+    </div>
+    <MemoryGuide :open="guideOpen" :him="role?.name || '他'" @close="guideOpen = false" />
+    <PromptPreview :open="!!preview" :title="preview?.title" :parts="preview?.parts" @close="preview = null" />
+
+    <SceneMemory v-if="role && view === 'scene'" :role="role" />
+
+    <template v-if="view === 'global'">
+    <button v-if="role" class="peek" @click="showChat">看看聊天时发给{{ role.name }}的全部 ›</button>
+
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
 
     <template v-else>
+    <p class="sec">记忆卡片</p>
     <div class="search">
       <Icon name="search" :size="17" />
       <input v-model="query" placeholder="搜索标题、内容、日期" />
@@ -140,6 +183,36 @@ function remove() {
 
     <button v-if="role" class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="26" /></button>
     </template>
+
+    <template v-if="role">
+      <p class="sec">聊天摘要<small>聊久了整理成的，每个对话一份；换新对话会带过去</small></p>
+      <article v-for="t in sums" :key="t.id" class="sum" @click="sumEdit = { t, text: t.summary.text }">
+        <div class="meta"><span>「{{ t.title }}」 · {{ t.summary.count || 0 }} 条整理成{{ t.summary.from ? `（从「${t.summary.from}」带来）` : "" }}</span><span>{{ t.summary.at ? new Date(t.summary.at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : "" }}</span></div>
+        <p>{{ t.summary.text }}</p>
+      </article>
+      <p v-if="!sums.length" class="empty-hint small">还没有聊天摘要。聊久了会自己整理，也可以在聊天的小世界里点「摘要记忆 → 现在整理」。</p>
+
+      <template v-if="derived.length">
+        <p class="sec">从共读、共写整理来的<small>在全局记忆里排在卡片后面</small></p>
+        <article v-for="m in derived" :key="m.id" class="sum" @click="viewing = m">
+          <div class="meta"><span>{{ m.bookId ? "共读 · 读书笔记" : "共写 · 写书的总结" }}</span><span>{{ md(m.date) }}</span></div>
+          <h3>{{ m.title }}</h3>
+          <p>{{ m.content }}</p>
+        </article>
+      </template>
+    </template>
+    </template>
+
+    <Sheet :open="!!sumEdit" title="聊天摘要" @close="sumEdit = null">
+      <template v-if="sumEdit">
+        <BigTextarea v-model="sumEdit.text" rows="10" title="聊天摘要" />
+        <p class="tip">一直只有一份：每次整理都是旧摘要 + 新聊的，合成新的一份（用整理模型）。看到错的可以直接改。</p>
+        <div class="edit-actions">
+          <button class="btn soft" :disabled="sumBusy" @click="sumNow">{{ sumBusy ? "在整理……" : "现在整理" }}</button>
+          <button class="btn" @click="saveSum">保存</button>
+        </div>
+      </template>
+    </Sheet>
 
     <!-- 查看 -->
     <Sheet :open="!!viewing" @close="viewing = null">
@@ -225,6 +298,15 @@ function remove() {
 .search input { flex: 1; border: 0; outline: none; background: none; font-size: 0.93rem; color: var(--text); }
 
 .views { display: flex; background: var(--bg-deep); border-radius: 14px; padding: 4px; gap: 4px; margin-bottom: 14px; }
+.views .guide-btn { flex: none; width: 38px; font-weight: 700; color: var(--text-2); }
+.peek { display: block; margin: -4px 0 14px auto; border: 0; background: none; color: var(--text-2); font-size: .8rem; }
+.sec { margin: 18px 4px 10px; font-size: .92rem; font-weight: 600; }
+.sec small { margin-left: 8px; font-weight: 400; font-size: .72rem; color: var(--text-3); }
+.sum { background: var(--card); border-radius: 18px; padding: 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); cursor: pointer; }
+.sum h3 { margin: 0 0 4px; font-size: .95rem; }
+.sum p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.empty-hint.small { font-size: .8rem; }
+.tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }
 .views button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; color: var(--text-2); font-size: 0.9rem; }
 .views button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
 .hits { display: flex; flex-direction: column; gap: 10px; }

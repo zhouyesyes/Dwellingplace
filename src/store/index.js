@@ -297,8 +297,10 @@ export function modelFor(thread, role) {
 }
 
 // ---------- 对话 ----------
-export function createThread(roleId) {
+// carry：从哪个对话换过来——那边的摘要记忆一起带过来（换窗也接得上）
+export function createThread(roleId, carry = null) {
   const t = { id: uid(), roleId, title: "新的对话", createdAt: Date.now(), updatedAt: Date.now(), bg: null, apiId: null, model: null, preview: "", sel: {} };
+  if (carry?.summary?.text) t.summary = { text: carry.summary.text, upTo: null, count: carry.summary.count || 0, at: Date.now(), from: carry.title || "上一个对话" };
   store.threads.push(t);
   messageCache[t.id] = [];
   return t;

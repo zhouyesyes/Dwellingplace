@@ -196,23 +196,41 @@ function rulesFor(who) {
   ].join("\n");
 }
 
-// 在书桌前和他讨论：说一句，他回一句
-export async function talk(role, p, text, atts = []) {
-  const { oneShot, meName, visibleText } = await import("./chat.js");
+// 共写的场景记忆，一段一段分好：这本书（定位、简介、资料按顺序）→ 你记着的这本书的总结 → 刚才的讨论 → 其他在写的书（短短一句）
+export function writingSceneParts(p, list, me) {
+  const out = [{ key: "cards", label: "定位、简介和资料", text: `这本书的定位、简介和资料（按${me}排的顺序）：\n${projectText(p)}` }];
+  const memo = store.memories.find(m => m.id === p.memId);
+  if (memo) out.push({ key: "memo", label: "你记着的这本书", text: `你之前记下的这本书：${memo.content}` });
+  const recent = list.slice(-16).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
+  out.push({ key: "talk", label: "刚才的讨论（最近 16 句）", text: `你们刚才在聊：\n${recent || "（刚坐下）"}` });
+  const others = projects().filter(x => x.id !== p.id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 3);
+  if (others.length) out.push({ key: "others", label: "其他在写的书", text: `（别的书，别和这本弄混）${me}还在写：${others.map(x => `《${x.title}》${x.pitch ? `（${x.pitch}）` : ""}`).join("、")}` });
+  return out;
+}
+// 讨论时给他看的全部：场景记忆在前，全局记忆在后（记忆库里「看看发给他的」也是这一份）
+export async function writingPrompt(role, p, atts = []) {
+  const { meName } = await import("./chat.js");
+  const { globalMemoryForScene } = await import("./memoryTags.js");
   const me = meName(role);
   const list = await loadTalk(p.id);
-  if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
-  else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
-  const recent = list.slice(-16).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.atts?.length ? `（附了 ${m.atts.map(a => a.kind === "image" ? "一张图" : a.name).join("、")}）` : ""}`).join("\n");
-  const prompt = [
+  return [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `${me}是写小说的人。你们坐在书桌前，一起琢磨${me}在写的《${p.title}》。你是${me}的写作伙伴：认真读设定，说真实的想法，可以提问、提建议、指出矛盾，也可以夸，但别空泛，也别替${me}把书写完。`,
-    `\n这本书的定位、简介和卡片：\n${projectText(p)}`,
-    `\n你们刚才在聊：\n${recent || "（刚坐下）"}`,
+    `\n# 共写《${p.title}》（这次的场景，最要紧）\n${writingSceneParts(p, list, me).map(x => x.text).join("\n\n")}`,
+    globalMemoryForScene(role, me, { skip: "write" }),
     `\n${rulesFor(me)}`,
     atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",
     `\n现在接着回${me}，像平时说话那样，几段就好。`,
   ].filter(Boolean).join("\n");
+}
+
+// 在书桌前和他讨论：说一句，他回一句
+export async function talk(role, p, text, atts = []) {
+  const { oneShot, visibleText } = await import("./chat.js");
+  const list = await loadTalk(p.id);
+  if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
+  else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
+  const prompt = await writingPrompt(role, p, atts);
   const raw = await oneShot(role, prompt, { raw: true, attachments: atts });
   const { text: rest, notes } = applyTags(p, raw);
   const reply = visibleText(rest).trim();

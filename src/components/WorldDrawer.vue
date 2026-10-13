@@ -10,8 +10,8 @@ import Avatar from "./Avatar.vue";
 import Icon from "./Icon.vue";
 import LetterRack from "./letters/LetterRack.vue";
 
-const props = defineProps({ open: Boolean, role: Object });
-const emit = defineEmits(["close", "threads", "search"]);
+const props = defineProps({ open: Boolean, role: Object, thread: Object });
+const emit = defineEmits(["close", "threads", "search", "summary"]);
 const router = useRouter();
 
 const days = computed(() => Math.max(1, Math.ceil((Date.now() - (props.role?.createdAt || Date.now())) / 86400000)));
@@ -20,6 +20,11 @@ const unread = computed(() => letters.value.filter(l => l.from !== "me" && !l.re
 const todayCalls = computed(() => Object.values(store.usage[today()] || {}).reduce((a, u) => a + (u.calls || 0), 0));
 const hasMail = computed(() => props.role && !!serversForMode(props.role.id, "mail").find(isMailServer));
 const mediaOn = computed(() => ["stt", "tts", "image"].filter(k => store.media?.[k]?.enabled).map(k => ({ stt: "语音转文字", tts: "他的声音", image: "画画" })[k]).join("、"));
+const summaryLine = computed(() => {
+  const t = props.thread;
+  if (!t?.summary?.text) return "聊久了，前面的聊天会整理成一份摘要；也可以现在整理";
+  return `${t.summary.count || 0} 条聊天整理成的一份${t.summary.from ? `（从「${t.summary.from}」带过来）` : ""}`;
+});
 const go = path => { emit("close"); router.push(path); };
 const rackOut = ref(false);
 watch(() => props.open, o => { if (!o) rackOut.value = false; });
@@ -55,6 +60,9 @@ function tapRack() {
           <p class="sec">still at home</p>
           <button class="row" @click="emit('threads')">
             <Icon name="chat" :size="20" /><span class="grow">对话<small>换一段对话、新对话、背景和气泡颜色</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
+          <button class="row" @click="emit('summary')">
+            <Icon name="memory" :size="20" /><span class="grow">摘要记忆<small>{{ summaryLine }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
           <button class="row" @click="go('/settings/wake')">
             <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ store.wake?.enabled ? "已开启：他会自己醒来" : "让他按时间自己醒来，给你发消息" }}</small></span><Icon name="right" :size="16" class="chev" />
