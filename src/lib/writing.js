@@ -29,7 +29,26 @@ export const SPINES = ["#ffadc6", "#ffcb85", "#ffe17d", "#a6e3a1", "#8fd3f4", "#
 
 export const projects = () => store.writings || [];
 export const projectById = id => projects().find(p => p.id === id);
-export const cardsOf = pid => (store.writeCards || []).filter(c => c.projectId === pid);
+// 卡片按自己排的顺序（c.order）；没排过的按放上来的先后
+const ordOf = c => (c.order ?? c.ts);
+export const cardsOf = pid => (store.writeCards || []).filter(c => c.projectId === pid).sort((a, b) => ordOf(a) - ordOf(b));
+// 资料夹的顺序（p.folders）：自己排过就按排的，新加的类型接在后面
+export const folderOrder = p => [...new Set([...(p?.folders || []).filter(k => CARD_TYPES[k]), ...Object.keys(CARD_TYPES)])];
+export function moveFolder(p, key, d) {
+  const list = folderOrder(p);
+  const i = list.indexOf(key), j = i + d;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  p.folders = list;
+}
+// 同一个资料夹里往前 / 往后挪一张
+export function moveCard(c, d) {
+  const list = cardsOf(c.projectId).filter(x => x.type === c.type);
+  const i = list.indexOf(c), j = i + d;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  list.forEach((x, k) => (x.order = k));
+}
 export const notesOfCard = cid => (store.writeNotes || []).filter(n => n.cardId === cid);
 export const freshNotes = pid => (store.writeNotes || []).filter(n => n.from === "ai" && !n.seen && (!pid || n.projectId === pid));
 
@@ -51,7 +70,8 @@ const touch = pid => { const p = projectById(pid); if (p) p.updatedAt = Date.now
 
 export function addCard(pid, { type = "idea", title = "", content = "", from = "me", atts = [] }) {
   store.writeCards ??= [];
-  const c = { id: uid(), projectId: pid, type, title: title.trim().slice(0, 60), content: content.trim(), atts, from, ts: Date.now() };
+  const same = (store.writeCards || []).filter(x => x.projectId === pid && x.type === type);
+  const c = { id: uid(), projectId: pid, type, title: title.trim().slice(0, 60), content: content.trim(), atts, from, ts: Date.now(), order: same.length ? Math.max(...same.map(ordOf)) + 1 : 0 };
   store.writeCards.push(c);
   touch(pid);
   return c;
@@ -132,12 +152,15 @@ export async function editTalkAndResend(role, p, id, text) {
 function projectText(p, limit = 9000) {
   const out = [];
   let n = 0;
-  for (const c of cardsOf(p.id)) {
-    const att = (c.atts || []).length ? `（卡片上有 ${c.atts.map(a => a.kind === "image" ? "图" : a.name).join("、")}）` : "";
-    const line = `【${CARD_TYPES[c.type]?.label || "其他"}】${c.title || "（无题）"}：${c.content.replace(/\n{2,}/g, "\n").slice(0, 700)}${att}`;
-    if (n + line.length > limit) { out.push("……（还有一些卡片，太长没放进来）"); break; }
-    out.push(line);
-    n += line.length;
+  // 按她排的顺序：资料夹一个一个来，夹里的卡片也按顺序
+  outer: for (const k of folderOrder(p)) {
+    for (const c of cardsOf(p.id).filter(x => x.type === k)) {
+      const att = (c.atts || []).length ? `（卡片上有 ${c.atts.map(a => a.kind === "image" ? "图" : a.name).join("、")}）` : "";
+      const line = `【${CARD_TYPES[c.type]?.label || "其他"}】${c.title || "（无题）"}：${c.content.replace(/\n{2,}/g, "\n").slice(0, 700)}${att}`;
+      if (n + line.length > limit) { out.push("……（还有一些卡片，太长没放进来）"); break outer; }
+      out.push(line);
+      n += line.length;
+    }
   }
   const head = [p.pitch?.trim() && `定位：${p.pitch.trim()}`, p.synopsis?.trim() && `简介：${p.synopsis.trim().slice(0, 1200)}`].filter(Boolean).join("\n");
   return [head, out.join("\n") || "（还没有卡片）"].filter(Boolean).join("\n\n");
