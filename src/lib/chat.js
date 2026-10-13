@@ -6,7 +6,7 @@ import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
-import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions } from "./memoryTags.js";
+import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions, recalledForAI, recallCards } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
@@ -147,7 +147,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
-    hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who),
+    hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who, { wake }),
     hasXinchao(role) || wake ? "" : [ // 醒来时（中转那边）翻不了
       `\n# 翻记忆`,
       `想不起以前的事（聊过什么、哪天说过什么、某张记忆卡片的细节），或者${who}问起以前的事，只回复一行：[翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录、摘要和记忆卡片里找，把找到的给你，你再回复。`,
@@ -190,7 +190,10 @@ export async function chatPreview(role) {
     const n = Math.min(rest.length, Number(store.settings.historyLimit) || 80);
     parts.push({ label: "最近的聊天", text: `摘要后面的聊天，他每次最多看到最近 ${Number(store.settings.historyLimit) || 80} 条（现在是 ${n} 条，原样发过去，这里不重复列出）。` });
   }
-  const moment = [newLettersForAI(role, meName(role), { peek: true }), newReadingForAI(role, meName(role), { peek: true })].filter(Boolean).join("\n");
+  const lastUser = thread ? [...pathOf(thread, await loadMessages(thread.id))].reverse().find(m => m.from === "user") : null;
+  const rc = recallCards(role.id, lastUser?.text || "");
+  const moment = [newLettersForAI(role, meName(role), { peek: true }), newReadingForAI(role, meName(role), { peek: true }),
+    `\n# 可能相关的记忆（每次按你最新说的话自动想起；拿你上一句「${(lastUser?.text || "").slice(0, 30)}」试了一下）\n${rc.length ? rc.map(m => `- ${m.title}：${m.content.slice(0, 80)}`).join("\n") : "（这句没想起哪张）"}`].filter(Boolean).join("\n");
   parts.push({ label: "【此刻】附注（附在你最新那条消息前面，每次不同）", text: `现在的时间、离上一条隔了多久${hasXinchao(role) ? "、此刻的心境" : ""}；还有这些临时带着的：${moment || "\n（现在没有）"}` });
   return parts;
 }
@@ -217,7 +220,10 @@ function contextNote(role, history) {
   const mind = hasXinchao(role) ? mindForAI(role) : "";
   const letters = newLettersForAI(role, me); // 还没读的来信（读了就记下）
   const reading = newReadingForAI(role, me); // 在读什么、新贴的便利贴
-  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, letters, reading].filter(Boolean).join("\n")}\n【以下是新消息】`;
+  // 普通记忆：按她最新说的话，自动想起有关的几张（对不上就一张也不放）
+  const lastUser = [...history].reverse().find(m => m.from === "user");
+  const recalled = hasXinchao(role) ? "" : recalledForAI(role, lastUser?.text || "");
+  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, letters, reading, recalled].filter(Boolean).join("\n")}\n【以下是新消息】`;
   // 多大（用量页「都花在哪」）
   return { text, est: { mind: estTokens(mind) + estTokens(time) } };
 }

@@ -232,7 +232,24 @@ function migrate() {
   store.writings ??= []; // 共写：书桌上的书
   store.writeCards ??= []; // 共写的卡片
   store.writeNotes ??= []; // 卡片上的便利贴
-  store.memSuggest ??= []; // 整理时挑出来的候选记忆（待你确认）
+  // 记忆卡片换成「status（成不成立）+ access（怎么给他）」两个字段：老卡片一张不丢，补上字段和来源
+  for (const m of store.memories) {
+    m.status ??= "valid";
+    m.access ??= m.pinned ? "pinned" : "normal";
+    delete m.pinned;
+    m.createdAt ??= m.ts || Date.now();
+    m.updatedAt ??= m.ts || m.createdAt;
+    m.tags ??= [];
+    m.importance ??= 3;
+    m.source ??= m.bookId ? { type: "read", by: m.author === "me" ? "me" : "ai", id: m.bookId }
+      : m.writingId ? { type: "write", by: m.author === "me" ? "me" : "ai", id: m.writingId }
+      : { type: m.author === "me" ? "manual" : "chat", by: m.author === "me" ? "me" : "ai" };
+  }
+  // 以前单独放的「候选记忆」：变成待确认的卡片
+  for (const x of store.memSuggest || []) {
+    store.memories.push({ id: x.id, roleId: x.roleId, title: x.title || x.content.slice(0, 12), content: x.content, img: null, date: new Date(x.ts).toISOString().slice(0, 10), author: x.roleId, ts: x.ts, createdAt: x.ts, updatedAt: x.ts, status: "pending", access: "normal", tags: [], importance: 3, source: { type: "helper", by: "helper", label: x.src } });
+  }
+  delete store.memSuggest;
   store.readerFonts ??= []; // 读书时用的导入字体
   store.readerPrefs ??= { bg: "paper", size: 18, font: "" }; // 读书背景、字号、字体
   store.settings.shelfTone ??= "light"; // 主页书架的颜色：light / grey / dark
