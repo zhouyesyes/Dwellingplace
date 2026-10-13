@@ -99,7 +99,8 @@ export function readingMoment(role, who, { peek = false } = {}) {
   for (const b of books) {
     const c = b.pos?.ch || 0;
     const lines = [`《${b.title}》（${who} ${ago(b.readAt)}读过）：读到「${b.chapters[c]?.title || "开头"}」，第 ${c + 1} / ${b.chapters.length} 章。${b.hisPos ? `你一起读到第 ${b.hisPos.ch + 1} 章。` : ""}`];
-    if (b.gist?.text) lines.push(`  你最新的印象${b.gist.at ? `（${ago(b.gist.at)}）` : ""}：${b.gist.text.slice(0, 400)}`);
+    const im = (b.imprs || []).at(-1);
+    if (im) lines.push(`  你最新的中途印象（${ago(im.at)}）：${im.text}`);
     const notes = (store.bookNotes || []).filter(n => n.bookId === b.id && within(n.ts)).sort((x, y) => x.ts - y.ts).slice(-20);
     if (notes.length) lines.push(`  24 小时里的划线和批注（${notes.length} 条，旧的在前）：`);
     for (const n of notes) {

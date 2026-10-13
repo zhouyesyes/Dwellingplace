@@ -3,7 +3,7 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { store } from "../../store/index.js";
 import { meName } from "../../lib/chat.js";
-import { readingSceneParts, readingPreview, sinceGist, gistEvery } from "../../lib/reading.js";
+import { readingSceneParts, readingPreview, rawSince, sumEvery, SUM_FORCE } from "../../lib/reading.js";
 import { writingSceneParts, writingPrompt, loadTalk, projects, SPINES } from "../../lib/writing.js";
 import Sheet from "../Sheet.vue";
 import BigTextarea from "../BigTextarea.vue";
@@ -19,9 +19,10 @@ const talks = reactive({});
 const raws = reactive({});
 onMounted(async () => {
   for (const p of projects()) talks[p.id] = await loadTalk(p.id);
-  for (const b of store.books || []) raws[b.id] = await sinceGist(b, b.pos || { ch: 0, p: 0 });
+  for (const b of store.books || []) raws[b.id] = await rawSince(b);
 });
-const len = s => (s.length < 1000 ? `${s.length} 字` : `${(s.length / 1000).toFixed(1)} 千字`);
+const num = n => (n < 1000 ? `${n} 字` : n < 10000 ? `${(n / 1000).toFixed(1)} 千字` : `${+(n / 10000).toFixed(1)} 万字`);
+const len = s => num(s.length);
 const posOf = (b, pos) => (pos ? `${b.chapters[pos.ch]?.title || `第 ${pos.ch + 1} 章`}` : "还没开始");
 
 const preview = ref(null);
@@ -31,9 +32,12 @@ async function showProject(p) { preview.value = { title: `共写《${p.title}》
 // 改「读到这里的印象」
 const gistEdit = ref(null);
 function editGist(b) { gistEdit.value = { b, text: b.gist?.text || "" }; }
+// 改过就合成一段（分段的记录不再对得上）
 function saveGist() {
   const { b, text } = gistEdit.value;
-  if (text.trim()) b.gist = { ...(b.gist || { upTo: b.pos || { ch: 0, p: 0 } }), text: text.trim(), at: Date.now() };
+  if (text.trim() === (b.gist?.text || "")) return (gistEdit.value = null);
+  const upTo = b.gist?.upTo || b.pos || { ch: 0, p: 0 };
+  if (text.trim()) b.gist = { segs: [{ text: text.trim(), from: { ch: 0, p: 0 }, upTo, at: Date.now(), edited: true }], text: text.trim(), upTo, at: Date.now() };
   else delete b.gist;
   gistEdit.value = null;
 }
@@ -48,10 +52,10 @@ function saveGist() {
     <article v-for="(b, i) in books" :key="b.id" class="sc">
       <div class="sh"><b>《{{ b.title }}》</b><span v-if="i === 0 && b.readAt" class="now">正在读</span></div>
       <p class="pos">你读到 {{ posOf(b, b.pos) }} · {{ role?.name }}读到 {{ posOf(b, b.hisPos) }}{{ b.alongTo ? ` · 上次一起读到 ${posOf(b, b.alongTo)}` : "" }}</p>
-      <div v-if="b.gist?.text" class="gist" role="button" @click="editGist(b)"><small>读到这里的印象 · 点一下可以改</small><p>{{ b.gist.text }}</p></div>
+      <div v-if="b.gist?.text" class="gist" role="button" @click="editGist(b)"><small>前情梗概 · 点一下可以改</small><p>{{ b.gist.text }}</p></div>
       <ul class="parts">
         <li v-for="x in readingSceneParts(b, me)" :key="x.key"><span>{{ x.label }}</span><em>{{ len(x.text) }}</em></li>
-        <li><span>上次整理之后读过的原文</span><em>{{ len(raws[b.id] || "") }} / 攒到 {{ gistEvery() / 1000 }} 千字整理</em></li>
+        <li><span>上次整理之后读过的原文</span><em>{{ num(raws[b.id] || 0) }} / 攒到 {{ num(sumEvery()) }}、等一章读完整理（最多 {{ num(sumEvery() + SUM_FORCE) }}）</em></li>
       </ul>
       <button class="btn soft small" @click="showBook(b)">看看发给{{ role?.name || "他" }}的</button>
     </article>
@@ -67,9 +71,9 @@ function saveGist() {
     </article>
 
     <PromptPreview :open="!!preview" :title="preview?.title" :parts="preview?.parts" @close="preview = null" />
-    <Sheet :open="!!gistEdit" title="读到这里的印象" @close="gistEdit = null">
+    <Sheet :open="!!gistEdit" title="前情梗概" @close="gistEdit = null">
       <template v-if="gistEdit">
-        <BigTextarea v-model="gistEdit.text" rows="8" title="读到这里的印象" />
+        <BigTextarea v-model="gistEdit.text" rows="8" title="前情梗概" />
         <p class="tip">这是{{ role?.name }}自己记的前情，读够字数会再整理一次（新的会接着这份写）。看到错的直接改。</p>
         <div class="row"><button class="btn" @click="saveGist">保存</button></div>
       </template>

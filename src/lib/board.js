@@ -47,7 +47,8 @@ export async function bookImpression(role, b) {
   const { oneShot, meName } = await import("./chat.js");
   const me = meName(role);
   const src = [
-    b.gist?.text && `你记下的这本书的印象：${b.gist.text.slice(0, 1200)}`,
+    b.gist?.text && `这本书的梗概：${b.gist.text.length > 2000 ? "……" + b.gist.text.slice(-2000) : b.gist.text}`,
+    b.imprs?.length && `你一路写的中途印象：${b.imprs.map(x => x.text).join(" / ")}`,
     b.mine?.text && `${me}的读后感（${b.mine.stars} 星）：${b.mine.text.slice(0, 800)}`,
     b.his?.text && `你的读后感（${b.his.stars} 星）：${b.his.text.slice(0, 800)}`,
   ].filter(Boolean);
@@ -63,9 +64,9 @@ export async function bookImpression(role, b) {
 // 再读一遍：这一遍的读后感、印象、前情收进 b.past，从头开始
 export function rereadBook(b) {
   b.past ??= [];
-  b.past.push({ round: roundOf(b), mine: b.mine || null, his: b.his || null, impression: b.impression || null, gist: b.gist || null, at: Date.now() });
+  b.past.push({ round: roundOf(b), mine: b.mine || null, his: b.his || null, hisOld: b.hisOld || [], impression: b.impression || null, gist: b.gist || null, imprs: b.imprs || [], at: Date.now() });
   b.round = roundOf(b) + 1;
-  delete b.mine; delete b.his; delete b.impression; delete b.gist;
+  delete b.mine; delete b.his; delete b.hisOld; delete b.impression; delete b.gist; delete b.imprs;
   b.pos = { ch: 0, p: 0 };
   b.hisPos = null;
 }
