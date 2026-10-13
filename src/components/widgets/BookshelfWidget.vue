@@ -28,10 +28,10 @@ const styleOf = i => {
 onMounted(() => nextTick(() => { if (track.value) track.value.scrollLeft = 0; layout(); }));
 watch(() => books.value.length, () => nextTick(layout));
 
-function open(b, i) {
+// 点哪本就直接打开哪本（以前不在中间的要先点一下挪到中间，要点好几次才进得去）
+function open(b) {
   if (props.editing) return;
-  if (Math.abs(d.value[i] ?? 0) > 0.6) track.value.scrollTo({ left: track.value.querySelectorAll(".bk")[i].offsetLeft - 18, behavior: "smooth" });
-  else router.push(`/read/${b.id}`);
+  router.push(`/read/${b.id}`);
 }
 // 右上角的小圆点：白 → 灰 → 黑 轮着换架子颜色
 const TONES = ["light", "grey", "dark"];
@@ -44,9 +44,9 @@ const go = () => { if (!props.editing) router.push("/books"); };
     <div class="head"><b>Bookshelf</b><span v-if="fresh" class="dot">{{ fresh }} 张新便利贴</span><span v-else class="sub">{{ books.length ? `${books.length} 本` : "放一本书进来" }}</span>
       <button class="tone" :class="tone" aria-label="换书架颜色" @click.stop="nextTone"><i /></button></div>
     <div class="stage">
-      <div ref="track" class="track" @scroll.passive="layout" @click.stop>
-        <button v-for="(b, i) in books" :key="b.id" class="bk" :style="styleOf(i)" :aria-label="b.title" @click="open(b, i)"><BookCover :book="b" /></button>
-        <button class="bk add" :style="styleOf(books.length)" aria-label="放一本书" @click="go"><span>＋</span></button>
+      <div ref="track" class="track" @scroll.passive="layout">
+        <button v-for="(b, i) in books" :key="b.id" class="bk" :style="styleOf(i)" :aria-label="b.title" @click.stop="open(b)"><BookCover :book="b" /></button>
+        <button class="bk add" :style="styleOf(books.length)" aria-label="放一本书" @click.stop="go"><span>＋</span></button>
         <i class="tail" />
       </div>
       <img :src="shelf" alt="" class="plank" :class="tone" />
