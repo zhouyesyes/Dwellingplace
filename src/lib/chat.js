@@ -26,6 +26,28 @@ export const generating = reactive({});
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
+// 只认真正的指令：单独占一行写着的。写在代码里（``` 或 `）、引用里（> 开头）、夹在一句话中间当例子讲的，都不算——
+// 不然他一解释「翻记忆怎么写」，前端就当真去翻，翻完他再解释一遍，就停不下来了
+function cmdLines(text, re) {
+  const masked = text
+    .replace(/```[\s\S]*?(```|$)/g, m => " ".repeat(m.length))
+    .replace(/`[^`\n]*`/g, m => " ".repeat(m.length))
+    .replace(/^[ \t]*>.*$/gm, m => " ".repeat(m.length));
+  const out = [];
+  for (const m of masked.matchAll(new RegExp(re.source, "g"))) {
+    const ls = masked.lastIndexOf("\n", m.index - 1) + 1;
+    let le = masked.indexOf("\n", m.index);
+    if (le < 0) le = masked.length;
+    if (!masked.slice(ls, m.index).trim() && !masked.slice(m.index + m[0].length, le).trim()) out.push(m);
+  }
+  return out;
+}
+export const findCmd = (text, re) => cmdLines(text, re)[0] || null;
+// 显示时去掉真正的指令；当例子讲的、写在代码里的原样留着
+function stripCmd(text, re) {
+  for (const m of cmdLines(text, re).reverse()) text = text.slice(0, m.index) + text.slice(m.index + m[0].length);
+  return text;
+}
 const AVATAR_RE = /\[头像[:：]\s*([^\]\n]{1,30})\]/g;
 const DRAW_RE = /\[画[:：]\s*([^\]]{1,1000})\]/g; // 他想画一张图
 const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
@@ -44,8 +66,7 @@ export function visibleText(text) {
     .replace(ALARM_RE, "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
-    .replace(new RegExp(SEARCH_RE.source, "g"), "")
-    .replace(new RegExp(RECALL_RE.source, "g"), "")
+    .replace(/[\s\S]*/, t => stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE))
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
@@ -130,6 +151,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     hasXinchao(role) || wake ? "" : [ // 醒来时（中转那边）翻不了
       `\n# 翻记忆`,
       `想不起以前的事（聊过什么、哪天说过什么、某张记忆卡片的细节），或者${who}问起以前的事，只回复一行：[翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录、摘要和记忆卡片里找，把找到的给你，你再回复。`,
+      `只有单独占一行的才会执行。平时聊到、解释这些指令时，别写出带方括号的完整格式（说「翻记忆」三个字就好），也不要放进代码块里。`,
       `关键词短一点（一两个词，空格隔开表示都要有）；找不到就换个说法再找一次。平常聊天不用翻。`,
     ].join("\n"),
     calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
@@ -391,6 +413,7 @@ export async function generate(thread, parentId) {
     const done = new Set(); // 这次回复里已经调用过的工具 + 参数
     let fixAsked = false; // 格式写错只提醒一次
     let usedTool = false, nudged = false; // 用过工具后只说不做：提醒一次
+    const recalled = new Set(), searched = new Set(); // 这次回复里翻过的词、搜过的词：同一个词不再来一遍（防止停不下来）
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
       const base = msg.text.length;
@@ -506,9 +529,14 @@ export async function generate(thread, parentId) {
       }
 
       // 翻记忆：在自己的聊天记录和记忆卡片里找
-      const rm = !hasXinchao(role) ? text.match(RECALL_RE) : null;
+      const rm = !hasXinchao(role) ? findCmd(text, RECALL_RE) : null;
       const rq = rm?.[1]?.trim();
+      if (rq && (recalled.has(rq) || recalled.size >= 3)) {
+        msg.notes.push({ text: recalled.has(rq) ? `${role.name} 又想翻一次「${rq}」，刚翻过，没再翻` : `${role.name} 这次已经翻了 ${recalled.size} 次记忆，先停下了` });
+        break;
+      }
       if (rq) {
+        recalled.add(rq);
         const ev = reactive({ text: `${role.name} 在翻记忆「${rq}」…`, before: true, at: keepSaid(text, rm.index) });
         msg.notes.push(ev);
         const r = await recallForAI(role, rq, meName(role));
@@ -524,9 +552,14 @@ export async function generate(thread, parentId) {
       }
 
       // AI 要搜索：网页通过中转去搜，再把结果交回给 AI
-      const sm = useRelaySearch ? text.match(SEARCH_RE) : null;
+      const sm = useRelaySearch ? findCmd(text, SEARCH_RE) : null;
       const q = sm?.[1]?.trim();
       if (!q) break;
+      if (searched.has(q) || searched.size >= 3) {
+        msg.notes.push({ text: searched.has(q) ? `${role.name} 又想搜一次「${q}」，刚搜过，没再搜` : `${role.name} 这次已经搜了 ${searched.size} 次，先停下了` });
+        break;
+      }
+      searched.add(q);
       const ev = reactive({ text: `${role.name} 正在搜索「${q}」…`, before: true, at: keepSaid(text, sm.index) });
       msg.notes.push(ev);
       let found;
