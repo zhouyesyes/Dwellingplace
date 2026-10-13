@@ -215,7 +215,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     if (/not available in your region|unsupported_country|country, region, or territory/i.test(raw)) {
       throw new Error("这个模型不对你现在所在的地区提供服务：开梯子再试，或者换一个模型。");
     }
-    throw new Error(`接口返回 ${res.status}：${raw.slice(0, 300)}`);
+    throw new Error(httpError(res.status, raw));
   }
 
   // 关了流式：整条一次拿回来
@@ -308,10 +308,30 @@ export async function streamChat(opts) {
   }
 }
 
+// 接口报错：回的是一整页网页（多半是 Cloudflare 的报错页）的话，别把网页源码甩给人看，说人话
+const CF = {
+  524: "接口那边超时了：接口地址在 Cloudflare 后面，模型 100 秒还没开始回话，Cloudflare 就先断开了。常见于要想很久的模型、或者带的内容很长。点「重新生成」再试一次；老这样的话，换一个不经过 Cloudflare 的接口地址，或者换个快一点的模型。",
+  522: "连不上接口的服务器：Cloudflare 联系不到它，可能是中转站自己挂了，过一会儿再试。",
+  523: "连不上接口的服务器，过一会儿再试。",
+  521: "接口的服务器没开，过一会儿再试。",
+  520: "接口的服务器回了奇怪的东西，过一会儿再试。",
+  502: "接口那边出问题了（网关错误），过一会儿再试。",
+  503: "接口暂时不可用，可能太忙了，过一会儿再试。",
+  504: "接口那边超时了，点「重新生成」再试一次。",
+};
+export function httpError(status, raw = "") {
+  const html = /^\s*<(!doctype|html)/i.test(raw) || /<\/html>/i.test(raw);
+  if (html || CF[status]) {
+    const title = (raw.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] || "").replace(/\s+/g, " ").trim();
+    return `接口返回 ${status}：${CF[status] || `接口回了一个网页而不是结果${title ? `（${title.slice(0, 80)}）` : ""}，可能是接口地址不对，或者中转站在维护。`}`;
+  }
+  return `接口返回 ${status}：${raw.slice(0, 300)}`;
+}
+
 export async function fetchModels(api) {
   if (api.type === "openai") {
     const res = await fetch(`${trimUrl(api.baseUrl)}/models`, { headers: openaiHeaders(api) });
-    if (!res.ok) throw new Error(`接口返回 ${res.status}：${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) throw new Error(httpError(res.status, await res.text()));
     const j = await res.json();
     return (j.data || j.models || []).map(m => m.id || m.name).filter(Boolean).sort();
   }

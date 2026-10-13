@@ -720,7 +720,7 @@ async function changeAvatarOf(who) {
     </Sheet>
 
     <!-- 上下文 -->
-    <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" @close="ctxOpen = false">
+    <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" :summary="thread?.summary" @close="ctxOpen = false">
       对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息他就不再看到（记忆卡片里的事他一直记得）。想让他记得更久、或者想省一点，往左滑就能改这个数字；模型的上限在「设置 → API」里改。
     </UsageSheet>
 

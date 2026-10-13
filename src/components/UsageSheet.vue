@@ -12,6 +12,7 @@ const props = defineProps({
   path: { type: Array, default: () => [] }, // 现在看到的这一条线
   limit: { type: Number, default: 200000 },
   shownCount: { type: Number, default: 0 },
+  summary: { type: Object, default: null }, // 这个对话的摘要记忆（thread.summary）
 });
 const emit = defineEmits(["close"]);
 
@@ -74,6 +75,13 @@ function sum(list) {
   return t;
 }
 const totals = computed(() => sum(props.all));
+// 这个对话一共多少条（这一条线上的，不算小记）、整理进摘要多少条、摘要后面还剩多少条
+const counts = computed(() => {
+  const real = props.path.filter(m => m.from !== "event" && !m.pending);
+  const i = props.summary?.upTo ? real.findIndex(m => m.id === props.summary.upTo) : -1;
+  const done = i >= 0 ? i + 1 : 0;
+  return { total: real.length, done, rest: real.length - done, carried: props.summary?.from ? (props.summary.count || 0) - done : 0 };
+});
 const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b) * 100));
 </script>
 
@@ -124,6 +132,12 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
     </section>
 
     <section class="pg">
+      <div class="counts">
+        <div><b>{{ counts.total }}</b><span>这个对话一共</span></div>
+        <div><b>{{ counts.done }}</b><span>已整理进摘要{{ counts.total ? `（${Math.round((counts.done / counts.total) * 100)}%）` : "" }}</span></div>
+        <div><b>{{ counts.rest }}</b><span>摘要后面的</span></div>
+      </div>
+      <p v-if="counts.carried > 0" class="tip">摘要里还有从「{{ summary.from }}」带过来的 {{ counts.carried }} 条。</p>
       <div class="list-card flat">
         <div v-for="l in limits" :key="l.key" class="list-row col limit">
           <b>{{ l.label }}</b>
@@ -172,4 +186,8 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
 .stepper { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .stepper button { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--bg); color: var(--ink); font-size: 1.1rem; display: grid; place-items: center; padding: 0; }
 .stepper input { width: 80px; text-align: center; border: 1px solid var(--line); border-radius: 10px; padding: 6px; font-size: 1rem; background: var(--card); color: var(--text); }
+.counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.counts div { background: var(--bg); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.counts b { font-size: 1.2rem; font-weight: 600; }
+.counts span { font-size: .7rem; color: var(--text-3); }
 </style>

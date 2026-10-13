@@ -1,17 +1,27 @@
 <script setup>
 // 摘要记忆现在是什么情况：整理了多少条、上一次是怎么整理的、下一次什么时候
-import { computed } from "vue";
-import { store } from "../../store/index.js";
-import { autoAt, SUM_WHY } from "../../lib/chat.js";
+import { ref, computed, watchEffect } from "vue";
+import { store, loadMessages } from "../../store/index.js";
+import { autoAt, SUM_WHY, pathOf } from "../../lib/chat.js";
 
 const props = defineProps({ thread: Object });
 const s = computed(() => props.thread?.summary);
 const limit = computed(() => Number(store.settings.historyLimit) || 80);
+// 这个对话一共多少条（这一条线上的）、整理进摘要的占多少
+const counts = ref(null);
+watchEffect(async () => {
+  const t = props.thread, upTo = t?.summary?.upTo;
+  if (!t) return (counts.value = null);
+  const real = pathOf(t, await loadMessages(t.id)).filter(m => m.from !== "event" && !m.pending);
+  const i = upTo ? real.findIndex(m => m.id === upTo) : -1;
+  counts.value = { total: real.length, done: i + 1, rest: real.length - i - 1 };
+});
 const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 </script>
 
 <template>
   <div class="si">
+    <p v-if="counts" class="cnt">这个对话一共 <b>{{ counts.total }}</b> 条；整理进摘要 <b>{{ counts.done }}</b> 条{{ counts.total ? `（${Math.round((counts.done / counts.total) * 100)}%）` : "" }}；摘要后面还有 <b>{{ counts.rest }}</b> 条（自动整理在 {{ autoAt() }} 条）。</p>
     <template v-if="s?.text">
       <p>已经整理了 <b>{{ s.count || 0 }}</b> 条聊天{{ s.from ? `（含从「${s.from}」带过来的）` : "" }}。</p>
       <p v-if="s.at">上一次：{{ when(s.at) }}，{{ s.edited && !s.why ? "你改过" : SUM_WHY[s.why] || "自动整理的" }}{{ s.last ? `，整理进去 ${s.last} 条` : "" }}。</p>
