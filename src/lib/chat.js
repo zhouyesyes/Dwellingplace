@@ -544,7 +544,7 @@ export async function generate(thread, parentId) {
         recalled.add(rq);
         const ev = reactive({ text: `${role.name} 在翻记忆「${rq}」…`, before: true, at: keepSaid(text, rm.index) });
         msg.notes.push(ev);
-        const r = await recallForAI(role, rq, meName(role));
+        const r = await recallForAI(role, rq, meName(role), { skip: new Set(history.map(m => m.id)) });
         ev.text = `${role.name} 翻了翻记忆「${rq}」· 找到 ${r.count} 条`;
         ev.detail = r.text;
         if (ctrl.signal.aborted) break;
