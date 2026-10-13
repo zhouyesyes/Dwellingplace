@@ -12,6 +12,7 @@ import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
+import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
@@ -190,8 +191,8 @@ export async function chatPreview(role) {
     if (sum) parts.push({ label: `摘要记忆（对话「${thread.title}」）`, text: sum });
     const path = pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event");
     const rest = afterSummary(thread, path);
-    const n = Math.min(rest.length, Number(store.settings.historyLimit) || 80);
-    parts.push({ label: "最近的聊天", text: `摘要后面的聊天，他每次最多看到最近 ${Number(store.settings.historyLimit) || 80} 条（现在是 ${n} 条，原样发过去，这里不重复列出）。` });
+    const n = rest.length - tailFrom(rest, chatTokens());
+    parts.push({ label: "最近的聊天", text: `摘要后面的聊天原样发过去，每次最多约 ${fmtTok(chatTokens())} token（现在 ${n} 条、约 ${fmtTok(sumTokens(rest.slice(-n)))} token，这里不重复列出）。` });
   }
   const lastUser = thread ? [...pathOf(thread, await loadMessages(thread.id))].reverse().find(m => m.from === "user") : null;
   const rc = recallCards(role.id, lastUser?.text || "");
@@ -288,12 +289,11 @@ export function recentToolResults(list, n = 2) {
 
 async function buildMessages(list) {
   const out = [];
-  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
   const bubbles = new Set(); // 你发的一条条文字（合并前），用来认出「连着发了好几条」
   // 窗口每 10 条才往前挪一次（不是每条都挪）：开头那段聊天记录能连着好几轮保持一样，缓存才用得上
-  const cut = Math.max(0, real.length - limit);
+  const cut = tailFrom(real, chatTokens()); // 从后往前凑够「每次带多少原文」（token）
   const win = real.slice(cut - (cut % 10));
   // 图片很费 token：只有最近 6 条消息里的图片发原图，更早的写成 [图片]
   const fresh = new Set(win.slice(-6));
@@ -359,12 +359,7 @@ export function touchThread(thread, all) {
   }
 }
 
-// 粗估 token 数：中日韩文字大约一个字一个，其他大约 3.5 个字符一个（只用来看比例，不是计费数）
-export function estTokens(text) {
-  const t = String(text || "");
-  const cjk = (t.match(/[\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/g) || []).length;
-  return Math.round(cjk + (t.length - cjk) / 3.5);
-}
+export { estTokens } from "./budget.js";
 
 // 生成一条 AI 回复，接在 parentId 那条消息后面（不传就接在当前路径最后）
 export async function generate(thread, parentId) {
@@ -644,8 +639,8 @@ async function drawInto(thread, msg, role, prompt) {
 
 // ---------- 上下文压缩 ----------
 // 聊得久了，前面的聊天整理成一段摘要（存在 thread.summary），之后只带「摘要 + 最近的聊天」。
-// 两种时候整理：上一次回复看的内容快到模型上限（七成），或者没整理的消息快到「每次能看到多少条」（差几条的时候就整理，
-// 不等它真的超过：超过了最早那几条就有一次是看不到的）
+// 两种时候整理：上一次回复看的内容快到模型上限（七成），或者没整理的原文到了「每次带多少原文」的八成（按 token 粗估，见 budget.js）。
+// 每次整理前，旧的那份摘要留一个版本（thread.summaryVers），整理坏了能退回
 export function afterSummary(thread, history) {
   const upTo = thread?.summary?.upTo;
   if (!upTo) return history;
@@ -664,12 +659,10 @@ async function maybeCompress(thread, role, last) {
   const path = pathOf(thread, all).filter(m => m.from !== "event" && !m.pending && !m.error);
   if (thread.summary?.upTo && !path.some(m => m.id === thread.summary.upTo)) return; // 不在摘要那条线上
   const rest = afterSummary(thread, path);
-  const limit = Math.max(2, Number(store.settings.historyLimit) || 80);
   const ctx = last?.ctx0 || last?.ctx || last?.usage?.input || 0;
   const full = ctx > (Number(api?.contextLimit) || 200000) * 0.7;
-  const early = Math.max(2, limit - Math.min(10, Math.floor(limit / 5))); // 100 条的话，到 90 条就整理
-  if (!full && rest.length < early) return;
-  const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : Math.floor(limit / 2);
+  if (!full && sumTokens(rest) < autoAt()) return; // 没整理的原文到上限的八成就整理
+  const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : keepCount(rest, chatTokens());
   try {
     const n = await summarizeThread(thread, role, { keep, path, why: full ? "full" : "limit" });
     if (n && last) {
@@ -681,15 +674,15 @@ async function maybeCompress(thread, role, last) {
   }
 }
 // 什么时候自动整理：没整理的聊天快到「每次能看到多少条」（差几条的时候），或者上一次回复看的内容到了模型上限的七成
-export const autoAt = () => { const limit = Math.max(2, Number(store.settings.historyLimit) || 80); return Math.max(2, limit - Math.min(10, Math.floor(limit / 5))); };
-export const SUM_WHY = { limit: "没整理的聊天快到上限了，自动整理的", full: "内容快到模型上限的七成，自动整理的", manual: "你点「现在整理」整理的" };
+export const autoAt = () => Math.round(chatTokens() * AUTO);
+export const SUM_WHY = { limit: "没整理的聊天到了上限的八成，自动整理的", full: "内容快到模型上限的七成，自动整理的", manual: "你点「现在整理」整理的" };
 // 把还没进摘要的聊天（留下最近 keep 条不动，默认留「每次能看到多少条」的一半）和以前的摘要合在一起，整理成新的一份——一直只有一份，越往后越概括。
 // 用「整理用的模型」。返回这次整理进去了几条（0：没有要整理的）
 export async function summarizeThread(thread, role, { keep, path, why = "manual" } = {}) {
-  keep ??= Math.floor(Math.max(2, Number(store.settings.historyLimit) || 80) / 2);
   if (compressing[thread.id]) throw new Error("正在整理，等一下");
   path ??= pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error);
   const rest = afterSummary(thread, path);
+  keep ??= keepCount(rest, chatTokens());
   const old = rest.slice(0, Math.max(0, rest.length - keep));
   if (old.length < 2) return 0;
   compressing[thread.id] = true;
@@ -713,7 +706,10 @@ export async function summarizeThread(thread, role, { keep, path, why = "manual"
       suggestRule(me),
     ].filter(Boolean).join("\n"), { helper: true, raw: true }).then(t => visibleText(takeSuggestions(role, t, "聊天摘要")).trim());
     if (!text) return 0;
-    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from, why, last: old.length };
+    snapshotSum(thread, "summary"); // 旧的那份留一个版本，整理坏了能退回
+    const span = [thread.summary?.span?.[0] || (thread.summary?.upTo ? null : old[0].ts), old[old.length - 1].ts];
+    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from, why, last: old.length,
+      lastSpan: [old[0].ts, old[old.length - 1].ts], span, model: helperApi(role).model, tokens: sumTokens(old) };
     return old.length;
   } finally {
     delete compressing[thread.id];

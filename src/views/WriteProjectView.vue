@@ -5,7 +5,7 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, BUBBLE_COLORS } from "../store/index.js";
-import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, compressTalk, talkLimit, talkAutoAt, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
+import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, compressTalk, talkLimit, talkAutoAt, talkAfterSum, toAtt, importFiles, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
 import { pickFile, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
 import TalkDrawer from "../components/write/TalkDrawer.vue";
@@ -18,6 +18,8 @@ import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
+import SumVersions from "../components/memory/SumVersions.vue";
+import { snapshotSum, sumTokens, fmtTok } from "../lib/budget.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -130,6 +132,7 @@ const freshCount = computed(() => (p.value ? cardsOf(p.value.id) : []).filter(c 
 
 // ---------- 讨论 ----------
 const msgs = ref([]);
+const talkRestTok = computed(() => (p.value ? sumTokens(talkAfterSum(p.value, msgs.value)) : 0));
 const draft = ref("");
 const draftAtts = ref([]);
 const sending = ref(false);
@@ -214,6 +217,7 @@ const talkSumBusy = ref(false);
 const openTalkSum = () => (talkSumEdit.value = { text: p.value.talkSum?.text || "" });
 function saveTalkSum() {
   const text = talkSumEdit.value.text.trim();
+  if (text !== (p.value.talkSum?.text || "")) snapshotSum(p.value, "talkSum"); // 改之前的留一个版本
   if (text) p.value.talkSum = { ...(p.value.talkSum || { upTo: null, count: 0 }), text, at: Date.now(), why: "edited" };
   else delete p.value.talkSum;
   talkSumEdit.value = null;
@@ -223,7 +227,7 @@ async function talkSumNow() {
   try {
     const n = await compressTalk(role.value, p.value);
     talkSumEdit.value = { text: p.value.talkSum?.text || "" };
-    toast(n ? `把 ${n} 句讨论整理进去了` : `还没有要整理的（最近 ${Math.floor(talkLimit() / 2)} 句留着原样）`);
+    toast(n ? `把 ${n} 句讨论整理进去了` : `还没有要整理的（最近约 ${fmtTok(talkLimit() / 2)} token 留着原样）`);
   } catch (e) { toast(describeError(e), 4000); } finally { talkSumBusy.value = false; }
 }
 const summing = ref(false);
@@ -335,23 +339,24 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <Sheet :open="!!talkSumEdit" title="讨论摘要" @close="talkSumEdit = null">
       <template v-if="talkSumEdit">
         <div class="ts-info">
-          <p v-if="p.talkSum?.text">已经整理了 <b>{{ p.talkSum.count }}</b> 句讨论{{ p.talkSum.at ? `，上一次 ${new Date(p.talkSum.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "" }}{{ p.talkSum.why === "limit" ? "（快到上限，自动整理的）" : p.talkSum.why === "manual" ? "（你点「现在整理」整理的）" : "" }}。</p>
+          <p v-if="p.talkSum?.text">已经整理了 <b>{{ p.talkSum.count }}</b> 句讨论{{ p.talkSum.at ? `，上一次 ${new Date(p.talkSum.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "" }}{{ p.talkSum.why === "limit" ? "（到了上限的八成，自动整理的）" : p.talkSum.why === "manual" ? "（你点「现在整理」整理的）" : "" }}。</p>
           <p v-else>还没有讨论摘要。</p>
-          <p class="rule">这份只在《{{ p.title }}》的讨论里给{{ him }}看，不进记忆库。{{ him }}每次看得到最近 {{ talkLimit() }} 句；摘要后面没整理的讨论到 {{ talkAutoAt() }} 句就自动整理：把这份和后面的合成新的一份，最近 {{ Math.floor(talkLimit() / 2) }} 句留着原样。用整理模型。</p>
+          <p class="rule">这份只在《{{ p.title }}》的讨论里给{{ him }}看，不进记忆库。摘要后面的讨论原文{{ him }}都看得到（现在约 {{ fmtTok(talkRestTok) }} token），到 {{ fmtTok(talkAutoAt()) }} token（{{ fmtTok(talkLimit()) }} 的八成）就自动整理：把这份和前面的讨论合成新的一份，最近约 {{ fmtTok(talkLimit() / 2) }} token 留着原样。用整理模型。</p>
         </div>
         <BigTextarea v-model="talkSumEdit.text" rows="9" title="讨论摘要" placeholder="还没有：讨论多了会自己整理，也可以点「现在整理」" />
         <div class="row edit-actions">
           <button class="btn soft" :disabled="talkSumBusy" @click="talkSumNow">{{ talkSumBusy ? "在整理……" : "现在整理" }}</button>
           <button class="btn" @click="saveTalkSum">保存</button>
         </div>
+        <SumVersions :owner="p" skey="talkSum" unit="句" @restored="talkSumEdit.text = p.talkSum?.text || ''" />
       </template>
     </Sheet>
 
     <Sheet :open="menu" :title="`《${p.title}》`" @close="menu = false">
       <div class="menu">
         <button class="list-row" @click="menu = false; openTalkSum()"><Icon name="memory" :size="20" /><span class="grow">讨论摘要<small class="sub">{{ p.talkSum?.text ? `${p.talkSum.count} 句讨论整理成的，只在这本书里` : "讨论多了会自己整理，只在这本书里" }}</small></span></button>
-        <div class="section-label">{{ him }}每次看得到最近多少句讨论</div>
-        <div class="seg"><button v-for="n in [30, 60, 100, 200]" :key="n" :class="{ on: talkLimit() === n }" @click="store.settings.writeLimit = n">{{ n }} 句</button></div>
+        <div class="section-label">{{ him }}每次带多少讨论原文（到八成就整理）</div>
+        <div class="seg"><button v-for="n in [10000, 20000, 30000, 50000]" :key="n" :class="{ on: talkLimit() === n }" @click="store.settings.writeTokens = n">{{ fmtTok(n) }}</button></div>
 
         <div class="section-label">这一页的样子</div>
         <div class="list-row"><Icon name="image" :size="20" /><span class="grow">背景</span>

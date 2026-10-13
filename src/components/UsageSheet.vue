@@ -4,6 +4,7 @@
 import { computed, ref, watch } from "vue";
 import { store, fmtTokens } from "../store/index.js";
 import Sheet from "./Sheet.vue";
+import { sumTokens, fmtTok } from "../lib/budget.js";
 
 const props = defineProps({
   open: Boolean,
@@ -53,8 +54,8 @@ const onScroll = () => { const el = pager.value; if (el) page.value = Math.round
 const go = i => pager.value?.scrollTo({ left: i * pager.value.clientWidth, behavior: "smooth" });
 watch(() => props.open, v => { if (v) { page.value = 0; requestAnimationFrame(() => pager.value && (pager.value.scrollLeft = 0)); } });
 const limits = [
-  { key: "historyLimit", label: "他每次能看到最近多少条消息", sub: "越多记得越久，也越费 tokens。更早的会整理成摘要，不会全忘", min: 2, def: 80 },
-  { key: "wakeHistoryLimit", label: "他醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；不会超过第一项", min: 2, def: 30 },
+  { key: "historyTokens", label: "他每次带多少聊天原文（token）", sub: "摘要后面的聊天原样发给他，最多这么多；到八成就把前面的整理进摘要，最近一半留着。越多记得越细，也越费", min: 2000, max: 300000, step: 10000, def: 50000 },
+  { key: "wakeHistoryLimit", label: "他醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；也不会超过上一项", min: 2, def: 30 },
 ];
 function setLimit(l, v) {
   const n = Math.round(Number(v));
@@ -80,7 +81,7 @@ const counts = computed(() => {
   const real = props.path.filter(m => m.from !== "event" && !m.pending);
   const i = props.summary?.upTo ? real.findIndex(m => m.id === props.summary.upTo) : -1;
   const done = i >= 0 ? i + 1 : 0;
-  return { total: real.length, done, rest: real.length - done, carried: props.summary?.from ? (props.summary.count || 0) - done : 0 };
+  return { total: real.length, done, rest: real.length - done, restTok: sumTokens(real.slice(done)), carried: props.summary?.from ? (props.summary.count || 0) - done : 0 };
 });
 const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b) * 100));
 </script>
@@ -89,11 +90,11 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
   <Sheet :open="open" :title="title" @close="emit('close')">
     <nav class="tabs">
       <button :class="{ on: page === 0 }" @click="go(0)">用量</button>
-      <button :class="{ on: page === 1 }" @click="go(1)">看得到多少条</button>
+      <button :class="{ on: page === 1 }" @click="go(1)">看得到多少</button>
     </nav>
     <div ref="pager" class="pager" @scroll.passive="onScroll">
     <section class="pg">
-    <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。往左滑可以调他每次看得到多少条消息。</p>
+    <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。往左滑可以调他每次带多少聊天原文。</p>
     <template v-else>
       <div v-if="last" class="ctx-big">
         <div class="ctx-num">{{ fmtTokens(ctx) }}<small> / {{ fmtTokens(limit) }} tokens</small></div>
@@ -135,7 +136,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
       <div class="counts">
         <div><b>{{ counts.total }}</b><span>这个对话一共</span></div>
         <div><b>{{ counts.done }}</b><span>已整理进摘要{{ counts.total ? `（${Math.round((counts.done / counts.total) * 100)}%）` : "" }}</span></div>
-        <div><b>{{ counts.rest }}</b><span>摘要后面的</span></div>
+        <div><b>{{ counts.rest }}</b><span>摘要后面的（约 {{ fmtTok(counts.restTok) }} token）</span></div>
       </div>
       <p v-if="counts.carried > 0" class="tip">摘要里还有从「{{ summary.from }}」带过来的 {{ counts.carried }} 条。</p>
       <div class="list-card flat">
@@ -149,7 +150,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
           </div>
         </div>
       </div>
-      <p class="tip">改了马上生效。聊得久了（消息超过上面的条数，或者内容快到模型上限的七成），他会把前面的聊天整理成一段摘要接着用，聊天里会留一行小记，点开能看。记忆库里的事不受这个影响，他一直记得。</p>
+      <p class="tip">改了马上生效。聊得久了（摘要后面的原文到了上面那个数的八成，或者内容快到模型上限的七成），他会把前面的聊天整理成一段摘要接着用，聊天里会留一行小记，点开能看。记忆库里的事不受这个影响，他一直记得。</p>
     </section>
     </div>
   </Sheet>

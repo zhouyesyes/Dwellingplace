@@ -101,7 +101,7 @@ export async function readingPreview(role, b) {
   return [
     { label: "开头", text: `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。` },
     ...readingSceneParts(b, me).map(x => ({ label: `场景记忆 · ${x.label}`, text: x.text })),
-    { label: "全局记忆（排在场景后面，含主聊天最近的一半消息）", text: (await globalMemoryForScene(role, me, { skip: "read" })) || "（没有）" },
+    { label: "全局记忆（排在场景后面，含主聊天最近的消息）", text: (await globalMemoryForScene(role, me, { skip: "read" })) || "（没有）" },
     { label: "上次整理之后读过的原文（他都看得见）", text: (await sinceGist(b, b.pos || { ch: 0, p: 0 })) || "（刚整理过，或者还没读）" },
     { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从他上次一起读到的地方到你这一页（新读的超过 10 页会先问你）。" },
   ];

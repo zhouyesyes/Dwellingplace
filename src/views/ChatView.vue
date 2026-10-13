@@ -2,7 +2,9 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError } from "../lib/chat.js";
+import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
+import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
+import SumVersions from "../components/memory/SumVersions.vue";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
@@ -413,7 +415,11 @@ const ctxInfo = computed(() => {
   const pct = Math.min(100, Math.round((ctx / limit) * 100));
   return { ctx, limit, pct, level: pct >= 85 ? "high" : pct >= 60 ? "mid" : "" };
 });
-const shownCount = computed(() => Math.min(messages.value.filter(m => m.from !== "event").length, Number(store.settings.historyLimit) || 80));
+// 上一次大约带了几条：摘要后面的，从后往前凑够「每次带多少原文」
+const shownCount = computed(() => {
+  const rest = afterSummary(thread.value, messages.value.filter(m => m.from !== "event" && !m.pending && !m.error));
+  return rest.length - tailFrom(rest, chatTokens());
+});
 
 // 一组 AI 消息用了多少 tokens
 function tokensOf(group) {
@@ -497,6 +503,7 @@ function openSummary() { sumEdit.value = { text: thread.value?.summary?.text || 
 function saveSummary() {
   const t = thread.value, text = sumEdit.value.text.trim();
   if (!t) return;
+  if (text !== (t.summary?.text || "")) snapshotSum(t, "summary"); // 改之前的留一个版本
   if (!text) delete t.summary;
   else t.summary = { ...(t.summary || { upTo: null, count: 0 }), text, at: Date.now(), edited: true };
   sumEdit.value = null;
@@ -721,7 +728,7 @@ async function changeAvatarOf(who) {
 
     <!-- 上下文 -->
     <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" :summary="thread?.summary" @close="ctxOpen = false">
-      对话不会「用满」：超过 {{ store.settings.historyLimit }} 条后，更早的消息他就不再看到（记忆卡片里的事他一直记得）。想让他记得更久、或者想省一点，往左滑就能改这个数字；模型的上限在「设置 → API」里改。
+      对话不会「用满」：摘要后面的聊天原文快到 {{ fmtTok(chatTokens()) }} token 的八成，他就把前面的整理进摘要（记忆卡片里的事他一直记得）。想让他记得更细、或者想省一点，往左滑就能改这个数；模型的上限在「设置 → API」里改。
     </UsageSheet>
 
     <!-- 模型切换 -->
@@ -757,6 +764,7 @@ async function changeAvatarOf(who) {
           <button class="btn soft" :disabled="sumBusy" @click="compressNow">{{ sumBusy ? "在整理……" : "现在整理" }}</button>
           <button class="btn" @click="saveSummary">保存</button>
         </div>
+        <SumVersions :owner="thread" @restored="sumEdit.text = thread.summary?.text || ''" />
       </template>
     </Sheet>
     <SearchPanel :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="id => { searchOpen = false; router.push(`/chat/${role.id}/${id}`); }" />

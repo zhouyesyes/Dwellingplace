@@ -8,6 +8,7 @@
 import { reactive, watch } from "vue";
 import { store, uid, roleById, threadsOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
 import { relayCall, searchEnabled } from "./search.js";
+import { tail, chatTokens } from "./budget.js";
 import { serversFor, enabledTools, headerObj, toolDoc } from "./mcp.js";
 import { ROOT } from "./tree.js";
 import { buildSystem, pathOf, touchThread, applyReplyTags, meName, noteRecord, recentToolResults, afterSummary, summaryForAI } from "./chat.js";
@@ -119,9 +120,9 @@ async function snapshotRole(role) {
   const thread = threadFor(role);
   const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
   // 醒来一天好几次，每次都要把聊天记录整个发一遍：单独用一个小一点的上限
-  const limit = Math.max(2, Math.min(Number(store.settings.historyLimit) || 80, Number(store.settings.wakeHistoryLimit ?? 30) || 30));
-  const history = afterSummary(thread, path) // 整理成摘要的那段：只带摘要
-    .filter(m => m.from !== "event" && !m.pending && !m.error)
+  const limit = Math.max(2, Number(store.settings.wakeHistoryLimit ?? 30) || 30);
+  const real = afterSummary(thread, path).filter(m => m.from !== "event" && !m.pending && !m.error); // 整理成摘要的那段：只带摘要
+  const history = tail(real, chatTokens()) // 也不超过平时聊天带的原文
     .slice(-limit)
     .flatMap(m => {
       if (m.from === "user") return [{ from: "user", text: textOf(m), ts: m.ts }];

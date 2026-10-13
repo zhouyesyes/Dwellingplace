@@ -10,6 +10,8 @@ import SceneMemory from "../components/memory/SceneMemory.vue";
 import PromptPreview from "../components/memory/PromptPreview.vue";
 import MemoryGuide from "../components/memory/MemoryGuide.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
+import SumVersions from "../components/memory/SumVersions.vue";
+import { snapshotSum } from "../lib/budget.js";
 import MemorySettings from "../components/memory/MemorySettings.vue";
 import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
 import { ref, reactive, computed, watch, onUnmounted } from "vue";
@@ -93,6 +95,7 @@ const sumEdit = ref(null);
 const sumBusy = ref(false);
 function saveSum() {
   const { t, text } = sumEdit.value;
+  if (text.trim() !== (t.summary?.text || "")) snapshotSum(t, "summary"); // 改之前的留一个版本
   if (text.trim()) t.summary = { ...t.summary, text: text.trim(), at: Date.now(), edited: true };
   else delete t.summary;
   sumEdit.value = null;
@@ -301,6 +304,7 @@ function remove() {
           <button class="btn soft" :disabled="sumBusy" @click="sumNow">{{ sumBusy ? "在整理……" : "现在整理" }}</button>
           <button class="btn" @click="saveSum">保存</button>
         </div>
+        <SumVersions :owner="sumEdit.t" @restored="sumEdit.text = sumEdit.t.summary?.text || ''" />
       </template>
     </Sheet>
 
