@@ -1,14 +1,15 @@
 <script setup>
-// 读书：一章一章读。点一段 → 贴便利贴，或者问问他（他读了这一段，回一张便利贴）；右下角「一起读」→ 他读你最近这三页（上次一起读过的不重复），挑两三处贴便利贴。
-// 给他看的只有这一段 / 这几页，而且是单独问的一次，不进聊天记录。
-// 读到哪记在书上（他在聊天里也知道你读到哪了）；便利贴贴在那一段下面：你的黄色，他的蓝色
+// 读书：一章一章读。点一下 → 选中那一句（长按可以自己拖着选），下面出来一张小卡片：复制、划线、写想法、问问他。
+// 书页上只留划线（你的暖黄、他的淡蓝，写了想法的线尾有个小数字），点划线才看批注，段落不会被挤开。
+// 右下角「一起读」→ 从他上次一起读到的地方读到你现在这一页（超过 10 页先问你），他挑两三句划线、写批注。
+// 给他看的只有这一句 / 这几页，而且是单独问的一次，不进聊天记录。读到哪记在书上（他在聊天里也知道你读到哪了）
 // 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）、翻页还是上下滚；读的时候计时（每天读了多久）
 // 翻页：一屏一页（左右划，或者点屏幕左右两边）
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
-import { askHim, readAlong } from "../lib/reading.js";
+import { askHim, readAlong, alongSlice } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookInfo from "../components/books/BookInfo.vue";
@@ -26,11 +27,6 @@ const ch = ref(0);
 const scroller = ref(null);
 const paras = computed(() => content.value?.chapters[ch.value]?.paras || []);
 const chapterTitle = computed(() => b.value?.chapters[ch.value]?.title || "");
-const notesByP = computed(() => {
-  const m = {};
-  for (const n of b.value ? notesOf(b.value.id, ch.value) : []) (m[n.p] ??= []).push(n);
-  return m;
-});
 
 // ---------- 翻页 ----------
 const paged = computed(() => (store.readerPrefs.mode || "page") === "page");
@@ -76,10 +72,10 @@ function onUp(e) {
 function onTapCapture(e) {
   if (!paged.value) return;
   if (swiped) { swiped = false; e.stopPropagation(); e.preventDefault(); return; }
-  if (sel.value != null || e.target.closest(".note, button")) return;
+  if (sel.value != null || e.target.closest("button, .mk") || !getSelection()?.isCollapsed) return; // 点在划线上：看批注，不翻页
   const w = innerWidth;
-  if (e.clientX < w * 0.22) { e.stopPropagation(); flip(-1); }
-  else if (e.clientX > w * 0.78) { e.stopPropagation(); flip(1); }
+  if (e.clientX < w * 0.18) { e.stopPropagation(); flip(-1); }
+  else if (e.clientX > w * 0.82) { e.stopPropagation(); flip(1); }
 }
 
 // 现在屏幕上看得到哪几段（翻页、滚动都按看得见的算）
@@ -150,57 +146,184 @@ function markSeen() {
   setTimeout(() => { for (const n of notesOf(b.value?.id, ch.value)) if (n.from === "ai") n.seen = true; }, 1200);
 }
 
-// ---------- 点一段 ----------
-const sel = ref(null);
-const pick = p => (sel.value = sel.value === p ? null : p);
-const sheet = ref(null); // { mode: "note" | "ask", text }
-function openSheet(mode) { sheet.value = { mode, text: "" }; }
-function saveNote() {
-  const s = sheet.value;
-  if (!s.text.trim()) return toast("便利贴还是空的");
-  addNote(b.value, { ch: ch.value, p: sel.value, quote: paras.value[sel.value], text: s.text, from: "me" });
-  sheet.value = null;
-  sel.value = null;
+// ---------- 划线和批注 ----------
+// 一条划线在这段里是哪几个字
+function rangeOf(n, para) {
+  if (n.start != null && n.end != null && n.end <= para.length) return [n.start, n.end];
+  const q = (n.quote || "").replace(/…$/, "").trim();
+  const i = q ? para.indexOf(q.slice(0, 40)) : -1;
+  return i >= 0 ? [i, Math.min(para.length, i + q.length)] : [0, para.length];
+}
+const marksByP = computed(() => {
+  const m = {};
+  for (const n of b.value ? notesOf(b.value.id, ch.value) : []) {
+    const para = paras.value[n.p];
+    if (para == null) continue;
+    const [s0, e0] = rangeOf(n, para);
+    (m[n.p] ??= []).push({ n, s: s0, e: e0 });
+  }
+  return m;
+});
+// 一段拆成几截：哪截有你的线、他的线、正选着；写了想法的线，在线尾标个数
+function segsOf(i) {
+  const t = paras.value[i] || "";
+  const ms = marksByP.value[i] || [];
+  const temp = sel.value && !sel.value.native && sel.value.p === i ? [{ s: sel.value.start, e: sel.value.end, temp: true }] : [];
+  const all = [...ms, ...temp];
+  if (!all.length) return [{ text: t, a: 0 }];
+  const xs = [...new Set([0, t.length, ...all.flatMap(m => [m.s, m.e])])].filter(x => x >= 0 && x <= t.length).sort((x, y) => x - y);
+  const out = [];
+  for (let k = 0; k < xs.length - 1; k++) {
+    const a = xs[k], z = xs[k + 1];
+    if (a === z) continue;
+    const cover = all.filter(m => m.s <= a && m.e >= z);
+    const ends = ms.filter(m => m.e === z && m.n.text).length;
+    out.push({ text: t.slice(a, z), a, me: cover.some(m => m.n?.from === "me"), his: cover.some(m => m.n?.from === "ai"), temp: cover.some(m => m.temp), n: ends });
+  }
+  return out;
+}
+// 段落里第几个字（按看得见的文字数，线尾的小数字不算）
+function offsetIn(pEl, node, off) {
+  const rg = document.createRange();
+  rg.selectNodeContents(pEl);
+  rg.setEnd(node, off);
+  return rg.toString().length;
+}
+// 点到的那个字所在的一句：前后找句号、问号、叹号……
+function sentenceAt(t, i) {
+  const END = /[。！？!?；;…\n]/;
+  let a = i, z = i;
+  while (a > 0 && !END.test(t[a - 1])) a--;
+  while (z < t.length && !END.test(t[z])) z++;
+  while (z < t.length && /[。！？!?；;…”」』）)\s]/.test(t[z])) z++;
+  while (a < z && /\s/.test(t[a])) a++;
+  return [a, Math.max(z, a + 1)];
 }
 
-// 问问他：把这一段（和前后各一段）给他看，他回一张便利贴
-const asking = ref(null); // 正在等他回的那一段
+const sel = ref(null); // 选着的：{ p, start, end, native }（native：自己长按拖出来的）
+const selQuote = computed(() => (sel.value ? (paras.value[sel.value.p] || "").slice(sel.value.start, sel.value.end) : ""));
+const clearSel = () => { sel.value = null; try { getSelection()?.removeAllRanges(); } catch { /* 没事 */ } };
+const marksSheet = ref(null); // 点了划线：{ p, list: [{ n, s, e }] }
+
+// 点一下：点在划线上 → 看批注；点在字上 → 选中那一句；再点同一句 → 取消
+function tapPara(i, e) {
+  const gs = getSelection();
+  if (gs && !gs.isCollapsed) return;
+  const pEl = e.currentTarget;
+  let pos = null;
+  if (document.caretRangeFromPoint) { const c = document.caretRangeFromPoint(e.clientX, e.clientY); if (c && pEl.contains(c.startContainer)) pos = offsetIn(pEl, c.startContainer, c.startOffset); }
+  else if (document.caretPositionFromPoint) { const c = document.caretPositionFromPoint(e.clientX, e.clientY); if (c && pEl.contains(c.offsetNode)) pos = offsetIn(pEl, c.offsetNode, c.offset); }
+  if (pos == null) return;
+  if (e.target.closest(".mk:not(.temp)")) {
+    const list = (marksByP.value[i] || []).filter(m => m.s <= pos && m.e >= pos);
+    if (list.length) { clearSel(); marksSheet.value = { p: i, list }; for (const m of list) m.n.seen = true; return; }
+  }
+  const [a, z] = sentenceAt(paras.value[i], Math.min(pos, paras.value[i].length - 1));
+  if (sel.value && sel.value.p === i && sel.value.start === a && sel.value.end === z) return clearSel();
+  sel.value = { p: i, start: a, end: z };
+}
+// 自己长按拖出来的一段：记下是哪几个字（不重画这一段，不然手机上的选区会没）
+let selT = 0;
+function onSelChange() {
+  clearTimeout(selT);
+  selT = setTimeout(() => {
+    const gs = getSelection();
+    if (!gs || gs.isCollapsed || !gs.rangeCount) return;
+    const rg = gs.getRangeAt(0);
+    const node = rg.startContainer.nodeType === 1 ? rg.startContainer : rg.startContainer.parentElement;
+    const pEl = node?.closest?.("[data-p]");
+    if (!pEl || !scroller.value?.contains(pEl)) return;
+    const i = Number(pEl.dataset.p);
+    const start = offsetIn(pEl, rg.startContainer, rg.startOffset);
+    const end = pEl.contains(rg.endContainer) ? offsetIn(pEl, rg.endContainer, rg.endOffset) : paras.value[i].length;
+    if (end - start >= 1) sel.value = { p: i, start, end, native: true };
+  }, 250);
+}
+onMounted(() => document.addEventListener("selectionchange", onSelChange));
+onBeforeUnmount(() => { document.removeEventListener("selectionchange", onSelChange); clearTimeout(selT); });
+
+async function copySel() {
+  try { await navigator.clipboard.writeText(selQuote.value); toast("已复制"); } catch { toast("复制失败，浏览器不允许"); }
+  clearSel();
+}
+const here = () => ({ ch: ch.value, p: sel.value.p, start: sel.value.start, end: sel.value.end, quote: selQuote.value });
+function lineSel() {
+  addNote(b.value, { ...here(), text: "", from: "me" });
+  clearSel();
+}
+const sheet = ref(null); // { mode: "note" | "ask", text, at }
+function openSheet(mode, at = here()) { sheet.value = { mode, text: "", at }; }
+function saveNote() {
+  const s = sheet.value;
+  if (!s.text.trim()) return toast("还没写呢");
+  addNote(b.value, { ...s.at, text: s.text, from: "me" });
+  sheet.value = null;
+  clearSel();
+}
+// 从批注里接着写 / 问他：还是这几个字
+const fromMarks = (mode) => { const m = marksSheet.value.list[0]; marksSheet.value = null; openSheet(mode, { ch: ch.value, p: m.n.p, start: m.s, end: m.e, quote: (paras.value[m.n.p] || "").slice(m.s, m.e) }); };
+function dropMark(n) {
+  if (n.text && !confirm(`删掉这条批注？\n\n${n.text.slice(0, 60)}`)) return;
+  removeNote(n);
+  if (marksSheet.value) { marksSheet.value.list = marksSheet.value.list.filter(m => m.n !== n); if (!marksSheet.value.list.length) marksSheet.value = null; }
+}
+
+// 问问他：给他看划的这一句（和它所在的段落、前后各一段），他回一条批注，划在同一句上
+const asking = ref(false);
 async function ask() {
-  const s = sheet.value, p = sel.value, r = role.value;
+  const s = sheet.value, r = role.value;
   if (!r) return;
   sheet.value = null;
-  sel.value = null;
-  if (s.text.trim()) addNote(b.value, { ch: ch.value, p, quote: paras.value[p], text: s.text, from: "me" }).seen = true;
-  asking.value = p;
+  clearSel();
+  const at = s.at;
+  if (s.text.trim()) addNote(b.value, { ...at, text: s.text, from: "me" }).seen = true;
+  else Object.assign(addNote(b.value, { ...at, text: "", from: "me" }), { seen: true, ask: true }); // 没写话也留一道线：问过他这里
+  asking.value = true;
   try {
-    const { text, notes } = await askHim(r, b.value, { ch: ch.value, p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim() });
-    addNote(b.value, { ch: ch.value, p, quote: paras.value[p], text, from: "ai" }).seen = true;
-    if (notes.length) toast(notes[0], 2500);
+    const { text, notes } = await askHim(r, b.value, { ch: ch.value, p: at.p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim(), quote: at.quote });
+    addNote(b.value, { ...at, text, from: "ai" }).seen = true;
+    toast(notes[0] || `${r.name} 在那句旁边写了一句`, 2500);
   } catch (e) {
     toast(`没问到：${describeError(e)}`, 4000);
   } finally {
-    asking.value = null;
+    asking.value = false;
   }
 }
 
-// 一起读：这一页和前两页（上次一起读过的段落不再给他），一次读三页
+// 一起读：从他上次一起读到的地方，到你现在这一页的最后一段；超过 10 页先问你
 const along = ref(false);
+const posBefore = (x, y) => x.ch < y.ch || (x.ch === y.ch && x.p < y.p);
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
-  const pages = Number(store.settings.alongPages) || 3;
-  const seen = visibleParas(pages - 1);
+  const seen = visibleParas();
   if (!seen.length) return toast("这一页没有字");
-  const done = b.value.alongTo?.ch === ch.value ? b.value.alongTo.p : -1;
-  const to = Math.max(...seen);
-  const from = Math.max(Math.min(...seen), done < to ? done + 1 : 0);
+  const to = { ch: ch.value, p: Math.max(...seen) };
+  const last = [b.value.alongTo, b.value.hisPos].find(x => x && posBefore(x, to));
+  const from = last ? { ch: last.ch, p: last.p + 1 } : { ch: ch.value, p: Math.min(...seen) };
+  // 一页大概多少字：就按这一页算
+  const perPage = Math.max(300, seen.reduce((a, i) => a + (paras.value[i]?.length || 0), 0));
+  const all = await alongSlice(b.value, from, to);
+  const total = all.reduce((a, x) => a + x.t.length, 0);
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  let maxChars = Infinity;
+  if (pages > 10) {
+    if (!confirm(`从${r.name}上次读到的地方到这里，一共大约 ${pages} 页（${total} 字），超过 10 页了，这次先没发。\n\n要只给${r.name}最近的 10 页吗？`)) return;
+    maxChars = perPage * 10;
+  }
   along.value = true;
   store.settings.readTip = true;
   try {
-    const { notes, memNotes } = await readAlong(r, b.value, { ch: ch.value, chapterTitle: chapterTitle.value, paras: paras.value, from, to, pages });
-    b.value.alongTo = { ch: ch.value, p: to };
-    for (const n of notes) addNote(b.value, { ch: ch.value, p: n.p, quote: paras.value[n.p], text: n.text, from: "ai" }).seen = true;
-    toast(memNotes[0] || `${r.name} 贴了 ${notes.length} 张便利贴`, 2500);
+    const res = await readAlong(r, b.value, { from, to, maxChars });
+    b.value.alongTo = res.upTo;
+    const book = await loadBook(b.value.id);
+    for (const n of res.notes) {
+      const para = book.chapters[n.ch]?.paras[n.p] || "";
+      const i = n.quote ? para.indexOf(n.quote.slice(0, 40)) : -1;
+      const [st, en] = i >= 0 ? [i, i + n.quote.length] : [0, para.length];
+      addNote(b.value, { ch: n.ch, p: n.p, start: st, end: Math.min(en, para.length), quote: para.slice(st, en), text: n.text, from: "ai" }).seen = n.ch !== ch.value;
+    }
+    toast(res.memNotes[0] || `${r.name} 读了 ${Math.min(pages, 10)} 页，划了 ${res.notes.length} 处`, 2800);
   } catch (e) {
     toast(`没读成：${describeError(e)}`, 4000);
   } finally {
@@ -248,9 +371,6 @@ const dropFont = f => { if (confirm(`删掉字体「${f.name}」？`)) removeFon
 const infoOpen = ref(false);
 const atEnd = computed(() => b.value && ch.value === b.value.chapters.length - 1);
 
-function tapNote(n) {
-  if (confirm(`撕掉这张便利贴？\n\n${n.text.slice(0, 60)}`)) removeNote(n);
-}
 const tocOpen = ref(false);
 const who = n => (n.from === "me" ? "我" : role.value?.name || "他");
 const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -272,15 +392,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       @scroll.passive="onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
-        <p :data-p="i" :class="{ sel: sel === i, marked: notesByP[i] }" @click="pick(i)">{{ t }}</p>
-        <div v-if="notesByP[i] || asking === i" class="notes">
-          <div v-for="n in notesByP[i]" :key="n.id" class="note" :class="n.from === 'me' ? 'mine' : 'his'" @click="tapNote(n)">
-            <i class="tape" />
-            <p>{{ n.text }}</p>
-            <span>— {{ who(n) }} · {{ when(n.ts) }}</span>
-          </div>
-          <div v-if="asking === i" class="note his waiting"><i class="tape" /><p>他在读这一段……</p></div>
-        </div>
+        <p :data-p="i" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
       </template>
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
@@ -294,25 +406,49 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
     <!-- 第一次来：告诉她怎么和他一起读 -->
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
-      点一段：贴便利贴，或者问问{{ role?.name || "他" }}。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}读你最近这{{ store.settings.alongPages || 3 }}页，在有感觉的地方贴便利贴。<b>知道了</b>
+      点一下选中一句（长按可以自己拖着选）：划线、写想法，或者问问{{ role?.name || "他" }}。点划线看批注。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}从上次读到的地方读到这一页，挑几句划线、写批注。<b>知道了</b>
     </div>
-    <button v-if="sel == null" class="along" :class="{ busy: along }" :disabled="along" @click="readThisPage">
-      <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : "一起读" }}
+    <button v-if="sel == null" class="along" :class="{ busy: along || asking }" :disabled="along || asking" @click="readThisPage">
+      <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : asking ? `${role?.name || "他"}在想…` : "一起读" }}
     </button>
 
+    <!-- 选中一句：下面一张小卡片 -->
     <Transition name="pop">
-      <div v-if="sel != null" class="actions">
-        <button @click="openSheet('note')"><Icon name="edit" :size="18" />贴便利贴</button>
-        <button @click="openSheet('ask')"><Icon name="chat" :size="18" />问问他</button>
-        <button class="x" aria-label="取消" @click="sel = null"><Icon name="close" :size="16" /></button>
+      <div v-if="sel != null" class="selcard" @pointerdown.stop @click.stop>
+        <p class="q">{{ selQuote }}</p>
+        <div class="acts">
+          <button @click="copySel"><Icon name="copy" :size="19" />复制</button>
+          <button @click="lineSel"><span class="ul">A</span>划线</button>
+          <button @click="openSheet('note')"><Icon name="edit" :size="19" />写想法</button>
+          <button @click="openSheet('ask')"><Icon name="chat" :size="19" />问问{{ role?.name || "他" }}</button>
+          <button class="x" aria-label="取消" @click="clearSel"><Icon name="close" :size="17" /></button>
+        </div>
       </div>
     </Transition>
 
-    <Sheet :open="!!sheet" :title="sheet?.mode === 'ask' ? '问问他' : '贴一张便利贴'" @close="sheet = null">
+    <Sheet :open="!!sheet" :title="sheet?.mode === 'ask' ? `问问${role?.name || '他'}` : '写想法'" @close="sheet = null">
       <div v-if="sheet" class="compose">
-        <blockquote>{{ paras[sel]?.slice(0, 120) }}{{ paras[sel]?.length > 120 ? "…" : "" }}</blockquote>
-        <textarea v-model="sheet.text" class="input" rows="4" :placeholder="sheet.mode === 'ask' ? '想问他什么（可以不写，他会自己说说读到这里的想法）' : '想在这里写点什么'" />
-        <button class="btn" @click="sheet.mode === 'ask' ? ask() : saveNote()">{{ sheet.mode === "ask" ? "给他看" : "贴上" }}</button>
+        <blockquote>{{ sheet.at.quote.slice(0, 160) }}{{ sheet.at.quote.length > 160 ? "…" : "" }}</blockquote>
+        <textarea v-model="sheet.text" class="input" rows="4" :placeholder="sheet.mode === 'ask' ? '想问他什么（可以不写，他会自己说说读到这里的想法）' : '在这句旁边写点什么'" />
+        <button class="btn" @click="sheet.mode === 'ask' ? ask() : saveNote()">{{ sheet.mode === "ask" ? "给他看" : "写上" }}</button>
+      </div>
+    </Sheet>
+
+    <!-- 点了划线：这句上的批注 -->
+    <Sheet :open="!!marksSheet" title="划线" @close="marksSheet = null">
+      <div v-if="marksSheet" class="compose">
+        <blockquote>{{ (paras[marksSheet.p] || "").slice(marksSheet.list[0].s, marksSheet.list[0].e).slice(0, 200) }}</blockquote>
+        <div class="mlist">
+          <div v-for="m in marksSheet.list" :key="m.n.id" class="mnote" :class="m.n.from === 'me' ? 'mine' : 'his'">
+            <p v-if="m.n.text">{{ m.n.text }}</p>
+            <p v-else class="only">{{ m.n.ask ? `问了问${role?.name || "他"}` : "只划了线" }}</p>
+            <div class="mf"><small>— {{ who(m.n) }} · {{ when(m.n.ts) }}</small><button @click="dropMark(m.n)">删掉</button></div>
+          </div>
+        </div>
+        <div class="row2">
+          <button class="btn soft" @click="fromMarks('note')">写想法</button>
+          <button class="btn" @click="fromMarks('ask')">问问{{ role?.name || "他" }}</button>
+        </div>
       </div>
     </Sheet>
 
@@ -323,9 +459,6 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         </div>
         <div class="pr-row"><span>翻页</span>
           <div class="fonts"><button :class="{ on: paged }" @click="store.readerPrefs.mode = 'page'">一屏一页</button><button :class="{ on: !paged }" @click="store.readerPrefs.mode = 'scroll'">上下滚动</button></div>
-        </div>
-        <div class="pr-row col"><span>一起读，一次读几页</span>
-          <div class="fonts"><button v-for="n in [1, 2, 3, 5]" :key="n" :class="{ on: (store.settings.alongPages || 3) === n }" @click="store.settings.alongPages = n">{{ n }} 页</button></div>
         </div>
         <div class="pr-row col"><span>每读多少字，{{ role?.name || "他" }}整理一次前情</span>
           <div class="fonts"><button v-for="n in [2000, 3000, 5000, 8000]" :key="n" :class="{ on: (store.settings.readGistChars || 3000) === n }" @click="store.settings.readGistChars = n">{{ n / 1000 }} 千字</button></div>
@@ -369,32 +502,44 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 /* 一屏一页：字排成一栏一栏往右排，一栏正好一屏宽，翻页就是往右挪一屏 */
 .page.paged { min-height: 0; max-width: none; overflow: hidden; column-width: var(--colw, 300px); column-gap: var(--colgap, 48px); column-fill: auto; padding-bottom: calc(var(--safe-bottom) + 84px); touch-action: pan-y pinch-zoom; }
 @media (min-width: 768px) { .page.paged { padding-left: max(24px, calc((100% - 720px) / 2)); padding-right: max(24px, calc((100% - 720px) / 2)); } }
-.page.paged .notes, .page.paged .ch-nav { break-inside: avoid; }
+.page.paged .ch-nav { break-inside: avoid; }
 .pgno { position: fixed; left: 22px; bottom: calc(var(--safe-bottom) + 34px); z-index: 2; font-size: .72rem; color: var(--text-3); letter-spacing: .05em; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
 .page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
-.page > p.marked { text-decoration: underline wavy rgba(217, 164, 65, .45); text-underline-offset: 6px; }
-.page > p.sel { background: rgba(217, 164, 65, .16); }
-.notes { display: flex; flex-wrap: wrap; gap: 10px; margin: -2px 0 18px; }
-.note { position: relative; max-width: 86%; padding: 14px 14px 10px; border-radius: 2px; box-shadow: 0 6px 14px rgba(60, 45, 30, .14); cursor: pointer; transform: rotate(-1.2deg); }
-.note:nth-child(even) { transform: rotate(1deg); }
-.note.mine { background: #fff1a8; }
-.note.his { background: #dcebfc; margin-left: auto; }
-.note p { margin: 0; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; color: #3b3128; }
-.note span { display: block; margin-top: 6px; font-size: .68rem; color: rgba(60, 45, 30, .5); text-align: right; }
-.tape { position: absolute; top: -8px; left: 50%; width: 46px; height: 16px; transform: translateX(-50%) rotate(-3deg); background: rgba(255, 255, 255, .55); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
-.waiting p { color: var(--text-2); animation: breathe 1.6s ease-in-out infinite; }
-@keyframes breathe { 50% { opacity: .45; } }
-.ch-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 30px 0 10px; font-size: .8rem; color: var(--text-2); }
+/* 划线：你的暖黄、他的淡蓝；两个人都划了就叠在一起。写了想法的线尾，有个小小的数字 */
+.mk { border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.mk.me { text-decoration: underline 2px rgba(214, 160, 60, .75); text-underline-offset: 5px; }
+.mk.his { text-decoration: underline 2px dotted rgba(92, 142, 205, .85); text-underline-offset: 5px; }
+.mk.me.his { text-decoration: underline 2px rgba(150, 140, 190, .85); }
+.mk.temp { background: rgba(217, 164, 65, .22); }
+.mk[data-n]::after { content: attr(data-n); display: inline; margin-left: 2px; padding: 0 4px; line-height: 1; border-radius: 7px; font-size: 9px; text-align: center; text-indent: 0; vertical-align: super; background: rgba(214, 160, 60, .85); color: #fff; font-weight: 600; font-family: var(--font); }
+.mk.his[data-n]::after { background: rgba(92, 142, 205, .9); }
 .along { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: #fff; font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
 .along.busy { animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .55; } }
 .tip { position: fixed; left: 18px; right: 18px; bottom: calc(var(--safe-bottom) + 80px); z-index: 3; max-width: 520px; margin: 0 auto; padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .96); color: #3b3128; font-size: .82rem; line-height: 1.7; box-shadow: 0 10px 30px rgba(30, 30, 40, .16); }
 .tip b { display: block; text-align: right; margin-top: 4px; color: #b5852e; font-weight: 600; }
-.actions { position: fixed; left: 50%; bottom: calc(var(--safe-bottom) + 22px); transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; border-radius: 999px; background: var(--ink); box-shadow: 0 10px 30px rgba(30, 30, 40, .25); z-index: 3; }
-.actions button { display: flex; align-items: center; gap: 6px; border: 0; background: none; color: #fff; padding: 9px 14px; border-radius: 999px; font-weight: 600; font-size: .88rem; }
-.actions .x { padding: 9px 10px; opacity: .7; }
+.ch-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 30px 0 10px; font-size: .8rem; color: var(--text-2); }
+.selcard { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-bottom) + 14px); z-index: 4; max-width: 560px; margin: 0 auto; padding: 14px 14px 8px; border-radius: 22px; background: rgba(255, 255, 255, .97); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 12px 36px rgba(30, 30, 40, .2); color: #3b3128; }
+.selcard .q { margin: 0 4px 10px; font-size: .86rem; line-height: 1.6; color: #6a5e52; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.selcard .q::before { content: "“"; font-size: 1.4rem; line-height: 0; vertical-align: -.3em; margin-right: 2px; color: #c7b49a; }
+.selcard .acts { display: flex; border-top: 1px solid rgba(60, 45, 30, .08); padding-top: 6px; }
+.selcard .acts button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; padding: 6px 2px; font-size: .72rem; color: #4a4038; }
+.selcard .acts .x { flex: none; width: 40px; color: #9a8f84; justify-content: center; }
+.selcard .ul { font-size: 1.05rem; line-height: 19px; text-decoration: underline 2px rgba(214, 160, 60, .9); text-underline-offset: 3px; font-weight: 600; }
+.mlist { display: flex; flex-direction: column; gap: 10px; }
+.mnote { padding: 12px 14px 8px; border-radius: 14px; }
+.mnote.mine { background: #fff4c9; }
+.mnote.his { background: #e3eefb; }
+.mnote p { margin: 0; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; color: #3b3128; }
+.mnote p.only { color: rgba(60, 45, 30, .5); font-size: .82rem; }
+.mf { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.mf small { flex: 1; font-size: .7rem; color: rgba(60, 45, 30, .5); }
+.mf button { border: 0; background: rgba(255, 255, 255, .7); border-radius: 999px; padding: 3px 10px; font-size: .72rem; color: #8a5a50; }
+.row2 { display: flex; gap: 8px; margin-top: 4px; }
+.row2 .btn { flex: 1; }
 .pop-enter-active, .pop-leave-active { transition: opacity .2s, transform .2s; }
-.pop-enter-from, .pop-leave-to { opacity: 0; transform: translate(-50%, 10px); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(12px); }
 .compose { display: flex; flex-direction: column; gap: 10px; }
 .compose blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid #d9a441; background: #faf6ef; color: var(--text-2); font-size: .85rem; line-height: 1.7; border-radius: 4px; }
 .compose .btn { align-self: flex-end; }
@@ -405,7 +550,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .bar .t span { color: color-mix(in srgb, var(--rink) 55%, transparent); }
 .night .icon-btn { background: #2a2b31; color: #ddd; }
 .night .ch-nav { color: #888; }
-.night .note { filter: brightness(.72) saturate(.8); }
+.night .selcard { background: rgba(44, 45, 52, .97); color: #ddd8d0; }
+.night .selcard .q, .night .selcard .acts button { color: #cfc8bf; }
 .aa { font-weight: 600; font-size: .95rem; }
 .prefs { display: flex; flex-direction: column; gap: 16px; }
 .pr-row { display: flex; align-items: center; gap: 12px; }
