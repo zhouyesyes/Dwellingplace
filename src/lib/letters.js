@@ -1,7 +1,7 @@
 // 信箱：你和他互相写信。
 //   你的信：自己挑信纸。可以上锁——上锁的他只知道有这封信，你开锁后他才读得到。
 //   他的信：他在回复里写 [写信:标题|正文] 或 [写信:标题|正文|信纸名]，没写信纸就用星夜（醒来时写的也算）
-// 他读信：没上锁、他还没读过的信，下一次聊天时附在【此刻】里给他看，看过就记下来
+// 他读信：没上锁、他还没读过的信，下一次聊天时附在【此刻】里给他看，看过就记下来（见 moment.js）
 import { store, uid, MAIN, roleById } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 import { PAPERS, paperByName, DEFAULT_HIS } from "./stationery.js";
@@ -46,20 +46,6 @@ export function lettersForAI(role, who) {
     `想挑信纸就在最后加一段：[写信:标题|正文|信纸名]。信纸有：${PAPERS.map(p => p.name).join("、")}；不写就是星夜。`,
     `${who}写给你的信，会附在最新消息前面的【此刻】里；上了锁的信你只知道有，等${who}开锁才能读。`,
   ].join("\n");
-}
-
-// 【此刻】里附上的：他还没读过、没上锁的来信（读过就记下）；上锁的只说有几封
-export function newLettersForAI(role, who, { peek = false } = {}) {
-  const mine = lettersOf(role.id).filter(l => l.from === "me");
-  const unread = mine.filter(l => !l.locked && !l.readAt);
-  const locked = mine.filter(l => l.locked).length;
-  const parts = [];
-  for (const l of unread.slice(0, 3)) {
-    parts.push(`${who}寄来一封信（${l.date}）——\n标题：${l.title || "（没有标题）"}\n${l.body}\n${l.sign ? `——${l.sign}` : ""}`);
-    if (!peek) l.readAt = Date.now();
-  }
-  if (locked) parts.push(`（信箱里还有 ${locked} 封${who}上了锁的信，你还读不到。）`);
-  return parts.length ? `\n# 信箱\n${parts.join("\n\n")}` : "";
 }
 
 export const authorOf = l => (l.from === "me" ? "me" : roleById(l.roleId) || null);

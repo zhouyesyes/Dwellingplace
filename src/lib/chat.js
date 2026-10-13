@@ -10,9 +10,10 @@ import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions,
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
 import { stickersForAI } from "./stickers.js";
-import { LETTER_RE, applyLetterTags, lettersForAI, newLettersForAI } from "./letters.js";
+import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
+import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
 import { writingForAI } from "./writing.js";
-import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI, newReadingForAI } from "./reading.js";
+import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
@@ -63,6 +64,7 @@ export function visibleText(text) {
     .replace(READ_MEM_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
+    .replace(MOMENT_RE, "")
     .replace(ALARM_RE, "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
@@ -70,7 +72,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -148,6 +150,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who, { wake }),
+    `\n# 记在此刻\n最新消息前面的【此刻】里有最近 24 小时的事（来往的信、读过的书、你自己记的小事），时间写的是「多久以前」。\n${momentRule(who)}`,
     hasXinchao(role) || wake ? "" : [ // 醒来时（中转那边）翻不了
       `\n# 翻记忆`,
       `想不起以前的事（聊过什么、哪天说过什么、某张记忆卡片的细节），或者${who}问起以前的事，只回复一行：[翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录、摘要和记忆卡片里找，把找到的给你，你再回复。`,
@@ -192,7 +195,7 @@ export async function chatPreview(role) {
   }
   const lastUser = thread ? [...pathOf(thread, await loadMessages(thread.id))].reverse().find(m => m.from === "user") : null;
   const rc = recallCards(role.id, lastUser?.text || "");
-  const moment = [newLettersForAI(role, meName(role), { peek: true }), newReadingForAI(role, meName(role), { peek: true }),
+  const moment = [momentForAI(role, meName(role), { peek: true }),
     `\n# 可能相关的记忆（每次按你最新说的话自动想起；拿你上一句「${(lastUser?.text || "").slice(0, 30)}」试了一下）\n${rc.length ? rc.map(m => `- ${m.title}：${m.content.slice(0, 80)}`).join("\n") : "（这句没想起哪张）"}`].filter(Boolean).join("\n");
   parts.push({ label: "【此刻】附注（附在你最新那条消息前面，每次不同）", text: `现在的时间、离上一条隔了多久${hasXinchao(role) ? "、此刻的心境" : ""}；还有这些临时带着的：${moment || "\n（现在没有）"}` });
   return parts;
@@ -218,12 +221,11 @@ function contextNote(role, history) {
     lastOther && Date.now() - lastOther.ts > 30 * 60_000 ? `距离你们上一条消息已经过去了 ${gapForAI(Date.now() - lastOther.ts)}。` : "",
   ].filter(Boolean).join("\n");
   const mind = hasXinchao(role) ? mindForAI(role) : "";
-  const letters = newLettersForAI(role, me); // 还没读的来信（读了就记下）
-  const reading = newReadingForAI(role, me); // 在读什么、新贴的便利贴
+  const moment = momentForAI(role, me); // 最近 24 小时：信、在读的书、他自己记的（新来的信读了就记下）
   // 普通记忆：按她最新说的话，自动想起有关的几张（对不上就一张也不放）
   const lastUser = [...history].reverse().find(m => m.from === "user");
   const recalled = hasXinchao(role) ? "" : recalledForAI(role, lastUser?.text || "");
-  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, letters, reading, recalled].filter(Boolean).join("\n")}\n【以下是新消息】`;
+  const text = `【此刻——附在这里给你看的，不是${me}说的话】\n${[time, mind, moment, recalled].filter(Boolean).join("\n")}\n【以下是新消息】`;
   // 多大（用量页「都花在哪」）
   return { text, est: { mind: estTokens(mind) + estTokens(time) } };
 }
@@ -725,8 +727,9 @@ export function applyReplyTags(role, msg) {
   const let_ = applyLetterTags(role, cal.text);
   const stick = applyNoteTags(role, let_.text);
   const rmem = applyReadMemTags(role, stick.text);
-  msg.text = rmem.text;
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes];
+  const mom = applyMomentTags(role, rmem.text);
+  msg.text = mom.text;
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();

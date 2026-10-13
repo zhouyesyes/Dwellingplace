@@ -1,6 +1,7 @@
 // AI 在回复里写记忆卡片：
 //   [记忆:标题|内容]
 //   [改记忆:#ab12|新的内容]   或   [改记忆:#ab12|新标题|新的内容]
+import { momentParts } from "./moment.js";
 import { store, uid, loadMessages } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 import { lettersOf } from "./letters.js";
@@ -154,8 +155,10 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
       return t ? `${m.from === "user" ? meName : "你"}：${t.length > 300 ? t.slice(0, 300) + "…" : t}` : "";
     }).filter(Boolean).join("\n");
   }
+  const moment = momentParts(role, meName, { peek: true, brief: true }).filter(p => p.text).map(p => `【${p.title}】\n${p.text}`).join("\n");
   const parts = [
     cards.length ? `记忆卡片（常驻的，和这次可能相关的）：\n${cards.map(m => line(m, 160)).join("\n")}` : "",
+    moment ? `最近 24 小时（【此刻】）：\n${moment}` : "",
     thread?.summary?.text ? `聊天的摘要记忆：\n${thread.summary.text.slice(0, 1500)}` : "",
     recent ? `平时聊天里最近说的（最近的在最后）：\n${recent}` : "",
     reads.length ? `共读的读书笔记：\n${reads.map(m => line(m, 120)).join("\n")}` : "",
