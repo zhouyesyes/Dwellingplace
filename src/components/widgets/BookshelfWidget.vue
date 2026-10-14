@@ -42,6 +42,7 @@ const go = () => { if (!props.editing) router.push("/books"); };
 <template>
   <div class="bw" @click="go">
     <div class="head"><b>Bookshelf</b><span v-if="fresh" class="dot">{{ fresh }} 张新便利贴</span><span v-else class="sub">{{ books.length ? `${books.length} 本` : "放一本书进来" }}</span>
+      <button class="room" aria-label="进共读室" @click.stop="go">共读室 ›</button>
       <button class="tone" :class="tone" aria-label="换书架颜色" @click.stop="nextTone"><i /></button></div>
     <div class="stage">
       <div ref="track" class="track" @scroll.passive="layout">
@@ -65,6 +66,8 @@ const go = () => { if (!props.editing) router.push("/books"); };
 .tone.grey i { background: #a9a9ad; }
 .tone.dark i { background: #3a3a40; }
 .sub { font-size: .72rem; color: var(--text-3); }
+/* 进共读室：标题行右边一个明显的入口（以前只能点书架空白处，常常点到书或者滑走） */
+.room { margin-left: 8px; border: 0; background: var(--bg-deep); color: var(--text-2); font-size: .72rem; padding: 4px 10px; border-radius: 999px; align-self: center; }
 .dot { font-size: .7rem; color: var(--text-2); background: var(--bg-deep); padding: 2px 9px; border-radius: 999px; }
 .stage { position: relative; perspective: 700px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .track { flex: 1; min-height: 0; display: flex; align-items: flex-end; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 8px 18px 0; }
