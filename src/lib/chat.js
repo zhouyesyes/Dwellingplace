@@ -393,6 +393,7 @@ export { estTokens } from "./budget.js";
 // 停顿：流进来的字先放这里，碰到 [停顿:N秒] 就等一等再往外放（只是显示慢一点，不另外请求）
 function pacer(msg, signal) {
   let buf = "", busy = false, ended = false, stopped = false;
+  let timer = null;
   let idle = null; // 放完了叫一声
   const done = () => { if (!busy && !buf && idle) { idle(); idle = null; } };
   async function pump() {
@@ -418,9 +419,9 @@ function pacer(msg, signal) {
     done();
   }
   return {
-    push(d) { if (msg.typing) msg.typing = false; buf += d; pump(); },
-    drain() { ended = true; pump(); return new Promise(r => { idle = r; done(); }); },
-    stop() { stopped = true; msg.paused = false; },
+    push(d) { if (msg.typing) msg.typing = false; buf += d; if (!timer) timer = setTimeout(() => { timer = null; pump(); }, 50); },
+    drain() { clearTimeout(timer); timer = null; ended = true; pump(); return new Promise(r => { idle = r; done(); }); },
+    stop() { clearTimeout(timer); timer = null; stopped = true; msg.paused = false; },
   };
 }
 // 等一会儿；按了停止、或者续发被打断，就不等了

@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source = fs.readFileSync('src/lib/chat.js', 'utf8');
+const context = { setTimeout, clearTimeout, PAUSE_RE: /\[停顿:(\d+)秒\]/, PAUSE_MAX: 30, sleep: () => Promise.resolve() };
+vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf('function pacer('), source.indexOf('// 等一会儿；按了停止')) + '\nglobalThis.pacer = pacer;', context);
+const message = { text: '', typing: true };
+const stream = context.pacer(message, {});
+for (let i = 0; i < 1000; i++) stream.push('字');
+assert.equal(message.text, '');
+await stream.drain(); assert.equal(message.text.length, 1000);
+const stopped = { text: '' }; const cancelled = context.pacer(stopped, {}); cancelled.push('不显示'); cancelled.stop();
+await new Promise(resolve => setTimeout(resolve, 70)); assert.equal(stopped.text, '');
+console.log('通过：流式批量更新、完成保留尾字、停止后取消待更新内容');

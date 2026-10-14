@@ -67,7 +67,7 @@ async function prompt(role, id, extra) {
   const meta = thread(id).meta || {};
   const proj = workProject(meta.project || "");
   const list = await loadTalk(id);
-  const recent = tail(list, TALK_TOKENS).map(m => `${m.from === "me" ? me : "你"}：${m.text}`).join("\n");
+  const recent = tail(list, TALK_TOKENS).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.attachments?.length ? "\n附件（仅元信息；需要时交给 Codex 读取）：" + m.attachments.map(a => `${a.name} (${a.type}, ${a.size} 字节) ${a.path}`).join("；") : ""}`).join("\n");
   const cards = pinnedOf(role.id).slice(0, 12).map(m => `- ${m.title}：${cut(m.content, 160)}`).join("\n");
   const chainLeft = CHAIN_MAX - (wt.chain || 0);
   return [
@@ -157,9 +157,9 @@ async function ask(role, id, extra, { fromReport = false } = {}) {
 }
 
 // 你说一句
-export async function talk(role, id, text) {
+export async function talk(role, id, text, attachments = []) {
   const list = await loadTalk(id);
-  list.push({ id: uid(), from: "me", text: text.trim(), ts: Date.now(), at: thread(id).items.length });
+  list.push({ id: uid(), from: "me", text: text.trim(), attachments, ts: Date.now(), at: thread(id).items.length });
   workThread(id).chain = 0; // 你说话了：重新算连着交了几次
   await saveTalk(id);
   await ask(role, id, "");

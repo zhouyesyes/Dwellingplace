@@ -253,13 +253,64 @@ async function gitPush(name) {
 // ---------- HTTP ----------
 const sameKey = k => { const a = Buffer.from(String(k || "")), b = Buffer.from(KEY); return a.length === b.length && timingSafeEqual(a, b); };
 const json = (res, code, v) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(v)); };
-async function body(req) { const c = []; for await (const x of req) c.push(x); try { return c.length ? JSON.parse(Buffer.concat(c)) : {}; } catch { return {}; } }
+async function body(req) { const data = await readLimited(req, 1024 * 1024); return data.length ? JSON.parse(data) : {}; }
 const projectName = s => String(s || "").trim().replace(/[^\w一-龥.-]+/g, "-").replace(/^[.-]+/, "").slice(0, 60);
 const listProjects = () => { try { return fs.readdirSync(WORK, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith(".")).map(d => d.name); } catch { return []; } };
 const pendingList = () => [...approvals].map(([key, a]) => ({ key, method: a.method, ts: a.ts, threadId: a.params.threadId, command: a.params.command, cwd: a.params.cwd, reason: a.params.reason, grantRoot: a.params.grantRoot }));
 
+// 附件留在自有服务器；随机目录隔离文件名，Codex 只能读，浏览器访问仍经过两层鉴权。
+const FILE_MAX = 20 * 1024 * 1024;
+const FILE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", mp4: "video/mp4", webm: "video/webm", pdf: "application/pdf", txt: "text/plain", md: "text/plain", csv: "text/csv", json: "application/json", zip: "application/zip" };
+async function readLimited(req, max) {
+  const chunks = []; let size = 0;
+  for await (const chunk of req) { size += chunk.length; if (size > max) throw new Error("请求体超过大小限制"); chunks.push(chunk); }
+  return Buffer.concat(chunks);
+}
+function fileMeta(t, id) {
+  if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("附件编号不合法");
+  const meta = readJSON(path.join(DATA, "attachments", t.id, `${id}.json`), null);
+  if (!meta) throw new Error("附件不存在或不属于这个任务");
+  return meta;
+}
+async function attachmentRoute(req, res, url, match) {
+  const t = threads[match[1]];
+  if (!t) return json(res, 404, { error: { message: "没有这个任务" } });
+  if (req.method === "GET" && match[2]) {
+    const meta = fileMeta(t, match[2]);
+    res.writeHead(200, { "Content-Type": meta.type, "Content-Length": meta.size, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${/^(image|video)\//.test(meta.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(meta.name)}` });
+    return fs.createReadStream(meta.path).on("error", () => res.destroy()).pipe(res);
+  }
+  if (req.method !== "POST" || match[2]) return json(res, 405, { error: { message: "请求方法不支持" } });
+  const name = String(url.searchParams.get("name") || "").normalize("NFC").replace(/[\/\\\x00-\x1f\x7f]/g, "_").replace(/^\.+/, "_").slice(0, 120);
+  const ext = name.split(".").pop().toLowerCase();
+  const type = FILE_TYPES[ext];
+  const claimed = String(req.headers["content-type"] || "").split(";")[0];
+  if (!type || (claimed && claimed !== type && claimed !== "application/octet-stream" && !(ext === "md" && claimed === "text/markdown"))) throw new Error("不支持这个文件类型，或扩展名和 MIME 不一致");
+  const data = await readLimited(req, FILE_MAX);
+  if (!data.length) throw new Error("附件不能为空");
+  const hex = data.subarray(0, 12).toString("hex"), ascii = data.subarray(0, 12).toString("ascii");
+  const valid = { png: hex.startsWith("89504e470d0a1a0a"), jpg: hex.startsWith("ffd8ff"), jpeg: hex.startsWith("ffd8ff"), gif: /^GIF8[79]a/.test(ascii), webp: ascii.startsWith("RIFF") && ascii.slice(8) === "WEBP", mp4: ascii.slice(4, 8) === "ftyp", webm: hex.startsWith("1a45dfa3"), pdf: ascii.startsWith("%PDF-"), zip: hex.startsWith("504b0304") };
+  if (valid[ext] === false || (["txt", "md", "csv", "json"].includes(ext) && data.includes(0))) throw new Error("文件内容与类型不一致");
+  if (ext === "json") JSON.parse(data.toString("utf8"));
+  const id = randomUUID();
+  const root = path.join(WORK, ".qisuo-attachments");
+  if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || fs.statSync(root).uid !== 0)) throw new Error("附件目录不安全");
+  fs.mkdirSync(root, { recursive: true, mode: 0o755 });
+  const dir = path.join(root, id);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, data, { flag: "wx", mode: 0o644 });
+  const meta = { id, name, type, size: data.length, path: file };
+  const metadataDir = path.join(DATA, "attachments", t.id);
+  fs.mkdirSync(metadataDir, { recursive: true, mode: 0o700 });
+  writeJSON(path.join(metadataDir, `${id}.json`), meta);
+  return json(res, 200, meta);
+}
+
 async function route(req, res, url) {
   const p = url.pathname;
+  const attachment = p.match(/^\/threads\/([\w-]+)\/attachments(?:\/([a-f0-9-]{36}))?$/);
+  if (attachment) return attachmentRoute(req, res, url, attachment);
   const need = () => { if (!ready) { json(res, 503, { error: { message: "Codex 还没准备好，等几秒" } }); return false; } return true; };
   if (p === "/status") {
     if (ready && account) await refreshAccount();
@@ -333,10 +384,15 @@ async function route(req, res, url) {
       return json(res, 200, { ok: true });
     }
     if (what === "send") {
-      const text = String((await body(req)).text || "").trim();
-      if (!text) return json(res, 400, { error: { message: "说点什么" } });
-      const input = [{ type: "text", text }];
-      emit("qisuo/user/message", { threadId: id, text, steer: !!t.turnId });
+      const b = await body(req);
+      const text = String(b.text || "").trim();
+      if (!Array.isArray(b.attachments || []) || (b.attachments || []).length > 4) throw new Error("每条消息最多 4 个附件");
+      const attachments = (b.attachments || []).map(file => fileMeta(t, file));
+      if (!text && !attachments.length) return json(res, 400, { error: { message: "说点什么" } });
+      // 不依赖未确认的模型文件协议：图片、视频和文件均通过只读本地路径供 Codex 工具读取。
+      const description = attachments.map(a => `附件：${a.name} (${a.type}, ${a.size} 字节)，本地只读路径：${a.path}`).join("\n");
+      const input = [{ type: "text", text: [text, description].filter(Boolean).join("\n\n") }];
+      emit("qisuo/user/message", { threadId: id, text, attachments, steer: !!t.turnId });
       if (t.turnId) { const r = await call("turn/steer", { threadId: id, input, expectedTurnId: t.turnId }); return json(res, 200, { turnId: r.turnId, steer: true }); }
       const r = await call("turn/start", { threadId: id, input });
       t.turnId = r.turn?.id;

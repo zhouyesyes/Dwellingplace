@@ -4,15 +4,24 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
+import WorkMarkdown from "../components/WorkMarkdown.vue";
 import Avatar from "../components/Avatar.vue";
 
 // Codex 写的话：```代码块```、[文字](链接) 也排出来（链接是本地文件路径的，显示成代码样子）
 const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const mdCache = new Map();
 function workMd(text) {
+  if (mdCache.has(text)) return mdCache.get(text);
+  const html = renderWorkMd(text);
+  if (mdCache.size > 200) mdCache.clear();
+  mdCache.set(text, html);
+  return html;
+}
+function renderWorkMd(text) {
   return String(text || "").split(/(```[\w-]*\n?[\s\S]*?(?:```|$))/).map(part => {
     const m = part.match(/^```[\w-]*\n?([\s\S]*?)(?:```)?$/);
     if (m && part.startsWith("```")) return `<pre class="code">${escHtml(m[1].replace(/\n$/, ""))}</pre>`;
@@ -37,6 +46,9 @@ onMounted(async () => {
   if (route.query.t) open(String(route.query.t));
 });
 onBeforeUnmount(disconnect);
+const updateViewport = () => document.documentElement.style.setProperty('--work-height', `${window.visualViewport?.height || window.innerHeight}px`);
+onMounted(() => { updateViewport(); window.visualViewport?.addEventListener('resize', updateViewport); });
+onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', updateViewport); document.documentElement.style.removeProperty('--work-height'); });
 
 const st = computed(() => wr.status);
 const projects = computed(() => st.value?.projects || []);
@@ -102,7 +114,7 @@ const thinking = computed(() => !!himBusy[cur.value]);
 const timeline = computed(() => {
   const codex = t.value?.items || [];
   if (!talkList.value.length) return codex;
-  const talks = talkList.value.map(m => ({ kind: m.from === "me" ? "talkMe" : "talkHim", text: m.text, notes: m.notes, ts: m.ts, id: m.id, at: m.at ?? Infinity }));
+  const talks = talkList.value.map(m => ({ kind: m.from === "me" ? "talkMe" : "talkHim", text: m.text, notes: m.notes, attachments: m.attachments, ts: m.ts, id: m.id, at: m.at ?? Infinity }));
   const out = [];
   let k = 0;
   codex.forEach((it, i) => { while (k < talks.length && talks[k].at <= i) out.push(talks[k++]); out.push(it); });
@@ -133,7 +145,7 @@ async function open(id) {
 }
 function close() { cur.value = ""; router.replace({ query: {} }); }
 // 新东西来了：已经在最下面就跟着滚
-watch(() => [t.value?.items.length, talkList.value.length], () => {
+watch(() => [t.value?.items.length, t.value?.items.at(-1)?.text, t.value?.items.at(-1)?.output, talkList.value.length], () => {
   const el = scroller.value;
   if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) down();
   maybeReport();
@@ -150,16 +162,36 @@ const waitingYou = computed(() => {
 });
 
 const draft = ref("");
+const files = ref([]);
+const picker = ref(null);
+function removeFile(i) { URL.revokeObjectURL(files.value[i].url); files.value.splice(i, 1); }
+function chooseFiles(event) {
+  for (const file of event.target.files || []) {
+    if (files.value.length >= 4) { toast("每条消息最多 4 个附件"); break; }
+    if (!/\.(png|jpe?g|gif|webp|mp4|webm|pdf|txt|md|csv|json|zip)$/i.test(file.name)) { toast("支持图片 PNG/JPEG/GIF/WebP、视频 MP4/WebM，以及 PDF/TXT/MD/CSV/JSON/ZIP"); continue; }
+    if (!file.size || file.size > 20 * 1024 * 1024) { toast("附件必须非空且不超过 20 MB"); continue; }
+    files.value.push({ file, url: URL.createObjectURL(file) });
+  }
+  event.target.value = "";
+}
+onBeforeUnmount(() => files.value.forEach(f => URL.revokeObjectURL(f.url)));
+
 const sending = ref(false);
 async function send() {
   const text = draft.value.trim();
-  if (!text || sending.value) return;
+  if ((!text && !files.value.length) || sending.value) return;
   sending.value = true;
+  draft.value = "";
+  const mode = together.value;
   try {
-    if (together.value) { draft.value = ""; const p = talk(role.value, cur.value, text); down(); await p; }
-    else { await say(cur.value, text); draft.value = ""; }
+    const id = cur.value;
+    const attached = [];
+    for (const f of files.value) attached.push(await uploadAttachment(id, f.file));
+    if (mode) { const p = talk(role.value, id, text, attached); down(); await p; }
+    else { await say(id, text, attached); }
+    while (files.value.length) removeFile(0);
     down();
-  } catch (e) { toast(e.message, 5000); } finally { sending.value = false; }
+  } catch (e) { if (!draft.value) draft.value = text; toast(e.message, 5000); } finally { sending.value = false; }
 }
 async function stop() { try { await interrupt(cur.value); } catch (e) { toast(e.message, 4000); } }
 async function decide(it, decision) {
@@ -273,17 +305,18 @@ const RULES = [
       <main ref="scroller" class="tl">
         <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
         <template v-for="(it, i) in timeline" :key="it.id || i">
+          <div v-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}</a></div>
           <div v-if="it.kind === 'talkMe'" class="me"><p>{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'talkHim'" class="him">
             <Avatar :img="role?.avatar" :name="him" :color="role?.color" :size="30" />
             <div class="him-body">
-              <div v-if="it.text" class="agent" v-html="workMd(it.text)" />
+              <WorkMarkdown v-if="it.text" class="agent" :text="it.text" :render="workMd" />
               <small v-for="(n, k) in it.notes || []" :key="k" class="him-note">{{ n }}</small>
             </div>
           </div>
           <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}</b><p>{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
-          <div v-else-if="it.kind === 'agent'" class="agent" v-html="workMd(it.text)" />
+          <WorkMarkdown v-else-if="it.kind === 'agent'" class="agent" :text="it.text" :render="workMd" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
           <div v-else-if="it.kind === 'plan'" class="card plan">
             <b>计划</b>
@@ -335,7 +368,10 @@ const RULES = [
         <div v-else-if="running" class="working"><i /><i /><i /> Codex 在干活</div>
         <p v-else-if="waitingYou" class="your-turn">{{ together ? `等你说下一步` : "Codex 做完了，等你说下一步" }}<button v-if="together && talkList.length" class="tap" @click="finish">· 收工，让{{ him }}记下来</button></p>
       </main>
+      <div v-if="files.length" class="attachments pending"><div v-for="(f, i) in files" :key="f.url"><img v-if="f.file.type.startsWith('image/')" :src="f.url" /><video v-else-if="f.file.type.startsWith('video/')" :src="f.url" controls preload="metadata" /><span>{{ f.file.name }} · {{ Math.ceil(f.file.size / 1024) }} KB · {{ f.file.type || '未知类型' }}</span><button :disabled="sending" @click="removeFile(i)">移除</button></div></div>
       <footer class="dock">
+        <input ref="picker" type="file" multiple hidden @change="chooseFiles" />
+        <button class="send" :disabled="sending" aria-label="添加附件" @click="picker.click()">＋</button>
         <textarea v-model="draft" v-auto-grow rows="1" class="input" :placeholder="together ? `和${him}说…` : running ? '插一句（不用停下它）…' : '要做什么…'" />
         <button v-if="running" class="send stop" aria-label="停下" @click="stop"><Icon name="stop" :size="18" /></button>
         <button class="send" :class="{ on: draft.trim() }" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
@@ -354,7 +390,7 @@ const RULES = [
 </template>
 
 <style scoped>
-.wr { min-height: 100dvh; background: var(--bg); display: flex; flex-direction: column; }
+.wr { height: var(--work-height, 100dvh); overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
 .bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 12px 10px; background: rgba(var(--glass-rgb), .86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 .ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ttl b { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -399,7 +435,9 @@ const RULES = [
 .row small { color: var(--text-3); font-size: .72rem; }
 .row.add { background: none; box-shadow: inset 0 0 0 1.5px var(--line); color: var(--text-2); justify-content: center; }
 .wait { font-style: normal; font-size: .7rem; color: #fff; background: var(--danger); border-radius: 999px; padding: 1px 8px; }
-.tl { flex: 1; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 14px calc(var(--safe-bottom) + 96px); display: flex; flex-direction: column; gap: 10px; }
+.tl > * { flex-shrink: 0; }
+.bar, .modes { flex-shrink: 0; }
+.tl { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .me { align-self: flex-end; max-width: 85%; text-align: right; }
 .me p { margin: 0; background: var(--ink); color: var(--on-ink); padding: 9px 13px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; line-height: 1.6; font-size: .92rem; text-align: left; }
 .me small { font-size: .68rem; color: var(--text-3); }
@@ -447,7 +485,7 @@ const RULES = [
 .working i:nth-child(2) { animation-delay: .15s; }
 .working i:nth-child(3) { animation-delay: .3s; margin-right: 4px; }
 @keyframes hop { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; align-items: flex-end; gap: 8px; max-width: 820px; margin: 0 auto; padding: 10px 14px calc(var(--safe-bottom) + 12px); }
+.dock { position: relative; flex: none; width: 100%; z-index: 1; display: flex; align-items: flex-end; gap: 8px; max-width: 820px; margin: 0 auto; padding: 10px 14px calc(var(--safe-bottom) + 12px); }
 .dock .input { flex: 1; resize: none; min-height: 44px; height: 44px; max-height: 40vh; line-height: 1.5; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .94); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--card); color: var(--text-3); box-shadow: var(--shadow-soft); flex: none; }
 .send.on { background: var(--ink); color: var(--on-ink); }
@@ -467,4 +505,8 @@ const RULES = [
 .rule span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .rule b { font-size: .9rem; font-weight: 500; }
 .rule small { font-size: .74rem; color: var(--text-3); }
+.attachments { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 14px; font-size: .75rem; overflow-wrap: anywhere; }
+.attachments a, .attachments > div { display: flex; flex-direction: column; gap: 4px; color: var(--text); }
+.attachments img, .attachments video { max-width: 160px; max-height: 100px; border-radius: 8px; }
+.pending { max-height: 160px; overflow-y: auto; flex: none; }
 </style>

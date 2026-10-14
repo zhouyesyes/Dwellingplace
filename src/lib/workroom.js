@@ -69,7 +69,7 @@ export function apply(ev) {
   const t = thread(tid);
   switch (ev.method) {
     case "qisuo/user/message":
-      add(t, { kind: "user", text: p.text, steer: p.steer, ts: ev.ts });
+      add(t, { kind: "user", text: p.text, attachments: p.attachments || [], steer: p.steer, ts: ev.ts });
       break;
     case "turn/started":
       t.turnId = p.turn?.id;
@@ -158,6 +158,17 @@ export async function loadThread(id) {
 }
 
 // ---------- 实时过程（SSE）：断了就带着最后的编号再连 ----------
+// 每 50ms 合并一批增量；完成事件排在增量之后，断开时也不丢尾字。
+let pendingEvents = [], batchTimer = null;
+function flushEvents() {
+  clearTimeout(batchTimer); batchTimer = null;
+  const events = pendingEvents; pendingEvents = [];
+  for (const ev of events) apply(ev);
+}
+function queueEvent(ev) {
+  pendingEvents.push(ev);
+  if (!batchTimer) batchTimer = setTimeout(flushEvents, 50);
+}
 let es = null, retry = null;
 export async function connect() {
   if (es) return;
@@ -169,9 +180,9 @@ export async function connect() {
   es.onmessage = e => {
     let ev;
     try { ev = JSON.parse(e.data); } catch { return; }
-    if (ev.method === "qisuo/gap") { for (const id of Object.keys(wr.threads)) if (wr.threads[id].loaded) loadThread(id).catch(() => {}); return; }
-    if (ev.seq && ev.seq <= wr.lastSeq) return; // 补回来的、已经有了的
-    apply(ev);
+    if (ev.method === "qisuo/gap") { flushEvents(); for (const id of Object.keys(wr.threads)) if (wr.threads[id].loaded) loadThread(id).catch(() => {}); return; }
+    if (ev.seq && ev.seq <= Math.max(wr.lastSeq, pendingEvents.at(-1)?.seq || 0)) return; // 补回来的、已经有了的
+    queueEvent(ev);
   };
   es.onerror = () => {
     wr.live = false;
@@ -180,7 +191,7 @@ export async function connect() {
     retry = setTimeout(connect, 3000);
   };
 }
-export function disconnect() { clearTimeout(retry); es?.close(); es = null; wr.live = false; }
+export function disconnect() { flushEvents(); clearTimeout(retry); es?.close(); es = null; wr.live = false; }
 
 // ---------- 做事 ----------
 export async function startLogin() { wr.login = await api("/login", { method: "POST" }); return wr.login; }
@@ -193,7 +204,7 @@ export async function newThread(project, title) {
   await refresh();
   return r.thread;
 }
-export const say = (id, text) => api(`/threads/${id}/send`, { method: "POST", body: { text } });
+export const say = (id, text, attachments = []) => api(`/threads/${id}/send`, { method: "POST", body: { text, attachments: attachments.map(a => a.id) } });
 export const interrupt = id => api(`/threads/${id}/interrupt`, { method: "POST" });
 export const answer = (key, decision) => api(`/approvals/${key}`, { method: "POST", body: { decision } });
 export const setPolicy = p => api("/policy", { method: "POST", body: p }).then(refresh);
@@ -205,4 +216,12 @@ export const archive = id => api(`/threads/${id}/archive`, { method: "POST" }).t
 export function limitsOf(rl) {
   const win = (x, fb) => x && { label: x.windowDurationMins ? (x.windowDurationMins <= 600 ? `${Math.round(x.windowDurationMins / 60)} 小时` : "每周") : fb, used: x.usedPercent, resetsAt: x.resetsAt };
   return [win(rl?.primary, "5 小时"), win(rl?.secondary, "每周")].filter(Boolean);
+}
+
+export const attachmentUrl = (id, file) => `${wr.base}/codex/threads/${encodeURIComponent(id)}/attachments/${encodeURIComponent(file)}`;
+export async function uploadAttachment(id, file) {
+  const r = await fetch(`${wr.base}/codex/threads/${encodeURIComponent(id)}/attachments?name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error?.message || "附件上传失败");
+  return data;
 }

@@ -54,7 +54,16 @@ async function proxy(req, res, target, rest, search, extra = {}) {
   for (const [k, v] of Object.entries(req.headers)) if (!DROP_REQ.test(k)) headers[k] = v;
   Object.assign(headers, extra);
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (target === CODEX_URL && size > 20 * 1024 * 1024) {
+      res.writeHead(413, { ...CORS, "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "请求不能超过 20 MB" } }));
+      return;
+    }
+    chunks.push(c);
+  }
   const body = chunks.length ? Buffer.concat(chunks) : undefined;
   const ctrl = new AbortController();
   res.on("close", () => { if (!res.writableEnded) ctrl.abort(); }); // 栖所那边停了，这边也停

@@ -15,7 +15,16 @@ import { saveImage, CHAT_IMAGE, deleteImage, pickFile, pickAndCrop, useImage } f
 import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { isFav, toggleFav } from "../lib/recall.js";
-import { blockMd } from "../lib/inlineMd.js";
+import { blockMd as parseBlockMd } from "../lib/inlineMd.js";
+// 正文没变的历史气泡不随流式增量重复解析。
+const markdownCache = new Map();
+function blockMd(text) {
+  if (markdownCache.has(text)) return markdownCache.get(text);
+  const html = parseBlockMd(text);
+  if (markdownCache.size >= 300) markdownCache.clear();
+  markdownCache.set(text, html);
+  return html;
+}
 import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
