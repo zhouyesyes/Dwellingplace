@@ -42,6 +42,17 @@ if [ -z "${CHROME:-}" ]; then
   case "$CHROME" in [Yy]*) CHROME=y ;; *) CHROME=n ;; esac
   echo "CHROME=$CHROME" >> settings.env
 fi
+# 工作间（Codex 在服务器上写代码、跑命令）：第一次问一下（以后不再问；想改就编辑 settings.env 里的 CODEX=y / n）
+if [ -z "${CODEX:-}" ]; then
+  ask CODEX "要装工作间吗？他可以叫 Codex 在服务器上一个单独的沙盒里写代码、跑命令（大约多占 300MB 内存，用你的 ChatGPT 额度）y / n" "n"
+  case "$CODEX" in [Yy]*) CODEX=y ;; *) CODEX=n ;; esac
+  echo "CODEX=$CODEX" >> settings.env
+fi
+if [ "$CODEX" = "y" ] && [ -z "${CODEX_KEY:-}" ]; then
+  CODEX_KEY=$(openssl rand -hex 24)
+  echo "CODEX_KEY=$CODEX_KEY" >> settings.env
+fi
+CODEX_VERSION="0.162.1"
 BRIDGE_REF="8db89c1a3c516a8ae7ddeb7adb070c98caafe3f2" # chrome-mcp-bridge 2.4.1
 $SUDO docker network create qisuo-net >/dev/null 2>&1 || true
 
@@ -84,11 +95,45 @@ else
   $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
 fi
 
+CODEX_ENV=""
+if [ "$CODEX" = "y" ]; then
+  say "装工作间（Codex $CODEX_VERSION，第一次要几分钟）…"
+  mkdir -p codex "$DIR/codex-home" "$DIR/codex-work" "$DIR/codex-bridge" "$DIR/codex-gate"
+  RAW="https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main/deploy/qisuo-server/codex"
+  for f in Dockerfile Dockerfile.gate bridge.mjs gate.mjs; do curl -fsSL "$RAW/$f" -o "codex/$f"; done
+  $SUDO docker build -q --build-arg CODEX_VERSION="$CODEX_VERSION" -t qisuo-codex codex >/dev/null
+  $SUDO docker build -q -f codex/Dockerfile.gate -t qisuo-codex-gate codex >/dev/null
+  # 实测时已经登录过：把登录搬过来，不用再输一次码
+  if [ ! -f "$DIR/codex-home/auth.json" ] && [ -f "$HOME/codex-lab/codex-home/auth.json" ]; then cp -a "$HOME/codex-lab/codex-home/." "$DIR/codex-home/"; fi
+  $SUDO chown -R 1001:1001 "$DIR/codex-home" "$DIR/codex-work"
+  $SUDO chown -R 1000:1000 "$DIR/codex-gate"
+  chmod 700 "$DIR/codex-home" "$DIR/codex-bridge"
+  # 单独的内部网络：Codex 在这里面自己出不了网；门卫一只脚在里面、一只脚在外面，只放行 OpenAI
+  $SUDO docker network create --internal codex-int >/dev/null 2>&1 || true
+  $SUDO docker rm -f qisuo-codex qisuo-codex-gate >/dev/null 2>&1 || true
+  $SUDO docker run -d --name qisuo-codex-gate --restart unless-stopped --network codex-int \
+    --read-only --cap-drop ALL --security-opt no-new-privileges --memory 128m \
+    -e GATE_ALLOW="${GATE_ALLOW:-}" -v "$DIR/codex-gate:/gate" qisuo-codex-gate >/dev/null
+  $SUDO docker network connect bridge qisuo-codex-gate
+  # Codex：根目录只读；只有项目（/work）、它的登录目录、临时目录能写；不用 root 跑命令；去掉全部特权（只留降成 codex 用户要的两个）
+  $SUDO docker run -d --name qisuo-codex --restart unless-stopped --network codex-int \
+    --read-only --tmpfs /tmp:rw,size=512m --tmpfs /home/codex:rw,size=256m,uid=1001,gid=1001 \
+    --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
+    --memory 2g --cpus 2 --pids-limit 512 \
+    -e BRIDGE_KEY="$CODEX_KEY" -e HTTPS_PROXY=http://qisuo-codex-gate:3128 -e HTTP_PROXY=http://qisuo-codex-gate:3128 \
+    -v "$DIR/codex-home:/home/codex/.codex" -v "$DIR/codex-work:/work" -v "$DIR/codex-bridge:/bridge" qisuo-codex >/dev/null
+  CODEX_ENV="-e CODEX_URL=http://qisuo-codex:7700 -e CODEX_KEY=$CODEX_KEY"
+else
+  $SUDO docker rm -f qisuo-codex qisuo-codex-gate >/dev/null 2>&1 || true
+fi
+
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 # shellcheck disable=SC2086
 $SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
-  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV -v "$DIR/data:/app/data" qisuo-server >/dev/null
+  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CODEX_ENV -v "$DIR/data:/app/data" qisuo-server >/dev/null
+# 工作间：栖所服务器也进 Codex 的内部网络，才找得到它
+[ "$CODEX" = "y" ] && $SUDO docker network connect codex-int qisuo-server
 
 ok=""
 for _ in $(seq 1 20); do
@@ -114,6 +159,10 @@ for d in "$HOME"/xinchao-*/; do
   (cd "$d" && $SUDO docker compose up -d) || echo "  重启没成功：之后在 $d 里运行 $SUDO docker compose up -d"
 done
 
+if [ "$CODEX" = "y" ]; then
+  code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "http://127.0.0.1:$PORT/p/$TOKEN/codex/status" || true)
+  if [ "$code" = "200" ]; then CODEX_INFO="已安装（连得上 ✓）：栖所里的工作间还在做，做好了从那里进"; else CODEX_INFO="已安装，但现在连不上（返回 $code），把这句截图给 cc"; fi
+else CODEX_INFO="没装（想装：把 settings.env 里的 CODEX=n 改成 y，再运行一次安装那一行）"; fi
 if [ "$CHROME" = "y" ]; then CHROME_INFO="已安装：在栖所「设置 → 工具 → 浏览器」点「接上浏览器」"
 else CHROME_INFO="没装（想装：把 settings.env 里的 CHROME=n 改成 y，再运行一次安装那一行）"; fi
 INFO="$DIR/栖所服务器信息.txt"
@@ -140,6 +189,11 @@ cat > "$INFO" <<INFO_EOF
 
 【他的浏览器】
   $CHROME_INFO
+
+【工作间（Codex）】
+  $CODEX_INFO
+  项目文件夹在服务器的 $DIR/codex-work 里；他想去的、被门卫拦下的网站记在 $DIR/codex-gate/denied.log
+  门卫要多放行哪个网站：在 settings.env 里加一行 GATE_ALLOW=registry.npmjs.org（逗号隔开），再运行一次安装那一行
 
 【把数据搬过来】
   1. 在旧的栖所（zhouyesyes.github.io）：设置 → 备份 → 导出
