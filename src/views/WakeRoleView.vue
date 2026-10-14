@@ -55,6 +55,7 @@ function setUnit(u) {
 // 固定时间（每天这个时间醒；每个时间可以写一段备注，告诉他醒了要干嘛）
 const newTime = ref("");
 const newNote = ref("");
+const newSay = ref(""); // 到点直接替他发的话：写了就不叫醒他、不花额度
 const editing = ref(""); // 正在改哪个时间
 function addTime() {
   const t = newTime.value;
@@ -64,25 +65,32 @@ function addTime() {
   w.value.timeNotes = { ...(w.value.timeNotes || {}) };
   if (newNote.value.trim()) w.value.timeNotes[t] = newNote.value.trim();
   else delete w.value.timeNotes[t];
+  w.value.timeSay = { ...(w.value.timeSay || {}) };
+  if (newSay.value.trim()) w.value.timeSay[t] = newSay.value.trim();
+  else delete w.value.timeSay[t];
   newTime.value = "";
   newNote.value = "";
+  newSay.value = "";
   editing.value = "";
 }
 const removeTime = t => {
   w.value.times = w.value.times.filter(x => x !== t);
   if (w.value.timeNotes?.[t]) { const n = { ...w.value.timeNotes }; delete n[t]; w.value.timeNotes = n; }
+  if (w.value.timeSay?.[t]) { const n = { ...w.value.timeSay }; delete n[t]; w.value.timeSay = n; }
 };
 function editTime(t) { // 点一个已经加好的时间：放回上面的框里改
   editing.value = t;
   newTime.value = t;
   newNote.value = w.value.timeNotes?.[t] || "";
+  newSay.value = w.value.timeSay?.[t] || "";
 }
-function cancelEdit() { editing.value = ""; newTime.value = ""; newNote.value = ""; }
+function cancelEdit() { editing.value = ""; newTime.value = ""; newNote.value = ""; newSay.value = ""; }
 
 // 一次性的闹钟：定一个日期和时间，只响一次
 if (role.value) w.value.once ??= [];
 const onceAt = ref("");
 const onceNote = ref("");
+const onceSay = ref("");
 const pad = n => String(n).padStart(2, "0");
 const localInput = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const onceMin = localInput(new Date());
@@ -92,9 +100,10 @@ function addOnce() {
   if (!Number.isFinite(at)) return toast("先选日期和时间");
   if (at < Date.now() + 60_000) return toast("这个时间已经过去了");
   if (onceList.value.length >= 20) return toast("一次性闹钟最多 20 个");
-  w.value.once = [...onceList.value, { id: Math.random().toString(36).slice(2, 8), at, note: onceNote.value.trim() }];
+  w.value.once = [...onceList.value, { id: Math.random().toString(36).slice(2, 8), at, note: onceNote.value.trim(), ...(onceSay.value.trim() ? { say: onceSay.value.trim() } : {}) }];
   onceAt.value = "";
   onceNote.value = "";
+  onceSay.value = "";
 }
 const removeOnce = o => { w.value.once = (w.value.once || []).filter(x => x.id !== o.id); };
 // 响过一小时以上的，自己清掉
@@ -205,7 +214,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <span class="grow saved">{{ saved }}</span>
             <button class="btn soft small" @click="saveNow(true)">保存</button>
           </div>
-          <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。碰上免打扰时间就跳过。最短 10 分钟。</p>
+          <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。最短 10 分钟。这几种时候跳过：免打扰时间；你 2 小时内在栖所里（正在聊，不用另外叫醒）；他主动找了你两次你都没出现（等你回来再接着醒）。每次醒来都要请求一次模型，间隔越短越费。</p>
         </template>
       </div>
 
@@ -214,7 +223,8 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <div v-if="w.times.length" class="t-list">
           <div v-for="t in w.times" :key="t" class="t-item" :class="{ on: editing === t }" @click="editTime(t)">
             <b>{{ t }}</b>
-            <p>{{ w.timeNotes?.[t] || "没写备注" }}</p>
+            <p v-if="w.timeSay?.[t]" class="say">直接发：{{ w.timeSay[t] }}</p>
+            <p v-else>{{ w.timeNotes?.[t] || "没写备注" }}</p>
             <button @click.stop="removeTime(t)"><Icon name="close" :size="14" /></button>
           </div>
         </div>
@@ -223,8 +233,9 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <button v-if="editing" class="btn soft small" @click="cancelEdit">取消</button>
           <button class="btn soft small" @click="addTime">{{ editing ? "保存" : "添加" }}</button>
         </div>
-        <textarea v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
-        <p class="hint">固定时间不受免打扰影响，到点就醒。点已经加好的时间，会放回上面的框里改。他醒来时会看到备注。</p>
+        <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒他、不花额度`" maxlength="300" />
+        <textarea v-if="!newSay" v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
+        <p class="hint">两种：写了「直接发的话」，到点就把这句发给你，不叫醒他（零消耗）；没写，就叫醒他，他看着备注自己想说什么。固定时间不受免打扰影响。点已经加好的时间，会放回上面的框里改。</p>
       </div>
 
       <div class="section-label">一次性闹钟（只响一次）</div>
@@ -232,7 +243,8 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <div v-if="onceList.length" class="t-list">
           <div v-for="o in onceList" :key="o.id" class="t-item">
             <b>{{ whenLabel(o.at) }}</b>
-            <p>{{ o.note || "没写备注" }}</p>
+            <p v-if="o.say" class="say">直接发：{{ o.say }}</p>
+            <p v-else>{{ o.note || "没写备注" }}</p>
             <button @click.stop="removeOnce(o)"><Icon name="close" :size="14" /></button>
           </div>
         </div>
@@ -240,8 +252,9 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <input v-model="onceAt" class="input time" type="datetime-local" :min="onceMin" />
           <button class="btn soft small" @click="addOnce">添加</button>
         </div>
-        <textarea v-model.trim="onceNote" class="input note-box" rows="3" placeholder="备注（可选）：比如「明天 9 点有面试，叫我起来、帮我再顺一遍自我介绍」" maxlength="1000" />
-        <p class="hint">到点叫醒一次就没了，不受免打扰影响。需要中转是最新版。</p>
+        <textarea v-model.trim="onceSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「出门记得带钥匙去配」。写了就不叫醒他`" maxlength="300" />
+        <textarea v-if="!onceSay" v-model.trim="onceNote" class="input note-box" rows="3" placeholder="备注（可选）：比如「明天 9 点有面试，叫我起来、帮我再顺一遍自我介绍」" maxlength="1000" />
+        <p class="hint">到点响一次就没了，不受免打扰影响。写了「直接发的话」就不叫醒他。需要中转是最新版（v22）。</p>
       </div>
 
       <div class="section-label">免打扰</div>
@@ -280,13 +293,16 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
       <div class="list-card">
         <div v-for="a in alarms" :key="a.id" class="list-row">
           <Icon name="alarm" :size="20" />
-          <span class="grow">{{ whenLabel(a.at) }}<span class="sub">{{ a.note || "没写要做什么" }}</span></span>
+          <span class="grow">{{ whenLabel(a.at) }}<span class="sub">{{ a.note || "没写要做什么" }}{{ a.say ? ` · 到点直接发：${a.say}` : "" }}</span></span>
           <button class="btn soft small" @click="cancel(a)">取消</button>
         </div>
         <div v-if="!alarms.length" class="list-row empty">还没有。聊天时他可以自己定，比如「40 分钟后叫我」</div>
       </div>
       <p v-if="stateErr" class="note bad">读取中转上的闹钟失败：{{ stateErr }}</p>
       <p v-else-if="state?.nextAt && w.intervalOn" class="note">下次定时醒来：{{ whenLabel(state.nextAt) }}左右</p>
+      <p v-if="state?.waiting && w.intervalOn" class="note">定时醒来先停着：他主动找了你两次你都没出现，等你回到栖所就接着醒。</p>
+      <p v-else-if="state?.skipped && w.intervalOn" class="note">上一次定时醒来跳过了（{{ state.skipped.why }}）。</p>
+      <p v-if="state?.retryAt" class="note">上次叫醒失败了，{{ whenLabel(state.retryAt) }}再试一次（只试一次）。</p>
 
       <div class="section-label">试一试</div>
       <div class="card body">
@@ -322,6 +338,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 </template>
 
 <style scoped>
+.t-item .say { color: var(--accent); }
 .saved { font-size: 0.75rem; color: var(--text-2); }
 .body { padding: 14px 18px; }
 .row { display: flex; align-items: center; gap: 10px; min-height: 40px; }

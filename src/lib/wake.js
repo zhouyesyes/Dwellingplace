@@ -72,6 +72,8 @@ export function alarmForAI(role, who, wake) {
       ? `就算${who}没有打开栖所，你也会自己醒来：${sched}。醒来的时候可以给${who}发消息，也可以做自己的事。`
       : `就算${who}没有打开栖所，到了闹钟的时间你也会醒来。`,
     `你可以给自己定闹钟：另起一行写 [定闹钟:时间|醒来要做什么]。时间可以写「40分钟后」「2小时后」「21:30」「明天 9:00」「10月5日 14:30」。到时间你会醒来，看到自己写的这句话。`,
+    `如果到时只是提醒${who}一句、内容现在就定好了（比如「15:40 该准备上课啦」），写成 [定闹钟:时间|提醒什么|到时直接发给${who}的话]：到点直接把这句话发出去，不用叫醒你、不花额度。要到时再想、再看情况的，才只写前两段。`,
+    `聊天里留下了以后要追问的事（${who}明天面试、说晚点告诉你结果），也用闹钟记着：[定闹钟:明天 20:00|问问面试怎么样]。`,
     `取消闹钟写 [取消闹钟:#编号]。同时最多 ${MAX_ALARMS} 个闹钟，需要的时候再定，不用每次都定。`,
     w.quiet?.enabled ? `${w.quiet.from}–${w.quiet.to} 是${who}的免打扰时间，闹钟不能定在这段时间里。` : "",
     `现在定好的闹钟：${list}`,
@@ -93,14 +95,14 @@ export async function applyAlarmTags(role, text) {
     try {
       let r;
       if (add) {
-        const [when, ...rest] = body.split(/[|｜]/);
-        r = await relayCall("/wake/alarm", { roleId: role.id, when: when.trim(), note: rest.join(" ").trim(), quiet: role.wake.quiet });
+        const [when, note = "", ...say] = body.split(/[|｜]/);
+        r = await relayCall("/wake/alarm", { roleId: role.id, when: when.trim(), note: note.trim(), say: say.join(" ").trim(), quiet: role.wake.quiet });
       } else {
         r = await relayCall("/wake/alarm", { roleId: role.id, op: "cancel", id: body.trim() });
       }
       role.wakeAlarms = r.alarms || [];
       const note = r.alarm.note ? " · " + r.alarm.note : "";
-      notes.push(`${role.name} ${add ? "定了个闹钟" : "取消了闹钟"}：${r.alarm.label}${note}`);
+      notes.push(`${role.name} ${add ? "定了个闹钟" : "取消了闹钟"}：${r.alarm.label}${note}${add && r.alarm.say ? `（到点直接发：${r.alarm.say}）` : ""}`);
     } catch (e) {
       notes.push(`${role.name} 想${add ? "定" : "取消"}闹钟，但没成功：${e.message}`);
     }
@@ -120,10 +122,9 @@ async function snapshotRole(role) {
   const thread = threadFor(role);
   const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
   // 醒来一天好几次，每次都要把聊天记录整个发一遍：单独用一个小一点的上限
-  const limit = Math.max(2, Number(store.settings.wakeHistoryLimit ?? 30) || 30);
+  const budget = Math.min(chatTokens(), Math.max(500, Number(store.settings.wakeHistoryTokens) || 4000));
   const real = afterSummary(thread, path).filter(m => m.from !== "event" && !m.pending && !m.error); // 整理成摘要的那段：只带摘要
-  const history = tail(real, chatTokens()) // 也不超过平时聊天带的原文
-    .slice(-limit)
+  const history = tail(real, budget) // 小背包：按 token 算（默认 4k），也不超过平时聊天带的原文
     .flatMap(m => {
       if (m.from === "user") return [{ from: "user", text: textOf(m), ts: m.ts }];
       // 醒来、用工具的提示条：变成系统记录，TA 才知道之前醒来做过什么
@@ -197,9 +198,17 @@ export function scheduleSync(ms = 30_000) {
 // ---------- 取回 TA 醒来时发的消息 ----------
 function logWake(role, item) {
   role.wakeLog = [
-    { id: item.id, ts: item.ts, reasons: item.reasons, silent: item.silent, error: item.error || "", usage: item.usage, tools: item.notes.filter(n => n.detail || n.sources).map(n => n.text) },
+    { id: item.id, ts: item.ts, reasons: item.reasons, silent: item.silent, direct: !!item.direct, error: item.error || "", usage: item.usage, tools: item.notes.filter(n => n.detail || n.sources).map(n => n.text) },
     ...(role.wakeLog || []).filter(x => x.id !== item.id),
   ].slice(0, 30);
+  // 用量页「最近每一轮」：唤醒也记进去（为什么醒、发没发、带了多少上下文）
+  const list = (store.turnLog ??= []);
+  if (list.some(x => x.wakeId === item.id)) return;
+  const u = item.usage || {};
+  list.push({ ts: item.ts, apiId: item.apiId, model: item.model, rounds: u.rounds ?? (u.input ? 1 : 0), sends: 0, input: u.input || 0, output: u.output || 0, cached: u.cached || 0,
+    wakeId: item.id, wake: { reasons: item.reasons, silent: !!item.silent, direct: !!item.direct, error: item.error || "", ctx: u.ctx0 || u.ctx || 0 } });
+  list.sort((a, b) => a.ts - b.ts);
+  if (list.length > 60) list.splice(0, list.length - 60);
 }
 
 // 出错的原因写短一点（完整的放在点开的详情里）
@@ -240,7 +249,7 @@ async function ingest(item) {
     const parent = last ? last.id : ROOT;
     const msg = {
       id: `w${item.id}`, parentId: parent, from: "ai", text: item.text, ts: item.ts, // 固定的 id：两台设备都取到了，同步时也只算一条
-      notes: [{ text: `${role.name} 醒来了 · ${item.reasons.join("；")}`, before: true, wakeId: item.id }, ...before],
+      notes: [{ text: item.direct ? `到点了 · ${item.reasons.join("；")}（直接发的，没有叫醒他）` : `${role.name} 醒来了 · ${item.reasons.join("；")}`, before: true, wakeId: item.id }, ...before],
       apiId: item.apiId, model: item.model, usage: item.usage, wakeId: item.id,
       ctx: item.usage?.ctx, ctx0: item.usage?.ctx0, // 上下文多大（usage.input 是用工具来回几次加起来的，不是上下文）
     };
@@ -270,7 +279,9 @@ export async function checkInbox(force = false) {
   if (!wakeReady() || wakeStatus.checking) return 0;
   wakeStatus.checking = true;
   try {
-    const r = await relayCall(`/wake/inbox?since=${force ? 0 : wakeStatus.latest}`);
+    // 栖所在前台：顺便告诉中转「她在」（她 2 小时内在，就不额外叫醒他；主动找了两次没回应的，也从这里知道她回来了）
+    const active = document.visibilityState === "visible" ? "&active=1" : "";
+    const r = await relayCall(`/wake/inbox?since=${force ? 0 : wakeStatus.latest}${active}`);
     wakeStatus.busy = r.busy || {};
     for (const item of r.items) await ingest(item);
     if (r.items.length) {
