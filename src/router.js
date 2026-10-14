@@ -36,6 +36,7 @@ export const router = createRouter({
     { path: "/settings/sync", component: SyncView },
     { path: "/letters", component: () => import("./views/LettersView.vue") },
     { path: "/books", component: () => import("./views/BooksView.vue") },
+    { path: "/books/talk/:id", component: () => import("./views/ReadTalkView.vue") },
     { path: "/read/:id", component: () => import("./views/ReaderView.vue") },
     { path: "/write", component: () => import("./views/WriteView.vue") },
     { path: "/write/desk", component: () => import("./views/DeskPreviewView.vue") }, // 像素书桌：还在做，先这样看看

@@ -396,6 +396,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <b>{{ b.title }}</b>
         <span>{{ chapterTitle }}</span>
       </div>
+      <button class="icon-btn" aria-label="讨论室" @click="router.push(`/books/talk/${b.id}`)"><Icon name="chat" /></button>
       <button class="icon-btn aa" aria-label="阅读设置" @click="prefsOpen = true">Aa</button>
       <button class="icon-btn" aria-label="目录" @click="tocOpen = true"><Icon name="threads" /></button>
     </header>
