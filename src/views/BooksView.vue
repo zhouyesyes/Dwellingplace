@@ -168,7 +168,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .lead i { width: 28px; height: 1px; background: var(--text-3); flex: none; }
 .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
 .tabs button { border: 0; background: var(--card); padding: 7px 16px; border-radius: 999px; font-size: .85rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
-.tabs button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.tabs button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px 16px; }
 @media (min-width: 640px) { .grid { grid-template-columns: repeat(4, 1fr); } }
 .item { display: flex; flex-direction: column; gap: 4px; min-width: 0; border: 0; background: none; padding: 0; text-align: left; }
@@ -204,7 +204,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .cal i.today { box-shadow: 0 0 0 1.2px #e9657e; }
 /* 粉 → 红 */
 .lv0 { background: var(--bg-deep); }
-.lv1 { background: #fbd3dc; }
+.lv1 { background: color-mix(in srgb, #fbd3dc var(--pastel), var(--card)); }
 .lv2 { background: #f5a3b4; }
 .lv3 { background: #e9657e; }
 .lv4 { background: #c9304c; }

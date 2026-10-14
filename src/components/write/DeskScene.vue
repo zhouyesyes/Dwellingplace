@@ -39,7 +39,7 @@ const pos = b => ({ left: `${(b.x / W) * 100}%`, top: `${(b.y / H) * 100}%`, wid
 .beam { mix-blend-mode: screen; animation: sway 14s ease-in-out infinite; }
 @keyframes sway { 50% { opacity: .72; } }
 .hit { position: absolute; border: 0; padding: 0; background: transparent; cursor: pointer; }
-.hit.book:active, .hit.note:active { background: rgba(255, 255, 255, .3); }
+.hit.book:active, .hit.note:active { background: rgba(var(--glass-rgb), .3); }
 .hit.add { display: grid; place-items: center; border: 1px dashed rgba(120, 90, 60, .5); border-radius: 1px; }
 .night .hit.add { border-color: rgba(200, 200, 220, .3); }
 .hit.add span { width: 100%; height: 100%; display: grid; place-items: center; font-size: 10px; color: rgba(120, 90, 60, .7); line-height: 1; }

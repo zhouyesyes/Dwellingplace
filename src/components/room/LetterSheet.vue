@@ -108,10 +108,10 @@ const when = n => stamp(Date.parse(n.createdAt));
 <style scoped>
 .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
 .tabs button { flex: 1; border: 0; border-radius: 12px; padding: 8px; background: var(--bg); font-size: 0.87rem; color: var(--text-2); position: relative; }
-.tabs button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.tabs button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .dot { position: absolute; top: 6px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: #e9789a; }
 .list { display: flex; flex-direction: column; gap: 10px; max-height: 58vh; overflow-y: auto; padding-bottom: 4px; }
-.letter { background: #fbf6ea; border-radius: 16px; padding: 12px 14px; box-shadow: 0 0 0 1px #efe4cc; }
+.letter { background: color-mix(in srgb, #fbf6ea var(--pastel), var(--card)); border-radius: 16px; padding: 12px 14px; box-shadow: 0 0 0 1px #efe4cc; }
 .letter.fresh { box-shadow: 0 0 0 2px #f0c2cf; }
 .letter.mine { background: var(--card-2); box-shadow: 0 0 0 1px var(--line); }
 .letter p { margin: 6px 0 0; white-space: pre-wrap; line-height: 1.75; font-size: 0.93rem; }

@@ -33,7 +33,7 @@ const H = [82, 70, 90, 76, 86, 72];
 .dw.small { flex-direction: column; gap: 8px; }
 .spines { display: flex; align-items: flex-end; gap: 4px; padding-bottom: 4px; border-bottom: 3px solid #ece5da; min-width: 64px; }
 .dw.small .spines { flex: 1; }
-.spines i { width: 12px; border-radius: 2px 2px 0 0; box-shadow: inset -2px 0 0 rgba(0, 0, 0, .07); }
+.spines i { width: 12px; border-radius: 2px 2px 0 0; box-shadow: inset -2px 0 0 rgba(var(--tint-rgb), .07); }
 .spines i:nth-child(3) { transform: rotate(8deg); transform-origin: 0 100%; margin-left: 4px; }
 .spines .ph { width: 12px; height: 60%; border: 1.5px dashed var(--line); background: none; box-shadow: none; }
 .txt { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; min-width: 0; }

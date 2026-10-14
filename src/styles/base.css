@@ -25,8 +25,53 @@
   --tabbar-h: 62px;
   /* 全局字体：英文数字用 Jost（细长的几何体），中文用系统的苹方；正文细、标题粗 */
   --font: "Jost Variable", Jost, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 跟着主题变的几样：按钮（--ink 底）上的字、半透明的「玻璃」面、很淡的一层蒙色、浅彩色底留多少颜色 */
+  --on-ink: #ffffff;
+  --glass-rgb: 255, 255, 255;
+  --tint-rgb: 0, 0, 0;
+  --pastel: 100%;
+  --ink-keep: 100%;
+  --avatar-mix: #ffffff;
   color-scheme: light;
 }
+
+/* 深色：深蓝灰的底（不用纯黑），字是柔和的浅灰（不用纯白）；浅彩色的底只留一点颜色 */
+:root[data-theme="dark"] {
+  --bg: #1b1e25;
+  --bg-deep: #252a33;
+  --card: #262a33;
+  --card-2: #2c313b;
+  --line: #363c48;
+  --text: #e1e2e7;
+  --text-2: #a4a8b3;
+  --text-3: #6f7581;
+  --ink: #d5d9e2;
+  --on-ink: #1d2027;
+  --pink: #4a3139;
+  --green: #263f34;
+  --yellow: #463f2a;
+  --blue: #283850;
+  --lilac: #393251;
+  --accent: #82b2ea;
+  --danger: #e8888f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .32);
+  --shadow-soft: 0 4px 16px rgba(0, 0, 0, .28);
+  --glass-rgb: 38, 42, 51;
+  --tint-rgb: 255, 255, 255;
+  --pastel: 20%;
+  --ink-keep: 30%;
+  --avatar-mix: #3a404c;
+  --avatar-ink: #eef0f4;
+  color-scheme: dark;
+}
+/* 切换主题时轻轻过渡一下（只在切换的那一会儿加上，第一次打开不过渡） */
+html.theme-switching, html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after {
+  transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease !important;
+}
+/* 深色时滚动条也暗下来 */
+:root[data-theme="dark"] ::-webkit-scrollbar { width: 8px; height: 8px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #3a404c; border-radius: 4px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -171,12 +216,12 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.6; }
 /* 聊天气泡里的小效果（v-html 出来的，不受组件样式作用域限制） */
 .bubble strong, .b strong { font-weight: 700; }
 .bubble em, .b em { font-style: italic; font-weight: 600; }
-.bubble code, .b code { font-family: ui-monospace, Menlo, monospace; font-size: 0.88em; background: rgba(0, 0, 0, .06); padding: 1px 5px; border-radius: 5px; }
+.bubble code, .b code { font-family: ui-monospace, Menlo, monospace; font-size: 0.88em; background: rgba(var(--tint-rgb), .06); padding: 1px 5px; border-radius: 5px; }
 .bubble del, .b del { opacity: .6; }
 
 /* 聊天里点消息弹出的一列小选项 */
 .ctx-mask { position: fixed; inset: 0; z-index: 900; background: rgba(30, 30, 40, .08); }
-.ctx-menu { position: fixed; width: 188px; background: rgba(255, 255, 255, .98); border-radius: 16px; box-shadow: 0 10px 34px rgba(40, 40, 60, .18), 0 0 0 1px rgba(0, 0, 0, .04); overflow: hidden; animation: ctx-in .14s ease-out; }
+.ctx-menu { position: fixed; width: 188px; background: rgba(var(--glass-rgb), .98); border-radius: 16px; box-shadow: 0 10px 34px rgba(40, 40, 60, .18), 0 0 0 1px rgba(var(--tint-rgb), .04); overflow: hidden; animation: ctx-in .14s ease-out; }
 .ctx-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 11px 16px; font-size: 0.93rem; color: var(--text); text-align: left; }
 .ctx-menu button + button { border-top: 1px solid var(--line); }
 .ctx-menu button:active { background: var(--bg); transform: none; }
@@ -184,3 +229,7 @@ textarea.input { resize: vertical; min-height: 110px; line-height: 1.6; }
 .ctx-menu button.danger { color: var(--danger); }
 @keyframes ctx-in { from { opacity: 0; transform: scale(.96); } }
 .bubble .sticker-inline, .b .sticker-inline { height: 2.4em; vertical-align: middle; margin: 0 2px; }
+:root[data-theme="dark"] .toast { background: rgba(62, 68, 82, .95); color: var(--text); }
+:root[data-theme="dark"] .ctx-menu { box-shadow: 0 10px 34px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06); }
+/* 图片、头像、表情包、插图都不反色；只有像素桌宠在深色底上加一圈很轻的浅蓝灰描边，免得看不清 */
+:root[data-theme="dark"] .pixel-pet { filter: drop-shadow(1px 0 0 rgba(180, 196, 220, .45)) drop-shadow(-1px 0 0 rgba(180, 196, 220, .45)) drop-shadow(0 1px 0 rgba(180, 196, 220, .45)) drop-shadow(0 -1px 0 rgba(180, 196, 220, .45)); }

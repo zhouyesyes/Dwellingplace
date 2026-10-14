@@ -206,8 +206,8 @@ function add(type) {
   font-size: 0.75rem;
   font-weight: 700;
 }
-.badge.del { top: -8px; left: -8px; background: #fff; color: var(--text-2); }
-.badge.size { bottom: -8px; right: -8px; background: var(--ink); color: #fff; }
+.badge.del { top: -8px; left: -8px; background: var(--card); color: var(--text-2); }
+.badge.size { bottom: -8px; right: -8px; background: var(--ink); color: var(--on-ink); }
 
 .add-tile {
   border: 2px dashed var(--line);
@@ -234,7 +234,7 @@ function add(type) {
   z-index: 25;
   padding: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .92);
+  background: rgba(var(--glass-rgb), .92);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   box-shadow: 0 6px 22px rgba(40, 40, 60, .14);

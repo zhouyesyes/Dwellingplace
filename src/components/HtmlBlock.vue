@@ -42,19 +42,19 @@ const page = computed(() => (/^svg$/.test(lang.value) || /^\s*<svg/i.test(code.v
 
 <style scoped>
 .hb { max-width: 100%; min-width: 0; }
-.html-card { padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .9); min-width: 200px; max-width: 100%; box-shadow: 0 1px 3px rgba(40, 40, 60, .08); }
+.html-card { padding: 12px 14px; border-radius: 16px; background: rgba(var(--glass-rgb), .9); min-width: 200px; max-width: 100%; box-shadow: 0 1px 3px rgba(40, 40, 60, .08); }
 .top { display: flex; align-items: center; gap: 8px; }
 .ico { color: #e0a53a; }
 .sub { margin: 6px 0 0; font-size: 0.8rem; color: var(--text-2); }
 .btns { display: flex; gap: 8px; margin-top: 10px; }
 .btns button { border: 0; border-radius: 999px; padding: 6px 16px; font-size: 0.85rem; }
-.go { background: var(--ink); color: #fff; }
+.go { background: var(--ink); color: var(--on-ink); }
 .ghost { background: var(--bg); color: var(--text-2); }
 .code { margin: 10px 0 0; max-height: 40vh; overflow: auto; font-size: 0.72rem; line-height: 1.5; white-space: pre; background: #1e1f24; color: #e8e8ea; border-radius: 10px; padding: 10px; font-family: ui-monospace, Menlo, monospace; }
 .code.plain { margin: 0; max-width: 100%; }
-.html-full { position: fixed; inset: 0; z-index: 1000; background: #fff; display: flex; flex-direction: column; }
+.html-full { position: fixed; inset: 0; z-index: 1000; background: var(--card); display: flex; flex-direction: column; }
 .bar { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 8px) 14px 8px; border-bottom: 1px solid #0000000f; }
 .bar b { flex: 1; }
-.bar button { border: 0; background: var(--ink); color: #fff; border-radius: 999px; padding: 6px 16px; }
+.bar button { border: 0; background: var(--ink); color: var(--on-ink); border-radius: 999px; padding: 6px 16px; }
 iframe { flex: 1; width: 100%; border: 0; }
 </style>

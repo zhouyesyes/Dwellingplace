@@ -61,7 +61,7 @@ const go = () => { if (!props.editing) router.push("/books"); };
 .head .sub, .head .dot { margin-left: auto; }
 .tone { margin-left: 8px; width: 22px; height: 22px; border: 0; padding: 0; border-radius: 50%; background: none; display: grid; place-items: center; align-self: center; }
 .tone i { width: 13px; height: 13px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, .14), 0 0 0 3px var(--card), 0 0 0 4px var(--line); }
-.tone.light i { background: #f4f1ec; }
+.tone.light i { background: color-mix(in srgb, #f4f1ec var(--pastel), var(--card)); }
 .tone.grey i { background: #a9a9ad; }
 .tone.dark i { background: #3a3a40; }
 .sub { font-size: .72rem; color: var(--text-3); }

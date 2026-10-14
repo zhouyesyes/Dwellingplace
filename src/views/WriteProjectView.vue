@@ -21,6 +21,7 @@ import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import SumVersions from "../components/memory/SumVersions.vue";
 import PetDock from "../components/pet/PetDock.vue";
+import { blockMd } from "../lib/inlineMd.js";
 import { petOn, petHears, petOnce } from "../lib/pet.js";
 import { setProgress, PROGRESS_MAX } from "../lib/board.js";
 import { snapshotSum, sumTokens, fmtTok } from "../lib/budget.js";
@@ -55,7 +56,10 @@ const wf = computed(() => FONTS[store.settings.writeFont]?.[1] || FONTS.standard
 const INKS = ["#2f2f36", "#4a4f5c", "#2f4a6b", "#3d5a4a", "#5a4632", "#6b3f4f", "#4b3f6b"];
 const look = computed(() => {
   const me = p.value?.bubbleMe || "#ffffff";
-  return { "--spine": spine.value, "--me": me, "--me-text": textOn(me), "--ai-ink": p.value?.aiInk || INKS[0], "--wf": wf.value, "--dock": dockH.value + "px" };
+  const light = textOn(me) !== "#fff";
+  // 深色模式：浅色气泡混进卡片色；他的字（深色的墨）混进正文色，免得深底上看不清
+  return { "--spine": spine.value, "--me": light ? `color-mix(in srgb, ${me} var(--pastel), var(--card))` : me, "--me-text": textOn(me),
+    "--ai-ink": `color-mix(in srgb, ${p.value?.aiInk || INKS[0]} var(--ink-keep), var(--text))`, "--wf": wf.value, "--dock": dockH.value + "px" };
 });
 // 输入框浮在最下面，讨论从它后面滑过去：量一下它多高，讨论底下留出这么多
 const dock = ref(null);
@@ -295,7 +299,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <p v-else-if="!msgs.length" class="hint">坐下来，和{{ him }}聊聊这本书：卡在哪、想试什么、哪里不对劲。<br />他会看着右上角「资料」里的定位、简介和卡片说。</p>
       <div v-for="m in msgs" :id="'wm-' + m.id" :key="m.id" class="m" :class="[m.from, { flash: flash === m.id }]">
         <AttList v-if="m.atts?.length" :atts="m.atts" small />
-        <p v-if="m.text" role="button" @click="openActions(m, $event)">{{ m.text }}<i v-if="m.fav" class="fav">★</i></p>
+        <div v-if="m.text" class="mt" role="button" @click="openActions(m, $event)"><span v-if="m.from === 'ai'" v-html="blockMd(m.text)" /><template v-else>{{ m.text }}</template><i v-if="m.fav" class="fav">★</i></div>
         <small v-if="m.edited" class="edited">改过</small>
         <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
       </div>
@@ -383,7 +387,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="ts-info">
           <p v-if="p.talkSum?.text">已经整理了 <b>{{ p.talkSum.count }}</b> 句讨论{{ p.talkSum.at ? `，上一次 ${new Date(p.talkSum.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "" }}{{ p.talkSum.why === "limit" ? "（到了上限的八成，自动整理的）" : p.talkSum.why === "manual" ? "（你点「现在整理」整理的）" : "" }}。</p>
           <p v-else>还没有讨论摘要。</p>
-          <p class="rule">这份只在《{{ p.title }}》的讨论里给{{ him }}看，不进记忆库。摘要后面的讨论原文{{ him }}都看得到（现在约 {{ fmtTok(talkRestTok) }} token），到 {{ fmtTok(talkAutoAt()) }} token（{{ fmtTok(talkLimit()) }} 的八成）就自动整理：把这份和前面的讨论合成新的一份，最近约 {{ fmtTok(talkLimit() / 2) }} token 留着原样。用整理模型。</p>
+          <p class="rule">这份只在《{{ p.title }}》的讨论里给{{ him }}看，不进记忆库。摘要后面的讨论原文{{ him }}都看得到（现在约 {{ fmtTok(talkRestTok) }} token），到 {{ fmtTok(talkAutoAt()) }} token（{{ fmtTok(talkLimit()) }} 的八成）就自动整理：只把前面这段新的讨论整理成一小段，接在这份后面（以前的不重写），最近约 {{ fmtTok(talkLimit() / 2) }} token 留着原样。用整理模型。</p>
         </div>
         <BigTextarea v-model="talkSumEdit.text" rows="9" title="讨论摘要" placeholder="还没有：讨论多了会自己整理，也可以点「现在整理」" />
         <div class="row edit-actions">
@@ -434,8 +438,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .bar { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 14px 0; }
 .ttl { flex: 1; min-width: 0; font-size: calc(1.05rem * var(--wf)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
 .bar button { pointer-events: auto; }
-.glass { position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; color: var(--ink); background: rgba(255, 255, 255, .72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(40, 40, 60, .1); }
-.glass .dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: #6aa7e0; box-shadow: 0 0 0 2px #fff; }
+.glass { position: relative; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; color: var(--ink); background: rgba(var(--glass-rgb), .72); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(40, 40, 60, .1); }
+.glass .dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: #6aa7e0; box-shadow: 0 0 0 2px var(--card); }
 .grow { flex: 1; }
 .msgs {
   position: absolute; inset: 0; z-index: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch;
@@ -443,37 +447,37 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 }
 .msgs > :first-child { margin-top: auto; }
 .hint { text-align: center; color: var(--text-3); font-size: calc(.8rem * var(--wf)); line-height: 1.8; margin: 22px 10px; }
-.has-bg .hint { color: var(--text-2); background: rgba(255, 255, 255, .7); border-radius: 14px; padding: 10px 12px; }
+.has-bg .hint { color: var(--text-2); background: rgba(var(--glass-rgb), .7); border-radius: 14px; padding: 10px 12px; }
 .m { max-width: 86%; display: flex; flex-direction: column; gap: 4px; flex: none; }
-.m p { margin: 0; padding: 10px 14px; border-radius: 18px; font-size: calc(.92rem * var(--wf)); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; -webkit-touch-callout: none; }
+.m p, .m .mt { margin: 0; padding: 10px 14px; border-radius: 18px; font-size: calc(.92rem * var(--wf)); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; -webkit-touch-callout: none; }
 .m.me { align-self: flex-end; align-items: flex-end; }
-.m.me p { background: var(--me); color: var(--me-text); box-shadow: var(--shadow-soft); border-bottom-right-radius: 6px; }
+.m.me p, .m.me .mt { background: var(--me); color: var(--me-text); box-shadow: var(--shadow-soft); border-bottom-right-radius: 6px; }
 .m.ai { max-width: 100%; align-self: stretch; }
-.m.ai p { padding: 4px 2px; color: var(--ai-ink); }
-.has-bg .m.ai p { background: rgba(255, 255, 255, .72); padding: 10px 14px; }
+.m.ai p, .m.ai .mt { padding: 4px 2px; color: var(--ai-ink); }
+.has-bg .m.ai p, .has-bg .m.ai .mt { background: rgba(var(--glass-rgb), .72); padding: 10px 14px; }
 .fav { font-style: normal; color: #e0a53a; font-size: .7rem; margin-left: 6px; }
 .edited { font-size: .66rem; color: var(--text-3); padding: 0 6px; }
 .m.flash p { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px #f0c36a; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .act { font-size: calc(.72rem * var(--wf)); color: var(--text-2); padding: 0 6px; }
-.has-bg .act, .has-bg .edited { background: rgba(255, 255, 255, .75); border-radius: 999px; padding: 1px 8px; }
+.has-bg .act, .has-bg .edited { background: rgba(var(--glass-rgb), .75); border-radius: 999px; padding: 1px 8px; }
 .typing { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .5; } }
 .dock { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 3; display: flex; flex-direction: column; align-items: center; padding: 0 18px; pointer-events: none; }
 .dock > * { pointer-events: auto; width: 100%; max-width: 724px; box-sizing: border-box; }
 .draft-atts { margin-bottom: 8px; }
-.composer { position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: rgba(255, 255, 255, .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 24px; box-shadow: 0 6px 24px rgba(40, 40, 60, .1); }
+.composer { position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: rgba(var(--glass-rgb), .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 24px; box-shadow: 0 6px 24px rgba(40, 40, 60, .1); }
 .composer textarea { flex: 1; min-width: 0; border: 0; outline: none; background: none; resize: none; font-size: calc(.95rem * var(--wf)); line-height: 1.55; padding: 7px 8px; overflow-y: hidden; }
-.send { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; flex: none; }
+.send { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; flex: none; }
 .plus { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--bg-deep); color: var(--text-2); display: grid; place-items: center; flex: none; }
 .seg { display: flex; gap: 6px; padding: 2px 4px 10px; }
 .seg button { border: 0; background: var(--bg); padding: 6px 14px; border-radius: 999px; font-size: .85rem; color: var(--text-2); }
-.seg button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.seg button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .ed { display: flex; flex-direction: column; gap: 10px; max-height: 78vh; overflow-y: auto; }
 .types { display: flex; gap: 6px; flex-wrap: wrap; }
 .grp-sel { font-size: .88rem; }
 .types button { border: 0; background: var(--bg-deep); padding: 5px 12px; border-radius: 999px; font-size: .8rem; color: var(--text-2); }
-.types button.on { background: var(--ink); color: #fff; }
+.types button.on { background: var(--ink); color: var(--on-ink); }
 .tints { display: flex; gap: 8px; padding: 3px; }
 .tints button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); }
 .tints button.on { box-shadow: 0 0 0 2px var(--ink); }
@@ -483,13 +487,13 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .notes { display: flex; flex-direction: column; gap: 12px; }
 .note { position: relative; padding: 14px 14px 8px; border-radius: 2px; box-shadow: 0 6px 14px rgba(60, 45, 30, .12); transform: rotate(-.8deg); }
 .note:nth-child(even) { transform: rotate(.8deg); }
-.note.mine { background: #fff1a8; }
+.note.mine { background: color-mix(in srgb, #fff1a8 var(--pastel), var(--card)); }
 .note.his { background: #dcebfc; }
 .note p { margin: 0; font-size: .9rem; line-height: 1.7; white-space: pre-wrap; }
-.tape { position: absolute; top: -8px; left: 50%; width: 46px; height: 16px; transform: translateX(-50%) rotate(-3deg); background: rgba(255, 255, 255, .55); }
+.tape { position: absolute; top: -8px; left: 50%; width: 46px; height: 16px; transform: translateX(-50%) rotate(-3deg); background: rgba(var(--glass-rgb), .55); }
 .nf { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .nf small { flex: 1; font-size: .68rem; color: rgba(60, 45, 30, .5); }
-.nf button { border: 0; background: rgba(255, 255, 255, .6); border-radius: 999px; padding: 3px 10px; font-size: .72rem; }
+.nf button { border: 0; background: rgba(var(--glass-rgb), .6); border-radius: 999px; padding: 3px 10px; font-size: .72rem; }
 .add-note { display: flex; gap: 8px; }
 .add-note .input { flex: 1; }
 .danger { color: var(--danger); }
@@ -504,4 +508,16 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .swatch-row { padding: 4px 4px 10px; }
 .edit-actions { justify-content: flex-end; margin-top: 12px; }
 .att-btn { align-self: flex-start; display: flex; align-items: center; gap: 4px; }
+/* 他说的话里的标题、表格、列表、引用（Markdown） */
+.mt :deep(.md-h) { font-weight: 700; margin: 4px 0; }
+.mt :deep(.md-h1) { font-size: 1.12em; }
+.mt :deep(.md-h2) { font-size: 1.05em; }
+.mt :deep(.md-list) { margin: 2px 0; padding-left: 1.3em; white-space: normal; }
+.mt :deep(.md-list li) { margin: 2px 0; white-space: pre-wrap; }
+.mt :deep(.md-quote) { margin: 4px 0; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); opacity: .85; white-space: normal; }
+.mt :deep(.md-hr) { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
+.mt :deep(.md-tbl) { overflow-x: auto; margin: 6px 0; white-space: normal; }
+.mt :deep(table) { border-collapse: collapse; font-size: .9em; min-width: 100%; }
+.mt :deep(th), .mt :deep(td) { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+.mt :deep(th) { background: rgba(var(--tint-rgb), .04); font-weight: 600; }
 </style>

@@ -1,7 +1,7 @@
 <script setup>
 // 读书：一章一章读。点一下 → 选中那一句（长按可以自己拖着选），下面出来一张小卡片：复制、划线、写想法、问问他。
 // 书页上只留划线（你的暖黄、他的淡蓝，写了想法的线尾有个小数字），点划线才看批注，段落不会被挤开。
-// 右下角「一起读」→ 从他上次一起读到的地方读到你现在这一页（超过 10 页先问你），他挑两三句划线、写批注。
+// 右下角「一起读」→ 从你现在这一页往后读十页（你还没读到的，他先读），他挑几句划线、写批注；读到哪就在哪做个淡淡的记号。
 // 给他看的只有这一句 / 这几页，而且是单独问的一次，不进聊天记录。读到哪记在书上（他在聊天里也知道你读到哪了）
 // 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）、翻页还是上下滚；读的时候计时（每天读了多久）
 // 翻页：一屏一页（左右划，或者点屏幕左右两边）
@@ -17,6 +17,7 @@ import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
+import { isDark } from "../lib/theme.js";
 import PetDock from "../components/pet/PetDock.vue";
 import { petOn, petOnce, petActive } from "../lib/pet.js";
 
@@ -292,28 +293,26 @@ async function ask() {
   }
 }
 
-// 一起读：从他上次一起读到的地方，到你现在这一页的最后一段；超过 10 页先问你
 const along = ref(false);
 const petErr = ref(false); // 桌宠：没读成时着急几秒
 const posBefore = (x, y) => x.ch < y.ch || (x.ch === y.ch && x.p < y.p);
+// 一起读：从你现在这一页开始，往后读十页（你还没读到的，他先读），一路划线写批注；读到哪，就在哪轻轻做个记号
+const PAGES = 10;
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
   const seen = visibleParas();
   if (!seen.length) return toast("这一页没有字");
-  const to = { ch: ch.value, p: Math.max(...seen) };
-  const last = [b.value.alongTo, b.value.hisPos].find(x => x && posBefore(x, to));
-  const from = last ? { ch: last.ch, p: last.p + 1 } : { ch: ch.value, p: Math.min(...seen) };
-  // 一页大概多少字：就按这一页算
+  const from = { ch: ch.value, p: Math.min(...seen) };
+  // 一页大概多少字：就按这一页算；往后数够十页
   const perPage = Math.max(300, seen.reduce((a, i) => a + (paras.value[i]?.length || 0), 0));
-  const all = await alongSlice(b.value, from, to);
-  const total = all.reduce((a, x) => a + x.t.length, 0);
-  const pages = Math.max(1, Math.ceil(total / perPage));
-  let maxChars = Infinity;
-  if (pages > 10) {
-    if (!confirm(`从${r.name}上次读到的地方到这里，一共大约 ${pages} 页（${total} 字），超过 10 页了，这次先没发。\n\n要只给${r.name}最近的 10 页吗？`)) return;
-    maxChars = perPage * 10;
+  const book = content.value;
+  let to = { ...from }, n = 0;
+  for (let c = from.ch; c < book.chapters.length && n < perPage * PAGES; c++) {
+    const ps = book.chapters[c].paras || [];
+    for (let p = c === from.ch ? from.p : 0; p < ps.length && n < perPage * PAGES; p++) { n += ps[p].length; to = { ch: c, p }; }
   }
+  const maxChars = Infinity;
   along.value = true;
   store.settings.readTip = true;
   try {
@@ -326,7 +325,8 @@ async function readThisPage() {
       const [st, en] = i >= 0 ? [i, i + n.quote.length] : [0, para.length];
       addNote(b.value, { ch: n.ch, p: n.p, start: st, end: Math.min(en, para.length), quote: para.slice(st, en), text: n.text, from: "ai" }).seen = n.ch !== ch.value;
     }
-    toast(res.memNotes[0] || `${r.name} 读了 ${Math.min(pages, 10)} 页，划了 ${res.notes.length} 处`, 2800);
+    const endTitle = content.value.chapters[res.upTo.ch]?.title || `第 ${res.upTo.ch + 1} 章`;
+    toast(res.memNotes[0] || `${r.name} 往后读了十来页，划了 ${res.notes.length} 处，读到「${endTitle}」那里做了个记号`, 3200);
     petOnce("success");
   } catch (e) {
     toast(`没读成：${describeError(e)}`, 4000);
@@ -347,11 +347,17 @@ onBeforeUnmount(() => clearInterval(timer));
 
 // ---------- 背景、字号、字体 ----------
 const BGS = { white: ["#ffffff", "#2e2e34"], paper: ["#faf6ef", "#3b3128"], mist: ["#eef1f4", "#2f3640"], green: ["#e9efe6", "#2f3a2c"], night: ["#1c1d22", "#c9c6bf"] };
+// 深色模式：每种纸换成对应的暗色（纸还是纸的感觉，只是暗下来），夜间那种照旧
+const BGS_DARK = { white: ["#1f2229", "#d4d6dc"], paper: ["#25211c", "#d8cebf"], mist: ["#1d2229", "#cdd5de"], green: ["#1e241d", "#ccd5c6"], night: ["#1c1d22", "#c9c6bf"] };
+const dark = ref(isDark());
+const themeObs = new MutationObserver(() => (dark.value = isDark()));
+themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+onBeforeUnmount(() => themeObs.disconnect());
 const prefs = computed(() => store.readerPrefs);
 const fontFamily = ref("");
 watch(() => prefs.value.font, async id => { try { fontFamily.value = await useFont(id); } catch { fontFamily.value = ""; } }, { immediate: true });
 const pageStyle = computed(() => {
-  const [bg, ink] = BGS[prefs.value.bg] || BGS.paper;
+  const [bg, ink] = (dark.value ? BGS_DARK : BGS)[prefs.value.bg] || (dark.value ? BGS_DARK : BGS).paper;
   return { "--rbg": bg, "--rink": ink, "--rsize": `${prefs.value.size || 18}px`, ...(fontFamily.value ? { "--rfont": `"${fontFamily.value}"` } : {}) };
 });
 // 换了字号、字体、翻页方式：排版变了，回到刚才读的那一段
@@ -398,7 +404,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       @scroll.passive="onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
-        <p :data-p="i" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
+        <p :data-p="i" :class="{ 'his-end': b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
       </template>
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
@@ -412,7 +418,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
     <!-- 第一次来：告诉她怎么和他一起读 -->
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
-      点一下选中一句（长按可以自己拖着选）：划线、写想法，或者问问{{ role?.name || "他" }}。点划线看批注。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}从上次读到的地方读到这一页，挑几句划线、写批注。<b>知道了</b>
+      点一下选中一句（长按可以自己拖着选）：划线、写想法，或者问问{{ role?.name || "他" }}。点划线看批注。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}从这一页往后先读十页，一路划线、写批注，你接着往后读就会看到；他读到的地方有个淡淡的记号。<b>知道了</b>
     </div>
     <!-- 桌宠：站在「一起读」上面；平时在读书，他在想的时候托着脑袋 -->
     <div v-if="sel == null && petOn()" class="pet-read" @pointerdown="petActive()"><PetDock :work="petErr ? 'error' : asking ? 'think' : null" base="read" :roam="false" /></div>
@@ -527,34 +533,36 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .mk[data-n]::after { content: attr(data-n); display: inline; margin-left: 2px; padding: 0 4px; line-height: 1; border-radius: 7px; font-size: 9px; text-align: center; text-indent: 0; vertical-align: super; background: rgba(214, 160, 60, .85); color: #fff; font-weight: 600; font-family: var(--font); }
 .mk.his[data-n]::after { background: rgba(92, 142, 205, .9); }
 .pet-read { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px + 42px); width: 180px; height: 0; z-index: 3; pointer-events: none; }
-.along { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: #fff; font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
+/* 他一起读读到的地方：段落末尾一个淡淡的小记号 */
+.his-end::after { content: " · " attr(data-his) "读到这里"; font-size: .62em; letter-spacing: .05em; color: rgba(92, 142, 205, .75); white-space: nowrap; }
+.along { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: var(--on-ink); font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
 .along.busy { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .55; } }
-.tip { position: fixed; left: 18px; right: 18px; bottom: calc(var(--safe-bottom) + 80px); z-index: 3; max-width: 520px; margin: 0 auto; padding: 12px 14px; border-radius: 16px; background: rgba(255, 255, 255, .96); color: #3b3128; font-size: .82rem; line-height: 1.7; box-shadow: 0 10px 30px rgba(30, 30, 40, .16); }
+.tip { position: fixed; left: 18px; right: 18px; bottom: calc(var(--safe-bottom) + 80px); z-index: 3; max-width: 520px; margin: 0 auto; padding: 12px 14px; border-radius: 16px; background: rgba(var(--glass-rgb), .96); color: var(--text); font-size: .82rem; line-height: 1.7; box-shadow: 0 10px 30px rgba(30, 30, 40, .16); }
 .tip b { display: block; text-align: right; margin-top: 4px; color: #b5852e; font-weight: 600; }
 .ch-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 30px 0 10px; font-size: .8rem; color: var(--text-2); }
-.selcard { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-bottom) + 14px); z-index: 4; max-width: 560px; margin: 0 auto; padding: 14px 14px 8px; border-radius: 22px; background: rgba(255, 255, 255, .97); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 12px 36px rgba(30, 30, 40, .2); color: #3b3128; }
+.selcard { position: fixed; left: 12px; right: 12px; bottom: calc(var(--safe-bottom) + 14px); z-index: 4; max-width: 560px; margin: 0 auto; padding: 14px 14px 8px; border-radius: 22px; background: rgba(var(--glass-rgb), .97); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: 0 12px 36px rgba(30, 30, 40, .2); color: var(--text); }
 .selcard .q { margin: 0 4px 10px; font-size: .86rem; line-height: 1.6; color: #6a5e52; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .selcard .q::before { content: "“"; font-size: 1.4rem; line-height: 0; vertical-align: -.3em; margin-right: 2px; color: #c7b49a; }
 .selcard .acts { display: flex; border-top: 1px solid rgba(60, 45, 30, .08); padding-top: 6px; }
-.selcard .acts button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; padding: 6px 2px; font-size: .72rem; color: #4a4038; }
+.selcard .acts button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; padding: 6px 2px; font-size: .72rem; color: var(--text-2); }
 .selcard .acts .x { flex: none; width: 40px; color: #9a8f84; justify-content: center; }
 .selcard .ul { font-size: 1.05rem; line-height: 19px; text-decoration: underline 2px rgba(214, 160, 60, .9); text-underline-offset: 3px; font-weight: 600; }
 .mlist { display: flex; flex-direction: column; gap: 10px; }
 .mnote { padding: 12px 14px 8px; border-radius: 14px; }
-.mnote.mine { background: #fff4c9; }
-.mnote.his { background: #e3eefb; }
-.mnote p { margin: 0; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; color: #3b3128; }
+.mnote.mine { background: color-mix(in srgb, #fff4c9 var(--pastel), var(--card)); }
+.mnote.his { background: color-mix(in srgb, #e3eefb var(--pastel), var(--card)); }
+.mnote p { margin: 0; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; color: var(--text); }
 .mnote p.only { color: rgba(60, 45, 30, .5); font-size: .82rem; }
 .mf { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .mf small { flex: 1; font-size: .7rem; color: rgba(60, 45, 30, .5); }
-.mf button { border: 0; background: rgba(255, 255, 255, .7); border-radius: 999px; padding: 3px 10px; font-size: .72rem; color: #8a5a50; }
+.mf button { border: 0; background: rgba(var(--glass-rgb), .7); border-radius: 999px; padding: 3px 10px; font-size: .72rem; color: #8a5a50; }
 .row2 { display: flex; gap: 8px; margin-top: 4px; }
 .row2 .btn { flex: 1; }
 .pop-enter-active, .pop-leave-active { transition: opacity .2s, transform .2s; }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(12px); }
 .compose { display: flex; flex-direction: column; gap: 10px; }
-.compose blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid #d9a441; background: #faf6ef; color: var(--text-2); font-size: .85rem; line-height: 1.7; border-radius: 4px; }
+.compose blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid #d9a441; background: color-mix(in srgb, #faf6ef var(--pastel), var(--card)); color: var(--text-2); font-size: .85rem; line-height: 1.7; border-radius: 4px; }
 .compose .btn { align-self: flex-end; }
 .toc { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
 .toc button { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border: 0; background: none; text-align: left; padding: 11px 6px; border-bottom: 1px solid var(--line); font-size: .9rem; }
@@ -577,7 +585,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .bgs button.on { box-shadow: 0 0 0 2px var(--ink); }
 .fonts { display: flex; flex-wrap: wrap; gap: 8px; }
 .fonts button { border: 1px solid var(--line); background: var(--card); padding: 6px 12px; border-radius: 999px; font-size: .82rem; }
-.fonts button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.fonts button.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
 .fonts .imp { border-style: dashed; color: var(--text-2); }
 .pr-row small { color: var(--text-3); font-size: .72rem; }
 .toc .book-card { color: var(--text-2); font-size: .82rem; }

@@ -321,7 +321,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf));
 .group { fill: #c9cdea; opacity: .55; letter-spacing: 1px; }
 .title { fill: #e9ebff; opacity: .85; }
 .btns { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; z-index: 2; }
-.btns button { border: 0; border-radius: 999px; padding: 5px 12px; font-size: 0.78rem; background: rgba(255, 255, 255, .85); }
+.btns button { border: 0; border-radius: 999px; padding: 5px 12px; font-size: 0.78rem; background: rgba(var(--glass-rgb), .85); }
 .full { position: fixed; inset: 0; z-index: 45; background: #2a3050; }
 .full .sky { width: 100%; height: 100%; border-radius: 0; }
 .full .btns { top: calc(var(--safe-top) + 12px); }
@@ -332,7 +332,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf));
 .dot.big { width: 7px; height: 7px; background: #fff4de; }
 .dot.mid { width: 5px; height: 5px; background: #e2e3f7; }
 .dot.small { width: 3px; height: 3px; background: #c4d0ff; }
-.sel-card { position: absolute; left: 12px; right: 12px; bottom: 44px; margin: 0; background: rgba(255, 255, 255, .92); border-radius: 14px; padding: 8px 12px; font-size: 0.9rem; cursor: pointer; }
+.sel-card { position: absolute; left: 12px; right: 12px; bottom: 44px; margin: 0; background: rgba(var(--glass-rgb), .92); border-radius: 14px; padding: 8px 12px; font-size: 0.9rem; cursor: pointer; }
 .full .sel-card { bottom: calc(var(--safe-bottom) + 20px); }
 .sel-card small { display: block; font-size: 0.72rem; color: var(--text-3); }
 .tip { font-size: 0.75rem; color: var(--text-3); margin: 8px 4px 0; line-height: 1.6; }

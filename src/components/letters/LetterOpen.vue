@@ -74,7 +74,7 @@ h2 { font-size: 1.4em; font-weight: 400; text-align: center; padding-bottom: var
 .sign { text-align: right; font-size: 1.15em; font-weight: 400; padding-top: var(--line); }
 .date { text-align: right; font-size: .85em; opacity: .85; }
 .x { position: absolute; right: 6px; top: 2px; z-index: 2; border: 0; background: none; font-size: 1.6rem; color: rgba(60, 50, 40, .6); }
-.meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .9); font-family: -apple-system, "PingFang SC", sans-serif; font-size: 0.8rem; color: #8a8580; }
+.meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(var(--glass-rgb), .9); font-family: -apple-system, "PingFang SC", sans-serif; font-size: 0.8rem; color: #8a8580; }
 .meta span { flex: 1; }
 .meta button { border: 0; border-radius: 999px; padding: 5px 12px; background: #f0ebe1; color: #4a443e; font-size: 0.8rem; }
 .meta .del { color: #b4545e; }

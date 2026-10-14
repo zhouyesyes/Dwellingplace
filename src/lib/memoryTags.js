@@ -171,7 +171,7 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
     cards.length ? `记忆卡片（常驻的，和这次可能相关的）：\n${cards.map(m => line(m, 160)).join("\n")}` : "",
     board ? `板块记忆（长期的进展）：\n${board}` : "",
     moment ? `最近 24 小时（【此刻】）：\n${moment}` : "",
-    thread?.summary?.text ? `聊天的摘要记忆：\n${thread.summary.text.slice(0, 1500)}` : "",
+    thread?.summary?.text ? `聊天的摘要记忆（最近的几段）：\n${thread.summary.text.length > 2000 ? "……" + thread.summary.text.slice(-2000) : thread.summary.text}` : "",
     recent ? `平时聊天里最近说的（最近的在最后）：\n${recent}` : "",
     reads.length ? `共读的读书笔记：\n${reads.map(m => line(m, 120)).join("\n")}` : "",
     writes.length ? `共写的总结：\n${writes.map(m => line(m, 160)).join("\n")}` : "",

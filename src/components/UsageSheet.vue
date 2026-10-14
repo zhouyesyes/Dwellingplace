@@ -176,7 +176,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
 .tip { font-size: 0.78rem; color: var(--text-3); line-height: 1.7; margin: 12px 4px 0; }
 .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .tabs button { flex: 1; border: 0; border-radius: 12px; padding: 7px; background: var(--bg); font-size: 0.85rem; color: var(--text-2); }
-.tabs button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.tabs button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 /* 两页左右滑 */
 .pager { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; align-items: flex-start; overscroll-behavior-x: contain; }
 .pager::-webkit-scrollbar { display: none; }

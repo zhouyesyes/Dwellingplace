@@ -104,12 +104,12 @@ function tapRack() {
 .world {
   position: absolute; top: 0; right: 0; bottom: 0; width: min(86vw, 420px); overflow-y: auto;
   padding: calc(var(--safe-top) + 18px) 16px calc(var(--safe-bottom) + 24px);
-  background: rgba(248, 247, 245, .86); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
+  background: rgba(var(--glass-rgb), .86); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
   border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
 }
-.script { margin: 2px 0 14px; text-align: center; font-weight: 300; letter-spacing: .12em; font-size: 1.9rem; color: #3b3b43; }
+.script { margin: 2px 0 14px; text-align: center; font-weight: 300; letter-spacing: .12em; font-size: 1.9rem; color: var(--ink); }
 .top { display: flex; gap: 8px; }
-.me-card, .mini, .row, .rack-card { background: rgba(255, 255, 255, .62); border: 1px solid rgba(255, 255, 255, .7); box-shadow: 0 2px 10px rgba(40, 40, 60, .05); }
+.me-card, .mini, .row, .rack-card { background: rgba(var(--glass-rgb), .62); border: 1px solid rgba(var(--glass-rgb), .7); box-shadow: 0 2px 10px rgba(40, 40, 60, .05); }
 .me-card { cursor: pointer;  flex: 1; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 18px; min-width: 0; }
 .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .online { width: 7px; height: 7px; border-radius: 50%; background: #5fc77a; display: inline-block; }
