@@ -203,7 +203,7 @@ async function route(req, res, url) {
     if (ready && account) await refreshAccount();
     return json(res, 200, { ready, version, account: account && { type: account.type, planType: account.planType }, rateLimits, projects: listProjects(), threads: Object.values(threads).sort((a, b) => b.updatedAt - a.updatedAt), approvals: pendingList(), policy, seq });
   }
-  if (p === "/events") return sse(req, res, Number(url.searchParams.get("since") || req.headers["last-event-id"] || 0));
+  if (p === "/events") return sse(req, res, Math.max(Number(url.searchParams.get("since")) || 0, Number(req.headers["last-event-id"]) || 0)); // 浏览器自己重连时带着最后收到的编号
   if (req.method !== "POST" && !/^\/threads\/[^/]+\/events$/.test(p) && p !== "/projects" && p !== "/policy") return json(res, 405, { error: { message: "要用 POST" } });
 
   if (p === "/login") { if (!need()) return; const r = await call("account/login/start", { type: "chatgptDeviceCode" }); return json(res, 200, { verificationUrl: r.verificationUrl, userCode: r.userCode, loginId: r.loginId }); }

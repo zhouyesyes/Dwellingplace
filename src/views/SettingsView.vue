@@ -65,6 +65,7 @@ function usageLine(api) {
 
     <div class="section-label">更多</div>
     <div class="list-card">
+      <button class="list-row" @click="router.push('/work')"><Icon name="box" :size="20" /><span class="grow">工作间<span class="sub">Codex 在你服务器的沙盒里写代码、跑命令</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
