@@ -101,8 +101,6 @@ function removeEvent() {
   draft.value = null;
 }
 
-// ---------- 颜色 ----------
-const colorsOpen = ref(false);
 </script>
 
 <template>
@@ -113,7 +111,6 @@ const colorsOpen = ref(false);
       <button class="nav" aria-label="下个月" @click.stop="shift(1)"><Icon name="right" :size="16" /></button>
       <span class="spacer" />
       <span class="year">{{ year }}</span>
-      <button class="nav" aria-label="颜色" @click.stop="!editing && (colorsOpen = true)"><Icon name="palette" :size="17" /></button>
     </div>
 
     <div class="grid week"><span v-for="w in '日一二三四五六'" :key="w">{{ w }}</span></div>
@@ -157,17 +154,6 @@ const colorsOpen = ref(false);
     </template>
   </Sheet>
 
-  <Sheet :open="colorsOpen" title="每个人的颜色" @close="colorsOpen = false">
-    <div class="color-row">
-      <div class="who-name"><i :style="{ background: store.profile.color }" />{{ authorInfo("me").name }}</div>
-      <ColorSwatches v-model="store.profile.color" :colors="PALETTE" />
-    </div>
-    <div v-for="r in store.roles" :key="r.id" class="color-row">
-      <div class="who-name"><i :style="{ background: r.color }" />{{ r.name }}</div>
-      <ColorSwatches v-model="r.color" :colors="PALETTE" />
-    </div>
-    <p class="tip">这个颜色也会用在头像底色和纪念日上。</p>
-  </Sheet>
 </template>
 
 <style scoped>

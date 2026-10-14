@@ -32,6 +32,7 @@
   --pastel: 100%;
   --ink-keep: 100%;
   --avatar-mix: #ffffff;
+  --img-dim: 0; /* 背景图上压一层暗：浅色不压 */
   color-scheme: light;
 }
 
@@ -61,6 +62,7 @@
   --pastel: 20%;
   --ink-keep: 30%;
   --avatar-mix: #3a404c;
+  --img-dim: .42; /* 深色时背景图暗下去，字和气泡才看得清 */
   --avatar-ink: #eef0f4;
   color-scheme: dark;
 }
