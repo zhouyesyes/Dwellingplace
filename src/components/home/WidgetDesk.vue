@@ -6,6 +6,7 @@ import AnnivWidget from "../widgets/AnnivWidget.vue";
 import CalendarWidget from "../widgets/CalendarWidget.vue";
 import BookshelfWidget from "../widgets/BookshelfWidget.vue";
 import DeskWidget from "../widgets/DeskWidget.vue";
+import WorkroomWidget from "../widgets/WorkroomWidget.vue";
 import Sheet from "../Sheet.vue";
 import Icon from "../Icon.vue";
 
@@ -15,6 +16,7 @@ const TYPES = {
   calendar: { label: "日历", desc: "和他一起记录的小事", comp: CalendarWidget, sizes: ["large"] },
   desk: { label: "共写", desc: "在写的书，和他一起琢磨卡片和资料", comp: DeskWidget, sizes: ["large", "small"] },
   books: { label: "书架（共读）", desc: "放几本书，和他一起读，书里能贴便利贴", comp: BookshelfWidget, sizes: ["large"] },
+  work: { label: "工作间", desc: "Codex 在你服务器上干活：有没有在干、有几处等你点", comp: WorkroomWidget, sizes: ["large", "small"] },
 };
 
 const editing = ref(false);
