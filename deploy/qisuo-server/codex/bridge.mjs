@@ -17,6 +17,8 @@
 //   POST /threads/:id/send {text}                     说话：没在干活就开始一轮，正在干活就插一句
 //   POST /threads/:id/interrupt                       中断这一轮
 //   POST /approvals/:key {decision}                   回答审批：accept / acceptForSession / decline / cancel
+//   POST /projects/git {name}                        和 GitHub 上的比：还没推上去的提交、没提交的改动
+//   POST /projects/push {name}                       推上线（她点了才推；钥匙只有这个程序拿得到，Codex 自己推不了）
 //   GET  /policy   POST /policy {...}                 哪些事不用问你
 //   GET  /events?since=N                              实时过程（SSE）；断线了带上最后的编号再连，从断点补回
 import http from "node:http";
@@ -32,6 +34,13 @@ const WORK = process.env.WORK_DIR || "/work";
 const DATA = process.env.BRIDGE_DATA || "/bridge";
 const UID = Number(process.env.CODEX_UID) || 1001;
 const CODEX_HOME = process.env.CODEX_HOME_DIR || "/home/codex/.codex";
+// 连着 GitHub 的项目（可以推上线的只有这一个）；钥匙放在 /bridge 里，codex 用户读不到
+const GIT_PROJECT = process.env.GIT_PROJECT || "栖所";
+const GIT_REPO = process.env.GIT_REPO || "zhouyesyes/Dwellingplace";
+const GIT_BRANCH = process.env.GIT_BRANCH || "main";
+const GIT_TOKEN_FILE = path.join(process.env.BRIDGE_DATA || "/bridge", "github-token");
+// Codex 提交时署的名字
+const GIT_ID = { GIT_AUTHOR_NAME: "Codex（栖所工作间）", GIT_AUTHOR_EMAIL: "codex@qisuo.local", GIT_COMMITTER_NAME: "Codex（栖所工作间）", GIT_COMMITTER_EMAIL: "codex@qisuo.local" };
 if (!KEY) { console.error("缺少 BRIDGE_KEY"); process.exit(1); }
 fs.mkdirSync(path.join(DATA, "threads"), { recursive: true, mode: 0o700 });
 
@@ -78,7 +87,8 @@ function start() {
   srv = spawn("codex", ["app-server"], {
     uid: UID, gid: UID, cwd: WORK,
     env: { PATH: process.env.PATH, HOME: path.dirname(CODEX_HOME), CODEX_HOME, HTTPS_PROXY: process.env.HTTPS_PROXY || "", HTTP_PROXY: process.env.HTTP_PROXY || "", NO_PROXY: "localhost,127.0.0.1", LANG: "C.UTF-8",
-      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || "", NODE_PATH: process.env.NODE_PATH || "" }, // 浏览器（截图检查用）
+      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || "", NODE_PATH: process.env.NODE_PATH || "", // 浏览器（截图检查用）
+      ...GIT_ID },
     stdio: ["pipe", "pipe", "pipe"],
   });
   srv.stderr.on("data", d => process.stderr.write(d));
@@ -140,8 +150,10 @@ function onLine(line) {
 
 // ---------- 审批：先看规则能不能直接答，不能就等你 ----------
 const SAFE_CMD = /^(rg|grep|cat|ls|head|tail|wc|pwd|echo|stat|file|tree|du|diff|which|sed -n|awk|sort|uniq|cut|find|git (status|diff|log|show|branch|rev-parse|ls-files))\b/;
-const TEST_CMD = /^((npm|pnpm|yarn) (test|run (test|lint|build|check))|npx (vitest|jest|eslint|tsc)|node --test|node [\w./-]*test[\w./-]*\.m?js|pytest|python3? -m (pytest|unittest)|cargo (test|check|build)|go (test|vet|build))\b/;
-const RISKY = /[>`]|\$\(|\b(rm|mv|cp|chmod|chown|curl|wget|nc|ssh|scp|sudo|su|dd|mkfs|kill|pkill|npm (i|install|add)|pip install|apt|git (push|pull|fetch|clone|reset|checkout|commit|remote))\b|-exec\b|-delete\b/;
+const TEST_CMD = /^((npm|pnpm|yarn) (ci|test|run (test|lint|build|check))|npx (vitest|jest|eslint|tsc|vite build)|node --test|node [\w./-]*test[\w./-]*\.m?js|pytest|python3? -m (pytest|unittest)|cargo (test|check|build)|go (test|vet|build))\b/;
+const RISKY = /[>`]|\$\(|\b(rm|mv|cp|chmod|chown|curl|wget|nc|ssh|scp|sudo|su|dd|mkfs|kill|pkill|npm (i|install|add)|pip install|apt|git (push|clone|reset|remote|config|filter-branch|update-ref))\b|\s--?(force|hard)\b|-exec\b|-delete\b/;
+// 本地的 git（提交、切分支、拉最新的）：和改文件一样算「改东西」；推上去不在这里（Codex 也没有钥匙）
+const LOCAL_GIT = /^git (add|commit|switch|checkout|stash|restore|fetch|pull|merge|rebase --abort|merge --abort)\b/;
 function unwrap(cmd) {
   const s = String(cmd || "").trim();
   const m = s.match(/^\/bin\/(?:ba)?sh -l?c (["'])([\s\S]*)\1$/);
@@ -155,7 +167,7 @@ function autoDecision(method, p) {
     if (RISKY.test(body)) return null;
     const parts = body.split(/\s*(?:&&|\|\||;|\|)\s*/).map(s => s.trim()).filter(Boolean);
     if (!parts.length) return null;
-    const okPart = s => (policy.autoRead && SAFE_CMD.test(s)) || (policy.autoTest && TEST_CMD.test(s)) || /^(cd [\w./-]+|true|:)$/.test(s);
+    const okPart = s => (policy.autoRead && SAFE_CMD.test(s)) || (policy.autoTest && TEST_CMD.test(s)) || (policy.autoEdit && LOCAL_GIT.test(s)) || /^(cd [\w./-]+|true|:)$/.test(s);
     return parts.every(okPart) ? "accept" : null;
   }
   if (method === "item/fileChange/requestApproval") {
@@ -193,8 +205,50 @@ function onRequest(m) {
 const BASE_INSTRUCTIONS = [
   "用中文回复。",
   "这台机器上有一个没有界面的浏览器：Playwright + Chromium 已经全局装好（在 node 里直接 require('playwright') 或 import 'playwright'），带中文字体。改了网页、要看界面对不对时，可以写个小脚本：起一个本地服务（比如 npx vite --port 5199 或 node 的 http 模块），用 chromium.launch() 打开，按手机尺寸（390×844）截图存到 /tmp，再用看图工具看截图。",
-  "网络：只能连 OpenAI，别的网站（包括 npm、GitHub）默认都连不上；需要的话先说明，让她决定要不要放行。",
+  "网络：只能连 OpenAI，再加上她放行的几个网站（一般有 GitHub 和 npm）；别的连不上，需要的话先说明，让她决定要不要放行。",
+  `「${GIT_PROJECT}」项目是 GitHub 上 ${GIT_REPO} 的代码，动手前先读根目录的 AGENTS.md（施工说明）。你可以在本地提交（git commit），但推不上去：推上线要她在工作间里点「推上线」。`,
 ].join("\n");
+
+// ---------- GitHub：看还没推上去的、她点了再推 ----------
+// git 以 codex 用户跑（文件是它的）；推的时候钥匙只在这一次的环境里，用完就没了。
+// 关掉仓库里可能写进去的钩子，地址写死成 GitHub 上那一个仓库。
+function git(dir, args, extraEnv = {}, timeout = 120_000) {
+  return new Promise((resolve, reject) => {
+    const c = spawn("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], {
+      uid: UID, gid: UID, cwd: dir, timeout,
+      env: { PATH: process.env.PATH, HOME: path.dirname(CODEX_HOME), HTTPS_PROXY: process.env.HTTPS_PROXY || "", LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0", ...GIT_ID, ...extraEnv },
+    });
+    let out = "", err = "";
+    c.stdout.on("data", d => (out += d));
+    c.stderr.on("data", d => (err += d));
+    c.on("error", reject);
+    c.on("close", code => (code ? reject(new Error((err || out).trim().slice(-600) || `git 退出码 ${code}`)) : resolve(out)));
+  });
+}
+const repoUrl = () => `https://github.com/${GIT_REPO}.git`;
+const hasToken = () => { try { return !!fs.readFileSync(GIT_TOKEN_FILE, "utf8").trim(); } catch { return false; } };
+async function gitState(name) {
+  const dir = path.join(WORK, name);
+  if (!fs.existsSync(path.join(dir, ".git"))) return { repo: GIT_REPO, cloned: false, canPush: hasToken() };
+  await git(dir, ["fetch", "-q", repoUrl(), GIT_BRANCH]); // 公开仓库，拉不用钥匙
+  const branch = (await git(dir, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+  const ahead = (await git(dir, ["log", "--format=%h%x09%s", "FETCH_HEAD..HEAD"])).split("\n").filter(Boolean).map(l => { const [sha, ...r] = l.split("\t"); return { sha, subject: r.join("\t") }; });
+  const behind = Number((await git(dir, ["rev-list", "--count", "HEAD..FETCH_HEAD"])).trim()) || 0;
+  const dirty = (await git(dir, ["status", "--porcelain"])).split("\n").filter(Boolean).map(l => l.slice(3));
+  return { repo: GIT_REPO, branch: GIT_BRANCH, cloned: true, head: branch, ahead, behind, dirty, canPush: hasToken() };
+}
+async function gitPush(name) {
+  const dir = path.join(WORK, name);
+  const token = fs.existsSync(GIT_TOKEN_FILE) ? fs.readFileSync(GIT_TOKEN_FILE, "utf8").trim() : "";
+  if (!token) throw new Error("服务器上还没放 GitHub 钥匙（重新运行一次安装那一行，按提示放）");
+  const before = await gitState(name);
+  if (!before.ahead.length) throw new Error("没有要推的提交");
+  if (before.behind) throw new Error(`GitHub 上有 ${before.behind} 个新提交这里还没有，先让 Codex 拉一下最新的（git pull）再推`);
+  const helper = `!f() { test "$1" = get && echo username=x-access-token && echo "password=$QS_GH"; }; f`;
+  await git(dir, ["-c", "credential.helper=", "-c", `credential.https://github.com.helper=${helper}`, "push", "-q", repoUrl(), `HEAD:refs/heads/${GIT_BRANCH}`], { QS_GH: token });
+  emit("qisuo/git/pushed", { project: name, commits: before.ahead });
+  return { ok: true, pushed: before.ahead };
+}
 
 // ---------- HTTP ----------
 const sameKey = k => { const a = Buffer.from(String(k || "")), b = Buffer.from(KEY); return a.length === b.length && timingSafeEqual(a, b); };
@@ -229,6 +283,12 @@ async function route(req, res, url) {
       if (r.status) return json(res, 500, { error: { message: `建不了：${r.stderr}` } });
     }
     return json(res, 200, { projects: listProjects() });
+  }
+  if (p === "/projects/git" || p === "/projects/push") {
+    const name = projectName((await body(req)).name);
+    if (name !== GIT_PROJECT || !listProjects().includes(name)) return json(res, 404, { error: { message: `只有「${GIT_PROJECT}」这个项目连着 GitHub` } });
+    try { return json(res, 200, p === "/projects/git" ? await gitState(name) : await gitPush(name)); }
+    catch (e) { return json(res, 500, { error: { message: e.message } }); }
   }
   if (p === "/projects/delete") {
     const name = projectName((await body(req)).name);

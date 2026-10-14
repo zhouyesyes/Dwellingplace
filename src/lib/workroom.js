@@ -12,6 +12,7 @@
 //   error     出错
 import { reactive } from "vue";
 import { serverBase } from "./server.js";
+import { store } from "../store/index.js";
 
 export const wr = reactive({
   base: "", // https://…/p/口令
@@ -36,11 +37,18 @@ export async function refresh() {
   try {
     wr.status = await api("/status");
     wr.error = "";
+    noteWorkroom(wr.status);
     for (const t of wr.status.threads || []) thread(t.id).meta = t;
   } catch (e) {
     wr.error = e.message;
   }
   return wr.status;
+}
+
+// 工作间能用吗（登录了）、有哪些项目：存一份，聊天的系统提示和唤醒里用（不用每次都去问服务器）
+export function noteWorkroom(st) {
+  const next = st?.ready && st?.account ? { projects: st.projects || [], base: wr.base } : null;
+  if (JSON.stringify(next) !== JSON.stringify(store.settings.workroom || null)) store.settings.workroom = next;
 }
 
 // ---------- 时间线 ----------
@@ -189,6 +197,8 @@ export const say = (id, text) => api(`/threads/${id}/send`, { method: "POST", bo
 export const interrupt = id => api(`/threads/${id}/interrupt`, { method: "POST" });
 export const answer = (key, decision) => api(`/approvals/${key}`, { method: "POST", body: { decision } });
 export const setPolicy = p => api("/policy", { method: "POST", body: p }).then(refresh);
+export const gitState = name => api("/projects/git", { method: "POST", body: { name } });
+export const gitPush = name => api("/projects/push", { method: "POST", body: { name } });
 export const archive = id => api(`/threads/${id}/archive`, { method: "POST" }).then(refresh);
 
 // 额度：「主」一般是 5 小时，「次」是每周；used 是用掉的百分比
