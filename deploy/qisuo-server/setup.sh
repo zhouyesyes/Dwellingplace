@@ -119,7 +119,7 @@ if [ "$CODEX" = "y" ]; then
   $SUDO docker run -d --name qisuo-codex --restart unless-stopped --network codex-int \
     --read-only --tmpfs /tmp:rw,size=512m --tmpfs /home/codex:rw,size=256m,uid=1001,gid=1001 \
     --cap-drop ALL --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
-    --memory 2g --cpus 2 --pids-limit 512 \
+    --memory 2g --cpus 2 --pids-limit 512 --shm-size 256m \
     -e BRIDGE_KEY="$CODEX_KEY" -e HTTPS_PROXY=http://qisuo-codex-gate:3128 -e HTTP_PROXY=http://qisuo-codex-gate:3128 \
     -v "$DIR/codex-home:/home/codex/.codex" -v "$DIR/codex-work:/work" -v "$DIR/codex-bridge:/bridge" qisuo-codex >/dev/null
   CODEX_ENV="-e CODEX_URL=http://qisuo-codex:7700 -e CODEX_KEY=$CODEX_KEY"
