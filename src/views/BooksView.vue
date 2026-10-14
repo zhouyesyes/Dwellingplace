@@ -81,6 +81,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
     <header class="head">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" /></button>
       <div class="acts">
+        <button class="icon-btn" aria-label="讨论室" @click="router.push('/books/talk/hall')"><Icon name="chat" /></button>
         <button class="icon-btn" :disabled="busy" aria-label="放一本书" @click="add"><Icon name="plus" /></button>
       </div>
     </header>
