@@ -210,6 +210,7 @@ export const answer = (key, decision) => api(`/approvals/${key}`, { method: "POS
 export const setPolicy = p => api("/policy", { method: "POST", body: p }).then(refresh);
 export const gitState = name => api("/projects/git", { method: "POST", body: { name } });
 export const gitPush = name => api("/projects/push", { method: "POST", body: { name } });
+export const gitPull = name => api("/projects/pull", { method: "POST", body: { name } });
 export const archive = id => api(`/threads/${id}/archive`, { method: "POST" }).then(refresh);
 
 // 额度：「主」一般是 5 小时，「次」是每周；used 是用掉的百分比

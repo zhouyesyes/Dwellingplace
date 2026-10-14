@@ -19,6 +19,7 @@
 //   POST /approvals/:key {decision}                   回答审批：accept / acceptForSession / decline / cancel
 //   POST /projects/git {name}                        和 GitHub 上的比：还没推上去的提交、没提交的改动
 //   POST /projects/push {name}                       推上线（她点了才推；钥匙只有这个程序拿得到，Codex 自己推不了）
+//   POST /projects/pull {name}                       拉最新的（她点的；有没提交的改动、有冲突就不动，交给 Codex）
 //   GET  /policy   POST /policy {...}                 哪些事不用问你
 //   GET  /events?since=N                              实时过程（SSE）；断线了带上最后的编号再连，从断点补回
 import http from "node:http";
@@ -250,6 +251,23 @@ async function gitPush(name) {
   return { ok: true, pushed: before.ahead };
 }
 
+// 拉最新的：只在干净的时候拉；本地有提交就合并，合不上就原样退回去
+async function gitPull(name) {
+  const dir = path.join(WORK, name);
+  if (Object.values(threads).some(t => t.project === name && t.turnId)) throw new Error("Codex 正在这个项目里干活，等它做完再拉");
+  const before = await gitState(name);
+  if (!before.cloned) throw new Error("这里还没有栖所的代码");
+  if (!before.behind) return { ok: true, pulled: 0 };
+  if (before.dirty.length) throw new Error(`还有 ${before.dirty.length} 个文件改了没提交，先让 Codex 提交了再拉`);
+  if (!before.ahead.length) await git(dir, ["merge", "--ff-only", "-q", "FETCH_HEAD"]);
+  else {
+    try { await git(dir, ["merge", "--no-edit", "-q", "FETCH_HEAD"]); }
+    catch { await git(dir, ["merge", "--abort"]).catch(() => {}); throw new Error("和这里没推上去的提交有冲突，没动它：让 Codex 来拉（git pull）并解决冲突"); }
+  }
+  emit("qisuo/git/pulled", { project: name, count: before.behind });
+  return { ok: true, pulled: before.behind };
+}
+
 // ---------- HTTP ----------
 const sameKey = k => { const a = Buffer.from(String(k || "")), b = Buffer.from(KEY); return a.length === b.length && timingSafeEqual(a, b); };
 const json = (res, code, v) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(v)); };
@@ -335,10 +353,10 @@ async function route(req, res, url) {
     }
     return json(res, 200, { projects: listProjects() });
   }
-  if (p === "/projects/git" || p === "/projects/push") {
+  if (p === "/projects/git" || p === "/projects/push" || p === "/projects/pull") {
     const name = projectName((await body(req)).name);
     if (name !== GIT_PROJECT || !listProjects().includes(name)) return json(res, 404, { error: { message: `只有「${GIT_PROJECT}」这个项目连着 GitHub` } });
-    try { return json(res, 200, p === "/projects/git" ? await gitState(name) : await gitPush(name)); }
+    try { return json(res, 200, p === "/projects/git" ? await gitState(name) : p === "/projects/push" ? await gitPush(name) : await gitPull(name)); }
     catch (e) { return json(res, 500, { error: { message: e.message } }); }
   }
   if (p === "/projects/delete") {
