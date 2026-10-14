@@ -4,6 +4,11 @@ import { ref, computed, onMounted } from "vue";
 import { store, fmtTokens, today } from "../store/index.js";
 import { isPlan } from "../lib/providers.js";
 import { planPercents } from "../lib/quota.js";
+import { wr, refresh as refreshWork, limitsOf } from "../lib/workroom.js";
+// Codex 额度（工作间）：OpenAI 叫 Agentic usage limit，和 ChatGPT for Excel 这些共用。装了工作间才有
+const codexLimits = computed(() => limitsOf(wr.status?.rateLimits));
+onMounted(() => { refreshWork().catch(() => {}); });
+const resetIn = s => { if (!s) return ""; const m = Math.round((s * 1000 - Date.now()) / 60000); return m <= 0 ? "" : m < 60 ? `${m} 分钟后恢复` : m < 1440 ? `${Math.round(m / 60)} 小时后恢复` : `${Math.round(m / 1440)} 天后恢复`; };
 import SubHeader from "../components/SubHeader.vue";
 
 // ---------- ChatGPT 会员额度：放在最上面 ----------
@@ -105,6 +110,15 @@ const showTurns = ref(false);
           <div v-if="!t.wake?.direct" class="turn-sub">输入 {{ fmtTokens(t.input) }}<template v-if="t.cached">（缓存 {{ fmtTokens(t.cached) }}）</template> · 输出 {{ fmtTokens(t.output) }}<template v-for="p in t.plan || []" :key="p.label"> · {{ p.label }} {{ p.d == null ? `用了 ${p.used}%` : `+${p.d}%` }}</template></div>
         </div>
       </template>
+    </div>
+
+    <div v-if="codexLimits.length" class="card plan">
+      <div class="plan-top"><b>Codex 额度（工作间）</b><span class="muted small">{{ wr.status?.account?.planType || "" }}</span></div>
+      <div v-for="l in codexLimits" :key="l.label" class="bar-row">
+        <div class="bar-label"><span>{{ l.label }}</span><span>还剩 {{ 100 - l.used }}%<template v-if="resetIn(l.resetsAt)"> · {{ resetIn(l.resetsAt) }}</template></span></div>
+        <div class="bar"><i :style="{ width: (100 - l.used) + '%' }" :class="{ low: l.used >= 80 }" /></div>
+      </div>
+      <p class="muted small">ChatGPT 里叫「Agentic usage limit」：Codex 和别的智能体功能共用，和平时在 ChatGPT 里聊天是分开算的。</p>
     </div>
 
     <div v-for="a in planApis" :key="a.id" class="card plan">

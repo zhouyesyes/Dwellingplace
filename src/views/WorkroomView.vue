@@ -4,7 +4,7 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
@@ -58,6 +58,11 @@ async function addProject() {
   const n = prompt("新项目叫什么？（会在服务器上建一个同名文件夹）");
   if (!n?.trim()) return;
   try { await newProject(n); project.value = n.trim(); } catch (e) { toast(e.message, 4000); }
+}
+async function dropProject() {
+  const n = project.value;
+  if (!n || !confirm(`删掉项目「${n}」？服务器上这个文件夹里的东西会全部删掉，里面的任务记录也一起收起来。删了就找不回来。`)) return;
+  try { await deleteProject(n); project.value = ""; toast("删掉了"); } catch (e) { toast(e.message, 5000); }
 }
 async function addThread() {
   const n = prompt("这个任务叫什么？", "");
@@ -205,7 +210,7 @@ const RULES = [
       <div v-if="limits.length" class="limits">
         <div v-for="l in limits" :key="l.label" class="lim">
           <span>{{ l.label }}额度</span>
-          <div class="bar"><i :style="{ width: Math.min(100, l.used) + '%' }" :class="{ hi: l.used >= 80 }" /></div>
+          <div class="lbar"><i :style="{ width: Math.max(2, Math.min(100, l.used)) + '%' }" :class="{ hi: l.used >= 80 }" /></div>
           <em>用了 {{ l.used }}%<template v-if="resetText(l.resetsAt)"> · {{ resetText(l.resetsAt) }}</template></em>
         </div>
       </div>
@@ -214,6 +219,7 @@ const RULES = [
         <button v-for="p in projects" :key="p" :class="{ on: project === p }" @click="project = p">{{ p }}</button>
         <button class="add" @click="addProject">＋ 新项目</button>
       </div>
+      <button v-if="project" class="del-proj" @click="dropProject">删掉「{{ project }}」这个项目</button>
       <template v-if="project">
         <p class="sec">任务<small>　每个任务是一段单独的工作记录</small></p>
         <button v-for="x in threadsHere" :key="x.id" class="row" @click="open(x.id)">
@@ -334,9 +340,12 @@ const RULES = [
 .hint { text-align: center; color: var(--text-3); font-size: .84rem; line-height: 1.8; margin: 24px 16px; }
 .limits { margin: 12px 16px 0; display: flex; flex-direction: column; gap: 6px; }
 .lim { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 8px; align-items: center; font-size: .74rem; color: var(--text-2); }
-.lim .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.lim .bar i { display: block; height: 100%; background: var(--accent); }
-.lim .bar i.hi { background: var(--danger); }
+/* 额度条：细细一条（类名别和顶栏的 .bar 撞了）；深色时用亮一点的蓝 */
+.lbar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.lbar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.lbar i.hi { background: var(--danger); }
+:root[data-theme="dark"] .lbar { background: #2f3542; }
+:root[data-theme="dark"] .lbar i { background: #4da3ff; }
 .lim em { font-style: normal; color: var(--text-3); }
 .sec { margin: 20px 18px 8px; font-size: .86rem; font-weight: 600; color: var(--text-2); }
 .sec small { font-weight: 400; color: var(--text-3); font-size: .72rem; }
@@ -344,6 +353,7 @@ const RULES = [
 .chips button { border: 0; background: var(--card); padding: 6px 13px; border-radius: 999px; font-size: .84rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
 .chips button.on { background: var(--ink); color: var(--on-ink); }
 .chips .add { background: none; box-shadow: inset 0 0 0 1.5px var(--line); }
+.del-proj { display: block; margin: 8px 18px 0 auto; border: 0; background: none; font-size: .72rem; color: var(--text-3); }
 .row { display: flex; align-items: baseline; gap: 8px; width: calc(100% - 32px); margin: 0 16px 8px; border: 0; text-align: left; background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-soft); color: var(--text); }
 .row b { flex: 1; font-size: .92rem; }
 .row small { color: var(--text-3); font-size: .72rem; }

@@ -222,6 +222,17 @@ async function route(req, res, url) {
     }
     return json(res, 200, { projects: listProjects() });
   }
+  if (p === "/projects/delete") {
+    const name = projectName((await body(req)).name);
+    if (!name || !listProjects().includes(name)) return json(res, 404, { error: { message: "没有这个项目" } });
+    if (Object.values(threads).some(t => t.project === name && t.turnId)) return json(res, 409, { error: { message: "这个项目里还有任务在干活，先让它停下" } });
+    // 以 codex 用户删（文件是它的）；任务记录收起来（不删，记录还在 /bridge 里）
+    const r = spawnSync("rm", ["-rf", "--", path.join(WORK, name)], { uid: UID, gid: UID, encoding: "utf8" });
+    if (r.status) return json(res, 500, { error: { message: `删不了：${r.stderr}` } });
+    for (const t of Object.values(threads)) if (t.project === name) t.status = "archived";
+    saveThreads();
+    return json(res, 200, { projects: listProjects() });
+  }
   if (p === "/threads") {
     if (!need()) return;
     const b = await body(req);

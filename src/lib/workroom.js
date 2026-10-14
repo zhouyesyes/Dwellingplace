@@ -178,6 +178,7 @@ export function disconnect() { clearTimeout(retry); es?.close(); es = null; wr.l
 export async function startLogin() { wr.login = await api("/login", { method: "POST" }); return wr.login; }
 export const logout = () => api("/logout", { method: "POST" }).then(refresh);
 export const newProject = name => api("/projects", { method: "POST", body: { name } }).then(refresh);
+export const deleteProject = name => api("/projects/delete", { method: "POST", body: { name } }).then(refresh);
 export async function newThread(project, title) {
   const r = await api("/threads", { method: "POST", body: { project, title } });
   thread(r.thread.id).meta = r.thread;
