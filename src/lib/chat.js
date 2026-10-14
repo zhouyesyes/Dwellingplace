@@ -937,19 +937,19 @@ export async function draftStyle(role) {
   ].filter(Boolean).join("\n"));
 }
 
-// raw：原样给回去（标签还在，调用的地方自己处理）；attachments：一起给他看的图片、文件
+// raw：原样给回去（标签还在，调用的地方自己处理）；attachments：一起给他看的图片、文件；parts：已经备好的内容（工作间的附件）
 // helper：整理类的活（聊天摘要、共读的前情、共写的总结）——设置里选了「整理用的模型」就用它（可以是更便宜的，比如 DeepSeek），没选就和他一样
 export function helperApi(role) {
   const h = store.settings?.helper;
   const api = h && store.apis.find(a => a.id === h.apiId);
   return api ? { api, model: h.model || api.model } : { api: apiFor(null, role), model: modelFor(null, role) };
 }
-export async function oneShot(role, prompt, { raw = false, attachments = [], helper = false } = {}) {
+export async function oneShot(role, prompt, { raw = false, attachments = [], parts = [], helper = false } = {}) {
   const { api, model } = helper ? helperApi(role) : { api: apiFor(null, role), model: modelFor(null, role) };
   const system = `你是「${role.name}」。`;
   const { text, usage } = await streamChat({
     api, model, system, cacheKey: `qisuo-${role.id}`,
-    messages: [{ role: "user", parts: [...(await partsOf({ attachments })), { type: "text", text: prompt }] }],
+    messages: [{ role: "user", parts: [...(await partsOf({ attachments })), ...parts, { type: "text", text: prompt }] }],
     onText: () => {},
   });
   if (api) recordUsage(api.id, model, usage.input, usage.output);

@@ -3,6 +3,7 @@
 //
 // 他看到的（精简，不扛整个聊天）：
 //   他是谁（写给自己的那段）· 常驻记忆卡片 · 这个项目定下的决定 · 施工现场（Codex 最近这一轮做了什么）· 工作间里你们最近的对话
+//   · 你刚发的附件：图片、视频截的画面、文件里的字（在手机上先看一遍，见 seeFiles.js）
 // 他能做的（写在回复里）：
 //   <交给Codex>任务说明</交给Codex>   交给 Codex（正在干活就是插一句）
 //   [停下Codex]                       让 Codex 停下
@@ -15,6 +16,7 @@ import { get, set } from "./kv.js";
 import { wr, thread, say, interrupt } from "./workroom.js";
 import { pinnedOf, newMemory } from "./memoryTags.js";
 import { tail } from "./budget.js";
+import { seeFiles } from "./seeFiles.js";
 
 const CHAIN_MAX = 3;
 const TALK_TOKENS = 8000;
@@ -60,14 +62,21 @@ export function siteText(id) {
 }
 
 // ---------- 给他看的 ----------
-async function prompt(role, id, extra) {
+// 附件怎么写进提示：刚发来的这条，内容就附在消息里他看得到；以前的只剩名字和路径（要看交给 Codex）
+const pathsOf = m => m.attachments.map(a => `${a.name} ${a.path}`).join("；");
+function attNote(m, fresh) {
+  if (!m.attachments?.length) return "";
+  if (fresh && m.seen?.length) return `\n附件（就附在这条消息里，你直接看）：${m.seen.join("；")}\n（服务器上的路径，要交给 Codex 时用：${pathsOf(m)}）`;
+  return `\n附件（之前发的，现在看不到内容了；要看就交给 Codex 读）：${pathsOf(m)}`;
+}
+async function prompt(role, id, extra, fresh) {
   const { meName } = await import("./chat.js");
   const me = meName(role);
   const wt = workThread(id);
   const meta = thread(id).meta || {};
   const proj = workProject(meta.project || "");
   const list = await loadTalk(id);
-  const recent = tail(list, TALK_TOKENS).map(m => `${m.from === "me" ? me : "你"}：${m.text}${m.attachments?.length ? "\n附件（仅元信息；需要时交给 Codex 读取）：" + m.attachments.map(a => `${a.name} (${a.type}, ${a.size} 字节) ${a.path}`).join("；") : ""}`).join("\n");
+  const recent = tail(list, TALK_TOKENS).map(m => `${m.from === "me" ? me : "你"}：${m.text}${attNote(m, m === fresh)}`).join("\n");
   const cards = pinnedOf(role.id).slice(0, 12).map(m => `- ${m.title}：${cut(m.content, 160)}`).join("\n");
   const chainLeft = CHAIN_MAX - (wt.chain || 0);
   return [
@@ -140,11 +149,11 @@ async function act(role, id, raw, { fromReport }) {
   return { text: text.replace(/\n{3,}/g, "\n\n").trim(), notes };
 }
 
-async function ask(role, id, extra, { fromReport = false } = {}) {
+async function ask(role, id, extra, { fromReport = false, fresh = null, parts = [] } = {}) {
   const { oneShot, visibleText } = await import("./chat.js");
   busy[id] = true;
   try {
-    const raw = await oneShot(role, await prompt(role, id, extra), { raw: true });
+    const raw = await oneShot(role, await prompt(role, id, extra, fresh), { raw: true, parts });
     const r = await act(role, id, raw, { fromReport });
     const list = await loadTalk(id);
     const reply = visibleText(r.text).trim();
@@ -156,13 +165,19 @@ async function ask(role, id, extra, { fromReport = false } = {}) {
   }
 }
 
-// 你说一句
-export async function talk(role, id, text, attachments = []) {
+// 你说一句。files：这次附件的原文件（还在手机上），先看一遍再一起给他
+export async function talk(role, id, text, attachments = [], files = []) {
   const list = await loadTalk(id);
   list.push({ id: uid(), from: "me", text: text.trim(), attachments, ts: Date.now(), at: thread(id).items.length });
+  const m = list.at(-1); // 取回列表里的那一个（响应式的），后面认「刚发的这条」靠它
   workThread(id).chain = 0; // 你说话了：重新算连着交了几次
+  let parts = [];
+  if (files.length) {
+    busy[id] = true; // 看附件也要一会儿，先亮着「他在想」
+    try { const r = await seeFiles(files); parts = r.parts; m.seen = r.seen; } finally { delete busy[id]; }
+  }
   await saveTalk(id);
-  await ask(role, id, "");
+  await ask(role, id, "", { fresh: m, parts });
 }
 
 // Codex 做完了一轮（他交过去的）：他先看看结果，再告诉你
