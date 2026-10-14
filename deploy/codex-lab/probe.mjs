@@ -36,7 +36,10 @@ say(`bubblewrap：${sh("sh", ["-c", "command -v bwrap && bwrap --version || echo
 
 // ---------- 2. 沙盒（不用登录） ----------
 head("沙盒（不花额度）");
-const box = (profile, script) => sh("codex", ["sandbox", "-P", profile, "-C", DEMO, "--", "sh", "-c", script]).split("\n").filter(l => !/bubblewrap|WARNING|PATH aliases/.test(l)).slice(-2).join(" / ");
+const BOXLESS = !!process.env.LAB_CONTAINER_SANDBOX; // 容器当沙盒：直接在容器里试（看容器这一层挡不挡得住）
+const box = (profile, script) => (BOXLESS ? sh("sh", ["-c", `cd ${DEMO} && ${script}`]) : sh("codex", ["sandbox", "-P", profile, "-C", DEMO, "--", "sh", "-c", script])).split("\n").filter(l => !/bubblewrap|WARNING|PATH aliases/.test(l)).slice(-2).join(" / ");
+if (BOXLESS) say("（这次是「容器当沙盒」：下面直接在容器里试，看的是容器这一层；只读模式那条不适用）");
+if (BOXLESS) say(`写系统目录（/usr）：${sh("sh", ["-c", "echo x > /usr/x 2>/dev/null && echo 写进去了 || echo 挡住了"])}`);
 say(`项目里写文件（:workspace）：${box(":workspace", "echo hi > .sandbox-test && echo 能写 && rm .sandbox-test")}`);
 say(`项目外写文件（:workspace）：${box(":workspace", `echo x > ${HOME}/escape.txt && echo 写出去了 || echo 挡住了`)}`);
 say(`只读模式写文件（:read-only）：${box(":read-only", "echo x > ro.txt && echo 写进去了 || echo 挡住了")}`);
@@ -121,7 +124,11 @@ listeners.add(m => {
 });
 
 // 跑一个任务：开线程、发话、等结束；可选：跑起来以后中断
+// 容器当沙盒（Codex 自己的沙盒开不了）：Codex 里不再套一层，每条命令都先问（审批按上面的规则答）
+const CONTAINER_SANDBOX = !!process.env.LAB_CONTAINER_SANDBOX;
+if (CONTAINER_SANDBOX) say("\n（Codex 自己的沙盒开不了，这次用「容器当沙盒」：Codex 里不套沙盒，审批方式改成每条都先问）");
 async function task(name, { sandbox, text, interruptAfterMs = 0 }) {
+  if (CONTAINER_SANDBOX) sandbox = "danger-full-access";
   head(`任务 ${name}`);
   log = `${LOGS}/${name}.jsonl`;
   fs.writeFileSync(log, "");
@@ -129,7 +136,7 @@ async function task(name, { sandbox, text, interruptAfterMs = 0 }) {
   approvals.length = 0;
   const before = await limits("之前");
   const t0 = Date.now();
-  const { thread } = await call("thread/start", { cwd: DEMO, sandbox, approvalPolicy: "on-request" });
+  const { thread } = await call("thread/start", { cwd: DEMO, sandbox, approvalPolicy: CONTAINER_SANDBOX ? "untrusted" : "on-request" });
   say(`线程 ${thread.id.slice(0, 8)}… 模型 ${thread.model}`);
   let usage = null, diff = "", cmds = [], files = [];
   const watch = m => {
