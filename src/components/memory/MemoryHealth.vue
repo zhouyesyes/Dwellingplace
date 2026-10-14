@@ -94,8 +94,8 @@ const amount = r => (r.unit === "token" ? `${fmtTok(r.now)} / ${fmtTok(r.limit)}
 h4 { margin: 12px 0 2px; font-size: .9rem; }
 h4 small { margin-left: 8px; font-size: .7rem; font-weight: 400; color: var(--text-3); }
 .dim { margin: 0; font-size: .74rem; color: var(--text-3); line-height: 1.6; }
-.ok { margin: 0; font-size: .85rem; color: #4f8a5b; background: #eaf5ec; border-radius: 14px; padding: 10px 14px; }
-.tips { background: #fdf3e4; border-radius: 14px; padding: 10px 14px; }
+.ok { margin: 0; font-size: .85rem; color: #4f8a5b; background: color-mix(in srgb, #eaf5ec var(--pastel), var(--card)); border-radius: 14px; padding: 10px 14px; }
+.tips { background: color-mix(in srgb, #fdf3e4 var(--pastel), var(--card)); border-radius: 14px; padding: 10px 14px; }
 .tips p { margin: 2px 0; font-size: .82rem; line-height: 1.6; color: #8a5a1c; }
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .grid div { background: var(--card); border-radius: 14px; padding: 8px 4px; text-align: center; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; }

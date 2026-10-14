@@ -46,7 +46,7 @@ const latest = () => { const p = [...books.value].sort((a, b) => b.updatedAt - a
 </template>
 
 <style scoped>
-.write { position: fixed; inset: 0; background: #ece7df; }
+.write { position: fixed; inset: 0; background: color-mix(in srgb, #ece7df var(--pastel), var(--card)); }
 .write.night { background: #2d313c; }
 .pan { position: absolute; inset: 0; overflow-x: auto; overflow-y: hidden; display: flex; justify-content: safe center; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .pan::-webkit-scrollbar { display: none; }
@@ -54,7 +54,7 @@ const latest = () => { const p = [...books.value].sort((a, b) => b.updatedAt - a
 .over { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 12px; padding: calc(var(--safe-top) + 12px) 16px 0; pointer-events: none; }
 .over > * { pointer-events: auto; }
 .night .icon-btn { background: rgba(60, 65, 80, .85); color: #e4e4ea; }
-.label { display: flex; flex-direction: column; padding: 6px 14px; border-radius: 16px; background: rgba(255, 255, 255, .7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.label { display: flex; flex-direction: column; padding: 6px 14px; border-radius: 16px; background: rgba(var(--glass-rgb), .7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .night .label { background: rgba(40, 44, 56, .7); color: #e4e4ea; }
 .label b { font-weight: 600; font-size: .95rem; letter-spacing: .2em; }
 .label span { font-size: .7rem; opacity: .7; }

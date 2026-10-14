@@ -58,6 +58,6 @@ function setHelper(v) {
 .row small { font-size: .74rem; line-height: 1.6; color: var(--text-3); }
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg button { border: 0; background: var(--bg); padding: 6px 12px; border-radius: 999px; font-size: .82rem; color: var(--text-2); }
-.seg button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.seg button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 select { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 8px 10px; font-size: .88rem; color: var(--text); }
 </style>

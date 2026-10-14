@@ -174,7 +174,7 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
 section { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 h4 { margin: 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
 .rv { width: 100%; padding: 12px 14px; border-radius: 14px; background: var(--bg); }
-.rv.his { background: #eef4fb; }
+.rv.his { background: color-mix(in srgb, #eef4fb var(--pastel), var(--card)); }
 .st { color: #e0a53a; letter-spacing: 2px; font-size: .9rem; }
 .rv p { margin: 6px 0 2px; font-size: .9rem; line-height: 1.7; white-space: pre-wrap; }
 .rv small, .mem small { color: var(--text-3); font-size: .7rem; }
@@ -191,7 +191,7 @@ h4 { margin: 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
 .past-more { margin: 4px 0; font-size: .8rem; color: var(--text-2); }
 .past-more summary { cursor: pointer; color: var(--text-3); font-size: .74rem; }
 .past-more .im { margin: 2px 0; }
-.round { margin-left: 8px; font-size: .7rem; font-weight: 500; color: #b05a6e; background: #fbe9ee; padding: 2px 8px; border-radius: 999px; vertical-align: middle; }
+.round { margin-left: 8px; font-size: .7rem; font-weight: 500; color: #b05a6e; background: color-mix(in srgb, #fbe9ee var(--pastel), var(--card)); padding: 2px 8px; border-radius: 999px; vertical-align: middle; }
 .acts { gap: 0; align-items: stretch; }
 .acts .list-row { text-align: left; }
 .danger { color: var(--danger); }

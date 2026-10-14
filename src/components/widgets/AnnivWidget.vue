@@ -156,7 +156,7 @@ function removeEdit() {
   justify-content: center;
   text-align: center;
   padding: 12px;
-  background: linear-gradient(180deg, #e9edf3, #dfe5ee);
+  background: linear-gradient(180deg, color-mix(in srgb, #e9edf3 var(--pastel), var(--card)), color-mix(in srgb, #dfe5ee var(--pastel), var(--card)));
   background-size: cover;
   background-position: center;
   overflow: hidden;
@@ -181,7 +181,7 @@ function removeEdit() {
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .wide { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 10px; }
 .bg-row { display: flex; align-items: center; gap: 10px; }
-.bg-prev { width: 80px; height: 50px; border-radius: 10px; background: linear-gradient(180deg, #e9edf3, #dfe5ee) center / cover; box-shadow: 0 0 0 1px var(--line); }
+.bg-prev { width: 80px; height: 50px; border-radius: 10px; background: linear-gradient(180deg, color-mix(in srgb, #e9edf3 var(--pastel), var(--card)), color-mix(in srgb, #dfe5ee var(--pastel), var(--card))) center / cover; box-shadow: 0 0 0 1px var(--line); }
 .edit-actions { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
 .spacer { flex: 1; }
 </style>

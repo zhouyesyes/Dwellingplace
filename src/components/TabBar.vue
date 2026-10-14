@@ -27,9 +27,9 @@ const tabs = [
   display: flex;
   justify-content: space-around;
   align-items: center;
-  background: rgba(255, 255, 255, .97);
+  background: rgba(var(--glass-rgb), .97);
   border-radius: 999px;
-  box-shadow: 0 6px 22px rgba(40, 40, 60, .1), 0 0 0 1px rgba(235, 235, 239, .8);
+  box-shadow: 0 6px 22px rgba(40, 40, 60, .1), 0 0 0 1px var(--line);
   z-index: 20;
 }
 .tab {

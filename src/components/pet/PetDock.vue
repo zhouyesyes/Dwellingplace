@@ -45,9 +45,34 @@ function stroll() {
 // 开始干活了：走回右边
 watch(() => props.work, w => { if (w && x.value !== 0) { walkMs.value = 400; x.value = 0; } });
 
+// 用工具：至少让人看清 1 秒。工具 1 秒内就做完了，也接着指着终端到满 1 秒；超过 1 秒就一直指到做完。
+// 做完（没出错）再小小地开心 0.45 秒，然后回到敲键盘或待机。只是动画自己计时，消息该出来就出来，不等它
+const toolHold = ref(false);
+const toolOk = ref(false);
+let toolT0 = 0, holdTimer = null, okTimer = null;
+watch(() => props.work, (w, old) => {
+  if (w === "tool") {
+    if (!toolHold.value) toolT0 = Date.now();
+    toolHold.value = true;
+    clearTimeout(holdTimer);
+    return;
+  }
+  if (old !== "tool" && !toolHold.value) return;
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {
+    toolHold.value = false;
+    if (w === "error") return;
+    toolOk.value = true;
+    clearTimeout(okTimer);
+    okTimer = setTimeout(() => (toolOk.value = false), 450);
+  }, Math.max(0, 1000 - (Date.now() - toolT0)));
+});
+
 const state = computed(() => {
   if (props.work === "error") return "error";
   if (once.value) return once.value;
+  if (toolHold.value) return "tool";
+  if (toolOk.value) return "success";
   if (bedtime.value && !props.work) return "bedtime";
   if (props.work) return props.work;
   if (walking.value) return "walk";
@@ -68,7 +93,7 @@ onMounted(() => {
   clock = setInterval(() => (now.value = Date.now()), 5000);
   wander = setInterval(stroll, 9000 + Math.random() * 6000);
 });
-onBeforeUnmount(() => { clearInterval(clock); clearInterval(wander); });
+onBeforeUnmount(() => { clearInterval(clock); clearInterval(wander); clearTimeout(holdTimer); clearTimeout(okTimer); });
 
 const style = computed(() => ({
   right: "14px",

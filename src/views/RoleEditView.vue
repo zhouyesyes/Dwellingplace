@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, computed, ref } from "vue";
+import { reactive, computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, newRole, roleById, deleteRole, PALETTE, BUBBLE_COLORS } from "../store/index.js";
 import { deleteImage, pickAndCrop } from "../lib/images.js";
@@ -81,7 +81,33 @@ async function addAvatar() {
 }
 // 点一张：设为现在的头像，下面出现「改名 / 删掉」
 const picked = ref(null);
-function pickAvatar(a) { form.avatar = a.img; picked.value = a; }
+function pickAvatar(a) { if (justDragged) return; form.avatar = a.img; picked.value = a; }
+// 长按一张（0.35 秒，轻轻一震）拿起来，拖到别的位置上就换过去，松手放下
+const dragging = ref(null);
+let press = null, justDragged = false;
+function avDown(e, a) {
+  press = { x: e.clientX, y: e.clientY, t: setTimeout(() => { dragging.value = a; navigator.vibrate?.(12); }, 350) };
+}
+function avMove(e) {
+  if (press && !dragging.value && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) { clearTimeout(press.t); press = null; }
+  if (!dragging.value) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-av]");
+  const to = el ? form.avatars.findIndex(x => x.id === el.dataset.av) : -1;
+  const from = form.avatars.indexOf(dragging.value);
+  if (to < 0 || to === from) return;
+  form.avatars.splice(from, 1);
+  form.avatars.splice(to, 0, dragging.value);
+}
+function avUp() {
+  if (press) clearTimeout(press.t);
+  press = null;
+  if (dragging.value) { justDragged = true; setTimeout(() => (justDragged = false), 50); }
+  dragging.value = null;
+}
+// 拖着的时候页面别跟着滚（iPhone 要在 touchmove 里拦）
+const avLib = ref(null);
+const stopScroll = e => { if (dragging.value) e.preventDefault(); };
+watch(avLib, (el, old) => { old?.removeEventListener("touchmove", stopScroll); el?.addEventListener("touchmove", stopScroll, { passive: false }); });
 function renameAvatar(a) { const n = (prompt("新名字", a.name) || "").trim().slice(0, 20); if (n) a.name = n; }
 function dropAvatar(a) {
   if (!confirm(`把「${a.name}」从头像库删掉？`)) return;
@@ -133,9 +159,9 @@ async function remove() {
       </div>
 
       <div class="field">
-        <span>头像库<small>（放两张以上，他会按心情自己换；点一张就换成它）</small></span>
-        <div class="av-lib">
-          <button v-for="a in form.avatars" :key="a.id" class="av" :class="{ cur: a.img === form.avatar }" @click="pickAvatar(a)">
+        <span>头像库<small>（放两张以上，他会按心情自己换；点一张就换成它；长按拖动排顺序）</small></span>
+        <div ref="avLib" class="av-lib" :class="{ dragging }" @pointermove="avMove" @pointerup="avUp" @pointercancel="avUp">
+          <button v-for="a in form.avatars" :key="a.id" :data-av="a.id" class="av" :class="{ cur: a.img === form.avatar, lifted: dragging === a }" @pointerdown="avDown($event, a)" @click="pickAvatar(a)" @contextmenu.prevent>
             <Avatar :img="a.img" :name="a.name" :color="form.color" :size="52" />
             <small>{{ a.name }}</small>
           </button>
@@ -235,6 +261,9 @@ async function remove() {
 .ava-row { display: flex; justify-content: center; margin-bottom: 14px; }
 .av-edit { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 0.85rem; color: var(--text-2); }
 .av-lib { display: flex; flex-wrap: wrap; gap: 10px; }
+.av-lib .av { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; transition: transform .15s; }
+.av-lib .av.lifted { transform: scale(1.12); z-index: 2; }
+.av-lib.dragging .av:not(.lifted) { opacity: .7; }
 .av { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px; border-radius: 16px; }
 .av.cur { background: var(--bg-deep); }
 .av small { font-size: 0.72rem; color: var(--text-2); max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

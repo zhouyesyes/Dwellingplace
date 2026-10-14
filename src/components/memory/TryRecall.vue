@@ -54,7 +54,7 @@ async function go() {
 .tr { display: flex; flex-direction: column; gap: 10px; max-height: 76vh; overflow-y: auto; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chips button { border: 0; background: var(--bg); padding: 5px 11px; border-radius: 999px; font-size: .78rem; color: var(--text-2); }
-.chips button.on { background: var(--ink); color: #fff; font-weight: 600; }
+.chips button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .when { flex: 1; min-width: 140px; padding: 6px 10px; font-size: .8rem; }
 .meta { font-size: .74rem; color: var(--text-3); margin: 4px 2px 0; line-height: 1.6; }
 .hit { background: var(--card); border-radius: 14px; padding: 9px 12px; box-shadow: var(--shadow-soft); }

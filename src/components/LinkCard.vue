@@ -30,7 +30,7 @@ const open = () => window.open(props.url, "_blank", "noopener");
 <style scoped>
 .lc {
   display: flex; flex-direction: column; gap: 10px; width: min(300px, 100%); padding: 16px 18px 14px; border-radius: 22px;
-  background: #fff; color: var(--text); text-decoration: none; box-shadow: 0 2px 10px rgba(40, 40, 60, .07); cursor: pointer;
+  background: var(--card); color: var(--text); text-decoration: none; box-shadow: 0 2px 10px rgba(40, 40, 60, .07); cursor: pointer;
 }
 .lc:active { transform: scale(.98); }
 .cover { width: 100%; max-height: 170px; object-fit: cover; border-radius: 14px; background: var(--bg-deep); }

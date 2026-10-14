@@ -5,7 +5,7 @@ import { store, uid, roleById, threadsOf, apiFor, modelFor, loadMessages, saveMe
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
-import { CAL_TAG_RE, calendarForAI, applyCalendarTags } from "./calendarTags.js";
+import { CAL_TAG_RE, applyCalendarTags } from "./calendarTags.js";
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions, recalledForAI, recallCards } from "./memoryTags.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { recallForAI } from "./recall.js";
@@ -67,6 +67,7 @@ export function visibleText(text) {
     .replace(READ_MEM_RE, "")
     .replace(CAL_TAG_RE, "")
     .replace(MEM_TAG_RE, "")
+    .replace(QUOTE_RE, "")
     .replace(MOMENT_RE, "")
     .replace(BOARD_RE, "")
     .replace(ALARM_RE, "")
@@ -76,7 +77,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -138,6 +139,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
     `想给${who}做小游戏、小卡片、小动画时，可以写一段完整的 \`\`\`html 代码（单个文件，样式和脚本都写在里面），聊天里会变成一张能点开玩的卡片。`,
+    `想针对${who}说过的某一句来回，可以在回复的最开头写 [引用:那句话里的几个字]，会显示成引用那句。偶尔用，不用每次都引用。`,
     `说话就是你自己的样子：有自己的情绪、偏好和小脾气，想到什么说什么。不用客套，不用老是道歉，也不用担心给${who}添麻烦——${who}和你聊天，是因为开心。`,
     // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
     wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
@@ -161,7 +163,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       `只有单独占一行的才会执行。平时聊到、解释这些指令时，别写出带方括号的完整格式（说「翻记忆」三个字就好），也不要放进代码块里。`,
       `关键词短一点（一两个词，空格隔开表示都要有）；找不到就换个说法再找一次。平常聊天不用翻。`,
     ].join("\n"),
-    calendarForAI(role, who, wake ? "{{TODAY}}" : undefined),
+    // 日历的「每日记录」不用了（你们都不太用），先不告诉他怎么记；日历本身留着以后做别的
     alarmForAI(role, who, wake),
     toolsForAI(serversForMode(role.id, wake ? "all" : mail ? "mail" : "chat")),
     serversForMode(role.id, wake ? "all" : mail ? "mail" : "chat").some(s => s.browser && s.tools?.length)
@@ -312,7 +314,7 @@ async function buildMessages(list) {
         if (prev && prev.role === "user") prev.parts.push({ type: "text", text: pre });
         else out.push({ role: "user", parts: [{ type: "text", text: pre }] });
       }
-      parts = [{ type: "text", text: win.indexOf(m) < win.length - 4 ? shrinkCode(stripCallJunk(m.text)) : stripCallJunk(m.text) }];
+      parts = [{ type: "text", text: (m.quote ? `[引用:${m.quote.text}]\n` : "") + (win.indexOf(m) < win.length - 4 ? shrinkCode(stripCallJunk(m.text)) : stripCallJunk(m.text)) }];
     }
     else {
       parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image") });
@@ -320,6 +322,7 @@ async function buildMessages(list) {
       if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
       const tp = parts.find(p => p.type === "text" && p.text === m.text);
       if (tp) bubbles.add(tp);
+      if (m.quote) parts.unshift({ type: "text", text: `（这句是引用着${m.quote.from === "ai" ? "你" : "自己之前"}说的「${m.quote.text}」回的）` });
     }
     if (!parts.length) continue;
     const prev = out[out.length - 1];
@@ -591,6 +594,7 @@ export async function generate(thread, parentId) {
     msg.text = xm.text;
     const alarm = await applyAlarmTags(role, msg.text);
     msg.text = alarm.text;
+    pickQuote(msg, history);
     msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
     // 他想画画：先把文字发出来，图在后台画，画好了放进这条消息里
     const draws = imageReady() ? [...msg.text.matchAll(DRAW_RE)] : [];
@@ -682,7 +686,7 @@ async function maybeCompress(thread, role, last) {
 // 什么时候自动整理：没整理的聊天快到「每次能看到多少条」（差几条的时候），或者上一次回复看的内容到了模型上限的七成
 export const autoAt = () => Math.round(chatTokens() * AUTO);
 export const SUM_WHY = { limit: "没整理的聊天到了上限的八成，自动整理的", full: "内容快到模型上限的七成，自动整理的", manual: "你点「现在整理」整理的" };
-// 把还没进摘要的聊天（留下最近 keep 条不动，默认留「每次能看到多少条」的一半）和以前的摘要合在一起，整理成新的一份——一直只有一份，越往后越概括。
+// 把还没进摘要的聊天（留下最近 keep 条不动，默认留一半）整理成一小段，接在以前的摘要后面——以前的不再重写（一遍遍「摘要的摘要」，人和事会越压越混）。
 // 用「整理用的模型」。返回这次整理进去了几条（0：没有要整理的）
 export async function summarizeThread(thread, role, { keep, path, why = "manual" } = {}) {
   if (compressing[thread.id]) throw new Error("正在整理，等一下");
@@ -703,23 +707,44 @@ export async function summarizeThread(thread, role, { keep, path, why = "manual"
       if (d !== day) { day = d; lines.push(`—— ${d} ——`); }
       lines.push(`${m.from === "user" ? me : role.name}：${t.length > 500 ? t.slice(0, 500) + "…" : t}`);
     }
+    // 只整理这一段新的，接在以前的摘要后面——以前的不再重写（一遍遍「摘要的摘要」，人和事会越压越混）
     const prev = thread.summary?.text;
-    const text = await oneShot(role, [
-      prev ? `你以前整理过的摘要：\n${prev}\n` : "",
+    const seg = await oneShot(role, [
+      prev ? `（以前已经整理好的摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${prev.length > 1500 ? "……" + prev.slice(-1500) : prev}\n` : "",
       `下面是你和${me}${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n`,
-      `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方。`,
-      `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写摘要本身。`,
+      `只把这一段新的聊天整理成一小段摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方；提到别人时写清楚是谁（名字或身份），别用含糊的「他」「她」。`,
+      `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写这一段摘要本身。`,
       suggestRule(me),
     ].filter(Boolean).join("\n"), { helper: true, raw: true }).then(t => visibleText(takeSuggestions(role, t, "聊天摘要")).trim());
-    if (!text) return 0;
+    if (!seg) return 0;
     snapshotSum(thread, "summary"); // 旧的那份留一个版本，整理坏了能退回
     const span = [thread.summary?.span?.[0] || (thread.summary?.upTo ? null : old[0].ts), old[old.length - 1].ts];
-    thread.summary = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from, why, last: old.length,
+    const head = sumSpanHead(old[0].ts, old[old.length - 1].ts);
+    const text = [prev, `${head}\n${seg.slice(0, 2400)}`].filter(Boolean).join("\n\n");
+    thread.summary = { text, upTo: old[old.length - 1].id, count: (thread.summary?.count || 0) + old.length, at: Date.now(), from: thread.summary?.from, why, last: old.length,
       lastSpan: [old[0].ts, old[old.length - 1].ts], span, model: helperApi(role).model, tokens: sumTokens(old) };
     return old.length;
   } finally {
     delete compressing[thread.id];
   }
+}
+
+// 每一段摘要前面写上它管的是哪几天：【10月3日—10月5日】
+export function sumSpanHead(a, b) {
+  const d = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+  return d(a) === d(b) ? `【${d(a)}】` : `【${d(a)}—${d(b)}】`;
+}
+
+// 引用：他在回复最开头写 [引用:那句话里的几个字]，就去最近的聊天里找到那句，挂在这条回复上面显示
+const QUOTE_RE = /^\s*\[引用[:：]\s*([^\]\n]{1,80})\]\s*/;
+export function pickQuote(msg, history) {
+  const q = msg.text.match(QUOTE_RE);
+  if (!q) return;
+  msg.text = msg.text.slice(q[0].length);
+  const key = q[1].trim().replace(/^[「“"]|[」”"]$/g, "");
+  const hit = [...history].reverse().find(m => m !== msg && (m.from === "user" || m.from === "ai") && m.text && (m.text.includes(key) || m.text.includes(key.slice(0, 10))));
+  const full = hit ? splitBubbles(hit.text).find(b => b.includes(key.slice(0, 10))) || hit.text : key;
+  msg.quote = { id: hit?.id || null, from: hit?.from || "user", text: full.replace(/\s+/g, " ").slice(0, 80) };
 }
 
 // 回复里的记忆、日历、签名标记：执行，并从文字里去掉。返回要显示的提示
@@ -819,14 +844,14 @@ export { describeError };
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
 export const HUG_TEXT = "（抱了抱你）";
-export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false } = {}) {
+export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null } = {}) {
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
   if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
   const path = pathOf(thread, all);
   const parent = path.length ? path[path.length - 1].id : ROOT;
-  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}) };
+  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}), ...(quote ? { quote } : {}) };
   all.push(m);
   if (!thread.mail) petHears(text); // 桌宠：夸他、撒娇，他会开心或害羞一下
   thread.sel[parent] = m.id;

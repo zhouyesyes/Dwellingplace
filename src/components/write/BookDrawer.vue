@@ -108,22 +108,22 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 .sp {
   position: absolute; top: 0; right: 0; bottom: 0; width: min(88vw, 440px); overflow-y: auto;
   padding: calc(var(--safe-top) + 14px) 16px calc(var(--safe-bottom) + 24px);
-  background: rgba(248, 247, 245, .9); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
+  background: rgba(var(--glass-rgb), .9); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
   border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
 }
 .sp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .script { flex: 1; margin: 0; font-size: 1.15rem; font-weight: 600; letter-spacing: .06em; }
-.x { border: 0; background: rgba(255, 255, 255, .8); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); flex: none; }
+.x { border: 0; background: rgba(var(--glass-rgb), .8); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); flex: none; }
 .me { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 6px 4px 0; }
 .cv { width: 48%; max-width: 190px; border: 0; padding: 0; background: none; }
 .cv .wcover { width: 100%; font-size: 26px; border-radius: 2px 6px 6px 2px; }
 .t-in, .pitch, .syn { width: 100%; border: 0; background: none; text-align: center; outline: none; border-radius: 10px; padding: 4px 8px; }
-.t-in:focus, .pitch:focus, .syn:focus { background: rgba(255, 255, 255, .8); }
+.t-in:focus, .pitch:focus, .syn:focus { background: rgba(var(--glass-rgb), .8); }
 .t-in { margin-top: 8px; font-size: calc(1.6rem * var(--wf, 1)); font-weight: 700; letter-spacing: .08em; }
 .pitch { font-size: calc(.82rem * var(--wf, 1)); color: var(--text-2); margin-top: -6px; }
 .spines { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; padding: 4px 0; }
 .spines button { width: 16px; height: 16px; border: 0; border-radius: 50%; padding: 0; background: var(--c); }
-.spines button.on { box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--c); }
+.spines button.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--c); }
 .syn { font-size: calc(.92rem * var(--wf, 1)); line-height: 1.75; color: var(--text); resize: none; field-sizing: content; min-height: 3.5em; }
 .syn::placeholder, .pitch::placeholder { color: var(--text-3); }
 .sec { margin: 26px 4px 10px; font-size: calc(.85rem * var(--wf, 1)); font-weight: 600; color: var(--text-2); }
@@ -131,11 +131,11 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 /* 资料夹是白的，只有标题前一个小色点 */
 .folder {
   position: relative; border: 0; text-align: left; cursor: pointer; padding: 14px 12px 10px; min-height: 84px; border-radius: 4px 14px 14px 14px; margin-top: 8px;
-  background: #fff; box-shadow: 0 3px 12px rgba(40, 40, 60, .07); display: flex; flex-direction: column; gap: 3px;
+  background: var(--card); box-shadow: 0 3px 12px rgba(40, 40, 60, .07); display: flex; flex-direction: column; gap: 3px;
 }
-.folder .tab { position: absolute; top: -8px; left: 0; width: 42%; height: 12px; border-radius: 6px 10px 0 0; background: #ebebef; }
-.folder.empty { background: #f6f6f8; box-shadow: none; }
-.folder.empty .tab { background: #e6e6ea; }
+.folder .tab { position: absolute; top: -8px; left: 0; width: 42%; height: 12px; border-radius: 6px 10px 0 0; background: color-mix(in srgb, #ebebef var(--pastel), var(--card)); }
+.folder.empty { background: color-mix(in srgb, #f6f6f8 var(--pastel), var(--card)); box-shadow: none; }
+.folder.empty .tab { background: color-mix(in srgb, #e6e6ea var(--pastel), var(--card)); }
 .folder b { font-size: calc(.95rem * var(--wf, 1)); display: flex; align-items: center; gap: 7px; }
 .mark { width: 7px; height: 7px; border-radius: 50%; background: #ffadc6; flex: none; }
 .c1 .mark { background: #ffcb85; } .c2 .mark { background: #8fd3f4; } .c3 .mark { background: #a6e3a1; }
@@ -156,7 +156,7 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 .card p { margin: 0; font-size: calc(.84rem * var(--wf, 1)); line-height: 1.65; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
 .foot { display: flex; justify-content: space-between; align-items: center; }
 .foot small { font-size: .68rem; color: var(--text-3); }
-.stk { min-width: 20px; height: 20px; padding: 0 5px; border-radius: 3px; background: #f4e7a8; font-size: .7rem; display: grid; place-items: center; transform: rotate(4deg); }
+.stk { min-width: 20px; height: 20px; padding: 0 5px; border-radius: 3px; background: color-mix(in srgb, #f4e7a8 var(--pastel), var(--card)); font-size: .7rem; display: grid; place-items: center; transform: rotate(4deg); }
 .stk.fresh { background: #cfe0f2; }
 .hint { text-align: center; color: var(--text-3); font-size: .8rem; line-height: 1.7; margin: 20px 8px; }
 .sp-enter-active, .sp-leave-active { transition: opacity .25s; }

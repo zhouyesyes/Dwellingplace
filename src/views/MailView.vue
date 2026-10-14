@@ -160,7 +160,7 @@ onMounted(() => { loadPals(); loadMsgs(); });
 .pal-top { display: flex; align-items: center; gap: 8px; }
 .pal-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag { font-size: 0.7rem; padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--text-2); }
-.tag.due { background: #f6e3c8; color: #9a5a17; }
+.tag.due { background: color-mix(in srgb, #f6e3c8 var(--pastel), var(--card)); color: #9a5a17; }
 .when { font-size: 0.72rem; color: var(--text-2); }
 .pal-sub { margin: 3px 0 0; font-size: 0.78rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-more { margin-top: 6px; }
@@ -169,7 +169,7 @@ onMounted(() => { loadPals(); loadMsgs(); });
 .preview { margin: 4px 0 8px; font-size: 0.82rem; line-height: 1.6; }
 .talk { padding: 10px 12px; max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .b { margin: 0; padding: 8px 12px; border-radius: 14px; max-width: 85%; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.b.mine { align-self: flex-end; background: var(--ink); color: #fff; }
+.b.mine { align-self: flex-end; background: var(--ink); color: var(--on-ink); }
 .b.theirs { align-self: flex-start; background: var(--bg); }
 .note { margin: 0; align-self: center; font-size: 0.7rem; color: var(--text-2); text-align: center; }
 .composer { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }

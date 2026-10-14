@@ -1,5 +1,5 @@
 <script setup>
-// 日历：你和 AI 们一起记的小事，日期下面用各自的颜色标小圆点
+// 日历：现在只是一张月历（「每日记录」不用了，以前记的还在 store.events 里没删）；接了心潮的，日期上有他记住的小星星
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { store, uid, authorInfo, PALETTE } from "../../store/index.js";
@@ -122,17 +122,11 @@ const colorsOpen = ref(false);
         <template v-if="d">
           <span class="num">{{ Number(d.slice(8)) }}</span>
           <span v-if="starsOf(d).length" class="mem-stars"><i v-for="(c, j) in starsOf(d)" :key="j" :style="{ color: c }">✦</i></span>
-          <span class="dots"><i v-for="(c, j) in dotsOf(d)" :key="j" :style="{ background: c }" /></span>
         </template>
       </button>
     </div>
 
-    <div class="events">
-      <div v-for="e in shown" :key="e.id" class="ev" @click.stop="editEvent(e)">
-        <span class="date">{{ md(e.date) }}</span>
-        <span class="text">{{ e.text }}</span>
-        <i class="who" :style="{ background: authorInfo(e.author).color }" :title="authorInfo(e.author).name" />
-      </div>
+    <div v-if="shownMems.length" class="events">
       <template v-if="shownMems.length">
         <div class="mem-head">这一天他记住的</div>
         <div v-for="s in shownMems" :key="s.role.id + s.id" class="ev mem" @click.stop="openMem(s)">
@@ -141,9 +135,6 @@ const colorsOpen = ref(false);
           <span class="whoname">{{ s.role.name }}</span>
         </div>
       </template>
-      <p v-if="!selected" class="none">点一个日期，看那天的记录</p>
-      <p v-else-if="!shown.length && !shownMems.length" class="none">{{ selected === today ? "今天" : md(selected) }}还没有记录</p>
-      <button class="add" @click.stop="newEvent"><Icon name="plus" :size="15" /> {{ selected ? `在 ${md(selected)} 记一笔` : "记一笔" }}</button>
     </div>
   </div>
 
@@ -196,7 +187,7 @@ const colorsOpen = ref(false);
   max-height: 46px;
   border: 0;
   border-radius: 50%;
-  background: #f5f5f7;
+  background: color-mix(in srgb, #f5f5f7 var(--pastel), var(--card));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -222,7 +213,7 @@ const colorsOpen = ref(false);
 .mem-stars { position: absolute; top: 2px; right: 3px; display: flex; font-size: 8px; line-height: 1; }
 .mem-stars i { font-style: normal; text-shadow: 0 0 1px #fff; }
 .mem-head { font-size: 0.75rem; color: var(--text-3); margin: 6px 4px 0; }
-.ev.mem { background: #f7f6fb; }
+.ev.mem { background: color-mix(in srgb, #f7f6fb var(--pastel), var(--card)); }
 .spark { font-style: normal; font-size: 0.8rem; flex: none; }
 .whoname { font-size: 0.75rem; color: var(--text-3); flex: none; }
 .none { margin: 4px 0 0; text-align: center; font-size: 0.8rem; color: var(--text-3); }

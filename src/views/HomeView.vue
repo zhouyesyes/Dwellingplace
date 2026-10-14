@@ -81,7 +81,7 @@ function rename() {
 .home { min-height: 100%; padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 40px); }
 .cover {
   height: calc(var(--safe-top) + min(62vw, 340px));
-  background: linear-gradient(135deg, #fde3e8 0%, #ece4fc 45%, #dcebfc 75%, #daf3e7 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, #fde3e8 var(--pastel), var(--card)) 0%, color-mix(in srgb, #ece4fc var(--pastel), var(--card)) 45%, color-mix(in srgb, #dcebfc var(--pastel), var(--card)) 75%, color-mix(in srgb, #daf3e7 var(--pastel), var(--card)) 100%);
   background-size: cover;
   background-position: center;
   cursor: pointer;
@@ -93,9 +93,9 @@ function rename() {
 .ava { display: block; padding: 0; border: 0; background: none; border-radius: 50%; position: relative; }
 .ava.his { margin-left: -16px; }
 /* 和头像一样，一半在封面上、一半在白底上 */
-.tools { margin: 0 8px 0 auto; align-self: center; width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #fff; color: var(--ink); box-shadow: 0 0 0 3px #fff, 0 4px 14px rgba(40, 40, 60, .14); }
-.talk { margin: 0 2px; align-self: center; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--ink); color: #fff; font-weight: 600; font-size: .9rem; box-shadow: 0 4px 14px rgba(40, 40, 60, .14); }
-.ava :deep(.avatar) { box-shadow: 0 0 0 3px #fff, 0 4px 14px rgba(40, 40, 60, .12); }
+.tools { margin: 0 8px 0 auto; align-self: center; width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--card); color: var(--ink); box-shadow: 0 0 0 3px var(--card), 0 4px 14px rgba(40, 40, 60, .14); }
+.talk { margin: 0 2px; align-self: center; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 9px 18px; background: var(--ink); color: var(--on-ink); font-weight: 600; font-size: .9rem; box-shadow: 0 4px 14px rgba(40, 40, 60, .14); }
+.ava :deep(.avatar) { box-shadow: 0 0 0 3px var(--card), 0 4px 14px rgba(40, 40, 60, .12); }
 h1 { margin: 12px 6px 6px; font-size: 1.5rem; font-weight: 700; letter-spacing: .5px; cursor: pointer; }
 
 .bio { margin: 0 6px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; }

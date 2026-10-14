@@ -1,4 +1,5 @@
 <script setup>
+import { themePref, setTheme } from "../lib/theme.js";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, today, fmtTokens } from "../store/index.js";
@@ -69,6 +70,12 @@ function usageLine(api) {
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
         <div class="seg">
           <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
+        </div>
+      </div>
+      <div class="list-row">
+        <Icon name="palette" :size="20" /><span class="grow">外观<span class="sub">深色、浅色，或者跟着手机走</span></span>
+        <div class="seg">
+          <button v-for="(l, k) in { light: '浅色', dark: '深色', system: '跟随系统' }" :key="k" :class="{ on: themePref === k }" @click="setTheme(k)">{{ l }}</button>
         </div>
       </div>
       <div class="list-row">

@@ -15,7 +15,7 @@ import { saveImage, CHAT_IMAGE, deleteImage, pickFile, pickAndCrop, useImage } f
 import { stamp, shortTime } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { isFav, toggleFav } from "../lib/recall.js";
-import { inlineMd } from "../lib/inlineMd.js";
+import { blockMd } from "../lib/inlineMd.js";
 import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
@@ -225,11 +225,13 @@ async function send(reply = true) {
     toast(`${role.value.name} 正在行动，话先放在这儿；等他做完，需要的话再让他回你`, 4000);
   }
   const atts = attachments.value;
+  const quote = quoting.value;
   draft.value = "";
   attachments.value = [];
+  quoting.value = null;
   nextTick(autoGrow);
   scrollToBottom(true);
-  await sendMessage(thread.value, text, atts, { reply });
+  await sendMessage(thread.value, text, atts, { reply, quote });
 }
 // 表情包：发出去就是一条 [表情:名字]
 const stickerOpen = ref(false);
@@ -405,7 +407,8 @@ const theirBubble = computed(() => {
   const hex = c.replace("#", "");
   const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return { "--their": c, "--their-text": lum < 0.55 ? "#ffffff" : "var(--text)" };
+  // 浅色的气泡在深色模式下混进卡片色（只留一点颜色），字跟着主题；深色的气泡照旧，配白字
+  return lum < 0.55 ? { "--their": c, "--their-text": "#ffffff" } : { "--their": `color-mix(in srgb, ${c} var(--pastel), var(--card))`, "--their-text": "var(--text)" };
 });
 
 const openSources = reactive({});
@@ -444,7 +447,25 @@ function tokensOf(group) {
 
 // ---------- 消息操作 ----------
 const actionMsg = ref(null);
+const actionBubble = ref(""); // 点的是他回复里的哪一段（引用就引这一段）
 const editing = ref(null); // { msg, text }
+// 引用：选一条（他的就是点的那一段），输入框上面出现，发出去时挂在你的消息上
+const quoting = ref(null);
+function quoteMsg() {
+  const m = actionMsg.value;
+  actionMsg.value = null;
+  const t = (m.from === "ai" ? actionBubble.value || splitBubbles(m.text)[0] || "" : m.text || (voicesOf(m)[0]?.text || "[语音]")).replace(/\s+/g, " ");
+  quoting.value = { id: m.id, from: m.from, text: t.slice(0, 80) };
+  inputEl.value?.focus();
+}
+// 点引用块：跳到原来那条
+function jumpTo(id) {
+  const el = id && document.querySelector(`[data-mid="${id}"]`);
+  if (!el) return toast("那条消息不在这里了");
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1600);
+}
 
 // 点哪条，就在手指旁边弹出一列小选项
 if (!window.__tapAt) { // 只挂一次
@@ -453,8 +474,9 @@ if (!window.__tapAt) { // 只挂一次
 }
 const lastPt = window.__tapAt;
 const menuPos = ref({});
-function openActions(m) {
+function openActions(m, bubble = "") {
   if (m.pending) return;
+  actionBubble.value = bubble;
   const w = 188, x = Math.min(Math.max(lastPt.x - w / 2, 12), innerWidth - w - 12);
   menuPos.value = lastPt.y > innerHeight * 0.55
     ? { left: x + "px", bottom: innerHeight - lastPt.y + 10 + "px" }
@@ -608,13 +630,14 @@ async function changeAvatarOf(who) {
                     </div>
                   </div>
                   <div v-else-if="imgsOf(m).length" class="att one" @click="viewImgs(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
-                  <VoiceBubble v-for="a in voicesOf(m)" :key="a.file" :file="a.file" :dur="a.dur" :transcript="a.text" mine @contextmenu.prevent="openActions(m)" />
+                  <VoiceBubble v-for="a in voicesOf(m)" :key="a.file" :file="a.file" :dur="a.dur" :transcript="a.text" mine @transcribed="t => { a.text = t; saveMessages(thread.id); }" @more="openActions(m)" />
                   <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="openActions(m)">
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
+                  <div v-if="m.quote" class="quote mine" @click="jumpTo(m.quote.id)"><b>{{ m.quote.from === "ai" ? role.name : "我" }}</b>{{ m.quote.text }}</div>
                   <div v-if="m.hug" class="bubble hug" @click="openActions(m)"><Icon name="heart" :size="16" />抱了抱 {{ role.name }}</div>
                   <img v-else-if="onlySticker(m.text)" :src="stickerUrl(onlySticker(m.text))" :alt="onlySticker(m.text).name" class="sticker" @click="openActions(m)" />
-                  <template v-else-if="m.text"><div v-if="!onlyUrl(m.text)" class="bubble" @click="openActions(m)">{{ m.text }}</div><LinkCard v-for="u in urlsIn(m.text)" :key="u" :url="u" /></template>
+                  <template v-else-if="m.text"><div v-if="!onlyUrl(m.text)" class="bubble" :data-mid="m.id" @click="openActions(m)">{{ m.text }}</div><LinkCard v-for="u in urlsIn(m.text)" :key="u" :url="u" /></template>
                   <div v-if="vers(m).list.length > 1" class="ver">
                     <button :disabled="vers(m).index === 0" aria-label="上一个版本" @click="switchVersion(m, -1)">‹</button>
                     {{ vers(m).index + 1 }} / {{ vers(m).list.length }}
@@ -622,6 +645,7 @@ async function changeAvatarOf(who) {
                   </div>
                 </template>
                 <template v-else>
+                  <div v-if="src(m).quote && (!m._src || m._first)" class="quote" @click="jumpTo(src(m).quote.id)"><b>{{ src(m).quote.from === "ai" ? role.name : "我" }}</b>{{ src(m).quote.text }}</div>
                   <div v-if="m.thinking && (!m._src || m._first)" class="think" @click="openThink[m.id] = !openThink[m.id]">
                     <Icon name="bulb" :size="14" />
                     {{ m.pending && !splitBubbles(m.text).length ? "思考中…" : "思考过程" }}
@@ -630,7 +654,7 @@ async function changeAvatarOf(who) {
                   <div v-if="m.thinking && openThink[m.id] && (!m._src || m._first)" class="think-body">{{ m.thinking.trim() }}</div>
                   <div v-if="m.error" class="bubble error" @click="openActions(m)">{{ m.text }}</div>
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
-                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><LinkCard v-else-if="cardOf(b)" v-bind="cardOf(b)" /><template v-else><div v-if="!onlyUrl(b)" class="bubble" @click="openActions(src(m))" v-html="withStickers(inlineMd(b))" /><LinkCard v-for="u in urlsIn(b)" :key="u" :url="u" /></template></template>
+                  <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><LinkCard v-else-if="cardOf(b)" v-bind="cardOf(b)" /><template v-else><div v-if="!onlyUrl(b)" class="bubble" :data-mid="src(m).id" @click="openActions(src(m), b)" v-html="withStickers(blockMd(b))" /><LinkCard v-for="u in urlsIn(b)" :key="u" :url="u" /></template></template>
                   <template v-if="!m._src || m._last">
                     <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
                     <div v-if="imgsOf(src(m)).length" class="att one" @click="viewImgs(src(m))"><ImgThumb :id="imgsOf(src(m))[0].img" /></div>
@@ -660,6 +684,7 @@ async function changeAvatarOf(who) {
           <button class="x" @click="removeAttachment(i)"><Icon name="close" :size="14" /></button>
         </div>
       </div>
+      <div v-if="quoting" class="quoting"><span><b>引用{{ quoting.from === "ai" ? role.name : "我" }}：</b>{{ quoting.text }}</span><button aria-label="不引用了" @click="quoting = null"><Icon name="close" :size="14" /></button></div>
       <div class="pill-row">
         <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
           <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
@@ -769,7 +794,7 @@ async function changeAvatarOf(who) {
 
     <WorldDrawer :open="worldOpen" :role="role" :thread="thread" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" @search="worldOpen = false; searchOpen = true" @summary="worldOpen = false; openSummary()" />
 
-    <!-- 摘要记忆：这个对话前面的聊天整理成的一份（一直只有一份：每次整理都是旧摘要 + 新聊天合成新的） -->
+    <!-- 摘要记忆：这个对话前面的聊天整理成的，一段一段接在后面（以前的不重写） -->
     <Sheet :open="!!sumEdit" title="摘要记忆" @close="sumEdit = null">
       <template v-if="sumEdit">
         <SummaryInfo :thread="thread" />
@@ -789,6 +814,7 @@ async function changeAvatarOf(who) {
       <div v-if="actionMsg" class="ctx-mask" @click="actionMsg = null" @contextmenu.prevent>
         <div class="ctx-menu" :style="menuPos" @click.stop>
           <button v-if="!actionMsg.error" @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
+          <button v-if="!actionMsg.error" @click="quoteMsg"><Icon name="chat" :size="17" />引用</button>
           <button v-if="actionMsg.from === 'ai' && !actionMsg.error" @click="readAloud"><Icon name="volume" :size="17" />朗读</button>
           <button v-if="!actionMsg.error" @click="favMsg"><Icon name="star" :size="17" />{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
           <button v-if="!actionMsg.error" @click="startEdit"><Icon name="edit" :size="17" />修改</button>
@@ -859,13 +885,13 @@ async function changeAvatarOf(who) {
 .event span.link { cursor: pointer; }
 .wake-busy span { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .55; } }
-.ver { display: inline-flex; align-items: center; gap: 2px; font-size: 0.8rem; color: var(--text-2); background: rgba(255, 255, 255, .85); border-radius: 999px; padding: 0 2px; box-shadow: 0 1px 3px rgba(40, 40, 60, .08); }
+.ver { display: inline-flex; align-items: center; gap: 2px; font-size: 0.8rem; color: var(--text-2); background: rgba(var(--glass-rgb), .85); border-radius: 999px; padding: 0 2px; box-shadow: 0 1px 3px rgba(40, 40, 60, .08); }
 .ver button { border: 0; background: none; color: var(--ink); font-size: 1.4rem; font-weight: 600; line-height: 1; min-width: 44px; height: 38px; padding: 0 0 3px; }
 .ver button:disabled { opacity: .2; }
-.cal-btn { display: block; margin: 4px auto 0; border: 0; background: var(--ink); color: #fff; border-radius: 999px; padding: 3px 12px; font-size: 0.73rem; }
-.detail { text-align: left; white-space: pre-wrap; word-break: break-all; font-size: 0.72rem; line-height: 1.6; color: var(--text-2); background: rgba(255, 255, 255, .85); border-radius: 12px; padding: 8px 10px; margin: 6px auto 0; max-width: 92%; max-height: 40vh; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; }
+.cal-btn { display: block; margin: 4px auto 0; border: 0; background: var(--ink); color: var(--on-ink); border-radius: 999px; padding: 3px 12px; font-size: 0.73rem; }
+.detail { text-align: left; white-space: pre-wrap; word-break: break-all; font-size: 0.72rem; line-height: 1.6; color: var(--text-2); background: rgba(var(--glass-rgb), .85); border-radius: 12px; padding: 8px 10px; margin: 6px auto 0; max-width: 92%; max-height: 40vh; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; }
 .sources { display: flex; flex-direction: column; gap: 4px; align-items: center; margin-top: 6px; }
-.sources a { font-size: 0.75rem; color: var(--accent); background: rgba(255, 255, 255, .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.sources a { font-size: 0.75rem; color: var(--accent); background: rgba(var(--glass-rgb), .8); padding: 2px 10px; border-radius: 999px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .think {
   display: inline-flex;
   align-items: center;
@@ -873,7 +899,7 @@ async function changeAvatarOf(who) {
   align-self: flex-start;
   font-size: 0.73rem;
   color: var(--text-2);
-  background: rgba(255, 255, 255, .78);
+  background: rgba(var(--glass-rgb), .78);
   padding: 3px 10px;
   border-radius: 999px;
   cursor: pointer;
@@ -884,7 +910,7 @@ async function changeAvatarOf(who) {
   font-size: 0.78rem;
   line-height: 1.7;
   color: var(--text-2);
-  background: rgba(255, 255, 255, .72);
+  background: rgba(var(--glass-rgb), .72);
   border-left: 3px solid var(--line);
   border-radius: 6px 14px 14px 6px;
   padding: 8px 12px;
@@ -905,7 +931,7 @@ async function changeAvatarOf(who) {
 .event span {
   font-size: 0.73rem;
   color: var(--text-2);
-  background: rgba(255, 255, 255, .75);
+  background: rgba(var(--glass-rgb), .75);
   padding: 2px 10px;
   border-radius: 999px;
   -webkit-box-decoration-break: clone;
@@ -930,9 +956,31 @@ async function changeAvatarOf(who) {
   user-select: text;
 }
 .theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 3px; }
-.mine .bubble { background: #fff; border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
+.mine .bubble { background: var(--card); border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
 /* 小尖角：贴着气泡底边往外伸出一个尖，内侧一道弧（颜色跟着气泡走） */
 .bubble { position: relative; }
+/* 他回复里的标题、表格、列表、引用（Markdown） */
+.bubble :deep(.md-h) { font-weight: 700; margin: 2px 0 4px; }
+.bubble :deep(.md-h1) { font-size: 1.12em; }
+.bubble :deep(.md-h2) { font-size: 1.05em; }
+.bubble :deep(.md-h3) { font-size: 1em; }
+.bubble :deep(.md-list) { margin: 2px 0; padding-left: 1.3em; white-space: normal; }
+.bubble :deep(.md-list li) { margin: 2px 0; white-space: pre-wrap; }
+.bubble :deep(.md-quote) { margin: 4px 0; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); color: var(--text-2); white-space: normal; }
+.bubble :deep(.md-hr) { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
+.bubble :deep(.md-tbl) { overflow-x: auto; margin: 4px 0; white-space: normal; }
+.bubble :deep(table) { border-collapse: collapse; font-size: .9em; min-width: 100%; }
+.bubble :deep(th), .bubble :deep(td) { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+.bubble :deep(th) { background: rgba(var(--tint-rgb), .04); font-weight: 600; }
+/* 引用：消息上面一小条灰的；输入框上面显示正在引用哪句 */
+.quote { max-width: 82%; align-self: flex-start; margin: 0 4px -2px; padding: 5px 10px; border-left: 3px solid var(--line); border-radius: 4px 10px 10px 4px; background: rgba(var(--tint-rgb), .04); font-size: .76rem; line-height: 1.5; color: var(--text-3); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.quote.mine { align-self: flex-end; }
+.quote b { font-weight: 600; margin-right: 6px; color: var(--text-2); }
+.quoting { display: flex; align-items: center; gap: 8px; margin: 0 4px 6px; padding: 6px 10px; border-radius: 12px; background: var(--bg); font-size: .78rem; color: var(--text-2); }
+.quoting span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quoting button { border: 0; background: none; color: var(--text-3); padding: 2px; display: grid; place-items: center; }
+.bubble.flash { animation: qflash 1.6s ease; }
+@keyframes qflash { 0%, 60% { box-shadow: 0 0 0 3px rgba(106, 167, 224, .45); } 100% { box-shadow: none; } }
 .bubble::after {
   content: ""; position: absolute; bottom: 0; width: 24px; height: 17px; background: inherit; pointer-events: none;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 17'%3E%3Cpath d='M24 0L24 17L0 17C8.5 15.2 13 10 14.2 0Z'/%3E%3C/svg%3E") no-repeat 0 0 / 100% 100%;
@@ -940,7 +988,7 @@ async function changeAvatarOf(who) {
 }
 .theirs .bubble::after { left: -11px; }
 .mine .bubble::after { right: -11px; transform: scaleX(-1); }
-.theirs .bubble.error { background: #fdecee; color: var(--danger); font-size: 0.9rem; }
+.theirs .bubble.error { background: color-mix(in srgb, #fdecee var(--pastel), var(--card)); color: var(--danger); font-size: 0.9rem; }
 
 .typing { display: flex; gap: 5px; padding: 15px 16px; }
 .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); animation: hop 1.2s infinite; }
@@ -971,7 +1019,7 @@ async function changeAvatarOf(who) {
 .composer {
   position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 5;
   width: calc(100% - 28px); max-width: 800px; margin: 0 auto; box-sizing: border-box;
-  background: rgba(255, 255, 255, .97); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  background: rgba(var(--glass-rgb), .97); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   border-radius: 28px; box-shadow: 0 8px 30px rgba(40, 40, 60, .12);
   padding: 8px 10px 8px;
 }
@@ -1006,7 +1054,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .patt { position: relative; flex: none; }
 .patt :deep(.thumb) { width: 64px; height: 64px; }
 .patt :deep(.thumb img) { width: 64px; height: 64px; object-fit: cover; }
-.patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; display: grid; place-items: center; padding: 0; }
+.patt .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; padding: 0; }
 
 /* 弹出面板 */
 .note-imgs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 6px auto 0; max-width: 92%; }
@@ -1026,7 +1074,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .grid-actions { display: flex; flex-wrap: wrap; justify-content: space-around; gap: 12px 4px; padding: 6px 0 4px; }
 .grid-actions button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
 .grid-actions button:disabled { opacity: .4; }
-.bubble.hug { display: inline-flex; align-items: center; gap: 6px; background: #fbe7ee !important; color: #b4587a; }
+.bubble.hug { display: inline-flex; align-items: center; gap: 6px; background: color-mix(in srgb, #fbe7ee var(--pastel), var(--card)) !important; color: #b4587a; }
 .grid-actions span { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 20px; background: var(--bg-deep); color: var(--ink); }
 
 .list-card.flat { box-shadow: none; border: 1px solid var(--line); }
@@ -1040,7 +1088,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .pill-row { max-width: 760px; margin: 0 auto; padding: 2px 8px 0; display: flex; align-items: center; gap: 8px; }
 .model-pill {
   border: 0; border-radius: 999px; padding: 2px 10px;
-  background: var(--blue); color: #4b74a8; font-size: 0.75rem;
+  background: var(--blue); color: var(--accent); font-size: 0.75rem;
   max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .list-row.cur { background: var(--card-2); font-weight: 600; }

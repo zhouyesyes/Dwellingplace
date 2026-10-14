@@ -61,14 +61,14 @@ const showOld = ref(false);
 .round { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
 .rh { display: flex; justify-content: space-between; align-items: baseline; font-size: .8rem; }
 .rh span { font-size: .72rem; color: var(--text-3); }
-.note { margin: 0; background: #eef4fb; border-radius: 14px; padding: 10px 13px; font-size: .84rem; line-height: 1.7; white-space: pre-wrap; }
+.note { margin: 0; background: color-mix(in srgb, #eef4fb var(--pastel), var(--card)); border-radius: 14px; padding: 10px 13px; font-size: .84rem; line-height: 1.7; white-space: pre-wrap; }
 .it { background: var(--card); border-radius: 16px; padding: 10px 12px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 6px; }
 .it.done, .it.skipped { opacity: .6; }
 .op { display: flex; justify-content: space-between; align-items: center; }
 .op small { font-size: .7rem; color: var(--text-3); }
 .tag { font-size: .72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--bg); color: var(--text-2); }
 .tag.merge, .tag.edit { background: #e4eefa; color: #3c6a99; }
-.tag.obsolete, .tag.drop { background: #fbe8ec; color: #a0455a; }
+.tag.obsolete, .tag.drop { background: color-mix(in srgb, #fbe8ec var(--pastel), var(--card)); color: #a0455a; }
 .tag.pin, .tag.confirm, .tag.add { background: #e3f3ec; color: #3d7a5a; }
 .card { border: 0; text-align: left; background: var(--bg); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; gap: 1px; font-size: .78rem; color: var(--text-2); }
 .card b { font-size: .8rem; color: var(--text); }

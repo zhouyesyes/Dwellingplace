@@ -26,7 +26,8 @@ export const CARD_TYPES = {
 // 书脊：淡淡的多巴胺色（按编号存，换了这一排，旧书也跟着换）
 // 卡片的颜色（自己挑）：浅浅的几种
 export const TINTS = { white: "#ffffff", mint: "#e3f3ec", cream: "#fbf3df", pink: "#fbe8ec", blue: "#e4eefa", lilac: "#eee8f8", sand: "#f2ece4" };
-export const cardBg = c => TINTS[c.tint] || (c.from === "ai" ? TINTS.blue : TINTS.white);
+// 深色时浅色卡片只留一点颜色（--pastel），白卡片就是卡片色
+export const cardBg = c => { const h = TINTS[c.tint] || (c.from === "ai" ? TINTS.blue : TINTS.white); return h === TINTS.white ? "var(--card)" : `color-mix(in srgb, ${h} var(--pastel), var(--card))`; };
 export const SPINES = ["#ffadc6", "#ffcb85", "#ffe17d", "#a6e3a1", "#8fd3f4", "#bfa8f6", "#ffa494", "#7fdcd0"];
 
 // 书桌上在写的书（灵感抽屉不算）
@@ -316,7 +317,7 @@ export async function writingPrompt(role, p, atts = []) {
 }
 
 // ---------- 讨论摘要（只在这本书里，不进记忆库）----------
-// 和聊天一样按 token 算：摘要后面的讨论原文每次最多带 talkLimit()（默认 3 万，书页「⋯」里调）；到八成就把前面的和旧摘要合成新的一份，最近一半留着。
+// 和聊天一样按 token 算：摘要后面的讨论原文每次最多带 talkLimit()（默认 3 万，书页「⋯」里调）；到八成就把前面这段新的整理成一小段，接在旧摘要后面（旧的不重写），最近一半留着。
 // 旧的那份留一个版本（p.talkSumVers），能退回
 export const talkLimit = writeTokens;
 export const talkAutoAt = () => Math.round(writeTokens() * AUTO);
@@ -339,9 +340,9 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
     const prev = p.talkSum?.text;
     let text = (await oneShot(role, [
       p.kind === "ideas" ? `你和${me}在翻${me}的灵感抽屉（还没成书的灵感、以前的书的复盘）。` : `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
-      prev ? `你以前整理过的讨论摘要：\n${prev}\n` : "",
+      prev ? `（以前已经整理好的讨论摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${prev.length > 1500 ? "……" + prev.slice(-1500) : prev}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
-      `把这些${prev ? "（连同以前的摘要）" : ""}整理成一份讨论摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。按先后，简洁，不超过 800 字。只写摘要本身。`,
+      `只把这一段新的讨论整理成一小段摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。书里的人物写名字，别用含糊的「他」「她」。按先后，简洁，不超过 800 字。只写这一段摘要本身。`,
       p.kind === "ideas" ? "" : `然后另起一行写这本书现在的进度：[写书进度:现在到哪了|下一步]，各 ${PROGRESS_MAX} 字以内。`,
       `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的设定），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
@@ -351,7 +352,9 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
     if (!text) return 0;
     const { helperApi } = await import("./chat.js");
     snapshotSum(p, "talkSum");
-    p.talkSum = { text: text.slice(0, 4000), upTo: old[old.length - 1].id, count: (p.talkSum?.count || 0) + old.length, at: Date.now(), why, last: old.length,
+    const { sumSpanHead } = await import("./chat.js");
+    text = [prev, `${sumSpanHead(old[0].ts, old[old.length - 1].ts)}\n${text.slice(0, 2400)}`].filter(Boolean).join("\n\n"); // 接在以前的后面，不重写以前的
+    p.talkSum = { text, upTo: old[old.length - 1].id, count: (p.talkSum?.count || 0) + old.length, at: Date.now(), why, last: old.length,
       lastSpan: [old[0].ts, old[old.length - 1].ts], model: helperApi(role).model, tokens: sumTokens(old) };
     return old.length;
   } finally {

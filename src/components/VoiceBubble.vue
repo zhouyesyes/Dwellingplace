@@ -1,9 +1,10 @@
 <script setup>
 // 语音消息：你的录音（file），或者他的 [语音:…]（text，点了才用「他的声音」生成）
 import { ref, computed, onBeforeUnmount } from "vue";
-import { voiceBlob, speak, ttsReady } from "../lib/media.js";
+import { voiceBlob, speak, ttsReady, transcribe, sttReady } from "../lib/media.js";
 import { toast } from "../lib/toast.js";
 
+const emit = defineEmits(["transcribed", "more"]);
 const props = defineProps({
   file: String, // 你的录音
   text: String, // 他要说的话
@@ -21,7 +22,30 @@ const secs = computed(() => props.dur || (props.text ? Math.max(1, Math.round([.
 const width = computed(() => Math.min(220, 84 + secs.value * 4) + "px");
 const words = computed(() => props.transcript || props.text || "");
 
+// 长按（0.5 秒）：转文字。转过的直接显示；你的录音还没转过，就现在转一次（转好的记在消息上，下次不用再转）
+const converting = ref(false);
+let press = null, longPressed = false;
+function down() {
+  longPressed = false;
+  press = setTimeout(() => { longPressed = true; navigator.vibrate?.(10); toText(); }, 500);
+}
+const up = () => clearTimeout(press);
+async function toText() {
+  if (words.value) { showText.value = !showText.value; return; }
+  if (!props.file) return;
+  if (!sttReady()) return toast("还没设置语音转文字（设置 → 语音和画画）", 3500);
+  converting.value = true;
+  try {
+    const blob = await voiceBlob(props.file);
+    if (!blob) throw new Error("这段录音还没同步过来");
+    const t = await transcribe(blob);
+    if (!t) return toast("没听出说了什么");
+    emit("transcribed", t);
+    showText.value = true;
+  } catch (e) { toast((e?.message || String(e)).slice(0, 120), 4000); } finally { converting.value = false; }
+}
 async function toggle() {
+  if (longPressed) { longPressed = false; return; } // 刚才是长按转文字，不放声音
   if (playing.value) { audio?.pause(); playing.value = false; return; }
   if (!audio) {
     loading.value = true;
@@ -52,11 +76,16 @@ onBeforeUnmount(() => { audio?.pause(); if (props.file && url) URL.revokeObjectU
 
 <template>
   <div class="voice-wrap" :class="{ mine }">
-    <button class="voice" :style="{ width }" @click.stop="toggle">
+    <button class="voice" :style="{ width }" @pointerdown="down" @pointerup="up" @pointerleave="up" @pointercancel="up" @contextmenu.prevent @click.stop="toggle">
       <span class="ico" :class="{ playing, loading }"><i /><i /><i /></span>
       <span class="len">{{ secs }}″</span>
     </button>
-    <button v-if="words" class="to-text" @click.stop="showText = !showText">{{ showText ? "收起" : "转文字" }}</button>
+    <button v-if="words && !mine" class="to-text" @click.stop="showText = !showText">{{ showText ? "收起" : "转文字" }}</button>
+    <small v-if="converting" class="to-text">在转文字……</small>
+    <span v-else-if="mine" class="mine-acts">
+      <button v-if="showText" class="to-text" @click.stop="showText = false">收起文字</button>
+      <button class="to-text" aria-label="更多" @click.stop="emit('more')">⋯</button>
+    </span>
     <p v-if="showText && words" class="words">{{ words }}</p>
   </div>
 </template>
@@ -64,7 +93,7 @@ onBeforeUnmount(() => { audio?.pause(); if (props.file && url) URL.revokeObjectU
 <style scoped>
 .voice-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: 100%; }
 .voice-wrap.mine { align-items: flex-end; }
-.voice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; border-radius: 18px; padding: 10px 14px; background: var(--card); box-shadow: 0 1px 2px rgba(40, 40, 60, .06); color: var(--text); font-size: 0.9rem; }
+.voice { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; border-radius: 18px; padding: 10px 14px; background: var(--card); box-shadow: 0 1px 2px rgba(40, 40, 60, .06); color: var(--text); font-size: 0.9rem; }
 .mine .voice { flex-direction: row-reverse; }
 .ico { display: flex; align-items: center; gap: 3px; height: 16px; }
 .ico i { width: 3px; border-radius: 2px; background: currentColor; opacity: .7; }
@@ -74,6 +103,7 @@ onBeforeUnmount(() => { audio?.pause(); if (props.file && url) URL.revokeObjectU
 .ico.loading { opacity: .4; }
 @keyframes wave { 50% { transform: scaleY(.4); } }
 .len { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mine-acts { display: flex; gap: 2px; }
 .to-text { border: 0; background: none; padding: 0 6px; font-size: 0.72rem; color: var(--text-3); }
-.words { margin: 0; max-width: 260px; padding: 8px 12px; border-radius: 14px; background: rgba(255, 255, 255, .7); font-size: 0.85rem; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; }
+.words { margin: 0; max-width: 260px; padding: 8px 12px; border-radius: 14px; background: rgba(var(--glass-rgb), .7); font-size: 0.85rem; line-height: 1.6; color: var(--text-2); white-space: pre-wrap; }
 </style>

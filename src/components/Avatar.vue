@@ -26,10 +26,10 @@ const initial = computed(() => (props.name || "?").trim().slice(0, 1));
   place-items: center;
   border-radius: 50%;
   overflow: hidden;
-  background: color-mix(in srgb, var(--c) 45%, #ffffff);
-  color: color-mix(in srgb, var(--c) 55%, #2e2e34);
+  background: color-mix(in srgb, var(--c) 45%, var(--avatar-mix));
+  color: color-mix(in srgb, var(--c) 55%, var(--avatar-ink, #2e2e34));
   font-weight: 600;
-  box-shadow: 0 0 0 2px #ffffff, 0 2px 8px rgba(40, 40, 60, .12);
+  box-shadow: 0 0 0 2px var(--card), 0 2px 8px rgba(40, 40, 60, .12);
 }
 img { width: 100%; height: 100%; object-fit: cover; }
 </style>

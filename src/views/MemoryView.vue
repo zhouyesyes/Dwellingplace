@@ -117,10 +117,11 @@ async function sumNow() {
 // 临时带着的：附在新消息前面的【此刻】里，有的时候才有（只是看看，不会记成他看过了）
 const RULES = {
   letters: { label: "信箱", rule: "你新寄的信，他下一次聊天时读一次全文；他寄的信你还没拆，就一直挂着，直到你拆开；24 小时里寄出、读过的信，一共最多 3 封，只带标题和第一句。上了锁的只告诉他有几封。" },
-  read: { label: "共读：24 小时里读过的书", rule: "每本分开：书名、读到哪、他最新的印象、24 小时里你们来往的划线和批注（每本最多 20 条）。超过 24 小时就不带了。读后感他没看过的，看一次。" },
+  read: { label: "共读：24 小时里读过的书", rule: "每本分开：书名、读到哪、他最新的印象、24 小时里你们来往的划线和批注（每本最多 10 条）。超过 24 小时就不带了。读后感他没看过的，看一次。" },
   self: { label: `他自己记的（最多 ${MOMENT_MAX} 条）`, rule: "他回复时写 [此刻:…] 记下的小事（心情、待会儿要做的），35 字以内，24 小时后自动忘。不想他记着的可以点 × 删掉。" },
 };
 const now = ref(Date.now());
+const momentOpen = reactive({}); // 此刻里每一块默认折叠，点开看全部
 const tick = setInterval(() => (now.value = Date.now()), 60_000);
 onUnmounted(() => clearInterval(tick));
 const moment = computed(() => {
@@ -166,7 +167,7 @@ function imgOf(m) {
   return m.img ? imgUrls[m.img] : null;
 }
 const md = d => d.slice(5).replace("-", ".");
-const tint = c => `color-mix(in srgb, ${c} 14%, #ffffff)`;
+const tint = c => `color-mix(in srgb, ${c} 14%, var(--card))`;
 
 // ---------- 查看 ----------
 const viewing = ref(null);
@@ -315,7 +316,8 @@ function remove() {
         <ul v-if="x.key === 'self' && selfMoments.length" class="moms">
           <li v-for="m in selfMoments" :key="m.id"><span>{{ m.text }}</span><small>{{ ago(m.ts) }}</small><button aria-label="删掉" @click="removeMoment(m)"><Icon name="close" :size="14" /></button></li>
         </ul>
-        <p v-else-if="x.text" class="pre">{{ x.text }}</p>
+        <p v-else-if="x.text" class="pre fold" :class="{ open: momentOpen[x.key] }" @click="momentOpen[x.key] = !momentOpen[x.key]">{{ x.text }}</p>
+        <button v-if="x.text && x.key !== 'self' && x.text.split('\n').length > 4" class="fold-btn" @click="momentOpen[x.key] = !momentOpen[x.key]">{{ momentOpen[x.key] ? "收起" : "展开全部" }}</button>
         <small class="rule">{{ x.rule }}</small>
       </article>
 
@@ -493,14 +495,14 @@ function remove() {
 .buckets::-webkit-scrollbar { display: none; }
 .buckets button { flex: none; border: 0; background: var(--card); padding: 6px 12px; border-radius: 999px; font-size: .82rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
 .buckets button small { margin-left: 4px; font-size: .7rem; color: var(--text-3); }
-.buckets button.on { background: var(--ink); color: #fff; font-weight: 600; }
-.buckets button.on small { color: rgba(255, 255, 255, .7); }
+.buckets button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
+.buckets button.on small { color: rgba(var(--glass-rgb), .7); }
 .buckets button.warn:not(.on) { box-shadow: inset 0 0 0 1.5px #e9657e; }
 .btip { margin: 0 4px 10px; font-size: .74rem; color: var(--text-3); line-height: 1.6; }
 .stoggles { display: flex; gap: 14px; margin: -8px 6px 12px; font-size: .78rem; color: var(--text-2); }
 .stoggles input { accent-color: var(--ink); }
-.bdg { font-size: .66rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, .7); }
-.bdg.pending { background: #fde3ea; color: #c9304c; }
+.bdg { font-size: .66rem; padding: 1px 8px; border-radius: 999px; background: rgba(var(--glass-rgb), .7); }
+.bdg.pending { background: color-mix(in srgb, #fde3ea var(--pastel), var(--card)); color: #c9304c; }
 .bdg.obsolete, .bdg.deleted { background: var(--bg-deep); color: var(--text-3); }
 .src { font-size: .74rem; line-height: 1.7; color: var(--text-3); margin: 12px 0 0; }
 .field.two { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
@@ -509,7 +511,7 @@ function remove() {
 .mem-acts .btn { display: inline-flex; align-items: center; gap: 4px; }
 .tmp .on { color: #c9304c; font-weight: 600; }
 .board { display: flex; flex-direction: column; gap: 6px; }
-.brow { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%; border: 0; background: rgba(0, 0, 0, .03); border-radius: 12px; padding: 8px 12px; font-size: .84rem; color: var(--text-2); cursor: pointer; }
+.brow { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%; border: 0; background: rgba(var(--tint-rgb), .03); border-radius: 12px; padding: 8px 12px; font-size: .84rem; color: var(--text-2); cursor: pointer; }
 .brow:disabled { cursor: default; color: var(--text-2); opacity: 1; }
 .brow b { font-size: .86rem; color: var(--text); font-weight: 600; }
 .brow.pal { position: relative; padding-right: 34px; }
@@ -517,10 +519,12 @@ function remove() {
 .board .none { font-size: .8rem; color: var(--text-3); margin: 2px 0; }
 .board .add { border: 0; background: none; color: var(--text-2); font-size: .76rem; padding: 0; }
 .moms { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.moms li { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--text-2); background: rgba(0, 0, 0, .03); border-radius: 12px; padding: 6px 6px 6px 12px; }
+.moms li { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--text-2); background: rgba(var(--tint-rgb), .03); border-radius: 12px; padding: 6px 6px 6px 12px; }
 .moms li span { flex: 1; min-width: 0; }
 .moms li small { color: var(--text-3); font-size: .7rem; white-space: nowrap; }
 .moms li button { border: 0; background: none; color: var(--text-3); padding: 4px; display: grid; place-items: center; }
+.pre.fold:not(.open) { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.fold-btn { border: 0; background: none; padding: 2px 0; font-size: .74rem; color: var(--text-3); }
 .tmp .rule { display: block; margin-top: 6px; font-size: .7rem; line-height: 1.6; color: var(--text-3); }
 .tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }
 .views button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; color: var(--text-2); font-size: 0.9rem; }
@@ -569,7 +573,7 @@ function remove() {
   height: 52px;
   border-radius: 50%;
   border: 0;
-  background: #fff;
+  background: var(--card);
   color: var(--ink);
   box-shadow: 0 6px 20px rgba(40, 40, 60, .16);
   display: grid;

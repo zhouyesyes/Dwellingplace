@@ -88,7 +88,7 @@ h3 { margin: 18px 4px 10px; font-size: .95rem; }
 .sc { background: var(--card); border-radius: 18px; padding: 14px 16px 12px; margin-bottom: 12px; box-shadow: var(--shadow-soft); }
 .sh { display: flex; align-items: center; gap: 8px; }
 .sh b { font-size: 1rem; }
-.now { font-size: .66rem; background: var(--ink); color: #fff; border-radius: 999px; padding: 1px 8px; }
+.now { font-size: .66rem; background: var(--ink); color: var(--on-ink); border-radius: 999px; padding: 1px 8px; }
 .sp { width: 5px; height: 18px; border-radius: 1px; }
 .pos { margin: 4px 0 8px; font-size: .74rem; color: var(--text-3); }
 .gist { background: var(--bg); border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; cursor: pointer; }

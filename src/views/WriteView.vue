@@ -63,14 +63,14 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
 .side { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--text-3); line-height: 1.6; padding-bottom: 6px; }
 .list { display: flex; flex-direction: column; gap: 10px; }
 .book { display: flex; align-items: center; gap: 14px; text-align: left; border: 0; background: var(--card); border-radius: 18px; padding: 14px 16px; box-shadow: var(--shadow-soft); }
-.spine { width: 10px; height: 44px; border-radius: 2px; flex: none; box-shadow: inset -2px 0 0 rgba(0, 0, 0, .08); }
+.spine { width: 10px; height: 44px; border-radius: 2px; flex: none; box-shadow: inset -2px 0 0 rgba(var(--tint-rgb), .08); }
 .spine.ph { background: none; border: 1.5px dashed var(--line); }
 .book b { display: block; font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .book small { font-size: .75rem; color: var(--text-3); }
 .book.add { color: var(--text-2); background: var(--card-2); box-shadow: inset 0 0 0 1.5px var(--line); }
-.fresh { font-size: .7rem; color: #4d7aa3; background: #e4eefa; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.fresh { font-size: .7rem; color: #4d7aa3; background: color-mix(in srgb, #e4eefa var(--pastel), var(--card)); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .chev { color: var(--text-3); }
-.drawer-in { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; border: 0; margin-bottom: 18px; padding: 16px 16px; border-radius: 14px; background: linear-gradient(#f6efe4, #efe5d6); box-shadow: inset 0 -3px 0 rgba(120, 90, 50, .12), var(--shadow-soft); }
+.drawer-in { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; border: 0; margin-bottom: 18px; padding: 16px 16px; border-radius: 14px; background: linear-gradient(color-mix(in srgb, #f6efe4 var(--pastel), var(--card)), color-mix(in srgb, #efe5d6 var(--pastel), var(--card))); box-shadow: inset 0 -3px 0 rgba(120, 90, 50, .12), var(--shadow-soft); }
 .drawer-in .knob { width: 26px; height: 8px; border-radius: 4px; background: #c9b08a; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .2); flex: none; }
 .drawer-in b { display: block; font-size: 1rem; font-weight: 600; }
 .drawer-in small { font-size: .75rem; color: var(--text-3); }

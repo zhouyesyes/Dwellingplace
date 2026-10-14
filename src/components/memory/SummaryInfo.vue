@@ -28,7 +28,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <p v-if="s.at">上一次：{{ when(s.at) }}，{{ s.edited && !s.why ? "你改过" : SUM_WHY[s.why] || "自动整理的" }}{{ s.last ? `，整理进去 ${s.last} 条` : "" }}{{ s.model ? `，用 ${s.model}` : "" }}{{ s.restoredAt ? "（退回来的版本）" : "" }}。</p>
     </template>
     <p v-else>还没有摘要。</p>
-    <p class="rule">摘要后面的聊天原样带给他，最多约 {{ fmtTok(limit) }} token（记忆设置、聊天输入框上方的用量里都能调）。到八成（{{ fmtTok(autoAt()) }}），或者内容到了模型上限的七成，就会自动整理：把这份摘要和前面的聊天合成新的一份，最近约 {{ fmtTok(limit / 2) }} token 留着不动。点「现在整理」也一样。每次整理、改动之前的那份都留在下面的历史版本里。</p>
+    <p class="rule">摘要后面的聊天原样带给他，最多约 {{ fmtTok(limit) }} token（记忆设置、聊天输入框上方的用量里都能调）。到八成（{{ fmtTok(autoAt()) }}），或者内容到了模型上限的七成，就会自动整理：只把前面这段新的聊天整理成一小段，接在这份摘要后面（以前的不重写），最近约 {{ fmtTok(limit / 2) }} token 留着不动。点「现在整理」也一样。每次整理、改动之前的那份都留在下面的历史版本里。</p>
   </div>
 </template>
 

@@ -82,7 +82,7 @@ function poke() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, #fffbe8, #fff3f5);
+  background: linear-gradient(160deg, color-mix(in srgb, #fffbe8 var(--pastel), var(--card)), color-mix(in srgb, #fff3f5 var(--pastel), var(--card)));
   cursor: pointer;
   user-select: none;
 }

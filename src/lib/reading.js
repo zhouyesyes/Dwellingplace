@@ -159,7 +159,7 @@ export async function readingPreview(role, b) {
     ...readingSceneParts(b, me).map(x => ({ label: `场景记忆 · ${x.label}`, text: x.text })),
     { label: "全局记忆（排在场景后面，含主聊天最近的消息）", text: (await globalMemoryForScene(role, me, { skip: "read" })) || "（没有）" },
     { label: "上次整理前情之后读过的原文（他都看得见）", text: (await sinceGist(b, b.pos || { ch: 0, p: 0 })) || "（刚整理过，或者还没读）" },
-    { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从他上次一起读到的地方到你这一页（新读的超过 10 页会先问你）。" },
+    { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从你现在这一页往后的十来页（你还没读到的，他先读）。" },
   ];
 }
 export function readingSceneParts(b, me) {
@@ -250,7 +250,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   return { text, notes };
 }
 
-// 「一起读」：从他上次一起读到的地方，到你现在读到的这一页，全部给他（可以跨章）。
+// 「一起读」：从你现在这一页往后的十来页，全部给他（可以跨章）——你还没读到的，他先读，一路贴批注，你往后读就会看到。
 // 他挑两三处有感觉的句子划线、写批注。这是单独问的一次，不进聊天记录，所以读多少页都不会把聊天挤掉
 const ALONG_RE = /\[贴[:：]\s*(\d+)\s*[.．]\s*(\d+)\s*[|｜]([^|｜\]]{0,80})[|｜]([^\]]{1,600})\]/g;
 const ALONG_RE2 = /\[贴[:：]\s*(\d+)\s*[.．]\s*(\d+)\s*[|｜]([^\]]{1,600})\]/g; // 没写原文的
@@ -290,9 +290,9 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
     await bookContext(b, me, role),
     earlier ? `\n（上次整理前情之后、你们已经读过的原文，接着前情看：）\n${earlier}` : "",
-    `\n下面是${me}从你上次一起读到的地方、一直读到现在的这几页（这次新读的）。每段前面方括号里是「章.段」号：`,
+    `\n下面是从${me}现在读到的这一页开始、往后的十来页（${me}还没读到，你先读，一路留批注，${me}往后读时会看到）。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
-    `你也读一读这次新读的。挑两三处真让你有感觉的句子（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
+    `你读一读这十来页。挑三五处真让你有感觉的句子，分散在前后不同的地方（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
     `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
     `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");
@@ -319,7 +319,7 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
   markHisPos(b, end.ch, end.p);
   maybeGist(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
   maybeImpression(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
-  return { notes: out.slice(0, 4), memNotes: notes, upTo: { ch: end.ch, p: end.p }, count: items.length };
+  return { notes: out.slice(0, 6), memNotes: notes, upTo: { ch: end.ch, p: end.p }, count: items.length };
 }
 
 // 他的读后感：前情、他的中途印象、便利贴、读书笔记、你的读后感（重读的还有以前几遍的）都给他，打几颗星、写一篇（最多 3000 字）。
