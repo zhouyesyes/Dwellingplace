@@ -6,6 +6,9 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
+import { store, MAIN, roleById } from "../store/index.js";
+import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
+import Avatar from "../components/Avatar.vue";
 
 // Codex 写的话：```代码块```、[文字](链接) 也排出来（链接是本地文件路径的，显示成代码样子）
 const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -66,19 +69,62 @@ async function addThread() {
 const cur = ref("");
 const t = computed(() => (cur.value ? thread(cur.value) : null));
 const running = computed(() => !!t.value?.turnId);
+// 和他一起 / 直接用 Codex（每个任务各自记着；新任务默认和他一起）
+const role = computed(() => roleById(MAIN));
+const him = computed(() => role.value?.name || "他");
+const wt = computed(() => (cur.value ? workThread(cur.value) : null));
+const together = computed(() => wt.value?.mode !== "direct");
+const talkList = ref([]);
+const thinking = computed(() => !!himBusy[cur.value]);
+// 时间线：你们的对话插在说话那时 Codex 过程走到的地方（按先后，不靠服务器和手机的钟）；直接用 Codex 时只有过程
+const timeline = computed(() => {
+  const codex = t.value?.items || [];
+  if (!talkList.value.length) return codex;
+  const talks = talkList.value.map(m => ({ kind: m.from === "me" ? "talkMe" : "talkHim", text: m.text, notes: m.notes, ts: m.ts, id: m.id, at: m.at ?? Infinity }));
+  const out = [];
+  let k = 0;
+  codex.forEach((it, i) => { while (k < talks.length && talks[k].at <= i) out.push(talks[k++]); out.push(it); });
+  while (k < talks.length) out.push(talks[k++]);
+  return out;
+});
+// Codex 那边「你说的话」：是他交过去的，就标成「他交给 Codex」
+const sentByHim = it => together.value || (wt.value?.sent || []).some(s => String(it.text || "").startsWith(s));
+// 他交过去的那一轮做完了：他先看一遍再告诉你（页面开着才会；没开着，下次打开时补上）
+async function maybeReport() {
+  const id = cur.value;
+  if (!id || !together.value || !role.value) return;
+  const w = workThread(id);
+  if (w.awaiting && !t.value?.turnId && turnDoneSince(id, w.dispatchedAt)) {
+    try { await report(role.value, id); } catch (e) { toast(`${him.value}没看成：${e.message}`, 4000); }
+    down();
+  }
+}
 const scroller = ref(null);
 const down = () => nextTick(() => { const el = scroller.value; if (el) el.scrollTop = el.scrollHeight; });
 async function open(id) {
   cur.value = id;
   router.replace({ query: { t: id } });
   try { await loadThread(id); } catch (e) { toast(e.message, 4000); }
+  talkList.value = await loadTalk(id);
   down();
+  maybeReport();
 }
 function close() { cur.value = ""; router.replace({ query: {} }); }
 // 新东西来了：已经在最下面就跟着滚
-watch(() => t.value?.items.length, () => {
+watch(() => [t.value?.items.length, talkList.value.length], () => {
   const el = scroller.value;
   if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) down();
+  maybeReport();
+});
+const setMode = m => { if (wt.value) wt.value.mode = m; };
+async function finish() {
+  try { await wrapUp(role.value, cur.value); down(); } catch (e) { toast(e.message, 4000); }
+}
+// 最后是「这一轮做完了」、没在干活：提示在等你
+const waitingYou = computed(() => {
+  if (!t.value || running.value || thinking.value) return false;
+  const last = timeline.value[timeline.value.length - 1];
+  return last && ((last.kind === "turn" && last.state !== "started") || last.kind === "talkHim");
 });
 
 const draft = ref("");
@@ -87,7 +133,11 @@ async function send() {
   const text = draft.value.trim();
   if (!text || sending.value) return;
   sending.value = true;
-  try { await say(cur.value, text); draft.value = ""; down(); } catch (e) { toast(e.message, 5000); } finally { sending.value = false; }
+  try {
+    if (together.value) { draft.value = ""; const p = talk(role.value, cur.value, text); down(); await p; }
+    else { await say(cur.value, text); draft.value = ""; }
+    down();
+  } catch (e) { toast(e.message, 5000); } finally { sending.value = false; }
 }
 async function stop() { try { await interrupt(cur.value); } catch (e) { toast(e.message, 4000); } }
 async function decide(it, decision) {
@@ -178,10 +228,23 @@ const RULES = [
 
     <!-- 一个任务的过程 -->
     <template v-else-if="t">
+      <div class="modes">
+        <button :class="{ on: together }" @click="setMode('gpt')">和{{ him }}一起</button>
+        <button :class="{ on: !together }" @click="setMode('direct')">直接用 Codex</button>
+      </div>
       <main ref="scroller" class="tl">
-        <p v-if="!t.items.length" class="hint">说说要做什么。Codex 会在「{{ t.meta?.project }}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。</p>
-        <template v-for="(it, i) in t.items" :key="it.id || i">
-          <div v-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
+        <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
+        <template v-for="(it, i) in timeline" :key="it.id || i">
+          <div v-if="it.kind === 'talkMe'" class="me"><p>{{ it.text }}</p></div>
+          <div v-else-if="it.kind === 'talkHim'" class="him">
+            <Avatar :img="role?.avatar" :name="him" :color="role?.color" :size="30" />
+            <div class="him-body">
+              <div v-if="it.text" class="agent" v-html="workMd(it.text)" />
+              <small v-for="(n, k) in it.notes || []" :key="k" class="him-note">{{ n }}</small>
+            </div>
+          </div>
+          <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}</b><p>{{ it.text }}</p></div>
+          <div v-else-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
           <div v-else-if="it.kind === 'agent'" class="agent" v-html="workMd(it.text)" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
           <div v-else-if="it.kind === 'plan'" class="card plan">
@@ -230,10 +293,12 @@ const RULES = [
 </span></pre>
           </div>
         </template>
-        <div v-if="running" class="working"><i /><i /><i /> Codex 在干活</div>
+        <div v-if="thinking" class="working"><i /><i /><i /> {{ him }}在想</div>
+        <div v-else-if="running" class="working"><i /><i /><i /> Codex 在干活</div>
+        <p v-else-if="waitingYou" class="your-turn">{{ together ? `等你说下一步` : "Codex 做完了，等你说下一步" }}<button v-if="together && talkList.length" class="tap" @click="finish">· 收工，让{{ him }}记下来</button></p>
       </main>
       <footer class="dock">
-        <textarea v-model="draft" v-auto-grow rows="1" class="input" :placeholder="running ? '插一句（不用停下它）…' : '要做什么…'" />
+        <textarea v-model="draft" v-auto-grow rows="1" class="input" :placeholder="together ? `和${him}说…` : running ? '插一句（不用停下它）…' : '要做什么…'" />
         <button v-if="running" class="send stop" aria-label="停下" @click="stop"><Icon name="stop" :size="18" /></button>
         <button class="send" :class="{ on: draft.trim() }" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
       </footer>
@@ -337,6 +402,17 @@ const RULES = [
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--card); color: var(--text-3); box-shadow: var(--shadow-soft); flex: none; }
 .send.on { background: var(--ink); color: var(--on-ink); }
 .send.stop { color: var(--danger); }
+.modes { display: flex; gap: 6px; justify-content: center; padding: 8px 0 0; }
+.modes button { border: 0; background: var(--card); color: var(--text-2); font-size: .78rem; padding: 5px 13px; border-radius: 999px; box-shadow: var(--shadow-soft); }
+.modes button.on { background: var(--ink); color: var(--on-ink); }
+.him { display: flex; gap: 8px; align-items: flex-start; }
+.him-body { flex: 1; min-width: 0; }
+.him-note { display: block; font-size: .72rem; color: var(--text-3); }
+.task { padding: 10px 12px; border-left: 3px solid var(--accent); }
+.task b { font-size: .78rem; color: var(--accent); }
+.task p { margin: 4px 0 0; font-size: .84rem; line-height: 1.6; white-space: pre-wrap; color: var(--text-2); }
+.your-turn { margin: 4px 0 0; font-size: .8rem; color: var(--accent); text-align: center; }
+.your-turn .tap { margin-left: 4px; }
 .rule { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
 .rule span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .rule b { font-size: .9rem; font-weight: 500; }
