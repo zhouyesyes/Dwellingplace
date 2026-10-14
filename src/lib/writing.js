@@ -298,7 +298,7 @@ function ideaSceneParts(p, list, me) {
   return out;
 }
 // 讨论时给他看的全部：场景记忆在前，全局记忆在后（记忆库里「看看发给他的」也是这一份）
-export async function writingPrompt(role, p, atts = []) {
+export async function writingPrompt(role, p, atts = [], alone = false) {
   const { meName } = await import("./chat.js");
   const { globalMemoryForScene } = await import("./memoryTags.js");
   const me = meName(role);
@@ -312,7 +312,7 @@ export async function writingPrompt(role, p, atts = []) {
     await globalMemoryForScene(role, me, { skip: "write", query: [...list].reverse().find(m => m.from === "me")?.text || "" }),
     `\n${p.kind === "ideas" ? ideaRules(me) : rulesFor(me)}`,
     atts.length ? `\n${me}这次发来的图片、文件在最前面。` : "",
-    `\n现在接着回${me}，像平时说话那样，几段就好。`,
+    alone ? `\n（这是你的自由时间，你自己走进了这里，${me}现在不在。写一段你想留在这里的话：想和${me}讨论的、读到想到的、想问${me}的，等${me}来了会看到。像平时说话那样，几段就好。不想写就只写 [不说话]。）` : `\n现在接着回${me}，像平时说话那样，几段就好。`,
   ].filter(Boolean).join("\n");
 }
 

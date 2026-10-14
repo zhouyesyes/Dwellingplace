@@ -9,7 +9,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
-import { askHim, readAlong, alongSlice } from "../lib/reading.js";
+import { askHim, readAlong, alongSlice, placeAlong } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookInfo from "../components/books/BookInfo.vue";
@@ -318,13 +318,8 @@ async function readThisPage() {
   try {
     const res = await readAlong(r, b.value, { from, to, maxChars });
     b.value.alongTo = res.upTo;
-    const book = await loadBook(b.value.id);
-    for (const n of res.notes) {
-      const para = book.chapters[n.ch]?.paras[n.p] || "";
-      const i = n.quote ? para.indexOf(n.quote.slice(0, 40)) : -1;
-      const [st, en] = i >= 0 ? [i, i + n.quote.length] : [0, para.length];
-      addNote(b.value, { ch: n.ch, p: n.p, start: st, end: Math.min(en, para.length), quote: para.slice(st, en), text: n.text, from: "ai" }).seen = n.ch !== ch.value;
-    }
+    await placeAlong(b.value, res.notes, -1);
+    for (const n of store.bookNotes.slice(-res.notes.length)) n.seen = n.ch !== ch.value;
     const endTitle = content.value.chapters[res.upTo.ch]?.title || `第 ${res.upTo.ch + 1} 章`;
     toast(res.memNotes[0] || `${r.name} 往后读了十来页，划了 ${res.notes.length} 处，读到「${endTitle}」那里做了个记号`, 3200);
     petOnce("success");

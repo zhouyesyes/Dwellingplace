@@ -272,12 +272,28 @@ export async function alongSlice(b, from, to, maxChars = Infinity) {
   }
   return out;
 }
-export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
-  const { oneShot, meName, visibleText } = await import("./chat.js");
+// 从 from 往后的段落（不含空段），最多 maxChars 字：[{ ch, p, t }]（自由时间他自己往后读）
+export async function forwardSlice(b, from, maxChars = 12000) {
+  const book = await loadBook(b.id);
+  const out = [];
+  let n = 0;
+  for (let c = from.ch; c < book.chapters.length; c++) {
+    const ps = book.chapters[c]?.paras || [];
+    for (let i = c === from.ch ? from.p : 0; i < ps.length; i++) {
+      const t = ps[i].trim();
+      if (!t) continue;
+      if (n + t.length > maxChars && out.length) return out;
+      out.push({ ch: c, p: i, t });
+      n += t.length;
+    }
+  }
+  return out;
+}
+// 一起读给他看的全部（原文按「章.段」编号）
+export async function alongPrompt(role, b, items, from, { alone = false } = {}) {
+  const { meName } = await import("./chat.js");
   const me = meName(role);
   const book = await loadBook(b.id);
-  const items = await alongSlice(b, from, to, maxChars);
-  if (!items.length) throw new Error("这几页没有字");
   const lines = [];
   let last = -1;
   for (const it of items) {
@@ -285,18 +301,23 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
     lines.push(`[${it.ch + 1}.${it.p}] ${it.t}`);
   }
   const earlier = await sinceGist(b, from);
-  const prompt = [
+  return [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
     await bookContext(b, me, role),
-    earlier ? `\n（上次整理前情之后、你们已经读过的原文，接着前情看：）\n${earlier}` : "",
-    `\n下面是从${me}现在读到的这一页开始、往后的十来页（${me}还没读到，你先读，一路留批注，${me}往后读时会看到）。每段前面方括号里是「章.段」号：`,
+    earlier ? `\n（上次整理前情之后、你们已经读过的原文，接着前情看：）\n${earlier.length > 8000 ? "……" + earlier.slice(-8000) : earlier}` : "",
+    alone
+      ? `\n这是你的自由时间，你自己想读书了，接着往后读。下面是接下来的这一段（${me}现在不在，你一路留批注，${me}读到时会看到）。每段前面方括号里是「章.段」号：`
+      : `\n下面是从${me}现在读到的这一页开始、往后的十来页（${me}还没读到，你先读，一路留批注，${me}往后读时会看到）。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
-    `你读一读这十来页。挑三五处真让你有感觉的句子，分散在前后不同的地方（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
+    `你读一读这一段。挑三五处真让你有感觉的句子，分散在前后不同的地方（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
     `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
     `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");
-  const raw = await oneShot(role, prompt, { raw: true });
+}
+// 他读完写的：认出每条批注（照抄的句子、章.段），读书笔记记进记忆库
+export async function parseAlong(role, items, raw) {
+  const { visibleText } = await import("./chat.js");
   const { text: t1, notes } = applyReadMemTags(role, raw);
   const ok = (c, p) => items.some(it => it.ch === c && it.p === p);
   const out = [];
@@ -312,14 +333,32 @@ export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
   if (!out.length) {
     const text = visibleText(t1.replace(ALONG_RE, "").replace(ALONG_RE2, "")).trim();
     const it = items[items.length - 1];
-    if (text) out.push({ ch: it.ch, p: it.p, quote: "", text: text.slice(0, 300) });
+    if (text && !/^\[不说话\]$/.test(text)) out.push({ ch: it.ch, p: it.p, quote: "", text: text.slice(0, 300) });
   }
-  if (!out.length) throw new Error("他没有写什么");
   const end = items[items.length - 1];
-  markHisPos(b, end.ch, end.p);
-  maybeGist(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
-  maybeImpression(role, b, { ch: end.ch, p: end.p + 1 }).catch(() => {});
-  return { notes: out.slice(0, 6), memNotes: notes, upTo: { ch: end.ch, p: end.p }, count: items.length };
+  return { notes: out.slice(0, 6), memNotes: notes, upTo: { ch: end.ch, p: end.p } };
+}
+// 批注贴进书里（照抄的句子找得到就划那一句，找不到就整段）
+export async function placeAlong(b, notes, seenCh = -1) {
+  const book = await loadBook(b.id);
+  for (const n of notes) {
+    const para = book.chapters[n.ch]?.paras[n.p] || "";
+    const i = n.quote ? para.indexOf(n.quote.slice(0, 40)) : -1;
+    const [st, en] = i >= 0 ? [i, i + n.quote.length] : [0, para.length];
+    addNote(b, { ch: n.ch, p: n.p, start: st, end: Math.min(en, para.length), quote: para.slice(st, en), text: n.text, from: "ai" }).seen = n.ch === seenCh;
+  }
+}
+export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
+  const { oneShot } = await import("./chat.js");
+  const items = await alongSlice(b, from, to, maxChars);
+  if (!items.length) throw new Error("这几页没有字");
+  const raw = await oneShot(role, await alongPrompt(role, b, items, from), { raw: true });
+  const r = await parseAlong(role, items, raw);
+  if (!r.notes.length) throw new Error("他没有写什么");
+  markHisPos(b, r.upTo.ch, r.upTo.p);
+  maybeGist(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
+  maybeImpression(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
+  return { ...r, count: items.length };
 }
 
 // 他的读后感：前情、他的中途印象、便利贴、读书笔记、你的读后感（重读的还有以前几遍的）都给他，打几颗星、写一篇（最多 3000 字）。

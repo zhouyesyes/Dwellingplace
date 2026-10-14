@@ -104,7 +104,7 @@ export function roomSceneParts(id, list, me) {
   out.push({ key: "talk", label: `摘要之后的讨论（${rest.length} 句）`, text: `你们${owner?.talkSum?.text ? "接着" : "刚才"}在聊：\n${rest.map(m => `${m.from === "me" ? me : "你"}：${m.text}`).join("\n") || "（刚坐下）"}` });
   return out;
 }
-export async function roomPrompt(role, id, extra = "") {
+export async function roomPrompt(role, id, extra = "", alone = false) {
   const { meName } = await import("./chat.js");
   const me = meName(role);
   const list = await loadRoom(id);
@@ -124,7 +124,7 @@ export async function roomPrompt(role, id, extra = "") {
       `- 让你自己有收获、想记住的：另起一行写 [读书笔记:书名|标题|内容]，会记进你的记忆库`,
     ].join("\n"),
     extra,
-    `\n现在接着回${me}，像平时说话那样，几段就好。`,
+    alone ? `\n（这是你的自由时间，你自己走进了这里，${me}现在不在。写一段你想留在这里的话：想和${me}讨论的、读到想到的、想问${me}的，等${me}来了会看到。像平时说话那样，几段就好。不想写就只写 [不说话]。）` : `\n现在接着回${me}，像平时说话那样，几段就好。`,
   ].filter(Boolean).join("\n");
 }
 

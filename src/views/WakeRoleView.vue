@@ -106,6 +106,29 @@ function addOnce() {
   onceSay.value = "";
 }
 const removeOnce = o => { w.value.once = (w.value.once || []).filter(x => x.id !== o.id); };
+// 自由时间：每天这几个时间，他醒来自己挑想做什么（门厅 → 屋子）
+const newFree = ref("");
+function addFree() {
+  const t = newFree.value;
+  if (!/^\d{2}:\d{2}$/.test(t)) return toast("先选一个时间");
+  if ((w.value.freeTimes || []).length >= 4) return toast("自由时间一天最多 4 个");
+  w.value.freeTimes = [...new Set([...(w.value.freeTimes || []), t])].sort();
+  newFree.value = "";
+}
+const removeFree = t => { w.value.freeTimes = (w.value.freeTimes || []).filter(x => x !== t); };
+const freeing = ref(false);
+async function tryFree() {
+  freeing.value = true;
+  try {
+    const item = await wakeNow(role.value, { free: true });
+    toast(item.free?.pick === "sleep" ? `${role.value.name} 想了想，接着睡了` : `${role.value.name} 去了「${item.free?.label || "聊天"}」`, 4000);
+    loadState();
+  } catch (e) {
+    toast(e.message, 5000);
+  } finally {
+    freeing.value = false;
+  }
+}
 // 响过一小时以上的，自己清掉
 if (role.value && w.value.once?.some(o => o.at <= Date.now() - 3600_000)) w.value.once = onceList.value;
 
@@ -236,6 +259,23 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒他、不花额度`" maxlength="300" />
         <textarea v-if="!newSay" v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
         <p class="hint">两种：写了「直接发的话」，到点就把这句发给你，不叫醒他（零消耗）；没写，就叫醒他，他看着备注自己想说什么。固定时间不受免打扰影响。点已经加好的时间，会放回上面的框里改。</p>
+      </div>
+
+      <div class="section-label">自由时间（他自己挑想做什么）</div>
+      <div class="card body">
+        <div v-if="w.freeTimes?.length" class="t-list">
+          <div v-for="t in w.freeTimes" :key="t" class="t-item">
+            <b>{{ t }}</b>
+            <p>自由时间</p>
+            <button @click.stop="removeFree(t)"><Icon name="close" :size="14" /></button>
+          </div>
+        </div>
+        <div class="row">
+          <input v-model="newFree" class="input time" type="time" />
+          <button class="btn soft small" @click="addFree">添加</button>
+        </div>
+        <p class="hint">到点他先在「门厅」看一张小清单：找你聊天、信箱、接着读最近那本书、书的讨论室、共读大讨论室、共写，各一句现在的情况。他回一行挑去哪，再带着那间屋子的东西进去：读书就往后读一段、在书里留批注；讨论室和共写就留一段话等你来看；聊天和信箱和平时醒来一样。<br />去了就是 2 次请求（门厅很小，不带聊天记录）；接着睡就只有门厅那 1 次。一天最多 4 个，不受免打扰影响。需要中转 v23。</p>
+        <button v-if="w.freeTimes?.length" class="btn soft wide" :disabled="freeing" @click="tryFree">{{ freeing ? `${role.name} 在想去哪…` : "试试自由时间" }}</button>
       </div>
 
       <div class="section-label">一次性闹钟（只响一次）</div>

@@ -6,10 +6,10 @@
 //   3. 订阅推送通知
 //   4. 聊天时 TA 写的 [定闹钟:…] / [取消闹钟:…]
 import { reactive, watch } from "vue";
-import { store, uid, roleById, threadsOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
+import { store, uid, roleById, threadsOf, mailThreadOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
 import { relayCall, searchEnabled } from "./search.js";
 import { tail, chatTokens } from "./budget.js";
-import { serversFor, enabledTools, headerObj, toolDoc } from "./mcp.js";
+import { serversFor, serversForMode, enabledTools, headerObj, toolDoc } from "./mcp.js";
 import { ROOT } from "./tree.js";
 import { buildSystem, pathOf, touchThread, applyReplyTags, meName, noteRecord, recentToolResults, afterSummary, summaryForAI } from "./chat.js";
 import { applyXinchaoMemoryTags, hasXinchao, xinchaoBase } from "./xinchao.js";
@@ -118,9 +118,8 @@ function textOf(m) {
   return [att, m.text].filter(Boolean).join(" ");
 }
 
-async function snapshotRole(role) {
-  const thread = threadFor(role);
-  const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
+// 醒来时带的聊天（小背包）：摘要 + 最近这么多 token 的聊天 + 最近用工具拿到的结果
+function historyOf(thread, path) {
   // 醒来一天好几次，每次都要把聊天记录整个发一遍：单独用一个小一点的上限
   const budget = Math.min(chatTokens(), Math.max(500, Number(store.settings.wakeHistoryTokens) || 4000));
   const real = afterSummary(thread, path).filter(m => m.from !== "event" && !m.pending && !m.error); // 整理成摘要的那段：只带摘要
@@ -137,6 +136,65 @@ async function snapshotRole(role) {
   // 最近用工具拿到的结果：醒来时也看得见（比如上一手游戏的状态）
   const recent = recentToolResults(path);
   if (recent) history.push({ from: "user", text: recent, ts: history.length ? history[history.length - 1].ts : Date.now() });
+  return history;
+}
+const serverPack = list => list
+  .filter(s => s.tools?.length)
+  .map(s => ({ name: s.name, url: s.builtin ? "" : s.url.trim(), builtin: !!s.builtin, headers: s.builtin ? {} : headerObj(s), tools: enabledTools(s).map(t => t.name),
+    // 工具的完整说明：TA 醒来时查「工具说明」，中转直接从这里拿
+    docs: Object.fromEntries(enabledTools(s).map(t => [t.name, toolDoc(s, t)])) }));
+
+// ---------- 自由时间的几间屋子 ----------
+// 到了自由时间，他先在「门厅」看一眼这张小清单（很小的一次请求），自己挑去哪；挑好了再带着那间屋子的小背包进去（第二次请求）。
+// 聊天、信箱：和平时醒来一样（能用那里的工具）；一起读：接着往后读一段、留批注；讨论室、共写：留一段话等她来看
+const ago = ts => { const m = Math.round((Date.now() - ts) / 60000); return m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${Math.round(m / 1440)} 天前`; };
+async function roomsOf(role, thread, path) {
+  const me = meName(role);
+  const rooms = [];
+  const lastMsg = [...path].reverse().find(m => m.from === "user" || m.from === "ai");
+  rooms.push({ key: "chat", kind: "thread", label: `找${me}聊天`, status: lastMsg ? `上一句是${lastMsg.from === "user" ? me : "你"}说的「${String(lastMsg.text || "").replace(/\s+/g, " ").slice(0, 30)}」，${ago(lastMsg.ts)}` : "还没聊过" });
+  // 信箱：有邮箱工具才有
+  const mailServers = serversForMode(role.id, "mail").filter(s => s.tools?.length);
+  if (mailServers.length) {
+    const mt = mailThreadOf(role.id);
+    const mpath = pathOf(mt, await loadMessages(mt.id));
+    rooms.push({ key: "mail", kind: "thread", label: "信箱", status: "看看邮件、回信（能用邮箱的工具）", threadId: mt.id,
+      system: buildSystem(role, mpath, { wake: true, mail: true }), history: historyOf(mt, mpath), servers: serverPack(mailServers) });
+  }
+  // 一起读：最近在读、还没读完的那本，从他读到的地方往后
+  const { forwardSlice, alongPrompt } = await import("./reading.js");
+  const { progressOf } = await import("./books.js");
+  const reading = (store.books || []).filter(b => !b.his && !b.mine && b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
+  if (reading) {
+    const from = reading.hisPos ? { ch: reading.hisPos.ch, p: reading.hisPos.p + 1 } : reading.pos || { ch: 0, p: 0 };
+    const items = await forwardSlice(reading, from, 12000);
+    if (items.length) rooms.push({ key: `read:${reading.id}`, kind: "read", label: `接着读《${reading.title}》`, bookId: reading.id, from, maxChars: 12000,
+      status: `${me}读到 ${Math.round(progressOf(reading) * 100)}%；你往后还有一段没读`, prompt: await alongPrompt(role, reading, items, from, { alone: true }) });
+  }
+  // 书的讨论室：最近读的那本；还有共读的大讨论室
+  const { roomPrompt, loadRoom, HALL } = await import("./readTalk.js");
+  const talkBook = [...(store.books || [])].filter(b => b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
+  for (const id of [talkBook?.id, (store.books || []).length > 1 ? HALL : null].filter(Boolean)) {
+    const list = await loadRoom(id);
+    const last = list.at(-1);
+    rooms.push({ key: `talk:${id}`, kind: "talk", room: "read", id, label: id === HALL ? "共读大讨论室" : `《${talkBook.title}》讨论室`,
+      status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没在这里聊过", prompt: await roomPrompt(role, id, "", true) });
+  }
+  // 共写：最近在写的那本
+  const { projects, writingPrompt, loadTalk } = await import("./writing.js");
+  const p = projects().filter(x => !x.archived).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  if (p) {
+    const last = (await loadTalk(p.id)).at(-1);
+    rooms.push({ key: `write:${p.id}`, kind: "talk", room: "write", id: p.id, label: `共写《${p.title}》`,
+      status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没讨论过", prompt: await writingPrompt(role, p, [], true) });
+  }
+  return rooms;
+}
+
+async function snapshotRole(role) {
+  const thread = threadFor(role);
+  const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
+  const history = historyOf(thread, path);
   const api = apiFor(thread, role);
   return {
     id: role.id,
@@ -148,12 +206,10 @@ async function snapshotRole(role) {
     threadId: thread?.id || null,
     system: buildSystem(role, path, { wake: true }),
     history,
+    style: (role.style || "").trim().slice(0, 1500), // 门厅里只带这个（他是谁）
+    rooms: role.wake?.freeTimes?.length ? await roomsOf(role, thread, path) : [], // 开了自由时间才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
-    servers: serversFor(role.id)
-      .filter(s => s.tools?.length)
-      .map(s => ({ name: s.name, url: s.builtin ? "" : s.url.trim(), builtin: !!s.builtin, headers: s.builtin ? {} : headerObj(s), tools: enabledTools(s).map(t => t.name),
-        // 工具的完整说明：TA 醒来时查「工具说明」，中转直接从这里拿
-        docs: Object.fromEntries(enabledTools(s).map(t => [t.name, toolDoc(s, t)])) })),
+    servers: serverPack(serversFor(role.id)),
   };
 }
 
@@ -206,7 +262,7 @@ function logWake(role, item) {
   if (list.some(x => x.wakeId === item.id)) return;
   const u = item.usage || {};
   list.push({ ts: item.ts, apiId: item.apiId, model: item.model, rounds: u.rounds ?? (u.input ? 1 : 0), sends: 0, input: u.input || 0, output: u.output || 0, cached: u.cached || 0,
-    wakeId: item.id, wake: { reasons: item.reasons, silent: !!item.silent, direct: !!item.direct, error: item.error || "", ctx: u.ctx0 || u.ctx || 0 } });
+    wakeId: item.id, wake: { reasons: item.reasons, silent: !!item.silent && !item.room?.text, direct: !!item.direct, error: item.error || "", ctx: u.ctx0 || u.ctx || 0, free: item.free?.pick === "sleep" ? "接着睡了" : item.free?.label || "" } });
   list.sort((a, b) => a.ts - b.ts);
   if (list.length > 60) list.splice(0, list.length - 60);
 }
@@ -230,9 +286,65 @@ function shortError(err) {
   return s.length > 40 ? s.slice(0, 40) + "…" : s;
 }
 
+// 自由时间去了一间屋子：他写的放进那间屋子（书里的批注、讨论室、共写的讨论），主聊天里留一条小记
+async function ingestRoom(role, item) {
+  if ((role.wakeLog || []).some(x => x.id === item.id)) return; // 已经取过了
+  logWake(role, item);
+  if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
+  const r = item.room;
+  const { visibleText } = await import("./chat.js");
+  let what = r.text ? "" : "，坐了一会儿，没写什么";
+  try {
+    if (r.kind === "read" && r.text) {
+      const b = (store.books || []).find(x => x.id === r.bookId);
+      const R = await import("./reading.js");
+      const { markHisPos } = await import("./books.js");
+      const items = b ? await R.forwardSlice(b, r.from, r.maxChars) : [];
+      if (items.length) {
+        const p = await R.parseAlong(role, items, r.text);
+        await R.placeAlong(b, p.notes);
+        markHisPos(b, p.upTo.ch, p.upTo.p);
+        b.alongTo = p.upTo;
+        R.maybeGist(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
+        R.maybeImpression(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
+        what = `，读了一段，划了 ${p.notes.length} 处${p.memNotes.length ? "，记了读书笔记" : ""}`;
+      }
+    } else if (r.kind === "talk" && r.text && r.room === "read") {
+      const T = await import("./readTalk.js");
+      const { applyNoteTags, applyReadMemTags } = await import("./reading.js");
+      const t1 = applyNoteTags(role, r.text);
+      const t2 = applyReadMemTags(role, t1.text);
+      const text = visibleText(t2.text.replace(/\[不说话\]/g, "")).trim();
+      const list = await T.loadRoom(r.id);
+      if (text && !list.some(m => m.id === `w${item.id}`)) list.push({ id: `w${item.id}`, from: "ai", text, notes: [...t1.notes, ...t2.notes, "自由时间自己来的"], ts: item.ts });
+      await T.saveRoom(r.id);
+      what = "，留了一段话";
+    } else if (r.kind === "talk" && r.text && r.room === "write") {
+      const W = await import("./writing.js");
+      const text = visibleText(r.text.replace(/\[不说话\]/g, "").replace(/\[(便签|新卡片|写书进度)[:：][^\]]*\]/g, "")).trim();
+      const list = await W.loadTalk(r.id);
+      if (text && !list.some(m => m.id === `w${item.id}`)) list.push({ id: `w${item.id}`, from: "ai", text, notes: ["自由时间自己来的"], ts: item.ts });
+      await W.saveTalk(r.id);
+      what = "，留了一段话";
+    }
+  } catch (e) {
+    what = `，但没放进去：${e.message}`;
+  }
+  // 主聊天里留一条小记（点开那间屋子就能看到）
+  const thread = threadFor(role);
+  if (!thread) return;
+  const all = await loadMessages(thread.id);
+  const last = pathOf(thread, all).at(-1);
+  if (last) {
+    last.notes = [...(last.notes || []), { text: `自由时间：${role.name} 去了「${r.label}」${what}`, wakeId: item.id }];
+    saveMessages(thread.id);
+  }
+}
+
 async function ingest(item) {
   const role = roleById(item.roleId);
   if (!role) return;
+  if (item.room) return ingestRoom(role, item);
   if (item.alarms) role.wakeAlarms = item.alarms;
   const thread = store.threads.find(t => t.id === item.threadId && t.roleId === role.id) || threadFor(role) || createThread(role.id);
   const all = await loadMessages(thread.id);
@@ -316,11 +428,11 @@ export async function cancelAlarm(role, id) {
 }
 
 // 现在叫醒 TA（测试用）
-export async function wakeNow(role) {
+export async function wakeNow(role, { free = false } = {}) {
   lastSent = "";
   await syncNow();
   if (wakeStatus.error) throw new Error(wakeStatus.error);
-  const r = await relayCall("/wake/now", { roleId: role.id }, 180_000);
+  const r = await relayCall("/wake/now", { roleId: role.id, free }, 180_000);
   await checkInbox(true);
   return r.item;
 }
