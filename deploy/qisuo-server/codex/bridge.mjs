@@ -389,12 +389,14 @@ async function route(req, res, url) {
       if (!Array.isArray(b.attachments || []) || (b.attachments || []).length > 4) throw new Error("每条消息最多 4 个附件");
       const attachments = (b.attachments || []).map(file => fileMeta(t, file));
       if (!text && !attachments.length) return json(res, 400, { error: { message: "说点什么" } });
-      // 不依赖未确认的模型文件协议：图片、视频和文件均通过只读本地路径供 Codex 工具读取。
+      // 文件都写上只读路径，Codex 用工具去读；图片另外按 localImage 直接给它看（不认这种输入就退回只给路径）
       const description = attachments.map(a => `附件：${a.name} (${a.type}, ${a.size} 字节)，本地只读路径：${a.path}`).join("\n");
-      const input = [{ type: "text", text: [text, description].filter(Boolean).join("\n\n") }];
+      const plain = [{ type: "text", text: [text, description].filter(Boolean).join("\n\n") }];
+      const images = attachments.filter(a => /^image\/(png|jpeg|gif|webp)$/.test(a.type)).map(a => ({ type: "localImage", path: a.path }));
+      const withImages = async run => { if (images.length) { try { return await run([...plain, ...images]); } catch { /* 退回只给路径 */ } } return run(plain); };
       emit("qisuo/user/message", { threadId: id, text, attachments, steer: !!t.turnId });
-      if (t.turnId) { const r = await call("turn/steer", { threadId: id, input, expectedTurnId: t.turnId }); return json(res, 200, { turnId: r.turnId, steer: true }); }
-      const r = await call("turn/start", { threadId: id, input });
+      if (t.turnId) { const r = await withImages(input => call("turn/steer", { threadId: id, input, expectedTurnId: t.turnId })); return json(res, 200, { turnId: r.turnId, steer: true }); }
+      const r = await withImages(input => call("turn/start", { threadId: id, input }));
       t.turnId = r.turn?.id;
       saveThreads();
       return json(res, 200, { turnId: t.turnId });

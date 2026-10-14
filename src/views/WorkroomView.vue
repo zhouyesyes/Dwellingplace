@@ -187,7 +187,7 @@ async function send() {
     const id = cur.value;
     const attached = [];
     for (const f of files.value) attached.push(await uploadAttachment(id, f.file));
-    if (mode) { const p = talk(role.value, id, text, attached); down(); await p; }
+    if (mode) { const p = talk(role.value, id, text, attached, files.value.map(f => f.file)); down(); await p; }
     else { await say(id, text, attached); }
     while (files.value.length) removeFile(0);
     down();
@@ -205,7 +205,27 @@ const CMD_STATE = { inProgress: "运行中", completed: "完成", failed: "失�
 const TURN_STATE = { completed: "这一轮做完了", interrupted: "这一轮停下了", failed: "这一轮出错了" };
 const DECISION = { accept: "允许了这一次", acceptForSession: "这次任务里都允许", decline: "没允许", cancel: "没允许，并停下了" };
 const KIND = { add: "新建", delete: "删除", update: "修改" };
-const openOut = ref({}); // 哪条命令的输出展开着
+const openOut = ref({}); // 哪条命令展开着（整条命令 + 输出）
+// 连着跑的命令收成一行「跑了 N 条命令」，点开才看每一条（命令太长，摊开一大串看不懂）
+const openGrp = ref({});
+const shown = computed(() => {
+  const out = [];
+  for (const it of timeline.value) {
+    const last = out[out.length - 1];
+    if (it.kind !== "command") out.push(it);
+    else if (last?.kind === "cmds") last.list.push(it);
+    else out.push({ kind: "cmds", id: `g:${it.id}`, list: [it] });
+  }
+  return out;
+});
+const firstLine = c => { const l = cmdText(c).split("\n")[0]; return l.length > 36 ? l.slice(0, 36) + "…" : l; };
+const grpState = list => (list.some(c => c.status === "inProgress") ? "inProgress" : list.some(c => c.status === "failed") ? "failed" : "completed");
+function grpLabel(list) {
+  const now = list.find(c => c.status === "inProgress");
+  if (now) return `正在跑：${firstLine(now.command)}`;
+  const bad = list.filter(c => c.status === "failed").length;
+  return `跑了 ${list.length} 条命令${bad ? `，${bad} 条没成功` : ""}`;
+}
 const openDiff = ref({});
 const diffLines = d => String(d || "").split("\n").map(l => ({ l, c: /^\+(?!\+\+)/.test(l) ? "add" : /^-(?!--)/.test(l) ? "del" : /^@@/.test(l) ? "hunk" : "" }));
 const dur = ms => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
@@ -304,7 +324,7 @@ const RULES = [
       </div>
       <main ref="scroller" class="tl">
         <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
-        <template v-for="(it, i) in timeline" :key="it.id || i">
+        <template v-for="(it, i) in shown" :key="it.id || i">
           <div v-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}</a></div>
           <div v-if="it.kind === 'talkMe'" class="me"><p>{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'talkHim'" class="him">
@@ -324,13 +344,20 @@ const RULES = [
             <p v-for="(s, k) in it.steps || []" :key="k" :class="s.status"><i>{{ s.status === "completed" ? "✓" : s.status === "inProgress" ? "▸" : "○" }}</i>{{ s.step }}</p>
             <p v-if="!it.steps && it.text">{{ it.text }}</p>
           </div>
-          <div v-else-if="it.kind === 'command'" class="card cmd" :class="it.status">
-            <div class="cmd-head" @click="openOut[it.id] = !openOut[it.id]">
-              <code>$ {{ cmdText(it.command) }}</code>
-              <span class="badge"><i v-if="it.auto" class="auto">自动放行</i>{{ CMD_STATE[it.status] || "…" }}<template v-if="it.exitCode != null"> · {{ it.exitCode }}</template><template v-if="it.durationMs"> · {{ dur(it.durationMs) }}</template></span>
-            </div>
-            <pre v-if="(openOut[it.id] ?? it.status === 'inProgress') && it.output" class="out">{{ it.output }}</pre>
-            <small v-else-if="it.output" class="muted tap" @click="openOut[it.id] = true">看输出（{{ it.output.split("\n").length }} 行）</small>
+          <div v-else-if="it.kind === 'cmds'" class="cmds">
+            <button class="cmds-head" @click="openGrp[it.id] = !openGrp[it.id]">
+              <i class="st" :class="grpState(it.list)" /><span>{{ grpLabel(it.list) }}</span><em>{{ openGrp[it.id] ? "收起 ▴" : "展开 ▾" }}</em>
+            </button>
+            <template v-if="openGrp[it.id]">
+              <div v-for="c in it.list" :key="c.id" class="card cmd" :class="c.status">
+                <div class="cmd-head" @click="openOut[c.id] = !openOut[c.id]">
+                  <code :class="{ clamp: !openOut[c.id] }">$ {{ cmdText(c.command) }}</code>
+                  <span class="badge"><i v-if="c.auto" class="auto">自动放行</i>{{ CMD_STATE[c.status] || "…" }}<template v-if="c.exitCode != null"> · {{ c.exitCode }}</template><template v-if="c.durationMs"> · {{ dur(c.durationMs) }}</template></span>
+                </div>
+                <pre v-if="openOut[c.id] && c.output" class="out">{{ c.output }}</pre>
+                <small v-else-if="c.output" class="muted tap" @click="openOut[c.id] = true">看输出（{{ c.output.split("\n").length }} 行）</small>
+              </div>
+            </template>
           </div>
           <div v-else-if="it.kind === 'files'" class="card files">
             <b>改了文件<i v-if="it.auto" class="auto">自动放行</i></b>
@@ -460,6 +487,14 @@ const RULES = [
 .cmd.completed { border-left-color: #6fbf73; }
 .cmd-head { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
 .cmd-head code { flex: 1; font: .8rem ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; color: var(--text); }
+.cmd-head code.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.cmds { display: flex; flex-direction: column; gap: 6px; }
+.cmds-head { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: var(--card); box-shadow: var(--shadow-soft); border-radius: 12px; padding: 8px 12px; font-size: .8rem; color: var(--text-2); text-align: left; }
+.cmds-head span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmds-head em { font-style: normal; font-size: .7rem; color: var(--text-3); flex: none; }
+.cmds-head .st { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #6fbf73; }
+.cmds-head .st.failed { background: var(--danger); }
+.cmds-head .st.inProgress { background: var(--accent); animation: hop 1.2s infinite; }
 .badge { font-size: .68rem; color: var(--text-3); white-space: nowrap; }
 .out, .diff { margin: 8px 0 2px; max-height: 320px; overflow: auto; font: .74rem/1.5 ui-monospace, Menlo, monospace; background: var(--bg-deep); color: var(--text-2); padding: 8px 10px; border-radius: 8px; white-space: pre; }
 .diff .add { color: #3f8f4f; background: rgba(111, 191, 115, .12); display: block; }
