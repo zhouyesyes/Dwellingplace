@@ -39,6 +39,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/mai
 
 已知的限制：命令和 Codex 是同一个用户，所以命令读得到 Codex 的登录文件；有门卫在，它只能连 OpenAI，带不出去。
 
+## 浏览器
+
+工作间里装了一个没有界面的浏览器（Playwright + Chromium，带中文字体），和 cc 检查界面用的一样。Codex 改了网页可以自己起本地服务、按手机尺寸截图、看图检查。它是干净的，没有任何账号；他聊天时用的那个浏览器（qisuo-chrome，存着你帮他登录的网站）和工作间不通。
+
 ## 连接程序的接口
 
 都在 `/p/<口令>/codex/` 下面，见 `deploy/qisuo-server/codex/bridge.mjs` 开头的说明：状态和额度、设备码登录、项目、线程、说话或插话、中断、审批、实时过程（SSE，断线后带着编号重连，从断点补回）。

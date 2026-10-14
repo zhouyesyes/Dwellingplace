@@ -77,7 +77,8 @@ function start() {
   ready = false;
   srv = spawn("codex", ["app-server"], {
     uid: UID, gid: UID, cwd: WORK,
-    env: { PATH: process.env.PATH, HOME: path.dirname(CODEX_HOME), CODEX_HOME, HTTPS_PROXY: process.env.HTTPS_PROXY || "", HTTP_PROXY: process.env.HTTP_PROXY || "", NO_PROXY: "localhost,127.0.0.1", LANG: "C.UTF-8" },
+    env: { PATH: process.env.PATH, HOME: path.dirname(CODEX_HOME), CODEX_HOME, HTTPS_PROXY: process.env.HTTPS_PROXY || "", HTTP_PROXY: process.env.HTTP_PROXY || "", NO_PROXY: "localhost,127.0.0.1", LANG: "C.UTF-8",
+      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || "", NODE_PATH: process.env.NODE_PATH || "" }, // 浏览器（截图检查用）
     stdio: ["pipe", "pipe", "pipe"],
   });
   srv.stderr.on("data", d => process.stderr.write(d));
@@ -188,6 +189,13 @@ function onRequest(m) {
   send({ id: m.id, error: { code: -32601, message: "栖所工作间还不支持这个请求" } });
 }
 
+// 每个新任务都告诉 Codex 的几句：用中文；有浏览器可以截图检查；只能上 OpenAI
+const BASE_INSTRUCTIONS = [
+  "用中文回复。",
+  "这台机器上有一个没有界面的浏览器：Playwright + Chromium 已经全局装好（在 node 里直接 require('playwright') 或 import 'playwright'），带中文字体。改了网页、要看界面对不对时，可以写个小脚本：起一个本地服务（比如 npx vite --port 5199 或 node 的 http 模块），用 chromium.launch() 打开，按手机尺寸（390×844）截图存到 /tmp，再用看图工具看截图。",
+  "网络：只能连 OpenAI，别的网站（包括 npm、GitHub）默认都连不上；需要的话先说明，让她决定要不要放行。",
+].join("\n");
+
 // ---------- HTTP ----------
 const sameKey = k => { const a = Buffer.from(String(k || "")), b = Buffer.from(KEY); return a.length === b.length && timingSafeEqual(a, b); };
 const json = (res, code, v) => { res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(v)); };
@@ -238,7 +246,7 @@ async function route(req, res, url) {
     const b = await body(req);
     const project = projectName(b.project);
     if (!project || !listProjects().includes(project)) return json(res, 400, { error: { message: "没有这个项目" } });
-    const r = await call("thread/start", { cwd: path.join(WORK, project), sandbox: "danger-full-access", approvalPolicy: "untrusted", ...(b.instructions ? { developerInstructions: String(b.instructions).slice(0, 20_000) } : {}), ...(b.model ? { model: b.model } : {}) });
+    const r = await call("thread/start", { cwd: path.join(WORK, project), sandbox: "danger-full-access", approvalPolicy: "untrusted", developerInstructions: [BASE_INSTRUCTIONS, String(b.instructions || "").slice(0, 20_000)].filter(Boolean).join("\n\n"), ...(b.model ? { model: b.model } : {}) });
     const t = { id: r.thread.id, project, title: String(b.title || "").slice(0, 60) || project, createdAt: Date.now(), updatedAt: Date.now(), status: "open", model: r.thread.model };
     threads[t.id] = t;
     saveThreads();

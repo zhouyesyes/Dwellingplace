@@ -7,6 +7,8 @@ import { planPercents } from "../lib/quota.js";
 import { wr, refresh as refreshWork, limitsOf } from "../lib/workroom.js";
 // Codex 额度（工作间）：OpenAI 叫 Agentic usage limit，和 ChatGPT for Excel 这些共用。装了工作间才有
 const codexLimits = computed(() => limitsOf(wr.status?.rateLimits));
+// 会员额度：聊天和 Codex 共用一份（ChatGPT 里叫 Agentic usage limit）；工作间查得到就用它的（更准、带恢复时间）
+const sharedBars = computed(() => codexLimits.value.map(l => ({ label: l.label, left: 100 - l.used, reset: resetIn(l.resetsAt) })));
 onMounted(() => { refreshWork().catch(() => {}); });
 const resetIn = s => { if (!s) return ""; const m = Math.round((s * 1000 - Date.now()) / 60000); return m <= 0 ? "" : m < 60 ? `${m} 分钟后恢复` : m < 1440 ? `${Math.round(m / 60)} 小时后恢复` : `${Math.round(m / 1440)} 天后恢复`; };
 import SubHeader from "../components/SubHeader.vue";
@@ -112,13 +114,14 @@ const showTurns = ref(false);
       </template>
     </div>
 
-    <div v-if="codexLimits.length" class="card plan">
-      <div class="plan-top"><b>Codex 额度（工作间）</b><span class="muted small">{{ wr.status?.account?.planType || "" }}</span></div>
-      <div v-for="l in codexLimits" :key="l.label" class="bar-row">
-        <div class="bar-label"><span>{{ l.label }}</span><span>还剩 {{ 100 - l.used }}%<template v-if="resetIn(l.resetsAt)"> · {{ resetIn(l.resetsAt) }}</template></span></div>
-        <div class="bar"><i :style="{ width: (100 - l.used) + '%' }" :class="{ low: l.used >= 80 }" /></div>
+    <!-- 没有接 ChatGPT 会员的 API、但工作间里登录了：也显示这份额度 -->
+    <div v-if="!planApis.length && sharedBars.length" class="card plan">
+      <div class="plan-top"><b>ChatGPT 会员额度</b><span class="muted small">{{ wr.status?.account?.planType || "" }}</span></div>
+      <div v-for="b in sharedBars" :key="b.label" class="bar-row">
+        <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
+        <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
       </div>
-      <p class="muted small">ChatGPT 里叫「Agentic usage limit」：Codex 和别的智能体功能共用，和平时在 ChatGPT 里聊天是分开算的。</p>
+      <p class="muted small">聊天和工作间（Codex）用的是同一份额度。</p>
     </div>
 
     <div v-for="a in planApis" :key="a.id" class="card plan">
@@ -129,6 +132,11 @@ const showTurns = ref(false);
       <p v-if="plan[a.id]?.loading" class="muted">正在查…</p>
       <p v-else-if="plan[a.id]?.error" class="bad">查不到：{{ plan[a.id].error }}</p>
       <p v-else-if="plan[a.id]?.st && !plan[a.id].st.connected" class="bad">还没登录：去「设置 → API → {{ a.name }}」里用 ChatGPT 登录</p>
+      <div v-for="b in sharedBars" :key="'s' + b.label" class="bar-row">
+        <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
+        <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
+      </div>
+      <p v-if="sharedBars.length" class="muted small">聊天和工作间（Codex）用的是同一份额度，这是工作间那边查到的最新数字。</p>
       <template v-else-if="plan[a.id]?.st">
         <div v-for="b in bars(plan[a.id].st.limits)" :key="b.label" class="bar-row">
           <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
