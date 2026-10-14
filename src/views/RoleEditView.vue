@@ -210,6 +210,10 @@ async function remove() {
           <input v-model.trim="form.me.name" class="input" placeholder="例如：存在" />
         </label>
       </div>
+      <div class="field">
+        <span>我的代表色<small>（我的头像底色、纪念日）</small></span>
+        <ColorSwatches v-model="store.profile.color" :colors="PALETTE" />
+      </div>
     </div>
 
     <div class="section-label">我是谁 · 说话的样子</div>

@@ -433,6 +433,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 /* 整页固定、里面自己滚：输入框不会被 iPhone 的键盘顶来顶去。页头和输入框都浮在讨论上面，讨论从它们下面滑过去 */
 .proj { position: fixed; inset: 0; height: 100dvh; overflow: hidden; }
 .page-bg { position: absolute; inset: 0; background: var(--bg); background-size: cover; background-position: center; }
+.has-bg .page-bg { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
 .top { position: absolute; top: 0; left: 0; right: 0; z-index: 2; pointer-events: none; padding-bottom: 22px; background: linear-gradient(var(--bg) 55%, transparent); }
 .has-bg .top { background: none; }
 .bar { display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 14px 0; }

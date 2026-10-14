@@ -47,7 +47,7 @@ function rename() {
 
 <template>
   <div class="home">
-    <div class="cover" :style="cover ? { backgroundImage: `url(${cover})` } : {}" @click="changeCover" />
+    <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : {}" @click="changeCover" />
     <div class="head">
       <!-- 我和他的头像挨在一起；右边是进聊天的入口 -->
       <div class="duo">
@@ -86,6 +86,7 @@ function rename() {
   background-position: center;
   cursor: pointer;
 }
+.cover.img { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
 .head { max-width: 680px; margin: 0 auto; padding: 0 18px; }
 @media (min-width: 760px) { .head { max-width: 820px; padding: 0 28px; } }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }

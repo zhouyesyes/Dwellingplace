@@ -162,7 +162,7 @@ function removeEdit() {
   overflow: hidden;
   color: var(--text);
 }
-.card.img { text-shadow: 0 0 8px rgba(255, 255, 255, .85); }
+.card.img { text-shadow: 0 0 8px rgba(var(--glass-rgb), .85); box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
 .mountains { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 28%; }
 .t { position: relative; font-size: 0.8rem; color: var(--text-2); display: flex; align-items: center; gap: 5px; }
 .card.img .t { color: var(--text); }

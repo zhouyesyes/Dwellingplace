@@ -862,6 +862,7 @@ async function changeAvatarOf(who) {
   background-size: cover;
   background-position: center;
 }
+.has-bg .bg { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); } /* 深色模式：背景图压暗一层 */
 
 /* 顶部 */
 .top {

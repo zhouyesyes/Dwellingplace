@@ -136,6 +136,11 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 .folder .tab { position: absolute; top: -8px; left: 0; width: 42%; height: 12px; border-radius: 6px 10px 0 0; background: color-mix(in srgb, #ebebef var(--pastel), var(--card)); }
 .folder.empty { background: color-mix(in srgb, #f6f6f8 var(--pastel), var(--card)); box-shadow: none; }
 .folder.empty .tab { background: color-mix(in srgb, #e6e6ea var(--pastel), var(--card)); }
+/* 深色：抽屉底和卡片一个颜色，资料夹提亮一点才分得出来；空的那几个暗一点 */
+:root[data-theme="dark"] .folder { background: #323743; box-shadow: 0 3px 12px rgba(0, 0, 0, .25); }
+:root[data-theme="dark"] .folder .tab { background: #3c4250; }
+:root[data-theme="dark"] .folder.empty { background: #2b2f39; box-shadow: none; }
+:root[data-theme="dark"] .folder.empty .tab { background: #333844; }
 .folder b { font-size: calc(.95rem * var(--wf, 1)); display: flex; align-items: center; gap: 7px; }
 .mark { width: 7px; height: 7px; border-radius: 50%; background: #ffadc6; flex: none; }
 .c1 .mark { background: #ffcb85; } .c2 .mark { background: #8fd3f4; } .c3 .mark { background: #a6e3a1; }
