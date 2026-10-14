@@ -53,7 +53,7 @@ function usageLine(api) {
         </select>
       </label>
       <button class="list-row" @click="router.push('/settings/billing')">
-        <Icon name="box" :size="20" /> <span class="grow">用量和余额<span class="sub">每天用了多少次、多少 tokens；DeepSeek、OpenRouter 的余额</span></span><Icon name="right" class="chev" :size="18" />
+        <Icon name="box" :size="20" /> <span class="grow">用量和余额<span class="sub">额度怎么算、每一轮请求了几次；每天的 tokens 和余额</span></span><Icon name="right" class="chev" :size="18" />
       </button>
       <button class="list-row add" @click="router.push('/settings/api/new')">
         <Icon name="plus" :size="20" /> <span class="grow">添加 API</span>

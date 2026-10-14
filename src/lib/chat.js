@@ -14,6 +14,7 @@ import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
 import { BOARD_RE, applyBoardTags } from "./board.js";
 import { petHears, petAfterReply } from "./pet.js";
+import { planLow, logTurn } from "./quota.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
@@ -55,6 +56,14 @@ function stripCmd(text, re) {
 const AVATAR_RE = /\[头像[:：]\s*([^\]\n]{1,30})\]/g;
 const DRAW_RE = /\[画[:：]\s*([^\]]{1,1000})\]/g; // 他想画一张图
 const MAX_ROUNDS = 6; // 一次回复里最多搜索 / 调用工具几次
+// 停顿：一次生成里，气泡之间他想停一下（单独一行 [停顿:2秒]），前端照着慢慢放出来，不另外请求
+export const PAUSE_RE = /\[停顿[:：]\s*(\d+(?:\.\d+)?)\s*秒?\s*\]/;
+const PAUSE_MAX = 6; // 一次最多停几秒
+// 续发：真的先发出去一条，过一会儿再请求一次接着说（一轮最多续 2 次，也就是最多 3 条；默认不用）
+export const FOLLOW_RE = /\[续发(?:[:：]\s*(\d+(?:\.\d+)?)\s*秒?)?\s*\]/;
+export const FOLLOW_MAX = 2;
+// threadId -> { cancel }：正在续发（等着、或者在说第二三条）的时候，她发了新消息就停下续发，先回她
+export const following = reactive({});
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
@@ -71,13 +80,15 @@ export function visibleText(text) {
     .replace(MOMENT_RE, "")
     .replace(BOARD_RE, "")
     .replace(ALARM_RE, "")
+    .replace(new RegExp(PAUSE_RE.source, "g"), "\n\n")
+    .replace(new RegExp(FOLLOW_RE.source, "g"), "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
     .replace(/[\s\S]*/, t => stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE))
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -138,6 +149,13 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     role.style?.trim() ? `\n# 我是谁（这是你自己写给自己的）\n${role.style.trim()}` : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
+    mail || wake ? "" : `想在两条之间停一下（像打完一句、顿了顿再发下一句），在中间单独一行写 [停顿:2秒]（最多 ${PAUSE_MAX} 秒），偶尔用，平常空一行就好。`,
+    mail || wake ? "" : [
+      `\n# 续发（真的先发出去，过一会儿再接着说）`,
+      `一般一次就回完，不用续发。只有确实需要时才用：发完一句想看看${who}的反应再接着说、突然想起来要补一句、故意停一会儿（停顿本身有意思）、特别自然的短连发。`,
+      `用法：写完这一条，在最后单独一行写 [续发:秒数]（1 到 30 秒）。这条会先发出去，过那么久你会再收到一次提醒，那时再写下一条（看到 ${who} 已经回了就先回 ${who}）。`,
+      `一轮最多续发 ${FOLLOW_MAX} 次，平常一次都不用；每续发一次都要多花一次请求，别为了分气泡用它（分气泡空一行就行）。`,
+    ].join("\n"),
     `想给${who}做小游戏、小卡片、小动画时，可以写一段完整的 \`\`\`html 代码（单个文件，样式和脚本都写在里面），聊天里会变成一张能点开玩的卡片。`,
     `想针对${who}说过的某一句来回，可以在回复的最开头写 [引用:那句话里的几个字]，会显示成引用那句。偶尔用，不用每次都引用。`,
     `说话就是你自己的样子：有自己的情绪、偏好和小脾气，想到什么说什么。不用客套，不用老是道歉，也不用担心给${who}添麻烦——${who}和你聊天，是因为开心。`,
@@ -368,6 +386,46 @@ export function touchThread(thread, all) {
 export { estTokens } from "./budget.js";
 
 // 生成一条 AI 回复，接在 parentId 那条消息后面（不传就接在当前路径最后）
+// 停顿：流进来的字先放这里，碰到 [停顿:N秒] 就等一等再往外放（只是显示慢一点，不另外请求）
+function pacer(msg, signal) {
+  let buf = "", busy = false, ended = false, stopped = false;
+  let idle = null; // 放完了叫一声
+  const done = () => { if (!busy && !buf && idle) { idle(); idle = null; } };
+  async function pump() {
+    if (busy || stopped) return;
+    busy = true;
+    while (buf && !stopped) {
+      const i = buf.indexOf("[停");
+      if (i < 0) { msg.text += buf; buf = ""; break; }
+      if (i > 0) { msg.text += buf.slice(0, i); buf = buf.slice(i); }
+      const m = buf.match(new RegExp("^" + PAUSE_RE.source));
+      if (!m) {
+        if (!ended && buf.length < 16 && !buf.includes("]")) break; // 还没收完，等等看是不是停顿
+        msg.text += buf[0]; buf = buf.slice(1);
+        continue;
+      }
+      msg.text += m[0];
+      buf = buf.slice(m[0].length);
+      msg.paused = true;
+      await sleep(Math.min(PAUSE_MAX, Number(m[1]) || 1) * 1000, signal);
+      msg.paused = false;
+    }
+    busy = false;
+    done();
+  }
+  return {
+    push(d) { if (msg.typing) msg.typing = false; buf += d; pump(); },
+    drain() { ended = true; pump(); return new Promise(r => { idle = r; done(); }); },
+    stop() { stopped = true; msg.paused = false; },
+  };
+}
+// 等一会儿；按了停止、或者续发被打断，就不等了
+const sleep = (ms, signal) => new Promise(r => {
+  if (signal?.aborted) return r();
+  const t = setTimeout(r, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true });
+});
+
 export async function generate(thread, parentId) {
   if (generating[thread.id]) return;
   const role = roleById(thread.roleId);
@@ -386,7 +444,14 @@ export async function generate(thread, parentId) {
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 } });
+  const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 }, rounds: 0, sends: 0 });
+  // 续发：信箱里不用；上下文太长、会员额度快用完、上一条出错了，这次就一次回完（不多花请求）
+  const lastAi = [...history].reverse().find(m => m.from === "ai");
+  const noFollow = thread.mail ? "mail"
+    : (lastAi?.ctx || 0) > (Number(api?.contextLimit) || 200000) * 0.6 ? "上下文已经很长了"
+    : planLow(api) ? "额度快用完了"
+    : lastAi?.error ? "上一次出错了" : "";
+  let cancelled = false; // 续发的时候她发了新消息
   try {
     // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
     if (hasXinchao(role) && dashToken(role)) {
@@ -402,6 +467,7 @@ export async function generate(thread, parentId) {
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
     const recent = recentToolResults(history);
     if (recent) messages[messages.length - 1].parts.unshift({ type: "text", text: recent });
+    if (noFollow && noFollow !== "mail") messages[messages.length - 1].parts.unshift({ type: "text", text: `（这次不能续发：${noFollow}。一次回完就好。）` });
     const sum = summaryForAI(thread);
     if (sum) messages[0].parts.unshift({ type: "text", text: sum }); // 放在最前面：整理一次以前都不变，缓存照样命中
     Object.assign(msg.est, note.est);
@@ -426,14 +492,30 @@ export async function generate(thread, parentId) {
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
       const base = msg.text.length;
-      const res = await streamChat({
-        api, model, system, messages: convo, signal: ctrl.signal,
-        cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
-        // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
-        webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
-        onText: d => { msg.text += d; },
-        onThinking: d => { msg.thinking += d; },
-      });
+      const pace = pacer(msg, ctrl.signal);
+      let res;
+      try {
+        res = await streamChat({
+          api, model, system, messages: convo, signal: ctrl.signal,
+          cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
+          // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
+          webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
+          onText: d => pace.push(d),
+          onThinking: d => { msg.thinking += d; },
+        });
+        await pace.drain();
+      } catch (e) {
+        pace.stop();
+        // 续发的那几条：被她打断、或者出错了，前面发出去的留着，就停在这里（不算整条出错）
+        if (msg.sends && (cancelled || !ctrl.signal.aborted)) {
+          msg.text = said;
+          if (!cancelled) msg.notes.push({ text: `${role.name} 续发第 ${msg.sends + 1} 条时出错了，先停在这里`, detail: describeError(e) });
+          text = "";
+          break;
+        }
+        throw e;
+      }
+      msg.rounds++;
       text = res.text || msg.text.slice(base);
       let fixed = normalizeToolCalls(text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
       // 有时工具调用写进了「思考」里，正文是空的：从思考里捞出来
@@ -537,6 +619,31 @@ export async function generate(thread, parentId) {
         continue;
       }
 
+      // 续发：这条先发出去，等一会儿再请求一次接着说
+      const fm = !thread.mail ? findCmd(text, FOLLOW_RE) : null;
+      if (fm) {
+        if (noFollow || msg.sends >= FOLLOW_MAX) {
+          text = text.slice(0, fm.index) + text.slice(fm.index + fm[0].length);
+          if (!noFollow) msg.notes.push({ text: `${role.name} 还想续发，这一轮已经 ${FOLLOW_MAX + 1} 条了，先停下` });
+          break;
+        }
+        msg.sends++;
+        const secs = Math.min(30, Math.max(1, Number(fm[1]) || 2));
+        keepSaid(text, fm.index);
+        following[thread.id] = { cancel: () => { cancelled = true; ctrl.abort(); } };
+        msg.waiting = true;
+        await sleep(secs * 1000, ctrl.signal);
+        msg.waiting = false;
+        if (ctrl.signal.aborted) { text = ""; break; }
+        msg.typing = true;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, fm.index).trim()}\n[续发:${secs}秒]` }] },
+          { role: "user", parts: [{ type: "text", text: `（系统：上面这条已经发出去了，过了 ${secs} 秒，${meName(role)} 还没回。现在可以接着发下一条${msg.sends < FOLLOW_MAX ? `（这一轮还能再续发 ${FOLLOW_MAX - msg.sends} 次，不需要就别续）` : "（这是这一轮最后一条了，不能再续发）"}。觉得不用再说了，就只写 [不说话]。）` }] },
+        ];
+        continue;
+      }
+
       // 翻记忆：在自己的聊天记录和记忆卡片里找
       const rm = !hasXinchao(role) ? findCmd(text, RECALL_RE) : null;
       const rq = rm?.[1]?.trim();
@@ -617,6 +724,8 @@ export async function generate(thread, parentId) {
     if (!all.includes(msg)) { all.push(msg); thread.sel[parent] = msg.id; }
   } finally {
     delete msg.pending;
+    delete msg.paused; delete msg.waiting; delete msg.typing;
+    delete following[thread.id];
     if (!msg.text && !msg.error && !msg.drawing) {
       // 什么都没生成：去掉这个空版本
       all.splice(all.indexOf(msg), 1);
@@ -626,6 +735,7 @@ export async function generate(thread, parentId) {
     touchThread(thread, all);
     saveMessages(thread.id);
   }
+  if (msg.rounds) logTurn(api, model, msg); // 这一轮请求了几次、花了多少（用量页里看）
   if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
   if (!thread.mail) petAfterReply(msg); // 桌宠：写了信、用工具做成了，播一下
   // 隔两周：他把记忆卡片从头整理一遍，建议等她看（后台做）
@@ -845,6 +955,11 @@ export { describeError };
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
 export const HUG_TEXT = "（抱了抱你）";
 export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null } = {}) {
+  // 他正在续发：她说话了就别接着自说自话，停下来（已经发出去的留着），先听她的
+  if (following[thread.id]) {
+    following[thread.id].cancel();
+    while (generating[thread.id]) await new Promise(r => setTimeout(r, 50));
+  }
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
