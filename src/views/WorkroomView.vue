@@ -4,7 +4,7 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
@@ -63,6 +63,23 @@ async function dropProject() {
   const n = project.value;
   if (!n || !confirm(`删掉项目「${n}」？服务器上这个文件夹里的东西会全部删掉，里面的任务记录也一起收起来。删了就找不回来。`)) return;
   try { await deleteProject(n); project.value = ""; toast("删掉了"); } catch (e) { toast(e.message, 5000); }
+}
+// 连着 GitHub 的项目（栖所）：还没推上去的提交，她点了才推
+const git = ref(null);
+const gitBusy = ref(false);
+async function loadGit() {
+  const n = project.value;
+  git.value = null;
+  if (n !== "栖所") return;
+  try { const g = await gitState(n); if (project.value === n) git.value = g; } catch (e) { git.value = { error: e.message }; }
+}
+watch(project, loadGit, { immediate: true });
+async function pushNow() {
+  const g = git.value;
+  if (!g?.ahead?.length) return;
+  if (!confirm(`把这 ${g.ahead.length} 个提交推上线？\n\n${g.ahead.map(c => `· ${c.subject}`).join("\n")}\n\n推上去以后网页和中转会自动更新。`)) return;
+  gitBusy.value = true;
+  try { await gitPush(project.value); toast("推上去了"); } catch (e) { toast(e.message, 6000); } finally { gitBusy.value = false; loadGit(); }
 }
 async function addThread() {
   const n = prompt("这个任务叫什么？", "");
@@ -221,6 +238,21 @@ const RULES = [
       </div>
       <button v-if="project" class="del-proj" @click="dropProject">删掉「{{ project }}」这个项目</button>
       <template v-if="project">
+        <div v-if="git" class="git">
+          <template v-if="git.error"><small>GitHub：{{ git.error }}</small></template>
+          <template v-else-if="!git.cloned"><small>这里还没有栖所的代码（服务器上重新运行一次安装那一行就会放进来）</small></template>
+          <template v-else>
+            <p><b>GitHub</b><small>　{{ git.repo }} · {{ git.branch }}</small><button class="re" @click="loadGit">刷新</button></p>
+            <small v-if="git.behind">GitHub 上有 {{ git.behind }} 个新提交这里还没有（让 Codex 拉一下最新的）</small>
+            <small v-if="git.dirty.length">还有 {{ git.dirty.length }} 个文件改了没提交</small>
+            <template v-if="git.ahead.length">
+              <ul><li v-for="c in git.ahead" :key="c.sha">{{ c.subject }}</li></ul>
+              <button class="push" :disabled="gitBusy || !git.canPush || git.behind > 0" @click="pushNow">{{ gitBusy ? "推上去中…" : `推上线（${git.ahead.length} 个提交）` }}</button>
+              <small v-if="!git.canPush">还没放 GitHub 钥匙，推不了（服务器上重新运行一次安装那一行，按提示放）</small>
+            </template>
+            <small v-else-if="!git.dirty.length && !git.behind">和线上一样，没有要推的</small>
+          </template>
+        </div>
         <p class="sec">任务<small>　每个任务是一段单独的工作记录</small></p>
         <button v-for="x in threadsHere" :key="x.id" class="row" @click="open(x.id)">
           <b>{{ x.title }}</b>
@@ -353,6 +385,14 @@ const RULES = [
 .chips button { border: 0; background: var(--card); padding: 6px 13px; border-radius: 999px; font-size: .84rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
 .chips button.on { background: var(--ink); color: var(--on-ink); }
 .chips .add { background: none; box-shadow: inset 0 0 0 1.5px var(--line); }
+.git { margin: 10px 14px 0; padding: 10px 12px; border-radius: 14px; background: rgba(var(--glass-rgb), .6); font-size: .8rem; }
+.git p { margin: 0 0 4px; display: flex; align-items: center; }
+.git small { display: block; color: var(--text-3); font-size: .72rem; line-height: 1.6; }
+.git p small { display: inline; flex: 1; }
+.git .re { border: 0; background: none; color: var(--accent); font-size: .72rem; }
+.git ul { margin: 4px 0 8px; padding-left: 18px; color: var(--text-2); line-height: 1.6; }
+.git .push { border: 0; border-radius: 10px; padding: 7px 14px; background: var(--accent); color: #fff; font-size: .8rem; }
+.git .push:disabled { opacity: .5; }
 .del-proj { display: block; margin: 8px 18px 0 auto; border: 0; background: none; font-size: .72rem; color: var(--text-3); }
 .row { display: flex; align-items: baseline; gap: 8px; width: calc(100% - 32px); margin: 0 16px 8px; border: 0; text-align: left; background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-soft); color: var(--text); }
 .row b { flex: 1; font-size: .92rem; }

@@ -610,6 +610,7 @@ async function changeAvatarOf(who) {
             <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
               {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
+            <button v-if="it.m.href" class="cal-btn" @click="router.push(it.m.href)">去看 ›</button>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
             <div v-if="it.m.imgs?.length" class="note-imgs"><ImgThumb v-for="id in it.m.imgs" :key="id" :id="id" /></div>
             <pre v-if="openSources[it.key] && it.m.detail" class="detail">{{ it.m.detail }}</pre>

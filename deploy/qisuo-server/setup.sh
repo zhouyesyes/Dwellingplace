@@ -52,6 +52,12 @@ if [ "$CODEX" = "y" ] && [ -z "${CODEX_KEY:-}" ]; then
   CODEX_KEY=$(openssl rand -hex 24)
   echo "CODEX_KEY=$CODEX_KEY" >> settings.env
 fi
+# 工作间连 GitHub 上栖所的仓库：第一次问一下（以后不再问；想改就编辑 settings.env 里的 CODEX_GITHUB=y / n）
+if [ "$CODEX" = "y" ] && [ -z "${CODEX_GITHUB:-}" ]; then
+  ask CODEX_GITHUB "要把栖所的代码放进工作间吗？Codex 能在里面改栖所、本地提交；推上线要你在工作间里点（要一把只管这一个仓库的 GitHub 钥匙）y / n" "y"
+  case "$CODEX_GITHUB" in [Yy]*) CODEX_GITHUB=y ;; *) CODEX_GITHUB=n ;; esac
+  echo "CODEX_GITHUB=$CODEX_GITHUB" >> settings.env
+fi
 CODEX_VERSION="0.162.1"
 BRIDGE_REF="8db89c1a3c516a8ae7ddeb7adb070c98caafe3f2" # chrome-mcp-bridge 2.4.1
 $SUDO docker network create qisuo-net >/dev/null 2>&1 || true
@@ -108,12 +114,50 @@ if [ "$CODEX" = "y" ]; then
   $SUDO chown -R 1001:1001 "$DIR/codex-home" "$DIR/codex-work"
   $SUDO chown -R 1000:1000 "$DIR/codex-gate"
   chmod 700 "$DIR/codex-home" "$DIR/codex-bridge"
+  # 栖所的代码：克隆一份到项目「栖所」（公开仓库，拉不用钥匙）；推上线的钥匙放在 codex-bridge 里，Codex 读不到
+  GATE_LIST="${GATE_ALLOW:-}"
+  if [ "${CODEX_GITHUB:-n}" = "y" ]; then
+    GATE_LIST="github.com,registry.npmjs.org${GATE_LIST:+,$GATE_LIST}"
+    if [ ! -d "$DIR/codex-work/栖所/.git" ]; then
+      if [ -d "$DIR/codex-work/栖所" ] && [ -n "$(ls -A "$DIR/codex-work/栖所")" ]; then
+        echo "codex-work/栖所 已经有东西了（不是仓库），先不克隆；想要的话把这个文件夹挪走再运行一次"
+      else
+        say "把栖所的代码放进工作间…"
+        rmdir "$DIR/codex-work/栖所" 2>/dev/null || true
+        $SUDO docker run --rm --user 1001:1001 -v "$DIR/codex-work:/work" qisuo-codex git clone -q "$REPO" "/work/栖所"
+      fi
+    fi
+    if [ ! -s "$DIR/codex-bridge/github-token" ]; then
+      cat <<'TXT'
+
+  要一把 GitHub 钥匙（只管栖所这一个仓库）：
+    1. 手机或电脑打开 https://github.com/settings/personal-access-tokens/new
+    2. Token name 随便写（比如 qisuo-workroom）；Expiration 选一个期限（比如 90 天）
+    3. Repository access 选 Only select repositories → 只选 zhouyesyes/Dwellingplace
+    4. Permissions → Repository permissions → Contents 选 Read and write（别的都不用动）
+    5. 点 Generate token，复制那串 github_pat_ 开头的字
+  钥匙只粘贴在下面这里，不要发给任何人（包括 cc）。现在不想弄就直接按回车，以后再运行一次安装那一行。
+TXT
+      read -r -s -p "  粘贴钥匙（输入时不显示）: " GH_TOKEN </dev/tty; echo
+      GH_TOKEN=$(printf '%s' "$GH_TOKEN" | tr -d '[:space:]')
+      if [ -n "$GH_TOKEN" ]; then
+        info=$(curl -s -m 20 -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/zhouyesyes/Dwellingplace || true)
+        if printf '%s' "$info" | grep -q '"push": *true'; then
+          ( umask 077; printf '%s' "$GH_TOKEN" > "$DIR/codex-bridge/github-token" )
+          echo "  钥匙放好了 ✓（能推栖所的仓库）"
+        else
+          echo "  这把钥匙不对，或者没有 Contents 的写权限，没放；检查一下再运行一次安装那一行"
+        fi
+      fi
+      unset GH_TOKEN info
+    fi
+  fi
   # 单独的内部网络：Codex 在这里面自己出不了网；门卫一只脚在里面、一只脚在外面，只放行 OpenAI
   $SUDO docker network create --internal codex-int >/dev/null 2>&1 || true
   $SUDO docker rm -f qisuo-codex qisuo-codex-gate >/dev/null 2>&1 || true
   $SUDO docker run -d --name qisuo-codex-gate --restart unless-stopped --network codex-int \
     --read-only --cap-drop ALL --security-opt no-new-privileges --memory 128m \
-    -e GATE_ALLOW="${GATE_ALLOW:-}" -v "$DIR/codex-gate:/gate" qisuo-codex-gate >/dev/null
+    -e GATE_ALLOW="$GATE_LIST" -v "$DIR/codex-gate:/gate" qisuo-codex-gate >/dev/null
   $SUDO docker network connect bridge qisuo-codex-gate
   # Codex：根目录只读；只有项目（/work）、它的登录目录、临时目录能写；不用 root 跑命令；去掉全部特权（只留降成 codex 用户要的两个）
   $SUDO docker run -d --name qisuo-codex --restart unless-stopped --network codex-int \
@@ -162,6 +206,11 @@ done
 if [ "$CODEX" = "y" ]; then
   code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "http://127.0.0.1:$PORT/p/$TOKEN/codex/status" || true)
   if [ "$code" = "200" ]; then CODEX_INFO="已安装（连得上 ✓）：栖所里的工作间还在做，做好了从那里进"; else CODEX_INFO="已安装，但现在连不上（返回 $code），把这句截图给 cc"; fi
+  if [ "${CODEX_GITHUB:-n}" = "y" ]; then
+    if [ -s "$DIR/codex-bridge/github-token" ]; then CODEX_INFO="$CODEX_INFO
+  栖所的代码在项目「栖所」里；GitHub 钥匙放好了（推上线在工作间里点）"; else CODEX_INFO="$CODEX_INFO
+  栖所的代码在项目「栖所」里；还没放 GitHub 钥匙（推不上线），再运行一次安装那一行按提示放"; fi
+  fi
 else CODEX_INFO="没装（想装：把 settings.env 里的 CODEX=n 改成 y，再运行一次安装那一行）"; fi
 if [ "$CHROME" = "y" ]; then CHROME_INFO="已安装：在栖所「设置 → 工具 → 浏览器」点「接上浏览器」"
 else CHROME_INFO="没装（想装：把 settings.env 里的 CHROME=n 改成 y，再运行一次安装那一行）"; fi
