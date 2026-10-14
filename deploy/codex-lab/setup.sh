@@ -18,8 +18,11 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少 $1，请先安装"; e
 need docker; need curl
 SUDO=""; docker ps >/dev/null 2>&1 || SUDO="sudo"
 
-# 上一次的容器还在跑（按 Ctrl+C 只停了脚本，没停容器）：先停掉，免得撞名字、也免得两次一起改文件
-$SUDO docker rm -f codex-lab >/dev/null 2>&1 || true
+# 以前跑过、还没停的实测容器（按 Ctrl+C 只停了脚本，没停容器）：全部停掉，免得两次一起改文件
+# 每次用一个新名字（codex-lab-时间），都带着 codex-lab=1 这个标签，按标签清
+NAME="codex-lab-$(date +%H%M%S)"
+old=$($SUDO docker ps -aq --filter label=codex-lab=1; $SUDO docker ps -aq --filter name=^/codex-lab$)
+[ -n "$old" ] && $SUDO docker rm -f $old >/dev/null 2>&1 || true
 
 say "1/4 准备文件夹（$DIR）"
 mkdir -p "$DIR/codex-home" "$DIR/work"
@@ -58,7 +61,7 @@ for m in "默认" "seccomp=unconfined" "seccomp=unconfined apparmor=unconfined";
     "seccomp=unconfined") try=(--security-opt seccomp=unconfined) ;;
     *) try=(--security-opt seccomp=unconfined --security-opt apparmor=unconfined) ;;
   esac
-  if out=$($SUDO docker run --rm "${BASE[@]}" "${try[@]}" codex-lab codex sandbox -P :workspace -C /home/codex -- true 2>&1); then
+  if out=$($SUDO docker run --rm --label codex-lab=1 "${BASE[@]}" "${try[@]}" codex-lab codex sandbox -P :workspace -C /home/codex -- true 2>&1); then
     MODE_NAME="$m"; MODE=("${try[@]}"); break
   fi
   LAST_ERR=$(printf '%s' "$out" | grep -v "bubblewrap on PATH\|PATH aliases" | tail -1)
@@ -79,8 +82,8 @@ say "3/4 开始实测（第一次会让你在手机上登录 ChatGPT）"
 echo "  先测沙盒（不花额度），再跑三个小任务（会用一点 Codex 额度）。大概 5～10 分钟。"
 # 限制：最多 2G 内存、2 个 CPU、512 个进程、没有特权；只挂 Codex 的登录目录和 /work
 # 脚本被打断（Ctrl+C）时容器也一起停
-trap '$SUDO docker rm -f codex-lab >/dev/null 2>&1 || true' EXIT
-$SUDO docker run --rm -t --name codex-lab "${BASE[@]}" "${MODE[@]}" -e LAB_MODE="$MODE_NAME" -e LAB_CONTAINER_SANDBOX="$CONTAINER_SANDBOX" \
+trap '$SUDO docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+$SUDO docker run --rm -t --name "$NAME" --label codex-lab=1 "${BASE[@]}" "${MODE[@]}" -e LAB_MODE="$MODE_NAME" -e LAB_CONTAINER_SANDBOX="$CONTAINER_SANDBOX" \
   -v "$DIR/codex-home:/home/codex/.codex" \
   -v "$DIR/work:/work" \
   codex-lab node /opt/probe.mjs || true
