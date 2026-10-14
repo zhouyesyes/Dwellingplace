@@ -4,7 +4,7 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
@@ -92,6 +92,11 @@ async function pushNow() {
   if (!confirm(`把这 ${g.ahead.length} 个提交推上线？\n\n${g.ahead.map(c => `· ${c.subject}`).join("\n")}\n\n推上去以后网页和中转会自动更新。`)) return;
   gitBusy.value = true;
   try { await gitPush(project.value); toast("推上去了"); } catch (e) { toast(e.message, 6000); } finally { gitBusy.value = false; loadGit(); }
+}
+// 拉最新的：GitHub 上有新提交（比如 cc 合并的），她点一下就同步到工作间
+async function pullNow() {
+  gitBusy.value = true;
+  try { const r = await gitPull(project.value); toast(r.pulled ? `拉下来了 ${r.pulled} 个新提交` : "已经是最新的了"); } catch (e) { toast(e.message, 6000); } finally { gitBusy.value = false; loadGit(); }
 }
 async function addThread() {
   const n = prompt("这个任务叫什么？", "");
@@ -295,7 +300,10 @@ const RULES = [
           <template v-else-if="!git.cloned"><small>这里还没有栖所的代码（服务器上重新运行一次安装那一行就会放进来）</small></template>
           <template v-else>
             <p><b>GitHub</b><small>　{{ git.repo }} · {{ git.branch }}</small><button class="re" @click="loadGit">刷新</button></p>
-            <small v-if="git.behind">GitHub 上有 {{ git.behind }} 个新提交这里还没有（让 Codex 拉一下最新的）</small>
+            <template v-if="git.behind">
+              <small>GitHub 上有 {{ git.behind }} 个新提交这里还没有</small>
+              <button class="push soft" :disabled="gitBusy" @click="pullNow">{{ gitBusy ? "在拉…" : "拉最新的" }}</button>
+            </template>
             <small v-if="git.dirty.length">还有 {{ git.dirty.length }} 个文件改了没提交</small>
             <template v-if="git.ahead.length">
               <ul><li v-for="c in git.ahead" :key="c.sha">{{ c.subject }}</li></ul>
@@ -456,6 +464,7 @@ const RULES = [
 .git ul { margin: 4px 0 8px; padding-left: 18px; color: var(--text-2); line-height: 1.6; }
 .git .push { border: 0; border-radius: 10px; padding: 7px 14px; background: var(--accent); color: #fff; font-size: .8rem; }
 .git .push:disabled { opacity: .5; }
+.git .push.soft { background: var(--bg-deep); color: var(--text); margin: 4px 0 6px; }
 .del-proj { display: block; margin: 8px 18px 0 auto; border: 0; background: none; font-size: .72rem; color: var(--text-3); }
 .row { display: flex; align-items: baseline; gap: 8px; width: calc(100% - 32px); margin: 0 16px 8px; border: 0; text-align: left; background: var(--card); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-soft); color: var(--text); }
 .row b { flex: 1; font-size: .92rem; }
