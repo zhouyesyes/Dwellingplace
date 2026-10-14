@@ -1071,17 +1071,22 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(saved), { expirationTtl: 30 * 86400 });
     return item;
   }
-  // 一起读、讨论室、共写：一次请求，写下的东西交给栖所放进那间屋子
-  await setBusy(env, role.id, `自由时间，去了${room.label}`).catch(() => {});
+  return runRoom(env, cfg, role, room, into, lobbyUsage, "", { pick: room.key, label: room.label }, now);
+}
+
+// 一起读、讨论室、共写：一次请求，写下的东西交给栖所放进那间屋子（extra：这次叫醒的事，接在提示后面）
+async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, output: 0, cached: 0 }, extra = "", free = null, now = Date.now()) {
+  const system = `你是「${role.name}」。${role.style ? `\n（这是你写给自己的：${role.style}）` : ""}`;
+  await setBusy(env, role.id, `去了${room.label}`).catch(() => {});
   try {
-    const r1 = await callModel(role.api, system, [{ role: "user", content: room.prompt }], false);
+    const r1 = await callModel(role.api, system, [{ role: "user", content: room.prompt + (extra ? `\n\n${extra}` : "") }], false);
     const text = String(r1.text || "").trim();
     const silent = !text || /^\s*\[不说话\]\s*$/.test(text);
     const item = {
       id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: into.map(x => x.text), silent: true, text: "",
       room: { key: room.key, kind: room.kind, room: room.room, id: room.id, bookId: room.bookId, from: room.from, maxChars: room.maxChars, label: room.label, text: silent ? "" : text },
-      notes: [], usage: { input: lobbyUsage.input + r1.usage.input, output: lobbyUsage.output + r1.usage.output, cached: lobbyUsage.cached + (r1.usage.cached || 0), rounds: 2, ctx0: r1.usage.input },
-      apiId: role.api?.id || null, model: role.api?.model || "", free: { pick: room.key, label: room.label },
+      notes: [], usage: { input: lobbyUsage.input + r1.usage.input, output: lobbyUsage.output + r1.usage.output, cached: lobbyUsage.cached + (r1.usage.cached || 0), rounds: lobbyUsage.input ? 2 : 1, ctx0: r1.usage.input },
+      apiId: role.api?.id || null, model: role.api?.model || "", ...(free ? { free } : {}),
     };
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
     await env.KV.put("boxlatest", String(item.ts));
@@ -1094,6 +1099,33 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
   } finally {
     await setBusy(env, role.id, "").catch(() => {});
   }
+}
+
+// ---------- 事件唤醒：她离开以后，来信、书里的批注、共写的更新 ----------
+// 栖所同步时带着「他还没看到的事」（role.events，每件写明去哪间屋子）。她离开 30 分钟、事情也过了 30 分钟才叫醒，
+// 几件事合成一次；一天最多 3 次。去那件最新的事所在的屋子（来信去聊天）
+const EVENT_QUIET = 30 * 60_000;
+const EVENT_PER_DAY = 3;
+async function runEvent(env, cfg, role, reasons, now = Date.now()) {
+  const evs = reasons.flatMap(r => r.events || []).sort((a, b) => a.ts - b.ts);
+  const newest = evs[evs.length - 1];
+  const room = (role.rooms || []).find(r => r.key === newest?.room);
+  const me = role.meName || "对方";
+  let item;
+  if (room && room.kind !== "thread") {
+    const list = evs.map(e => `· ${e.text}`).join("\n");
+    item = await runRoom(env, cfg, role, room, reasons, undefined, `（${me}离开前刚做了这些，你现在才看到：\n${list}\n想回应就在这里写；觉得不用回，就只写 [不说话]。）`, null, now);
+  } else {
+    item = await runWake(env, cfg, role, reasons, now);
+  }
+  item.events = { upTo: newest?.ts || now, letters: evs.filter(e => e.kind === "letter").map(e => e.id) };
+  await resave(env, item);
+  return item;
+}
+// 已经放进信箱的那份，补上后来才知道的字段
+async function resave(env, item) {
+  const { push: _p, ...saved } = item;
+  await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(saved), { expirationTtl: 30 * 86400 });
 }
 
 // ---------- 到点直接发的话：不叫醒 TA、不请求模型 ----------
@@ -1208,6 +1240,28 @@ async function tick(env, now = Date.now()) {
       try { await deliverSay(env, cfg, role, says, now); } catch (e) { sched.sayError = String(e.message || e).slice(0, 120); }
       changed = true;
     }
+    // 事件：她离开 30 分钟、事情也过了 30 分钟；一天最多 3 次
+    const evOn = w.events && Object.values(w.events).some(Boolean);
+    const fresh = evOn ? (role.events || []).filter(e => e.ts > (sched.evDone || 0) && w.events[e.kind]) : [];
+    const evN = sched.evDay === today ? sched.evN || 0 : 0;
+    if (fresh.length) {
+      const newest = Math.max(...fresh.map(e => e.ts));
+      if (now - newest >= EVENT_QUIET && now - seen >= EVENT_QUIET && !inQuiet(w.quiet, now) && evN < EVENT_PER_DAY) {
+        reasons.push({ kind: "event", events: fresh, text: `${role.meName || "对方"}离开前做了这些，你现在才看到：\n${fresh.map(e => `· ${e.text}`).join("\n").slice(0, 3000)}` });
+        sched.evDone = newest;
+        sched.evDay = today;
+        sched.evN = evN + 1;
+        changed = true;
+      }
+    }
+    // 陪伴：她很久没来了（默认 24 小时），偶尔主动敲她一下；一天最多一次，不是每天都会
+    const comp = w.companion;
+    const waitingNow = (sched.unanswered || 0) >= MAX_UNANSWERED && seen < (sched.proAt || 0);
+    if (comp?.on && seen && now - seen > (Number(comp.hours) || 24) * 3600_000 && !inQuiet(w.quiet, now) && sched.compDay !== today && !waitingNow && Math.random() < 1 / 24) {
+      reasons.push({ kind: "companion", text: `${role.meName || "对方"}已经 ${gapText(now - seen)}没来栖所了。想${role.meName || "对方"}的话可以发条消息，不想打扰就不发` });
+      sched.compDay = today;
+      changed = true;
+    }
     // 上次叫醒失败了：再试一次（只试一次）
     if (sched.retry && sched.retry.at <= now) {
       reasons.push(...sched.retry.reasons);
@@ -1240,10 +1294,18 @@ async function tick(env, now = Date.now()) {
   const bridgeIds = reasons.filter(r => r.deliveryId).map(r => r.deliveryId);
   try {
     // 只有自由时间：去门厅；和别的一起响了（闹钟、提醒……）：先照平时醒来，自由时间这次就算了
-    const item = reasons.every(r => r.kind === "free") ? await runFree(env, cfg, role, reasons, now) : await runWake(env, cfg, role, reasons.filter(r => r.kind !== "free"), now);
+    const item = reasons.every(r => r.kind === "free") ? await runFree(env, cfg, role, reasons, now)
+      : reasons.every(r => r.kind === "event") ? await runEvent(env, cfg, role, reasons, now)
+      : await runWake(env, cfg, role, reasons.filter(r => r.kind !== "free"), now);
+    // 和别的一起响的事件：照平时醒来，也记下哪些信算他看过了
+    if (!item.events && reasons.some(r => r.kind === "event")) {
+      const evs = reasons.flatMap(r => r.events || []);
+      item.events = { upTo: Math.max(...evs.map(e => e.ts)), letters: evs.filter(e => e.kind === "letter").map(e => e.id) };
+      await resave(env, item);
+    }
     sched.last = { at: now, reasons: item.reasons, silent: item.silent, usage: item.usage, ...(item.free ? { free: item.free } : {}) };
     // 每隔一段时间醒来、主动发了消息：记一下；她没出现过又发了一次，就算没回应
-    if (reasons.some(r => r.kind === "interval") && !item.silent) {
+    if (reasons.some(r => r.kind === "interval" || r.kind === "companion") && !item.silent) {
       sched.unanswered = seen > (sched.proAt || 0) ? 1 : (sched.unanswered || 0) + 1;
       sched.proAt = now;
     }
@@ -1422,7 +1484,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 23, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 24, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

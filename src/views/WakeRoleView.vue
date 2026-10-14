@@ -129,6 +129,11 @@ async function tryFree() {
     freeing.value = false;
   }
 }
+// 他自己来找你：事件（你离开以后）、陪伴（很久没来）
+if (role.value) {
+  w.value.events ??= { letter: false, note: false, write: false };
+  w.value.companion ??= { on: false, hours: 24 };
+}
 // 响过一小时以上的，自己清掉
 if (role.value && w.value.once?.some(o => o.at <= Date.now() - 3600_000)) w.value.once = onceList.value;
 
@@ -274,8 +279,27 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <input v-model="newFree" class="input time" type="time" />
           <button class="btn soft small" @click="addFree">添加</button>
         </div>
-        <p class="hint">到点他先在「门厅」看一张小清单：找你聊天、信箱、接着读最近那本书、书的讨论室、共读大讨论室、共写，各一句现在的情况。他回一行挑去哪，再带着那间屋子的东西进去：读书就往后读一段、在书里留批注；讨论室和共写就留一段话等你来看；聊天和信箱和平时醒来一样。<br />去了就是 2 次请求（门厅很小，不带聊天记录）；接着睡就只有门厅那 1 次。一天最多 4 个，不受免打扰影响。需要中转 v23。</p>
+        <p class="hint">到点他先在「门厅」看一张小清单：找你聊天、信箱、接着读最近那本书、书的讨论室、共读大讨论室、共写，各一句现在的情况。他回一行挑去哪，再带着那间屋子的东西进去：读书就往后读一段、在书里留批注；讨论室和共写就留一段话等你来看；聊天和信箱和平时醒来一样。<br />去了就是 2 次请求（门厅很小，不带聊天记录）；接着睡就只有门厅那 1 次。一天最多 4 个，不受免打扰影响。需要中转 v24。</p>
         <button v-if="w.freeTimes?.length" class="btn soft wide" :disabled="freeing" @click="tryFree">{{ freeing ? `${role.name} 在想去哪…` : "试试自由时间" }}</button>
+      </div>
+
+      <div class="section-label">有事才叫醒他（你离开以后）</div>
+      <div class="card body">
+        <label class="row"><span class="grow">你给他写了信</span><input v-model="w.events.letter" type="checkbox" class="sw" /></label>
+        <label class="row"><span class="grow">你在书里划线、写了批注</span><input v-model="w.events.note" type="checkbox" class="sw" /></label>
+        <label class="row"><span class="grow">你在共写里改了卡片、贴了便利贴</span><input v-model="w.events.write" type="checkbox" class="sw" /></label>
+        <p class="hint">离开栖所 30 分钟、事情也过了 30 分钟，才叫醒他一次（几件事合在一起），只带一份很短的「发生了什么」。来信去聊天里回；批注去那本书的讨论室（也能在书里回你的批注）；共写去那本书的讨论。一天最多 3 次，免打扰时间不叫。你在栖所里和他聊过，他就算看到了，不会再因为这些叫醒。</p>
+      </div>
+
+      <div class="section-label">陪伴（你很久没来时）</div>
+      <div class="card body">
+        <label class="row"><span class="grow">很久没见到你，他可以主动来敲你一下</span><input v-model="w.companion.on" type="checkbox" class="sw" /></label>
+        <div v-if="w.companion.on" class="row">
+          <span class="grow">多久没来算「很久」</span>
+          <input v-model.number="w.companion.hours" class="num-input" type="number" min="6" step="6" inputmode="numeric" />
+          <span>小时</span>
+        </div>
+        <p class="hint">一天最多一次，而且不是每天都会：到了时候在接下来几个小时里随机挑一刻。免打扰时间不会；他主动找了你两次你都没出现，就先停着，等你回来。他醒来也可以选择不发。</p>
       </div>
 
       <div class="section-label">一次性闹钟（只响一次）</div>

@@ -148,7 +148,41 @@ const serverPack = list => list
 // 到了自由时间，他先在「门厅」看一眼这张小清单（很小的一次请求），自己挑去哪；挑好了再带着那间屋子的小背包进去（第二次请求）。
 // 聊天、信箱：和平时醒来一样（能用那里的工具）；一起读：接着往后读一段、留批注；讨论室、共写：留一段话等她来看
 const ago = ts => { const m = Math.round((Date.now() - ts) / 60000); return m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${Math.round(m / 1440)} 天前`; };
-async function roomsOf(role, thread, path) {
+// 他还没看到的事（事件唤醒用）：上一次他回你、或者上一次因为这些醒来之后，你写的信、在书里的批注、共写里改的卡片和便利贴
+function eventsOf(role, path) {
+  const on = role.wake?.events || {};
+  if (!Object.values(on).some(Boolean)) return [];
+  const me = meName(role);
+  const lastAi = [...path].reverse().find(m => m.from === "ai")?.ts || 0;
+  const since = Math.max(lastAi, role.wakeEvSeen || 0, Date.now() - 3 * 86400_000);
+  const out = [];
+  if (on.letter) for (const l of (store.letters || []).filter(l => l.roleId === role.id && l.from === "me" && !l.locked && !l.readAt && l.ts > since))
+    out.push({ kind: "letter", id: l.id, ts: l.ts, room: "chat", text: `${me}给你写了一封信《${l.title || "无题"}》：\n${l.body.slice(0, 1500)}` });
+  if (on.note) {
+    const byBook = {};
+    for (const n of (store.bookNotes || []).filter(n => n.from === "me" && n.ts > since)) (byBook[n.bookId] ??= []).push(n);
+    for (const [bid, ns] of Object.entries(byBook)) {
+      const b = (store.books || []).find(x => x.id === bid);
+      if (!b) continue;
+      out.push({ kind: "note", id: bid, ts: Math.max(...ns.map(n => n.ts)), room: `talk:${bid}`,
+        text: `${me}在《${b.title}》里划了 ${ns.length} 处：${ns.slice(-5).map(n => `「${(n.quote || "").slice(0, 30)}」${n.text ? `（${me}写：${n.text.slice(0, 80)}）` : ""}`).join("；")}` });
+    }
+  }
+  if (on.write) {
+    const { projects, cardsOf, CARD_TYPES } = writingMod || {};
+    for (const p of projects ? projects() : []) {
+      const cards = cardsOf(p.id).filter(c => c.from === "me" && (c.ts || 0) > since);
+      const notes = (store.writeNotes || []).filter(n => n.projectId === p.id && n.from === "me" && n.ts > since);
+      if (!cards.length && !notes.length) continue;
+      out.push({ kind: "write", id: p.id, ts: Math.max(...cards.map(c => c.ts || 0), ...notes.map(n => n.ts)), room: `write:${p.id}`,
+        text: `${me}在《${p.title}》里${cards.length ? `改了 ${cards.length} 张卡片（${cards.slice(-5).map(c => `【${CARD_TYPES[c.type]?.label || "其他"}】${c.title || "无题"}`).join("、")}）` : ""}${notes.length ? `${cards.length ? "，" : ""}贴了 ${notes.length} 张便利贴（${notes.slice(-3).map(n => n.text.slice(0, 40)).join("；")}）` : ""}` });
+    }
+  }
+  return out.sort((a, b) => a.ts - b.ts).slice(-10);
+}
+let writingMod = null; // 共写的模块（同步前先载好，eventsOf 是同步的）
+
+async function roomsOf(role, thread, path, extra = []) {
   const me = meName(role);
   const rooms = [];
   const lastMsg = [...path].reverse().find(m => m.from === "user" || m.from === "ai");
@@ -174,16 +208,20 @@ async function roomsOf(role, thread, path) {
   // 书的讨论室：最近读的那本；还有共读的大讨论室
   const { roomPrompt, loadRoom, HALL } = await import("./readTalk.js");
   const talkBook = [...(store.books || [])].filter(b => b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
-  for (const id of [talkBook?.id, (store.books || []).length > 1 ? HALL : null].filter(Boolean)) {
+  const evBooks = extra.filter(k => k.startsWith("talk:")).map(k => k.slice(5)); // 事件要去的书的讨论室
+  for (const id of [...new Set([talkBook?.id, ...evBooks, (store.books || []).length > 1 ? HALL : null])].filter(Boolean)) {
     const list = await loadRoom(id);
     const last = list.at(-1);
-    rooms.push({ key: `talk:${id}`, kind: "talk", room: "read", id, label: id === HALL ? "共读大讨论室" : `《${talkBook.title}》讨论室`,
+    const bk = (store.books || []).find(x => x.id === id);
+    if (id !== HALL && !bk) continue;
+    rooms.push({ key: `talk:${id}`, kind: "talk", room: "read", id, label: id === HALL ? "共读大讨论室" : `《${bk.title}》讨论室`,
       status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没在这里聊过", prompt: await roomPrompt(role, id, "", true) });
   }
   // 共写：最近在写的那本
   const { projects, writingPrompt, loadTalk } = await import("./writing.js");
-  const p = projects().filter(x => !x.archived).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-  if (p) {
+  const latest = projects().filter(x => !x.archived).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  const evProjects = extra.filter(k => k.startsWith("write:")).map(k => projects().find(x => x.id === k.slice(6))).filter(Boolean);
+  for (const p of [...new Set([latest, ...evProjects])].filter(Boolean)) {
     const last = (await loadTalk(p.id)).at(-1);
     rooms.push({ key: `write:${p.id}`, kind: "talk", room: "write", id: p.id, label: `共写《${p.title}》`,
       status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没讨论过", prompt: await writingPrompt(role, p, [], true) });
@@ -195,6 +233,8 @@ async function snapshotRole(role) {
   const thread = threadFor(role);
   const path = thread ? pathOf(thread, await loadMessages(thread.id)) : [];
   const history = historyOf(thread, path);
+  writingMod ??= await import("./writing.js");
+  const events = eventsOf(role, path);
   const api = apiFor(thread, role);
   return {
     id: role.id,
@@ -207,7 +247,8 @@ async function snapshotRole(role) {
     system: buildSystem(role, path, { wake: true }),
     history,
     style: (role.style || "").trim().slice(0, 1500), // 门厅里只带这个（他是谁）
-    rooms: role.wake?.freeTimes?.length ? await roomsOf(role, thread, path) : [], // 开了自由时间才带
+    events,
+    rooms: role.wake?.freeTimes?.length || events.length ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
     servers: serverPack(serversFor(role.id)),
   };
@@ -344,6 +385,13 @@ async function ingestRoom(role, item) {
 async function ingest(item) {
   const role = roleById(item.roleId);
   if (!role) return;
+  // 事件的原因很长：提示条里只留一行（「离开前做了这些：」后面接第一件事）
+  item.reasons = (item.reasons || []).map(r => { const ls = r.split("\n"); const t = ls.length > 1 ? ls[0] + ls[1].replace(/^· /, "") : r; return t.length > 60 || ls.length > 2 ? t.slice(0, 60) + "…" : t; });
+  // 因为事件醒来过：这些事算他看过了（信也标成读过）
+  if (item.events) {
+    role.wakeEvSeen = Math.max(role.wakeEvSeen || 0, item.events.upTo || 0);
+    for (const id of item.events.letters || []) { const l = (store.letters || []).find(x => x.id === id); if (l && !l.readAt) l.readAt = item.ts; }
+  }
   if (item.room) return ingestRoom(role, item);
   if (item.alarms) role.wakeAlarms = item.alarms;
   const thread = store.threads.find(t => t.id === item.threadId && t.roleId === role.id) || threadFor(role) || createThread(role.id);
