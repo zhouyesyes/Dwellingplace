@@ -119,9 +119,13 @@ export function apply(ev) {
       if (it) { it.state = "answered"; it.decision = p.decision; }
       break;
     }
-    case "qisuo/approval/auto":
-      add(t, { kind: "approval", method: p.method, command: p.command, state: "auto", decision: p.decision, ts: ev.ts });
+    case "qisuo/approval/auto": {
+      // 自动放行的：记在那条命令 / 那次改文件的卡片上（找不到才单独记一行）
+      const it = p.itemId && t.byId[p.itemId];
+      if (it) it.auto = true;
+      else add(t, { kind: "approval", method: p.method, command: p.command, state: "auto", decision: p.decision, ts: ev.ts, itemId: p.itemId });
       break;
+    }
     case "thread/tokenUsage/updated":
       t.usage = p.tokenUsage;
       break;

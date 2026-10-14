@@ -6,6 +6,18 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, newThread, say, interrupt, answer, setPolicy, limitsOf } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
+
+// Codex 写的话：```代码块```、[文字](链接) 也排出来（链接是本地文件路径的，显示成代码样子）
+const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function workMd(text) {
+  return String(text || "").split(/(```[\w-]*\n?[\s\S]*?(?:```|$))/).map(part => {
+    const m = part.match(/^```[\w-]*\n?([\s\S]*?)(?:```)?$/);
+    if (m && part.startsWith("```")) return `<pre class="code">${escHtml(m[1].replace(/\n$/, ""))}</pre>`;
+    return blockMd(part.replace(/^\n+|\n+$/g, ""))
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, "<code>$1</code>");
+  }).filter(Boolean).join("");
+}
 import { vAutoGrow } from "../lib/autogrow.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -170,7 +182,7 @@ const RULES = [
         <p v-if="!t.items.length" class="hint">说说要做什么。Codex 会在「{{ t.meta?.project }}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。</p>
         <template v-for="(it, i) in t.items" :key="it.id || i">
           <div v-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
-          <div v-else-if="it.kind === 'agent'" class="agent" v-html="blockMd(it.text)" />
+          <div v-else-if="it.kind === 'agent'" class="agent" v-html="workMd(it.text)" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
           <div v-else-if="it.kind === 'plan'" class="card plan">
             <b>计划</b>
@@ -181,13 +193,13 @@ const RULES = [
           <div v-else-if="it.kind === 'command'" class="card cmd" :class="it.status">
             <div class="cmd-head" @click="openOut[it.id] = !openOut[it.id]">
               <code>$ {{ cmdText(it.command) }}</code>
-              <span class="badge">{{ CMD_STATE[it.status] || "…" }}<template v-if="it.exitCode != null"> · {{ it.exitCode }}</template><template v-if="it.durationMs != null"> · {{ dur(it.durationMs) }}</template></span>
+              <span class="badge"><i v-if="it.auto" class="auto">自动放行</i>{{ CMD_STATE[it.status] || "…" }}<template v-if="it.exitCode != null"> · {{ it.exitCode }}</template><template v-if="it.durationMs"> · {{ dur(it.durationMs) }}</template></span>
             </div>
             <pre v-if="(openOut[it.id] ?? it.status === 'inProgress') && it.output" class="out">{{ it.output }}</pre>
             <small v-else-if="it.output" class="muted tap" @click="openOut[it.id] = true">看输出（{{ it.output.split("\n").length }} 行）</small>
           </div>
           <div v-else-if="it.kind === 'files'" class="card files">
-            <b>改了文件</b>
+            <b>改了文件<i v-if="it.auto" class="auto">自动放行</i></b>
             <div v-for="(c, k) in it.changes || []" :key="k" class="file">
               <div class="file-head" @click="openDiff[it.id + k] = !openDiff[it.id + k]"><span class="kind">{{ KIND[c.kind?.type || c.kind] || "修改" }}</span><code>{{ c.path }}</code><span class="muted">{{ openDiff[it.id + k] ? "▴" : "▾" }}</span></div>
               <pre v-if="openDiff[it.id + k]" class="diff"><span v-for="(x, j) in diffLines(c.diff)" :key="j" :class="x.c">{{ x.l }}
@@ -276,7 +288,10 @@ const RULES = [
 .me { align-self: flex-end; max-width: 85%; text-align: right; }
 .me p { margin: 0; background: var(--ink); color: var(--on-ink); padding: 9px 13px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; line-height: 1.6; font-size: .92rem; text-align: left; }
 .me small { font-size: .68rem; color: var(--text-3); }
-.agent { font-size: .93rem; line-height: 1.75; color: var(--text); }
+.agent { font-size: .93rem; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+.agent :deep(pre.code) { white-space: pre; overflow-x: auto; margin: .4em 0; font: .78rem/1.5 ui-monospace, Menlo, monospace; background: var(--bg-deep); padding: 8px 10px; border-radius: 8px; }
+.agent :deep(a) { color: var(--accent); }
+.auto { font-style: normal; font-size: .64rem; font-weight: 400; color: var(--text-3); background: var(--bg-deep); padding: 1px 6px; border-radius: 999px; margin: 0 6px; }
 .agent :deep(p) { margin: 0 0 .5em; }
 .agent :deep(code) { font-size: .86em; background: var(--bg-deep); padding: 1px 5px; border-radius: 5px; }
 .think { font-size: .8rem; color: var(--text-3); }
