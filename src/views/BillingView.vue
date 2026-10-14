@@ -100,8 +100,9 @@ const showTurns = ref(false);
       <div class="turn-head" @click="showTurns = !showTurns"><b>最近每一轮</b><span class="muted small">{{ turns.length }} 轮 {{ showTurns ? "▴" : "▾" }}</span></div>
       <template v-if="showTurns">
         <div v-for="t in turns" :key="t.ts" class="turn">
-          <div class="turn-row"><span>{{ hm(t.ts) }}</span><span class="grow">{{ apiName(t.apiId) }}</span><b :class="{ many: t.rounds > 1 }">请求 {{ t.rounds }} 次<template v-if="t.sends">（续发 {{ t.sends }}）</template></b></div>
-          <div class="turn-sub">输入 {{ fmtTokens(t.input) }}<template v-if="t.cached">（缓存 {{ fmtTokens(t.cached) }}）</template> · 输出 {{ fmtTokens(t.output) }}<template v-for="p in t.plan || []" :key="p.label"> · {{ p.label }} {{ p.d == null ? `用了 ${p.used}%` : `+${p.d}%` }}</template></div>
+          <div class="turn-row"><span>{{ hm(t.ts) }}</span><span class="grow">{{ t.wake ? `唤醒 · ${t.wake.reasons.join("；")}` : apiName(t.apiId) }}</span><b :class="{ many: t.rounds > 1 }">{{ t.wake?.direct ? "直接发，没请求" : `请求 ${t.rounds} 次` }}<template v-if="t.sends">（续发 {{ t.sends }}）</template></b></div>
+          <div v-if="t.wake && !t.wake.direct" class="turn-sub">{{ t.wake.error ? `失败：${t.wake.error}` : t.wake.silent ? "醒了，没发消息" : "醒了，发了消息" }}<template v-if="t.wake.ctx"> · 带的上下文 {{ fmtTokens(t.wake.ctx) }}</template></div>
+          <div v-if="!t.wake?.direct" class="turn-sub">输入 {{ fmtTokens(t.input) }}<template v-if="t.cached">（缓存 {{ fmtTokens(t.cached) }}）</template> · 输出 {{ fmtTokens(t.output) }}<template v-for="p in t.plan || []" :key="p.label"> · {{ p.label }} {{ p.d == null ? `用了 ${p.used}%` : `+${p.d}%` }}</template></div>
         </div>
       </template>
     </div>

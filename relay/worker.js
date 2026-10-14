@@ -298,16 +298,17 @@ async function listAlarms(env, roleId) {
     const r = await env.KV.list({ prefix: roleId ? `alarm:${roleId}:` : "alarm:", cursor });
     for (const k of r.keys) {
       const [, role, id] = k.name.split(":");
-      out.push({ key: k.name, roleId: role, id, at: k.metadata?.at || 0, note: k.metadata?.note || "" });
+      out.push({ key: k.name, roleId: role, id, at: k.metadata?.at || 0, note: k.metadata?.note || "", say: k.metadata?.say || "" });
     }
     cursor = r.list_complete ? null : r.cursor;
   } while (cursor);
   return out.sort((a, b) => a.at - b.at);
 }
 
-const alarmView = (a, now) => ({ id: a.id, at: a.at, note: a.note, label: whenLabel(a.at, now) });
+const alarmView = (a, now) => ({ id: a.id, at: a.at, note: a.note, say: a.say || "", label: whenLabel(a.at, now) });
 
-async function addAlarm(env, roleId, when, note, quiet, now = Date.now()) {
+// say：到点直接替 TA 发的话（写了就不叫醒 TA、不请求模型）
+async function addAlarm(env, roleId, when, note, quiet, now = Date.now(), say = "") {
   const at = parseWhen(when, now);
   if (!at) return { error: `看不懂这个时间「${when}」` };
   if (at < now + 60_000) return { error: "这个时间已经过去了" };
@@ -317,8 +318,9 @@ async function addAlarm(env, roleId, when, note, quiet, now = Date.now()) {
   if (list.length >= MAX_ALARMS) return { error: `已经定了 ${MAX_ALARMS} 个闹钟，等它们响完或者取消一个再定` };
   const id = rid();
   note = cut(note, 100);
-  await env.KV.put(`alarm:${roleId}:${id}`, "1", { metadata: { at, note }, expiration: Math.floor(at / 1000) + 7 * 86400 });
-  const alarm = alarmView({ id, at, note }, now);
+  say = cut(String(say || "").trim(), 150);
+  await env.KV.put(`alarm:${roleId}:${id}`, "1", { metadata: { at, note, ...(say ? { say } : {}) }, expiration: Math.floor(at / 1000) + 7 * 86400 });
+  const alarm = alarmView({ id, at, note, say }, now);
   return { ok: true, alarm, alarms: [...list.map(a => alarmView(a, now)), alarm].sort((a, b) => a.at - b.at) };
 }
 
@@ -881,6 +883,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     usage.output += r.usage.output;
     usage.cached += r.usage.cached || 0;
     usage.ctx = r.usage.input; // 这一次 TA 看到的内容有多大（上面的 input 是来回几次加起来的）
+    usage.rounds = round + 1; // 请求了几次（用工具、搜索都要再请求一次）
     if (round === 0) usage.ctx0 = r.usage.input;
     text = normalizeToolCalls(r.text); // DeepSeek 有时把工具调用写成 <invoke> 的样子
     if (round >= MAX_ROUNDS) break;
@@ -979,8 +982,8 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   text = text.replace(ALARM_RE, "");
   for (const [, op, body] of ops) {
     if (op === "定闹钟") {
-      const [when, ...rest] = body.split(/[|｜]/);
-      const r = await addAlarm(env, role.id, when.trim(), rest.join(" ").trim(), role.wake?.quiet, now);
+      const [when, note = "", ...say] = body.split(/[|｜]/);
+      const r = await addAlarm(env, role.id, when.trim(), note.trim(), role.wake?.quiet, now, say.join(" ").trim());
       notes.push({ text: r.ok ? `${role.name} 定了个闹钟：${r.alarm.label}${r.alarm.note ? " · " + r.alarm.note : ""}` : `${role.name} 想定闹钟，但没定成：${r.error}` });
     } else {
       const r = await cancelAlarm(env, role.id, body);
@@ -1025,7 +1028,27 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   return item;
 }
 
+// ---------- 到点直接发的话：不叫醒 TA、不请求模型 ----------
+// 固定提醒（你在唤醒页写了「到点直接发的话」、TA 定闹钟时写了第三段）：内容早就定好了，不用再想一遍
+async function deliverSay(env, cfg, role, says, now = Date.now()) {
+  const text = says.map(x => x.say).join("\n\n");
+  const item = {
+    id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: now,
+    reasons: says.map(x => x.why), silent: false, direct: true, text,
+    notes: [{ text: "到点直接发的，没有叫醒他（不花额度）" }], usage: { input: 0, output: 0, rounds: 0 },
+    apiId: null, model: "", alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, now)),
+  };
+  await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
+  await env.KV.put("boxlatest", String(item.ts));
+  const first = text.split(/\n\s*\n/)[0] || "";
+  const url = cfg.appUrl ? `${cfg.appUrl}#/chat/${role.id}${role.threadId ? "/" + role.threadId : ""}` : undefined;
+  item.push = await pushAll(env, { title: role.name, body: first.length > 40 ? first.slice(0, 40) + "…" : first, url, tag: "say-" + role.id + "-" + item.id });
+  return item;
+}
+
 // ---------- 定时任务 ----------
+const BUSY_GAP = 2 * 3600_000; // 她 2 小时内在栖所里：不额外叫醒（每隔一段时间的那种）
+const MAX_UNANSWERED = 2; // 主动发了两次她都没出现：先停下，等她回来
 function nextInterval(w, now) {
   const every = Math.max(10, Number(w.every) || 120);
   const jitter = Math.min(Math.max(0, Number(w.jitter) || 0), every / 2);
@@ -1041,6 +1064,7 @@ async function tick(env, now = Date.now()) {
   const cfg = await env.KV.get("cfg", "json");
   if (!cfg?.roles?.length) return null;
   const alarms = await listAlarms(env);
+  const seen = Number(await env.KV.get("seen")) || 0; // 她最近一次在栖所里（栖所开着时报的）
   const due = [];
   for (const role of cfg.roles) {
     const w = role.wake;
@@ -1057,7 +1081,11 @@ async function tick(env, now = Date.now()) {
         sched.ih = ih;
         changed = true;
       } else if (sched.nextAt <= now) {
-        if (!inQuiet(w.quiet, now)) reasons.push({ kind: "interval", text: `到了平时醒来的时间${w.intervalNote ? `（${role.meName || "对方"}留了话：${w.intervalNote}）` : ""}` });
+        // 跳过这一次：免打扰；她 2 小时内在栖所里（正在聊，不用额外叫醒）；主动发了两次她都没出现（等她回来）
+        const waiting = (sched.unanswered || 0) >= MAX_UNANSWERED && seen < (sched.proAt || 0);
+        const skip = inQuiet(w.quiet, now) ? "免打扰" : now - seen < BUSY_GAP ? "她刚在栖所里" : waiting ? "主动找了她两次都没回，等她回来" : "";
+        if (!skip) reasons.push({ kind: "interval", text: `到了平时醒来的时间${w.intervalNote ? `（${role.meName || "对方"}留了话：${w.intervalNote}）` : ""}` });
+        sched.skipped = skip ? { at: now, why: skip } : null;
         sched.nextAt = nextInterval(w, now);
         changed = true;
       }
@@ -1069,11 +1097,14 @@ async function tick(env, now = Date.now()) {
     sched.fired ??= {};
     const today = ymd(now);
     const mod = minuteOfDay(now);
+    const says = []; // 到点直接发的话
     for (const t of w.times || []) {
       const tm = hm2min(t);
       if (mod >= tm && mod - tm < 15 && sched.fired[t] !== today) {
         const note = w.timeNotes?.[t];
-        reasons.push({ kind: "time", text: `到了每天 ${t} 醒来的时间${note ? `（${role.meName || "对方"}留了话：${note}）` : ""}` });
+        const say = w.timeSay?.[t]?.trim();
+        if (say) says.push({ say, why: `每天 ${t} 的提醒` });
+        else reasons.push({ kind: "time", text: `到了每天 ${t} 醒来的时间${note ? `（${role.meName || "对方"}留了话：${note}）` : ""}` });
         sched.fired[t] = today;
         changed = true;
       }
@@ -1083,14 +1114,28 @@ async function tick(env, now = Date.now()) {
     for (const o of w.once || []) {
       if (!o?.id || !(o.at <= now) || now - o.at > 30 * 60_000 || sched.firedOnce[o.id]) continue;
       const at = new Date(o.at + BJ).toISOString().slice(5, 16).replace("T", " ");
-      reasons.push({ kind: "once", text: `到了${role.meName || "对方"}给你定的一次性闹钟（${at}）${o.note ? `，留了话：${o.note}` : ""}` });
+      if (o.say?.trim()) says.push({ say: o.say.trim(), why: `${at} 的一次性提醒` });
+      else reasons.push({ kind: "once", text: `到了${role.meName || "对方"}给你定的一次性闹钟（${at}）${o.note ? `，留了话：${o.note}` : ""}` });
       sched.firedOnce[o.id] = now;
       changed = true;
     }
     for (const [id, t] of Object.entries(sched.firedOnce)) if (now - t > 2 * DAY) { delete sched.firedOnce[id]; changed = true; }
     // TA 自己定的闹钟
     const mine = alarms.filter(a => a.roleId === role.id && a.at <= now);
-    for (const a of mine) reasons.push({ kind: "alarm", text: `你给自己定的闹钟响了（${a.note || "没写要做什么"}）`, key: a.key });
+    for (const a of mine) {
+      if (a.say) { says.push({ say: a.say, why: `他定的闹钟（${a.note || "提醒"}）` }); await env.KV.delete(a.key); }
+      else reasons.push({ kind: "alarm", text: `你给自己定的闹钟响了（${a.note || "没写要做什么"}）`, key: a.key });
+    }
+    if (says.length) {
+      try { await deliverSay(env, cfg, role, says, now); } catch (e) { sched.sayError = String(e.message || e).slice(0, 120); }
+      changed = true;
+    }
+    // 上次叫醒失败了：再试一次（只试一次）
+    if (sched.retry && sched.retry.at <= now) {
+      reasons.push(...sched.retry.reasons);
+      delete sched.retry;
+      changed = true;
+    }
 
     // 心潮的桥：免打扰时段不去取，留着等醒了再说（过期的心潮自己会丢掉）
     if (role.bridge?.url && role.bridge?.token && !inQuiet(w.quiet, now)) {
@@ -1104,7 +1149,7 @@ async function tick(env, now = Date.now()) {
       }
     }
 
-    if (reasons.length) due.push({ role, sched, key, reasons, overdue: Math.min(...mine.map(a => a.at), sched.nextAt || now) });
+    if (reasons.length) due.push({ role, sched, key, reasons, overdue: Math.min(...mine.filter(a => !a.say).map(a => a.at), sched.nextAt || now) });
     else if (changed) await env.KV.put(key, JSON.stringify(sched));
   }
   if (!due.length) return null;
@@ -1118,12 +1163,21 @@ async function tick(env, now = Date.now()) {
   try {
     const item = await runWake(env, cfg, role, reasons, now);
     sched.last = { at: now, reasons: item.reasons, silent: item.silent, usage: item.usage };
+    // 每隔一段时间醒来、主动发了消息：记一下；她没出现过又发了一次，就算没回应
+    if (reasons.some(r => r.kind === "interval") && !item.silent) {
+      sched.unanswered = seen > (sched.proAt || 0) ? 1 : (sched.unanswered || 0) + 1;
+      sched.proAt = now;
+    }
     if (bridgeIds.length) await ackBridge(role.bridge, bridgeIds);
   } catch (e) {
     if (bridgeIds.length) await ackBridge(role.bridge, bridgeIds, "retryable_failed", "wake_failed");
-    sched.last = { at: now, reasons: reasons.map(r => r.text), error: String(e.message || e) };
+    // 失败了：10 分钟后再试一次；再试也失败就算了，不反复试
+    const again = reasons.filter(r => !r.retry && !r.deliveryId && r.kind !== "bridge").map(({ key: _k, ...r }) => ({ ...r, retry: true }));
+    if (again.length) sched.retry = { at: now + 10 * 60_000, reasons: again };
+    const errText = `${String(e.message || e)}${again.length ? "（10 分钟后再试一次）" : reasons.some(r => r.retry) ? "（这是重试，不再试了）" : ""}`;
+    sched.last = { at: now, reasons: reasons.map(r => r.text), error: errText };
     // 出错也告诉栖所一声
-    const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: reasons.map(r => r.text), silent: true, error: String(e.message || e), text: "", notes: [], usage: { input: 0, output: 0 } };
+    const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: reasons.map(r => r.text), silent: true, error: errText, text: "", notes: [], usage: { input: 0, output: 0 } };
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
     await env.KV.put("boxlatest", String(item.ts));
   }
@@ -1159,12 +1213,15 @@ async function wakeRoute(path, req, env) {
 
   if (path === "/wake/state") {
     const cfg = (await env.KV.get("cfg", "json")) || { roles: [] };
+    const seen = Number(await env.KV.get("seen")) || 0;
     const alarms = await listAlarms(env);
     const now = Date.now();
     const roles = {};
     for (const r of cfg.roles) {
       const sched = (await env.KV.get(`sched:${r.id}`, "json")) || {};
-      roles[r.id] = { alarms: alarms.filter(a => a.roleId === r.id).map(a => alarmView(a, now)), nextAt: sched.nextAt || null, last: sched.last || null, bridgeError: sched.bridgeError || "" };
+      const waiting = (sched.unanswered || 0) >= MAX_UNANSWERED && seen < (sched.proAt || 0);
+      roles[r.id] = { alarms: alarms.filter(a => a.roleId === r.id).map(a => alarmView(a, now)), nextAt: sched.nextAt || null, last: sched.last || null, bridgeError: sched.bridgeError || "",
+        skipped: sched.skipped || null, waiting, retryAt: sched.retry?.at || null };
     }
     const subs = await env.KV.list({ prefix: "sub:" });
     return json({ roles, syncedAt: cfg.syncedAt || 0, tick: Number(await env.KV.get("tick")) || 0, devices: subs.keys.length });
@@ -1175,7 +1232,7 @@ async function wakeRoute(path, req, env) {
     if (!roleId) return json({ error: "缺少角色" }, 400);
     const r = body.op === "cancel"
       ? await cancelAlarm(env, roleId, body.id)
-      : await addAlarm(env, roleId, body.when, body.note, body.quiet);
+      : await addAlarm(env, roleId, body.when, body.note, body.quiet, Date.now(), body.say);
     return json(r, r.ok ? 200 : 400);
   }
 
@@ -1221,6 +1278,11 @@ async function wakeRoute(path, req, env) {
   }
 
   if (path === "/wake/inbox") {
+    // 栖所开着（在前台）时来取：记下她在（5 分钟写一次，省 KV 写入）
+    if (url.searchParams.get("active")) {
+      const seen = Number(await env.KV.get("seen")) || 0;
+      if (Date.now() - seen > 5 * 60_000) await env.KV.put("seen", String(Date.now()));
+    }
     const latest = Number(await env.KV.get("boxlatest")) || 0;
     const since = Number(url.searchParams.get("since")) || 0;
     const busy = await getBusy(env);
@@ -1279,7 +1341,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 21, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 22, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

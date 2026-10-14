@@ -214,7 +214,7 @@ function migrate() {
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
   for (const k of ["groupHistoryLimit", "groupPrivateLimit", "privateGroupLimit", "surfacedLimit"]) delete store.settings[k]; // 群聊、浮现的记忆都去掉了
-  store.settings.wakeHistoryLimit ??= 30; // TA 醒来时看最近多少条聊天
+  store.settings.wakeHistoryTokens ??= 4000; // TA 醒来时带多少聊天（token，小背包）
   store.settings.privacy ??= "";
   store.profile.userName ??= "";
   store.profile.bioSelf ??= "";

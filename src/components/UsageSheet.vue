@@ -55,7 +55,7 @@ const go = i => pager.value?.scrollTo({ left: i * pager.value.clientWidth, behav
 watch(() => props.open, v => { if (v) { page.value = 0; requestAnimationFrame(() => pager.value && (pager.value.scrollLeft = 0)); } });
 const limits = [
   { key: "historyTokens", label: "他每次带多少聊天原文（token）", sub: "摘要后面的聊天原样发给他，最多这么多；到八成就把前面的整理进摘要，最近一半留着。越多记得越细，也越费", min: 2000, max: 300000, step: 10000, def: 50000 },
-  { key: "wakeHistoryLimit", label: "他醒来时看多少条聊天", sub: "一天会醒好几次，少一点更省；也不会超过上一项", min: 2, def: 30 },
+  { key: "wakeHistoryTokens", label: "他醒来时带多少聊天（token）", sub: "醒来只带个小背包：最近这么多聊天、摘要、记忆和醒来的原因；要旧的事他会自己翻记忆。也不会超过上一项", min: 500, max: 50000, step: 1000, def: 4000 }
 ];
 function setLimit(l, v) {
   const n = Math.round(Number(v));
