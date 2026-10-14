@@ -45,6 +45,7 @@ export const router = createRouter({
     { path: "/settings/stickers", component: () => import("./views/StickersView.vue") },
     { path: "/settings/billing", component: () => import("./views/BillingView.vue") },
     { path: "/settings/tools", component: ToolsView },
+    { path: "/work", component: () => import("./views/WorkroomView.vue") }, // 工作间（服务器上的 Codex）
     { path: "/settings/mcp/:id", component: McpEditView },
     { path: "/settings/wake", component: WakeView },
     { path: "/settings/wake/:id", component: WakeRoleView },
