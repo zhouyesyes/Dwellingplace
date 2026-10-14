@@ -18,6 +18,9 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少 $1，请先安装"; e
 need docker; need curl
 SUDO=""; docker ps >/dev/null 2>&1 || SUDO="sudo"
 
+# 上一次的容器还在跑（按 Ctrl+C 只停了脚本，没停容器）：先停掉，免得撞名字、也免得两次一起改文件
+$SUDO docker rm -f codex-lab >/dev/null 2>&1 || true
+
 say "1/4 准备文件夹（$DIR）"
 mkdir -p "$DIR/codex-home" "$DIR/work"
 cd "$DIR"
@@ -47,27 +50,37 @@ chmod 700 "$DIR/codex-home"
 # Codex 的沙盒（bubblewrap）要在容器里再开一层隔离：Docker 默认的规则可能不让。
 # 从最严的开始试，哪个能用就用哪个（一直都去掉全部特权、禁止提权、不用 root）
 BASE=(--network codex-lab-net --memory 2g --cpus 2 --pids-limit 512 --cap-drop ALL --security-opt no-new-privileges)
-MODE_NAME=""; MODE=()
+MODE_NAME=""; MODE=(); LAST_ERR=""
+echo "  这台机器限制普通程序开隔离环境吗（Ubuntu 24.04 默认是 1）：$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 没有这个设置)"
 for m in "默认" "seccomp=unconfined" "seccomp=unconfined apparmor=unconfined"; do
   case "$m" in
     默认) try=() ;;
     "seccomp=unconfined") try=(--security-opt seccomp=unconfined) ;;
     *) try=(--security-opt seccomp=unconfined --security-opt apparmor=unconfined) ;;
   esac
-  if $SUDO docker run --rm "${BASE[@]}" "${try[@]}" codex-lab codex sandbox -P :workspace -C /home/codex -- true >/dev/null 2>&1; then
+  if out=$($SUDO docker run --rm "${BASE[@]}" "${try[@]}" codex-lab codex sandbox -P :workspace -C /home/codex -- true 2>&1); then
     MODE_NAME="$m"; MODE=("${try[@]}"); break
   fi
+  LAST_ERR=$(printf '%s' "$out" | grep -v "bubblewrap on PATH\|PATH aliases" | tail -1)
 done
+CONTAINER_SANDBOX=""
 if [ -z "$MODE_NAME" ]; then
-  MODE_NAME="三种都开不了 Codex 的沙盒"
-  echo "  ⚠️ 容器里开不了 Codex 的沙盒。还是会跑测试（Codex 改动和命令会被拒绝或报错），报告里会写清楚。"
+  # 退路：Codex 自己的沙盒开不了，就让容器本身当沙盒——根目录只读，只有 /work、/tmp 和 Codex 自己的目录能写，
+  # 没有特权、不是 root、单独的网络；Codex 里不再套一层沙盒，靠「每条命令都先问」来把关
+  echo "  Codex 自己的沙盒开不了：${LAST_ERR:-（没有说原因）}"
+  echo "  改用退路：容器本身当沙盒（根目录只读，只能写项目），每条命令都先问一遍。"
+  MODE_NAME="容器当沙盒（Codex 自己的沙盒开不了：${LAST_ERR:-原因不明}）"
+  MODE=(--read-only --tmpfs /tmp:rw,size=256m --tmpfs /home/codex:rw,size=256m,uid=1001,gid=1001)
+  CONTAINER_SANDBOX=1
 fi
 echo "  容器安全设置：$MODE_NAME"
 
 say "3/4 开始实测（第一次会让你在手机上登录 ChatGPT）"
 echo "  先测沙盒（不花额度），再跑三个小任务（会用一点 Codex 额度）。大概 5～10 分钟。"
 # 限制：最多 2G 内存、2 个 CPU、512 个进程、没有特权；只挂 Codex 的登录目录和 /work
-$SUDO docker run --rm -t --name codex-lab "${BASE[@]}" "${MODE[@]}" -e LAB_MODE="$MODE_NAME" \
+# 脚本被打断（Ctrl+C）时容器也一起停
+trap '$SUDO docker rm -f codex-lab >/dev/null 2>&1 || true' EXIT
+$SUDO docker run --rm -t --name codex-lab "${BASE[@]}" "${MODE[@]}" -e LAB_MODE="$MODE_NAME" -e LAB_CONTAINER_SANDBOX="$CONTAINER_SANDBOX" \
   -v "$DIR/codex-home:/home/codex/.codex" \
   -v "$DIR/work:/work" \
   codex-lab node /opt/probe.mjs || true
