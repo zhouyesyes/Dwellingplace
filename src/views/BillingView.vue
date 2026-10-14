@@ -3,6 +3,7 @@
 import { ref, computed, onMounted } from "vue";
 import { store, fmtTokens, today } from "../store/index.js";
 import { isPlan } from "../lib/providers.js";
+import { planPercents } from "../lib/quota.js";
 import SubHeader from "../components/SubHeader.vue";
 
 // ---------- ChatGPT 会员额度：放在最上面 ----------
@@ -22,38 +23,8 @@ async function checkPlan(a) {
     plan.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上服务器" : e.message };
   }
 }
-// OpenAI 回复时带的「额度」响应头：认得出百分比的画成进度条，别的原样列出来
-function bars(limits) {
-  const h = limits?.headers || {};
-  const out = [];
-  // 流里的额度事件：找带 used_percent 的（primary 一般是 5 小时，secondary 是每周）
-  for (const raw of Object.values(limits?.events || {})) {
-    let ev; try { ev = JSON.parse(raw); } catch { continue; }
-    const walk = (o, name) => {
-      if (!o || typeof o !== "object") return;
-      if (o.used_percent != null) {
-        const mins = Number(o.window_minutes);
-        const label = mins ? (mins <= 600 ? `${Math.round(mins / 60)} 小时` : mins >= 7 * 1440 - 60 ? "每周" : `${Math.round(mins / 1440)} 天`) : /primary/i.test(name) ? "5 小时" : /secondary/i.test(name) ? "每周" : name;
-        const secs = Number(o.resets_in_seconds ?? o.reset_after_seconds ?? (o.resets_at ? o.resets_at - Date.now() / 1000 : NaN));
-        out.push({ label, left: Math.round(100 - Math.max(0, Math.min(100, Number(o.used_percent)))), reset: Number.isFinite(secs) && secs > 0 ? untilText(secs) : "" });
-        return;
-      }
-      for (const [k, v] of Object.entries(o)) walk(v, k);
-    };
-    walk(ev, "");
-  }
-  if (out.length) return out;
-  for (const [k, v] of Object.entries(h)) {
-    if (!/percent/i.test(k)) continue;
-    const used = Math.max(0, Math.min(100, Number(v)));
-    if (!Number.isFinite(used)) continue;
-    const label = /primary|5h|hour/i.test(k) ? "5 小时" : /secondary|week/i.test(k) ? "每周" : k;
-    const resetKey = Object.keys(h).find(x => /reset/i.test(x) && x.replace(/reset.*$/i, "") === k.replace(/used.*$|percent.*$/i, ""));
-    const secs = resetKey ? Number(h[resetKey]) : NaN;
-    out.push({ label, left: Math.round(100 - used), reset: Number.isFinite(secs) && secs < 30 * 86400 ? untilText(secs) : "" });
-  }
-  return out;
-}
+// OpenAI 回复时带的额度：认得出百分比的画成进度条
+const bars = limits => planPercents(limits).map(p => ({ label: p.label, left: Math.round(100 - p.used), reset: Number.isFinite(p.secs) && p.secs > 0 ? untilText(p.secs) : "" }));
 const untilText = s => (s < 3600 ? `${Math.ceil(s / 60)} 分钟后恢复` : s < 86400 ? `${Math.round(s / 3600)} 小时后恢复` : `${Math.round(s / 86400)} 天后恢复`);
 const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : `${Math.round(m / 60)} 小时前`; };
 const todayCalls = a => store.usage[today()]?.[a.id]?.calls || 0;
@@ -102,6 +73,12 @@ const open = ref({});
 const rowsOf = a => days.value.map(d => ({ d, u: store.usage[d]?.[a.id] })).filter(r => r.u);
 const sum = a => rowsOf(a).reduce((s, { u }) => ({ calls: s.calls + u.calls, input: s.input + u.input, output: s.output + u.output }), { calls: 0, input: 0, output: 0 });
 const short = d => d.slice(5).replace("-", "/");
+
+// 最近每一轮回复：请求了几次、多少 tokens；会员额度的话，这一轮前后百分比变了多少
+const turns = computed(() => (store.turnLog || []).slice(-20).reverse());
+const apiName = id => store.apis.find(a => a.id === id)?.name || "已删掉的 API";
+const hm = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const showTurns = ref(false);
 </script>
 
 <template>
@@ -109,6 +86,25 @@ const short = d => d.slice(5).replace("-", "/");
     <SubHeader title="用量和余额">
       <button class="btn soft small" @click="refresh">刷新</button>
     </SubHeader>
+
+    <div class="card body how">
+      <b>额度到底怎么算</b>
+      <template v-if="planApis.length">
+        <p><i>ChatGPT 会员额度</i>不按次数、也不按条数。OpenAI 按这一轮让模型算了多少来扣：输入、输出（连同思考）的 tokens，模型越大、思考越多扣得越多，折成「5 小时」和「每周」两个百分比。具体怎么换算 OpenAI 没公开；下面「最近每一轮」里，栖所在每轮之后看一眼百分比，记下这一轮大概用掉了多少。</p>
+      </template>
+      <p v-if="otherApis.length"><i>用 Key 的 API</i>（DeepSeek、OpenRouter、Claude 等）按 tokens 收钱：输入多少、输出多少（思考也算输出），命中缓存的输入便宜很多。请求次数本身不收钱。</p>
+      <p>两种都一样的一点：<b>每多请求一次，前面的设定、记忆、摘要和最近的聊天就要再发一遍输入</b>。用工具、翻记忆、搜索、续发，每一步都要多请求一次；按空行分气泡、[停顿] 都是同一次生成，不多花。</p>
+    </div>
+
+    <div v-if="turns.length" class="card body">
+      <div class="turn-head" @click="showTurns = !showTurns"><b>最近每一轮</b><span class="muted small">{{ turns.length }} 轮 {{ showTurns ? "▴" : "▾" }}</span></div>
+      <template v-if="showTurns">
+        <div v-for="t in turns" :key="t.ts" class="turn">
+          <div class="turn-row"><span>{{ hm(t.ts) }}</span><span class="grow">{{ apiName(t.apiId) }}</span><b :class="{ many: t.rounds > 1 }">请求 {{ t.rounds }} 次<template v-if="t.sends">（续发 {{ t.sends }}）</template></b></div>
+          <div class="turn-sub">输入 {{ fmtTokens(t.input) }}<template v-if="t.cached">（缓存 {{ fmtTokens(t.cached) }}）</template> · 输出 {{ fmtTokens(t.output) }}<template v-for="p in t.plan || []" :key="p.label"> · {{ p.label }} {{ p.d == null ? `用了 ${p.used}%` : `+${p.d}%` }}</template></div>
+        </div>
+      </template>
+    </div>
 
     <div v-for="a in planApis" :key="a.id" class="card plan">
       <div class="plan-top">
@@ -200,4 +196,14 @@ const short = d => d.slice(5).replace("-", "/");
 .m-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .note { font-size: 0.8rem; color: var(--text-3); line-height: 1.7; margin: 12px 8px 0; }
 .center { text-align: center; }
+.how { margin-bottom: 14px; }
+.how p { margin: 8px 0 0; font-size: 0.84rem; line-height: 1.7; color: var(--text-2); }
+.how i { font-style: normal; font-weight: 600; color: var(--text); margin-right: 4px; }
+.turn-head { display: flex; justify-content: space-between; align-items: baseline; cursor: pointer; }
+.turn { border-top: 1px solid var(--line); padding: 7px 0; margin-top: 6px; }
+.turn-row { display: flex; gap: 10px; font-size: 0.84rem; align-items: baseline; }
+.turn-row .grow { flex: 1; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-row b { font-weight: 500; font-size: 0.8rem; color: var(--text-2); }
+.turn-row b.many { color: var(--accent); }
+.turn-sub { font-size: 0.76rem; color: var(--text-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
 </style>

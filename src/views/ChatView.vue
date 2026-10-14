@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
+import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
 import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
 import PetDock from "../components/pet/PetDock.vue";
 import { petOn } from "../lib/pet.js";
@@ -66,6 +66,7 @@ const petWork = computed(() => {
   const last = messages.value[messages.value.length - 1];
   if (busy.value) {
     const m = last?.from === "ai" && last.pending ? last : null;
+    if (m?.waiting) return null; // 续发前真的在停：不敲键盘
     if (m?.notes?.some(n => n.before && /…$/.test(n.text || ""))) return "tool";
     if (!m || !m.text) return "think";
     return m.text.length > 500 ? "type4" : "type2";
@@ -216,7 +217,7 @@ function onKeydown(e) {
 }
 
 async function send(reply = true) {
-  if (busy.value) return;
+  if (busy.value && !following[threadId.value]) return; // 他在续发的时候可以插话：续发就停下，先听你的
   const text = draft.value.trim();
   if (!text && !attachments.value.length) return;
   // 他正被叫醒、在行动：先只把话放过去，不另外叫他回（不然两边一起动，就重复了）
@@ -237,7 +238,7 @@ async function send(reply = true) {
 const stickerOpen = ref(false);
 async function sendSticker(s) {
   stickerOpen.value = false;
-  if (busy.value) return;
+  if (busy.value && !following[threadId.value]) return;
   scrollToBottom(true);
   await sendMessage(thread.value, `[表情:${s.name}]`, [], { reply: false });
 }
@@ -440,9 +441,11 @@ const shownCount = computed(() => {
 // 一组 AI 消息用了多少 tokens
 function tokensOf(group) {
   if (group.from !== "ai") return "";
-  let i = 0, o = 0, c = 0;
-  for (const m of group.msgs) if (!m._src || m._last) { i += m.usage?.input || 0; o += m.usage?.output || 0; c += m.usage?.cached || 0; }
-  return i || o ? `输入 ${fmtTokens(i)}${c ? `（缓存 ${fmtTokens(c)}）` : ""} · 输出 ${fmtTokens(o)} tokens` : "";
+  let i = 0, o = 0, c = 0, r = 0, f = 0;
+  for (const m of group.msgs) if (!m._src || m._last) { i += m.usage?.input || 0; o += m.usage?.output || 0; c += m.usage?.cached || 0; r += m.rounds || 0; f += m.sends || 0; }
+  // 请求了几次：用工具、翻记忆、续发，每多一步都要再请求一次（每次都带着前面的全部内容）
+  const req = r > 1 ? ` · 请求 ${r} 次${f ? `（续发 ${f} 条）` : ""}` : "";
+  return i || o ? `输入 ${fmtTokens(i)}${c ? `（缓存 ${fmtTokens(c)}）` : ""} · 输出 ${fmtTokens(o)} tokens${req}` : "";
 }
 
 // ---------- 消息操作 ----------
@@ -656,6 +659,7 @@ async function changeAvatarOf(who) {
                   <div v-else-if="m.pending && !splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                   <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><LinkCard v-else-if="cardOf(b)" v-bind="cardOf(b)" /><template v-else><div v-if="!onlyUrl(b)" class="bubble" :data-mid="src(m).id" @click="openActions(src(m), b)" v-html="withStickers(blockMd(b))" /><LinkCard v-for="u in urlsIn(b)" :key="u" :url="u" /></template></template>
                   <template v-if="!m._src || m._last">
+                    <div v-if="src(m).pending && (src(m).paused || src(m).typing) && splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                     <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
                     <div v-if="imgsOf(src(m)).length" class="att one" @click="viewImgs(src(m))"><ImgThumb :id="imgsOf(src(m))[0].img" /></div>
                   </template>
