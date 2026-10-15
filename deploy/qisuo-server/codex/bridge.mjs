@@ -51,7 +51,7 @@ const writeJSON = (f, v) => { const t = `${f}.tmp`; fs.writeFileSync(t, JSON.str
 const THREADS = path.join(DATA, "threads.json");
 const POLICY = path.join(DATA, "policy.json");
 let threads = readJSON(THREADS, {}); // id -> { id, project, title, createdAt, updatedAt, status, turnId }
-let policy = { autoRead: true, autoTest: true, autoEdit: true, ...readJSON(POLICY, {}) };
+let policy = { autoRead: true, autoTest: true, autoEdit: true, autoAll: false, ...readJSON(POLICY, {}) }; // autoAll 要她自己打开
 const saveThreads = () => writeJSON(THREADS, threads);
 
 // ---------- 事件：编号、内存里留最近的，每个线程另外存一份 ----------
@@ -82,11 +82,13 @@ function emit(method, params) {
 const cid = t => t.codex || t.id;
 const ours = codexId => Object.values(threads).find(t => t.codex === codexId)?.id || codexId;
 const NOT_FOUND = /thread not found|no rollout found|no such thread|unknown thread/i; // Codex 说法不止一种
-const startOpts = t => ({ cwd: path.join(WORK, t.project), sandbox: "danger-full-access", approvalPolicy: "untrusted", developerInstructions: [BASE_INSTRUCTIONS, t.instructions || ""].filter(Boolean).join("\n\n"), ...(t.model ? { model: t.model } : {}) });
+// 不套 Codex 自己的隔离罩（容器已经隔开了，容器里也套不上），审批按栖所的规则来。开新线程、接上旧线程都带着，不然重启后接上的线程会退回 Codex 的默认
+const RUN_OPTS = { sandbox: "danger-full-access", approvalPolicy: "untrusted" };
+const startOpts = t => ({ cwd: path.join(WORK, t.project), ...RUN_OPTS, developerInstructions: [BASE_INSTRUCTIONS, t.instructions || ""].filter(Boolean).join("\n\n"), ...(t.model ? { model: t.model } : {}) });
 // 先照常做；Codex 说找不到这个线程：先试着接上，接不上就开一个新的，再做一次
 async function withThread(t, run) {
   try { return await run(cid(t)); } catch (e) { if (!NOT_FOUND.test(e.message)) throw e; }
-  try { await call("thread/resume", { threadId: cid(t) }); return await run(cid(t)); } catch (e) { if (!NOT_FOUND.test(e.message)) throw e; }
+  try { await call("thread/resume", { threadId: cid(t), ...RUN_OPTS }); return await run(cid(t)); } catch (e) { if (!NOT_FOUND.test(e.message)) throw e; }
   const r = await call("thread/start", startOpts(t));
   t.codex = r.thread.id;
   delete t.turnId;
@@ -140,7 +142,7 @@ async function init() {
   // 以前开着的线程：重新接上（Codex 重启以后要 resume 才收得到它的事件）；重启了就没有还在干的活
   for (const t of Object.values(threads)) delete t.turnId;
   saveThreads();
-  for (const t of Object.values(threads)) if (t.status !== "archived") call("thread/resume", { threadId: cid(t) }).catch(() => {});
+  for (const t of Object.values(threads)) if (t.status !== "archived") call("thread/resume", { threadId: cid(t), ...RUN_OPTS }).catch(() => {});
   emit("qisuo/codex/ready", { version });
 }
 async function refreshAccount() {
@@ -186,6 +188,7 @@ function autoDecision(method, p) {
     if (!inside(p.cwd) || p.networkApprovalContext) return null;
     const body = unwrap(p.command);
     if (RISKY.test(body)) return null;
+    if (policy.autoAll) return "accept"; // 放手让它做（她打开的）：项目里面、不删不装不联网的，都不问
     const parts = body.split(/\s*(?:&&|\|\||;|\|)\s*/).map(s => s.trim()).filter(Boolean);
     if (!parts.length) return null;
     const okPart = s => (policy.autoRead && SAFE_CMD.test(s)) || (policy.autoTest && TEST_CMD.test(s)) || (policy.autoEdit && LOCAL_GIT.test(s)) || /^(cd [\w./-]+|true|:)$/.test(s);
@@ -362,7 +365,7 @@ async function route(req, res, url) {
   if (p === "/login") { if (!need()) return; const r = await call("account/login/start", { type: "chatgptDeviceCode" }); return json(res, 200, { verificationUrl: r.verificationUrl, userCode: r.userCode, loginId: r.loginId }); }
   if (p === "/logout") { if (!need()) return; await call("account/logout", {}); account = null; return json(res, 200, { ok: true }); }
   if (p === "/policy") {
-    if (req.method === "POST") { const b = await body(req); for (const k of ["autoRead", "autoTest", "autoEdit"]) if (typeof b[k] === "boolean") policy[k] = b[k]; writeJSON(POLICY, policy); }
+    if (req.method === "POST") { const b = await body(req); for (const k of ["autoRead", "autoTest", "autoEdit", "autoAll"]) if (typeof b[k] === "boolean") policy[k] = b[k]; writeJSON(POLICY, policy); }
     return json(res, 200, policy);
   }
   if (p === "/projects") {
@@ -417,7 +420,7 @@ async function route(req, res, url) {
       return json(res, 200, { thread: t, events: evs.slice(-3000), approvals: pendingList().filter(a => a.threadId === id) });
     }
     if (!need()) return;
-    if (what === "resume") { await call("thread/resume", { threadId: cid(t) }); return json(res, 200, { ok: true }); }
+    if (what === "resume") { await call("thread/resume", { threadId: cid(t), ...RUN_OPTS }); return json(res, 200, { ok: true }); }
     if (what === "archive") { t.status = "archived"; saveThreads(); await call("thread/archive", { threadId: cid(t) }).catch(() => {}); return json(res, 200, { ok: true }); }
     if (what === "interrupt") {
       if (!t.turnId) return json(res, 200, { ok: true, idle: true });

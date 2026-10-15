@@ -303,6 +303,7 @@ const resetText = s => { if (!s) return ""; const m = Math.round((s * 1000 - Dat
 // ---------- 规则 ----------
 const ruleOpen = ref(false);
 const RULES = [
+  ["autoAll", "放手让它做", "在项目里干活都不问你；只有删东西、装东西、联网、碰项目外面才问"],
   ["autoRead", "只看不改的命令直接放行", "看文件、搜索、git status / diff 这类"],
   ["autoTest", "跑测试、检查直接放行", "npm test、node --test、pytest 这类（会执行项目里的代码）"],
   ["autoEdit", "改项目里的文件直接放行", "改了什么都在 diff 里看得见；改项目外面的还是要问"],
