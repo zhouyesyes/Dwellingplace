@@ -174,12 +174,15 @@ const timeline = computed(() => {
   const codex = t.value?.items || [];
   if (!talkList.value.length) return codex;
   const talks = talkList.value.map(m => ({ kind: m.from === "me" ? "talkMe" : "talkHim", text: m.text, notes: m.notes, attachments: m.attachments, ts: m.ts, id: m.id, at: m.at ?? Infinity }));
+  // 按时间排先后（以前按「说话时 Codex 走到第几条」，记录一多、页面只拉最近一段，条数对不上，你们的对话全被挤到最后）
   const out = [];
   let k = 0;
-  codex.forEach((it, i) => { while (k < talks.length && talks[k].at <= i) out.push(talks[k++]); out.push(it); });
+  codex.forEach(it => { while (k < talks.length && it.ts && talks[k].ts <= it.ts) out.push(talks[k++]); out.push(it); });
   while (k < talks.length) out.push(talks[k++]);
   return out;
 });
+// 等你点的审批：不夹在过程里，固定放在最下面（输入框上面），一进来就看得到
+const asks = computed(() => (t.value?.items || []).filter(x => x.kind === "approval" && x.state === "pending"));
 // Codex 那边「你说的话」：是他交过去的，就标成「他交给 Codex」
 const sentByHim = it => together.value || (wt.value?.sent || []).some(s => String(it.text || "").startsWith(s));
 // 他交过去的那一轮做完了：他先看一遍再告诉你（页面开着才会；没开着，下次打开时补上）
@@ -274,6 +277,7 @@ const shown = computed(() => {
   const out = [];
   for (const it of timeline.value) {
     const last = out[out.length - 1];
+    if (it.kind === "approval" && it.state === "pending") continue; // 放到最下面去
     if (it.kind !== "command" && !quietAsk(it)) out.push(it);
     else if (last?.kind === "cmds") { last.seq.push(it); if (it.kind === "command") last.list.push(it); }
     else out.push({ kind: "cmds", id: `g:${it.id || out.length}`, seq: [it], list: it.kind === "command" ? [it] : [] });
@@ -438,19 +442,6 @@ const RULES = [
 </span></pre>
             </div>
           </div>
-          <div v-else-if="it.kind === 'approval' && it.state === 'pending'" class="card ask">
-            <b>{{ it.method?.includes("fileChange") ? "要改文件" : it.method?.includes("commandExecution") ? "要跑这条命令" : "要你确认" }}</b>
-            <code v-if="it.command">$ {{ cmdText(it.command) }}</code>
-            <p v-if="it.cwd" class="muted small">在 {{ it.cwd }}</p>
-            <p v-if="it.reason" class="muted small">原因：{{ it.reason }}</p>
-            <p v-if="it.grantRoot" class="muted small">想要能写：{{ it.grantRoot }}</p>
-            <div class="ask-btns">
-              <button class="btn small" @click="decide(it, 'accept')">允许这一次</button>
-              <button class="btn soft small" @click="decide(it, 'acceptForSession')">这次任务里都允许</button>
-              <button class="btn soft small" @click="decide(it, 'decline')">不行</button>
-              <button class="btn soft small danger" @click="decide(it, 'cancel')">不行，停下</button>
-            </div>
-          </div>
           <p v-else-if="it.kind === 'approval'" class="line">{{ it.state === "auto" ? `自动放行：${cmdText(it.command) || "改文件"}` : `你${DECISION[it.decision] || "回答了"}` }}</p>
           <p v-else-if="it.kind === 'tool'" class="line">用了 {{ it.name }}</p>
           <p v-else-if="it.kind === 'note'" class="line">{{ it.text }}</p>
@@ -462,6 +453,19 @@ const RULES = [
 </span></pre>
           </div>
         </template>
+        <div v-for="it in asks" :key="it.id" class="card ask">
+          <b>{{ it.method?.includes("fileChange") ? "要改文件" : it.method?.includes("commandExecution") ? "要跑这条命令" : "要你确认" }}</b>
+          <code v-if="it.command">$ {{ cmdText(it.command) }}</code>
+          <p v-if="it.cwd" class="muted small">在 {{ it.cwd }}</p>
+          <p v-if="it.reason" class="muted small">原因：{{ it.reason }}</p>
+          <p v-if="it.grantRoot" class="muted small">想要能写：{{ it.grantRoot }}</p>
+          <div class="ask-btns">
+            <button class="btn small" @click="decide(it, 'accept')">允许这一次</button>
+            <button class="btn soft small" @click="decide(it, 'acceptForSession')">这次任务里都允许</button>
+            <button class="btn soft small" @click="decide(it, 'decline')">不行</button>
+            <button class="btn soft small danger" @click="decide(it, 'cancel')">不行，停下</button>
+          </div>
+        </div>
         <div v-if="thinking" class="working"><i /><i /><i /> {{ him }}在想</div>
         <div v-else-if="running" class="working"><i /><i /><i /> Codex 在干活</div>
         <p v-else-if="waitingYou" class="your-turn">{{ together ? `等你说下一步` : "Codex 做完了，等你说下一步" }}<button v-if="together && talkList.length" class="tap" @click="finish">· 收工，让{{ him }}记下来</button></p>
