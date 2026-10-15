@@ -87,6 +87,7 @@ const bgUrl = useImage(() => thread.value?.bg);
 async function openThread(id) {
   threadId.value = id;
   role.value.lastThreadId = id;
+  showCount.value = PAGE;
   await loadMessages(id);
   await nextTick();
   scrollToBottom(true);
@@ -142,6 +143,23 @@ const items = computed(() => {
   return out;
 });
 const src = m => m._src || m;
+// 一次只画最近的一段：聊得久了上千条全画出来，第一次打开要好几秒，老消息里的图片后到还会把画面往上顶
+// 往上滑到顶附近再多画一段（画面停在原处不跳）
+const PAGE = 40;
+const showCount = ref(PAGE);
+const hiddenCount = computed(() => Math.max(0, items.value.length - showCount.value));
+const shownItems = computed(() => (hiddenCount.value ? items.value.slice(hiddenCount.value) : items.value));
+let growing = false;
+function showMore() {
+  const el = scroller.value;
+  if (!el || growing || !hiddenCount.value) return;
+  growing = true;
+  settleStop?.(); // 她在往上翻：别再把她拽回底下
+  const fromBottom = el.scrollHeight - el.scrollTop;
+  showCount.value += PAGE;
+  nextTick(() => { el.scrollTop = el.scrollHeight - fromBottom; growing = false; });
+}
+const onScroll = () => { if (scroller.value?.scrollTop < 400) showMore(); };
 
 // ---------- 滚动 ----------
 const scroller = ref(null);
@@ -167,7 +185,8 @@ function scrollToBottom(force = false) {
   const el = scroller.value;
   if (el && (force || nearBottom())) el.scrollTop = el.scrollHeight;
 }
-// 刚打开时图片、表情、字体还在陆续加载，内容会一点点变高：头两秒一直贴着底，你一动手指就不管了
+// 刚打开时图片、表情、字体还在陆续加载，内容会一点点变高：一直贴着底，你一动手指就不管了（最多 10 秒）
+// （第一次打开图片要从手机存储里慢慢读，以前只贴 2.5 秒，图片后到就把画面顶到上面去了）
 let settleStop = null;
 function settleAtBottom() {
   settleStop?.();
@@ -186,7 +205,7 @@ function settleAtBottom() {
     settleStop = null;
   };
   ["touchstart", "wheel"].forEach(t => el.addEventListener(t, stop, { passive: true }));
-  const timer = setTimeout(stop, 2500);
+  const timer = setTimeout(stop, 10_000);
   settleStop = stop;
   requestAnimationFrame(stick);
 }
@@ -471,7 +490,8 @@ function quoteMsg() {
   inputEl.value?.focus();
 }
 // 点引用块：跳到原来那条
-function jumpTo(id) {
+async function jumpTo(id) {
+  if (id && !document.querySelector(`[data-mid="${id}"]`) && hiddenCount.value) { showCount.value = items.value.length; await nextTick(); }
   const el = id && document.querySelector(`[data-mid="${id}"]`);
   if (!el) return toast("那条消息不在这里了");
   el.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -606,7 +626,7 @@ async function changeAvatarOf(who) {
       <button class="icon-btn" aria-label="小世界" @click="smallWorld"><Icon name="house" /></button>
     </header>
 
-    <main ref="scroller" class="scroll">
+    <main ref="scroller" class="scroll" @scroll.passive="onScroll">
       <div class="inner">
         <div v-if="!messages.length" class="hello">
           <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="64" />
@@ -614,7 +634,8 @@ async function changeAvatarOf(who) {
           <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
         </div>
 
-        <template v-for="it in items" :key="it.key">
+        <button v-if="hiddenCount" class="more-hint" @click="showMore">往上滑（或点这里）看更早的</button>
+        <template v-for="it in shownItems" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
             <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
               {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
@@ -892,6 +913,7 @@ async function changeAvatarOf(who) {
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .inner { max-width: 760px; margin: 0 auto; padding: 12px 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
 
+.more-hint { display: block; margin: 4px auto 8px; border: 0; background: none; font-size: .72rem; color: var(--text-3); }
 .hello { text-align: center; color: var(--text-2); margin-top: 18vh; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .hello p { margin: 8px 0 0; }
 .warn { color: var(--danger); font-size: 0.867rem; }
