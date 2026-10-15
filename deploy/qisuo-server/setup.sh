@@ -113,6 +113,13 @@ if [ "$CODEX" = "y" ]; then
   if [ ! -f "$DIR/codex-home/auth.json" ] && [ -f "$HOME/codex-lab/codex-home/auth.json" ]; then cp -a "$HOME/codex-lab/codex-home/." "$DIR/codex-home/"; fi
   $SUDO chown -R 1001:1001 "$DIR/codex-home" "$DIR/codex-work"
   $SUDO chown -R 1000:1000 "$DIR/codex-gate"
+  # Codex 自己的默认：不套隔离罩（容器里套不上）、按栖所的规则审批。toml 的顶层设置要写在表前面，所以加在文件最前面
+  CFG="$DIR/codex-home/config.toml"
+  if ! $SUDO grep -q '^sandbox_mode' "$CFG" 2>/dev/null; then
+    { printf 'sandbox_mode = "danger-full-access"\napproval_policy = "untrusted"\n\n'; $SUDO cat "$CFG" 2>/dev/null; } > "$DIR/config.toml.new"
+    $SUDO mv "$DIR/config.toml.new" "$CFG"
+    $SUDO chown 1001:1001 "$CFG"
+  fi
   # 工作间的附件放这里：归 root、Codex 只能读。连接程序被拿掉了越权写的本事，自己建不了，得在这里先建好（上面的 chown 之后）
   $SUDO mkdir -p "$DIR/codex-work/.qisuo-attachments"
   $SUDO chown -R 0:0 "$DIR/codex-work/.qisuo-attachments"
