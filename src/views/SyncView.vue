@@ -1,13 +1,12 @@
 <script setup>
 import { ref, computed } from "vue";
-import { syncState, syncNow, probe, enableSync, disableSync, hasOwnData } from "../lib/sync.js";
+import { syncState, syncNow, enableSync, disableSync } from "../lib/sync.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
 
 const url = ref("");
 const busy = ref(false);
-const found = ref(null); // { url, count }：服务器上已经有东西，要选怎么办
 
 const ago = computed(() => {
   if (!syncState.lastAt) return "还没同步过";
@@ -18,24 +17,8 @@ const ago = computed(() => {
 async function connect() {
   busy.value = true;
   try {
-    const p = await probe(url.value);
-    if (!p.count) await go(p.url, "local"); // 服务器上还空着：把这台的交上去
-    else if (!hasOwnData()) await go(p.url, "server"); // 这台是新的：直接取服务器上的
-    else found.value = p;
-  } catch (e) {
-    toast(e.message || String(e), 4000);
-  } finally {
-    busy.value = false;
-  }
-}
-async function go(u, how) {
-  if (how === "server" && hasOwnData() && !confirm("这台设备上现在的数据会被服务器上的换掉，确定？")) return;
-  if (how === "local" && found.value && !confirm("服务器上的会被这台设备的换掉（别的设备同步后也会变成这台的样子），确定？")) return;
-  busy.value = true;
-  try {
-    await enableSync(u, how);
-    found.value = null;
-    toast(how === "server" ? "正在取回…" : "同步开好了");
+    await enableSync(url.value);
+    toast(syncState.error ? "已连接，同步遇到问题，会自动重试" : "同步开好了");
   } catch (e) {
     toast(e.message || String(e), 4000);
   } finally {
@@ -54,7 +37,7 @@ async function off() {
     <SubHeader title="同步" />
 
     <div class="card body">
-      <p class="lead">手机、iPad、电脑连上同一个同步地址，看到的就是同一份栖所：角色、聊天记录、记忆、设置、图片都会互相更新。数据存在你自己的服务器上。</p>
+      <p class="lead">已有自己的服务器 API 配置时，会自动连接该服务器的数据同步；旧同步地址继续可用。角色、聊天记录、记忆、设置和图片存在服务器上，本地保留离线副本。</p>
     </div>
 
     <template v-if="syncState.on">
@@ -66,26 +49,17 @@ async function off() {
         <button class="btn wide" :disabled="syncState.busy" @click="syncNow()">现在同步</button>
         <button class="btn soft wide danger" @click="off">关闭同步</button>
       </div>
-      <p class="tip">打开栖所、切回来、每 20 秒都会自动同步一次。两台设备同时改了同一样东西，会自动合在一起。<br />「备份 → 导入」会关掉这台设备的同步，导入后再来这里重新连上，选「用这台的」。</p>
+      <p class="tip">打开栖所、切回来、每 20 秒都会自动同步一次。两台设备同时修改会按版本合并；无法判断的同字段冲突优先保留云端版本，本地冲突副本留在此设备。<br />「备份 → 导入」会关掉这台设备的同步，导入后重新连接会与云端合并。</p>
     </template>
 
     <template v-else>
       <div class="section-label">连上服务器</div>
       <div class="card body">
-        <p class="desc">填服务器信息文件里「多设备同步」那一行（像 <code>https://你的域名/p/口令/sync</code>）。每台设备都填同一个。</p>
+        <p class="desc">还没有可用的服务器配置时，可以填服务器信息文件里「多设备同步」那一行（像 <code>https://你的域名/p/口令/sync</code>）。每台设备都填同一个。</p>
         <input v-model="url" class="input" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://…/p/…/sync" />
         <button class="btn wide" :disabled="busy || !url.trim()" @click="connect">{{ busy ? "连接中…" : "连上" }}</button>
       </div>
 
-      <template v-if="found">
-        <div class="section-label">服务器上已经有 {{ found.count }} 样东西了</div>
-        <div class="card body choices">
-          <button class="btn wide" :disabled="busy" @click="go(found.url, 'merge')">两边合在一起（推荐）<small>聊天记录、角色、记忆按条合并，两边都填了不一样的，用服务器上的</small></button>
-          <button class="btn soft wide" :disabled="busy" @click="go(found.url, 'server')">用服务器上的<small>这台设备现在的数据会被换掉</small></button>
-          <button class="btn soft wide" :disabled="busy" @click="go(found.url, 'local')">用这台的<small>服务器上的会被换掉</small></button>
-        </div>
-        <p class="tip">不确定的话先去「备份」导出一份。</p>
-      </template>
     </template>
   </div>
 </template>

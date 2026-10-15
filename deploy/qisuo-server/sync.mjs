@@ -19,7 +19,10 @@ let index = null; // { seq, items: { key: { rev, type, size, del? } } }
 function load() {
   if (index) return index;
   mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  try { index = JSON.parse(readFileSync(INDEX, "utf8")); } catch { index = { seq: 0, items: {} }; }
+  try { index = JSON.parse(readFileSync(INDEX, "utf8")); } catch (e) {
+    if (e.code !== "ENOENT") throw e; // 索引损坏时停下来，不能当成空云端覆盖旧数据
+    index = { seq: 0, items: {} };
+  }
   return index;
 }
 function atomic(f, data) {
@@ -63,8 +66,8 @@ export async function handleSync(req, res, rest, query, CORS) {
     const base = query.get("base");
     const body = req.method === "PUT" ? await readBody(req) : null; // 先收完再比号：中间别人交的也算
     const now = ix.items[k];
-    const curRev = now && !now.del ? now.rev : 0;
-    if (base !== "*" && Number(base) !== curRev && !(now?.del && Number(base) === now.rev)) return send(409, { error: { message: "别的设备先改了" }, rev: curRev });
+    const curRev = now?.rev || 0;
+    if (base !== "*" && Number(base) !== curRev) return send(409, { error: { message: "别的设备先改了" }, rev: curRev });
     ix.seq += 1;
     if (req.method === "PUT") {
       atomic(fileOf(k), body);

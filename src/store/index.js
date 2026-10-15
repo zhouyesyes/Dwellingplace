@@ -105,6 +105,10 @@ export function newWake() {
 
 export const store = reactive(defaults());
 
+let metaTimer = null;
+export const hasPendingMeta = () => metaTimer !== null;
+export let flushStore = () => {};
+
 export async function loadStore() {
   try {
     const saved = await get("meta");
@@ -116,21 +120,20 @@ export async function loadStore() {
   // 申请「持久存储」，降低浏览器自动清理数据的可能
   navigator.storage?.persist?.().catch(() => {});
 
-  let timer = null;
-  const flush = () => {
-    if (timer === null) return;
-    clearTimeout(timer);
-    timer = null;
-    set("meta", JSON.parse(JSON.stringify(store))).catch(console.error);
+  const flush = flushStore = () => {
+    if (metaTimer === null) return;
+    clearTimeout(metaTimer);
+    metaTimer = null;
+    return set("meta", JSON.parse(JSON.stringify(store)));
   };
   watch(store, () => {
-    clearTimeout(timer);
-    timer = setTimeout(flush, 300);
-  }, { deep: true });
+    clearTimeout(metaTimer);
+    metaTimer = setTimeout(() => flush().catch(console.error), 300);
+  }, { deep: true, flush: "sync" });
   // 切到后台 / 关闭页面时立刻保存
-  addEventListener("pagehide", () => { flush(); flushMessages(); });
+  addEventListener("pagehide", () => { flush()?.catch(console.error); flushMessages().catch(console.error); });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") { flush(); flushMessages(); }
+    if (document.visibilityState === "hidden") { flush()?.catch(console.error); flushMessages().catch(console.error); }
   });
 }
 
@@ -350,20 +353,21 @@ export async function loadMessages(threadId) {
 }
 
 const msgTimers = {};
+export const hasPendingMessages = id => id in msgTimers;
 function writeMessages(threadId) {
   clearTimeout(msgTimers[threadId]);
   delete msgTimers[threadId];
   const list = messageCache[threadId];
   if (!list) return;
   const clean = JSON.parse(JSON.stringify(list.filter(m => !m.pending)));
-  set("msgs:" + threadId, clean).catch(console.error);
+  return set("msgs:" + threadId, clean);
 }
 export function saveMessages(threadId) {
   clearTimeout(msgTimers[threadId]);
-  msgTimers[threadId] = setTimeout(() => writeMessages(threadId), 400);
+  msgTimers[threadId] = setTimeout(() => writeMessages(threadId)?.catch(console.error), 400);
 }
-function flushMessages() {
-  for (const id of Object.keys(msgTimers)) writeMessages(id);
+export function flushMessages() {
+  return Promise.all(Object.keys(msgTimers).map(writeMessages));
 }
 
 // ---------- 用量统计 ----------
