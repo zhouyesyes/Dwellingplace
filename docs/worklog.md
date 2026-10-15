@@ -13,6 +13,12 @@
 
 ## 日志
 
+### 2026-10-15 · cc
+- 修醒来出错「Unexpected token 'd', "data: {"id"... is not valid JSON」：中转问模型时没说 `stream`，她服务器上的 ChatGPT 那一路（`chatgpt.mjs`）不说就默认流式，中转把流当整块 JSON 读坏了
+- 中转（v26）现在明说 `stream: false`；万一还是流回来，也会把一行行 `data:` 拼成完整回复，里面带错误就照样报错
+- **还剩**：无。中转合并后自动部署，服务器不用重装
+- **注意**：`chatgpt.mjs` 不传 `stream` 默认流式，和 OpenAI 的习惯相反；以后谁再从别处调它，记得写 `stream: false`
+
 ### 2026-10-14 · cc
 - 工作间「栖所」项目的 GitHub 卡片：落后 GitHub 时多了个「拉最新的」按钮，她点一下就同步（`POST /projects/pull`）
 - 只在安全的时候拉：Codex 正在干活、有没提交的改动 → 不拉，提示先让 Codex 处理；本地没有新提交就快进；有没推上去的提交就合并，合不上（冲突）就 `merge --abort` 原样退回，提示交给 Codex

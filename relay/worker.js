@@ -481,6 +481,20 @@ function tempFor(api) {
   return /deepseek/i.test(`${api.model || ""} ${api.baseUrl || ""}`) ? 1.3 : undefined;
 }
 
+// 还是流回来了（data: {...} 一行行的）：拼成一整条回复的样子
+function fromStream(raw) {
+  let content = "", usage = null;
+  for (const line of raw.split("\n")) {
+    const d = line.startsWith("data:") ? line.slice(5).trim() : "";
+    if (!d || d === "[DONE]") continue;
+    let ev; try { ev = JSON.parse(d); } catch { continue; }
+    if (ev.error) throw new Error(ev.error.message || "回复失败");
+    content += ev.choices?.[0]?.delta?.content || "";
+    if (ev.usage) usage = ev.usage;
+  }
+  return { choices: [{ message: { content } }], usage };
+}
+
 async function callOpenAI(api, system, messages) {
   const r = await fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
@@ -490,13 +504,14 @@ async function callOpenAI(api, system, messages) {
       max_tokens: Number(api.maxTokens) || undefined,
       temperature: tempFor(api),
       messages: [{ role: "system", content: system }, ...messages],
+      stream: false, // 说清楚要一次给完：她服务器上的 ChatGPT 那一路不说就默认流式
       // OpenRouter：思考强度跟着栖所里设的走（醒来时不用看思考，不让它传回来）
       ...(/openrouter\.ai|\/openrouter(\/|$)/i.test(api.baseUrl || "") && api.effort ? { reasoning: { effort: api.effort, exclude: true } } : {}),
     }),
   });
   const raw = await r.text();
   if (!r.ok) throw new Error(`接口返回 ${r.status}：${raw.slice(0, 200)}`);
-  const j = JSON.parse(raw);
+  const j = /^\s*data:/.test(raw) ? fromStream(raw) : JSON.parse(raw);
   const content = j.choices?.[0]?.message?.content || "";
   const text = (typeof content === "string" ? content : content.map(c => c.text || "").join(""))
     .replace(/<(think|thought|thinking)>[\s\S]*?(<\/\1>|$)/g, "")
@@ -1532,7 +1547,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 25, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 26, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
