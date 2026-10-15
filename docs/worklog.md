@@ -14,6 +14,13 @@
 ## 日志
 
 ### 2026-10-15 · cc
+- 修工作间交活失败「没交成：thread not found」：任务建好还没干过活，服务器重装 / Codex 重启了，Codex 那边没留底，重启后不认这个线程
+- `bridge.mjs`：发消息时 Codex 说找不到线程 → 先 `thread/resume`，再不行就 `thread/start` 开一个新的接着做，记在 `t.codex`；栖所这边的任务编号不变（进来的事件把 Codex 的编号换回栖所的）
+- 新建任务时把说明存进 `t.instructions`，重开时带上；Codex 重启后清掉旧的 `turnId`；插话插到已经不在的一轮，改成开新的一轮
+- **还剩**：要她在服务器上重新跑一次安装；重开的线程 Codex 不记得之前说过什么（之前也没干过活，影响不大）
+- **注意**：以后调 Codex 带线程编号，一律用 `cid(t)`，不要直接用 `t.id`
+
+### 2026-10-15 · cc
 - 修工作间上传附件报 `EACCES: permission denied, mkdir '/work/.qisuo-attachments'`：连接程序在容器里是 root 但去掉了全部特权（没有越权写），`/work` 归 codex 用户（1001），所以建不了附件目录
 - `setup.sh` 在 `chown codex-work` 之后先建好 `codex-work/.qisuo-attachments`（归 root、755）；连接程序找不到这个目录时提示「重新运行一次安装」
 - **还剩**：她在服务器上重新跑一次安装，再在工作间发个附件试试
