@@ -77,6 +77,23 @@ function emit(method, params) {
   if (seq % 50 === 0) writeJSON(path.join(DATA, "seq.json"), seq);
 }
 
+// ---------- 任务编号 ----------
+// 栖所这边的任务编号一直不变；Codex 那边找不到原来的线程时（比如重启前还没干过活，没留底），会接一个新的，记在 t.codex
+const cid = t => t.codex || t.id;
+const ours = codexId => Object.values(threads).find(t => t.codex === codexId)?.id || codexId;
+const NOT_FOUND = /thread not found|no such thread|unknown thread/i;
+const startOpts = t => ({ cwd: path.join(WORK, t.project), sandbox: "danger-full-access", approvalPolicy: "untrusted", developerInstructions: [BASE_INSTRUCTIONS, t.instructions || ""].filter(Boolean).join("\n\n"), ...(t.model ? { model: t.model } : {}) });
+// 先照常做；Codex 说找不到这个线程：先试着接上，接不上就开一个新的，再做一次
+async function withThread(t, run) {
+  try { return await run(cid(t)); } catch (e) { if (!NOT_FOUND.test(e.message)) throw e; }
+  try { await call("thread/resume", { threadId: cid(t) }); return await run(cid(t)); } catch (e) { if (!NOT_FOUND.test(e.message)) throw e; }
+  const r = await call("thread/start", startOpts(t));
+  t.codex = r.thread.id;
+  delete t.turnId;
+  saveThreads();
+  return run(cid(t));
+}
+
 // ---------- Codex（app-server） ----------
 let srv = null, ready = false, rpcId = 0, version = "";
 const pending = new Map(); // 我们问 Codex、等它回
@@ -120,8 +137,10 @@ async function init() {
   send({ method: "initialized" });
   ready = true;
   await refreshAccount();
-  // 以前开着的线程：重新接上（Codex 重启以后要 resume 才收得到它的事件）
-  for (const t of Object.values(threads)) if (t.status !== "archived") call("thread/resume", { threadId: t.id }).catch(() => {});
+  // 以前开着的线程：重新接上（Codex 重启以后要 resume 才收得到它的事件）；重启了就没有还在干的活
+  for (const t of Object.values(threads)) delete t.turnId;
+  saveThreads();
+  for (const t of Object.values(threads)) if (t.status !== "archived") call("thread/resume", { threadId: cid(t) }).catch(() => {});
   emit("qisuo/codex/ready", { version });
 }
 async function refreshAccount() {
@@ -132,6 +151,7 @@ async function refreshAccount() {
 function onLine(line) {
   let m;
   try { m = JSON.parse(line); } catch { return; }
+  if (m.params?.threadId) m.params.threadId = ours(m.params.threadId);
   // Codex 回我们的
   if (m.id != null && !m.method) {
     const p = pending.get(m.id);
@@ -376,8 +396,9 @@ async function route(req, res, url) {
     const b = await body(req);
     const project = projectName(b.project);
     if (!project || !listProjects().includes(project)) return json(res, 400, { error: { message: "没有这个项目" } });
-    const r = await call("thread/start", { cwd: path.join(WORK, project), sandbox: "danger-full-access", approvalPolicy: "untrusted", developerInstructions: [BASE_INSTRUCTIONS, String(b.instructions || "").slice(0, 20_000)].filter(Boolean).join("\n\n"), ...(b.model ? { model: b.model } : {}) });
-    const t = { id: r.thread.id, project, title: String(b.title || "").slice(0, 60) || project, createdAt: Date.now(), updatedAt: Date.now(), status: "open", model: r.thread.model };
+    const instructions = String(b.instructions || "").slice(0, 20_000);
+    const r = await call("thread/start", startOpts({ project, instructions, model: b.model }));
+    const t = { id: r.thread.id, project, title: String(b.title || "").slice(0, 60) || project, createdAt: Date.now(), updatedAt: Date.now(), status: "open", model: r.thread.model, ...(instructions ? { instructions } : {}) };
     threads[t.id] = t;
     saveThreads();
     return json(res, 200, { thread: t });
@@ -395,11 +416,11 @@ async function route(req, res, url) {
       return json(res, 200, { thread: t, events: evs.slice(-3000), approvals: pendingList().filter(a => a.threadId === id) });
     }
     if (!need()) return;
-    if (what === "resume") { await call("thread/resume", { threadId: id }); return json(res, 200, { ok: true }); }
-    if (what === "archive") { t.status = "archived"; saveThreads(); await call("thread/archive", { threadId: id }).catch(() => {}); return json(res, 200, { ok: true }); }
+    if (what === "resume") { await call("thread/resume", { threadId: cid(t) }); return json(res, 200, { ok: true }); }
+    if (what === "archive") { t.status = "archived"; saveThreads(); await call("thread/archive", { threadId: cid(t) }).catch(() => {}); return json(res, 200, { ok: true }); }
     if (what === "interrupt") {
       if (!t.turnId) return json(res, 200, { ok: true, idle: true });
-      await call("turn/interrupt", { threadId: id, turnId: t.turnId });
+      await call("turn/interrupt", { threadId: cid(t), turnId: t.turnId });
       return json(res, 200, { ok: true });
     }
     if (what === "send") {
@@ -414,8 +435,11 @@ async function route(req, res, url) {
       const images = attachments.filter(a => /^image\/(png|jpeg|gif|webp)$/.test(a.type)).map(a => ({ type: "localImage", path: a.path }));
       const withImages = async run => { if (images.length) { try { return await run([...plain, ...images]); } catch { /* 退回只给路径 */ } } return run(plain); };
       emit("qisuo/user/message", { threadId: id, text, attachments, steer: !!t.turnId });
-      if (t.turnId) { const r = await withImages(input => call("turn/steer", { threadId: id, input, expectedTurnId: t.turnId })); return json(res, 200, { turnId: r.turnId, steer: true }); }
-      const r = await withImages(input => call("turn/start", { threadId: id, input }));
+      if (t.turnId) {
+        try { const r = await withImages(input => call("turn/steer", { threadId: cid(t), input, expectedTurnId: t.turnId })); return json(res, 200, { turnId: r.turnId, steer: true }); }
+        catch (e) { if (!NOT_FOUND.test(e.message)) throw e; delete t.turnId; } // 那一轮已经不在了：当新的一轮开始
+      }
+      const r = await withThread(t, threadId => withImages(input => call("turn/start", { threadId, input })));
       t.turnId = r.turn?.id;
       saveThreads();
       return json(res, 200, { turnId: t.turnId });
