@@ -1,6 +1,6 @@
-# 工作间：Codex（固定版本）+ 连接程序。容器里没有栖所的数据，只有项目文件夹（/work）和 Codex 自己的登录目录
+# 工作间：Codex（固定版本）+ 连接程序。ffmpeg 用来把她发的录屏拆成截图看（浏览器解不了 iPhone 的 H.264 / HEVC）。容器里没有栖所的数据，只有项目文件夹（/work）和 Codex 自己的登录目录
 FROM node:22-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates ripgrep python3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates ripgrep python3 ffmpeg && rm -rf /var/lib/apt/lists/*
 ARG CODEX_VERSION=0.162.1
 RUN npm install -g @openai/codex@${CODEX_VERSION} --no-audit --no-fund
 # 一个没有界面的浏览器（Playwright + Chromium，和 cc 检查界面用的一样）：改完网页先自己截图看看。带中文字体，不然截出来是方块
