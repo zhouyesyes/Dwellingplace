@@ -46,6 +46,22 @@ onMounted(async () => {
   if (route.query.t) open(String(route.query.t));
 });
 onBeforeUnmount(disconnect);
+// 看门狗：实时连接悄悄断了（切到后台、服务器重装过）就重连；服务器说有审批在等、页面上却没有，就把这个任务重新拉一遍
+// 不然 Codex 等你点、你这边什么也看不到
+async function watchdog() {
+  if (document.hidden) return;
+  if (!wr.live) { disconnect(); connect(); }
+  await refresh();
+  const id = cur.value;
+  if (!id || !t.value) return;
+  const waiting = (wr.status?.approvals || []).filter(a => a.threadId === id);
+  const shownKeys = new Set(t.value.items.filter(x => x.kind === "approval" && x.state === "pending").map(x => x.key));
+  if (!wr.live || waiting.some(a => !shownKeys.has(a.key))) loadThread(id).catch(() => {});
+}
+const dogTimer = setInterval(watchdog, 8000);
+const onShow = () => { if (!document.hidden) { disconnect(); connect(); watchdog(); } };
+document.addEventListener("visibilitychange", onShow);
+onBeforeUnmount(() => { clearInterval(dogTimer); document.removeEventListener("visibilitychange", onShow); });
 // Safari 收键盘时高度和 offsetTop 不一定同时恢复，不能把残留偏移当成整页的 top。
 const viewport = ref({});
 let viewportFrame;
