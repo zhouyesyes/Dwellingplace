@@ -163,16 +163,32 @@ export async function loadThread(id) {
 }
 
 // ---------- 实时过程（SSE）：断了就带着最后的编号再连 ----------
-// 每 50ms 合并一批增量；完成事件排在增量之后，断开时也不丢尾字。
+// 开始、结束和每轮第一条可见进度立即应用；其余增量每 50ms 合并，始终保持事件顺序。
 let pendingEvents = [], batchTimer = null;
+const progressed = new Set();
 function flushEvents() {
   clearTimeout(batchTimer); batchTimer = null;
   const events = pendingEvents; pendingEvents = [];
   for (const ev of events) apply(ev);
 }
 function queueEvent(ev) {
+  const tid = ev.params?.threadId || ev.params?.thread?.id;
+  const method = ev.method;
+  if (method === "turn/started") progressed.delete(tid);
+  const item = ev.params?.item;
+  const kind = ITEM_KIND[item?.type];
+  const visible = (method === "item/agentMessage/delta" && !!ev.params?.delta)
+    || (method === "turn/plan/updated")
+    || ((method === "item/started" || method === "item/completed") && kind && (kind !== "reasoning" || item.summary?.length) && (kind !== "agent" || item.text))
+    || (method === "item/reasoning/summaryTextDelta" && !!ev.params?.delta)
+    || method === "item/commandExecution/outputDelta";
+  const first = tid && visible && !progressed.has(tid);
+  if (first) progressed.add(tid);
   pendingEvents.push(ev);
-  if (!batchTimer) batchTimer = setTimeout(flushEvents, 50);
+  if (first || ["turn/started", "turn/completed", "qisuo/approval/pending", "error"].includes(method)) {
+    flushEvents(); // 先处理排队的增量，完成事件不能越过尾字
+  } else if (!batchTimer) batchTimer = setTimeout(flushEvents, 50);
+  if (method === "turn/completed") progressed.delete(tid);
 }
 let es = null, retry = null, esAt = 0;
 // 看门狗用：没连着就连；连了半分钟还没连上（卡住了）才掐掉重来。别太急，服务器刚开始可能要等十几秒才回第一句
@@ -204,7 +220,7 @@ export async function connect() {
     retry = setTimeout(connect, 3000);
   };
 }
-export function disconnect() { flushEvents(); clearTimeout(retry); es?.close(); es = null; wr.live = false; }
+export function disconnect() { flushEvents(); progressed.clear(); clearTimeout(retry); es?.close(); es = null; wr.live = false; }
 
 // ---------- 做事 ----------
 export async function startLogin() { wr.login = await api("/login", { method: "POST" }); return wr.login; }

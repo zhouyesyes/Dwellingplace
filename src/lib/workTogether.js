@@ -31,6 +31,7 @@ export async function loadTalk(id) {
 }
 const saveTalk = id => set(`wtk:${id}`, JSON.parse(JSON.stringify(talks[id] || [])));
 export const busy = reactive({}); // threadId -> true：他在想
+export const phases = reactive({}); // 只放本轮的阶段，不存提示词或模型原文，也不写进持久记录
 
 // ---------- 施工现场：Codex 最近这一轮做了什么 ----------
 const cmdText = c => { const s = String(c || ""); const m = s.match(/^\/bin\/(?:ba)?sh -l?c (["'])([\s\S]*)\1$/); return m ? m[2] : s; };
@@ -135,6 +136,7 @@ async function act(role, id, raw, { fromReport }) {
       const task = tasks.join("\n\n");
       try {
         await say(id, task);
+        delete phases[id]; // 交活已收到回应，执行状态交给 Codex 的真实事件
         wt.awaiting = true;
         wt.dispatchedAt = Date.now();
         wt.chain = fromReport ? (wt.chain || 0) + 1 : 1;
@@ -149,10 +151,11 @@ async function act(role, id, raw, { fromReport }) {
   return { text: text.replace(/\n{3,}/g, "\n\n").trim(), notes };
 }
 
-async function ask(role, id, extra, { fromReport = false, fresh = null, parts = [] } = {}) {
-  const { oneShot, visibleText } = await import("./chat.js");
+async function ask(role, id, extra, { fromReport = false, fresh = null, parts = [], phase = fromReport ? "checking" : "preparing" } = {}) {
   busy[id] = true;
+  phases[id] = phase;
   try {
+    const { oneShot, visibleText } = await import("./chat.js");
     const raw = await oneShot(role, await prompt(role, id, extra, fresh), { raw: true, parts });
     const r = await act(role, id, raw, { fromReport });
     const list = await loadTalk(id);
@@ -162,22 +165,29 @@ async function ask(role, id, extra, { fromReport = false, fresh = null, parts = 
     await saveTalk(id);
   } finally {
     delete busy[id];
+    delete phases[id];
   }
 }
 
 // 你说一句。files：这次附件的原文件（还在手机上），先看一遍再一起给他
 export async function talk(role, id, text, attachments = [], files = []) {
-  const list = await loadTalk(id);
-  list.push({ id: uid(), from: "me", text: text.trim(), attachments, ts: Date.now(), at: thread(id).items.length });
-  const m = list.at(-1); // 取回列表里的那一个（响应式的），后面认「刚发的这条」靠它
-  workThread(id).chain = 0; // 你说话了：重新算连着交了几次
-  let parts = [];
-  if (files.length) {
-    busy[id] = true; // 看附件也要一会儿，先亮着「他在想」
-    try { const r = await seeFiles(files); parts = r.parts; m.seen = r.seen; } finally { delete busy[id]; }
+  busy[id] = true;
+  phases[id] = "preparing";
+  try {
+    const list = await loadTalk(id);
+    list.push({ id: uid(), from: "me", text: text.trim(), attachments, ts: Date.now(), at: thread(id).items.length });
+    const m = list.at(-1); // 取回响应式的那一条，后面认「刚发的这条」靠它
+    workThread(id).chain = 0;
+    let parts = [];
+    if (files.length) {
+      const r = await seeFiles(files); parts = r.parts; m.seen = r.seen;
+    }
+    await saveTalk(id);
+    await ask(role, id, "", { fresh: m, parts });
+  } finally {
+    delete busy[id];
+    delete phases[id];
   }
-  await saveTalk(id);
-  await ask(role, id, "", { fresh: m, parts });
 }
 
 // Codex 做完了一轮（他交过去的）：他先看看结果，再告诉你
@@ -190,7 +200,7 @@ export async function report(role, id) {
 
 // 收工：请他写施工摘要，存进记忆
 export async function wrapUp(role, id) {
-  await ask(role, id, `（她说先收工。写一段 <施工摘要>：这次做了什么、定下了什么、还剩什么没做，三五句话；再跟她说一两句。）`);
+  await ask(role, id, `（她说先收工。写一段 <施工摘要>：这次做了什么、定下了什么、还剩什么没做，三五句话；再跟她说一两句。）`, { phase: "wrapping" });
 }
 
 // Codex 那边一轮结束了吗（他交过去之后）

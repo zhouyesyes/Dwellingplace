@@ -7,7 +7,7 @@ import { useRoute, useRouter } from "vue-router";
 import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
-import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
+import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy, phases as himPhases } from "../lib/workTogether.js";
 import WorkMarkdown from "../components/WorkMarkdown.vue";
 import Avatar from "../components/Avatar.vue";
 
@@ -169,6 +169,17 @@ const wt = computed(() => (cur.value ? workThread(cur.value) : null));
 const together = computed(() => wt.value?.mode !== "direct");
 const talkList = ref([]);
 const thinking = computed(() => !!himBusy[cur.value]);
+const submitting = ref(null); // 带任务编号，切换任务时不会把上一条的阶段带过去
+const progress = computed(() => {
+  const sub = submitting.value?.id === cur.value ? submitting.value : null;
+  if (sub?.uploading) return "正在上传附件";
+  if (himPhases[cur.value] === "checking") return "正在检查结果";
+  if (himPhases[cur.value] === "wrapping") return "正在整理收工摘要";
+  if (himPhases[cur.value] === "preparing") return "正在整理任务";
+  if (running.value) return "Codex 正在执行";
+  if (sub) return sub.mode ? "正在整理任务" : "正在发送给 Codex";
+  return "";
+});
 // 时间线：你们的对话插在说话那时 Codex 过程走到的地方（按先后，不靠服务器和手机的钟）；直接用 Codex 时只有过程
 const timeline = computed(() => {
   const codex = t.value?.items || [];
@@ -207,7 +218,7 @@ async function open(id) {
 }
 function close() { cur.value = ""; router.replace({ query: {} }); }
 // 新东西来了：已经在最下面就跟着滚
-watch(() => [t.value?.items.length, t.value?.items.at(-1)?.text, t.value?.items.at(-1)?.output, talkList.value.length], () => {
+watch(() => [t.value?.items.length, t.value?.items.at(-1)?.text, t.value?.items.at(-1)?.output, talkList.value.length, himBusy[cur.value]], () => {
   const el = scroller.value;
   if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) down();
   maybeReport();
@@ -245,16 +256,19 @@ async function send() {
   sending.value = true;
   draft.value = "";
   const mode = together.value;
+  const id = cur.value;
+  submitting.value = { id, mode, uploading: files.value.length > 0 };
+  down();
   try {
-    const id = cur.value;
     const attached = [];
     for (const f of files.value) attached.push(await uploadAttachment(id, f.file));
+    submitting.value.uploading = false;
     const picked = files.value.map(f => f.file);
     while (files.value.length) removeFile(0); // 传上去了就收起来，不等他回完
     if (mode) { const p = talk(role.value, id, text, attached, picked); down(); await p; }
     else { await say(id, text, attached); }
     down();
-  } catch (e) { if (!draft.value) draft.value = text; toast(e.message, 5000); } finally { sending.value = false; }
+  } catch (e) { if (!draft.value) draft.value = text; toast(e.message, 5000); } finally { sending.value = false; submitting.value = null; }
 }
 async function stop() { try { await interrupt(cur.value); } catch (e) { toast(e.message, 4000); } }
 async function decide(it, decision) {
@@ -294,8 +308,6 @@ function grpLabel(list) {
   return `跑了 ${list.length} 条命令${bad ? `，${bad} 条没成功` : ""}`;
 }
 const openDiff = ref({});
-const openTask = ref({}); // 他交给 Codex 的说明，哪条展开着
-const longTask = t => String(t || "").split("\n").length > 4 || String(t || "").length > 120;
 const diffLines = d => String(d || "").split("\n").map(l => ({ l, c: /^\+(?!\+\+)/.test(l) ? "add" : /^-(?!--)/.test(l) ? "del" : /^@@/.test(l) ? "hunk" : "" }));
 const dur = ms => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 const resetText = s => { if (!s) return ""; const m = Math.round((s * 1000 - Date.now()) / 60000); return m <= 0 ? "" : m < 60 ? `${m} 分钟后恢复` : `${Math.round(m / 60)} 小时后恢复`; };
@@ -407,7 +419,7 @@ const RULES = [
               <small v-for="(n, k) in it.notes || []" :key="k" class="him-note">{{ n }}</small>
             </div>
           </div>
-          <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task" @click="openTask[i] = !openTask[i]"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}<em v-if="longTask(it.text)">{{ openTask[i] ? "收起 ▴" : "展开 ▾" }}</em></b><p :class="{ clamp: !openTask[i] }">{{ it.text }}</p></div>
+          <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}</b></div>
           <div v-else-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
           <WorkMarkdown v-else-if="it.kind === 'agent'" class="agent" :text="it.text" :render="workMd" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
@@ -467,8 +479,7 @@ const RULES = [
             <button class="btn soft small danger" @click="decide(it, 'cancel')">不行，停下</button>
           </div>
         </div>
-        <div v-if="thinking" class="working"><i /><i /><i /> {{ him }}在想</div>
-        <div v-else-if="running" class="working"><i /><i /><i /> Codex 在干活</div>
+        <div v-if="progress" class="working" role="status" aria-live="polite"><i /><i /><i /> {{ progress }}</div>
         <p v-else-if="waitingYou" class="your-turn">{{ together ? `等你说下一步` : "Codex 做完了，等你说下一步" }}<button v-if="together && talkList.length" class="tap" @click="finish">· 收工，让{{ him }}记下来</button></p>
       </main>
       <div v-if="files.length" class="attachments pending"><div v-for="(f, i) in files" :key="f.url"><img v-if="f.file.type.startsWith('image/')" :src="f.url" /><video v-else-if="f.file.type.startsWith('video/')" :src="f.url" controls preload="metadata" /><span>{{ f.file.name }} · {{ Math.ceil(f.file.size / 1024) }} KB · {{ f.file.type || '未知类型' }}</span><button :disabled="sending" @click="removeFile(i)">移除</button></div></div>
@@ -592,7 +603,7 @@ const RULES = [
 .turn { font-size: .76rem; color: var(--text-3); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0 8px; border-bottom: 1px dashed var(--line); }
 .turn.failed span { color: var(--danger); }
 .turn .diff { align-self: stretch; text-align: left; }
-.working { display: flex; align-items: center; gap: 4px; font-size: .78rem; color: var(--text-3); }
+.working { display: flex; align-items: center; gap: 4px; font-size: .78rem; color: var(--text-2); }
 .working i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); animation: hop 1.2s infinite; }
 .working i:nth-child(2) { animation-delay: .15s; }
 .working i:nth-child(3) { animation-delay: .3s; margin-right: 4px; }
