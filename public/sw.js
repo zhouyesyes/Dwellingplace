@@ -2,12 +2,20 @@
 const CACHE = "qisuo-v1";
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));
+const syncRequest = url => url.pathname === "/.well-known/qisuo-sync" || /^\/sync(?:\/|$)/.test(url.pathname) || /^\/p\/[^/]+\/sync(?:\/|$)/.test(url.pathname);
+self.addEventListener("activate", e => e.waitUntil((async () => {
+  // 旧版可能缓存过同步 GET；只清这类响应，离线网页和本地数据不动。
+  for (const name of await caches.keys()) {
+    const cache = await caches.open(name);
+    for (const req of await cache.keys()) if (syncRequest(new URL(req.url))) await cache.delete(req);
+  }
+  await self.clients.claim();
+})()));
 
 self.addEventListener("fetch", e => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method !== "GET" || url.origin !== location.origin) return;
+  if (req.method !== "GET" || url.origin !== location.origin || syncRequest(url) || req.headers.has("authorization")) return;
 
   // /assets/ 下的文件名带版本号，内容不会变：缓存优先
   if (url.pathname.includes("/assets/")) {

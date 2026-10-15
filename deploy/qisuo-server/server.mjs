@@ -11,6 +11,7 @@ import { join, extname, normalize } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { handleChatGPT } from "./chatgpt.mjs";
 import { handleSync } from "./sync.mjs";
+import { createDeviceSync } from "./devices.mjs";
 import { handlePreview } from "./preview.mjs";
 
 const PORT = Number(process.env.PORT) || 8080;
@@ -48,6 +49,8 @@ const sameToken = t => {
   const a = Buffer.from(t), b = Buffer.from(TOKEN);
   return a.length === b.length && timingSafeEqual(a, b);
 };
+
+const deviceSync = createDeviceSync({ masterMatches: sameToken });
 
 async function proxy(req, res, target, rest, search, extra = {}) {
   const headers = {};
@@ -120,11 +123,26 @@ http.createServer(async (req, res) => {
       res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
       return res.end(JSON.stringify({ ok: true, proxy: !!TOKEN, targets: Object.keys(TARGETS) }));
     }
+    if (url.pathname === "/.well-known/qisuo-sync" && req.method === "GET") {
+      res.writeHead(200, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" });
+      return res.end(JSON.stringify({ version: 1, endpoint: "/sync" }));
+    }
+    if (url.pathname === "/sync" || url.pathname.startsWith("/sync/")) {
+      return await deviceSync.handle(req, res, url.pathname.slice(5), url.searchParams, CORS);
+    }
     const m = url.pathname.match(/^\/p\/([^/]+)\/([a-z]+)(\/.*)?$/);
     if (m) {
       if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
       if (!sameToken(m[1])) { res.writeHead(401, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: "转发口令不对" } })); }
-      if (m[2] === "sync") return await handleSync(req, res, m[3] || "", url.searchParams, CORS); // 多设备同步
+      if (m[2] === "sync") {
+        if (!deviceSync.legacyAllowed()) {
+          res.writeHead(401, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" });
+          return res.end(JSON.stringify({ error: { message: "同步已升级为设备绑定，请用绑定码接入；原数据保留" } }));
+        }
+        return await handleSync(req, res, m[3] || "", url.searchParams, CORS, () => {
+          if (!deviceSync.legacyAllowed()) throw Object.assign(new Error("请改用设备绑定"), { status: 401 });
+        });
+      } // 多设备同步
       if (m[2] === "preview") return await handlePreview(req, res, m[3] || "", url.searchParams, CORS); // 网址卡片
       // 清空他的浏览器（退出所有登录、换账号）：在共享的资料目录里放个记号，浏览器那边看到就清空重开
       if (m[2] === "chrome" && m[3] === "/__reset" && req.method === "POST") {

@@ -15,9 +15,11 @@ import { onLocalChange, isLocalKey } from "./kv.js";
 import { store, applyRemoteMeta, messageCache, flushStore, hasPendingMeta, flushMessages, hasPendingMessages } from "../store/index.js";
 import { generating } from "./chat.js";
 import { serverBase } from "./server.js";
+import { migrateLegacy, redeemCode, showBinding } from "./deviceSync.js";
 
-export const syncState = reactive({ on: false, url: "", busy: false, lastAt: 0, error: "", pending: 0 });
+export const syncState = reactive({ on: false, url: "", busy: false, lastAt: 0, error: "", pending: 0, revoked: false });
 
+let credential = "";
 let known = {};
 let seq = 0;
 const dirty = new Set();
@@ -44,8 +46,13 @@ const fingerprint = async v => {
 };
 
 async function call(path, init = {}) {
-  const r = await fetch(syncState.url + path, { cache: "no-store", signal: AbortSignal.timeout(30_000), ...init });
-  if (r.status === 401) throw new Error("同步地址里的口令不对");
+  const r = await fetch(syncState.url + path, { cache: "no-store", signal: AbortSignal.timeout(30_000), ...init,
+    headers: { ...init.headers, ...(credential ? { Authorization: `Bearer ${credential}` } : {}) },
+  });
+  if (r.status === 401) {
+    if (credential) { syncState.revoked = true; syncState.on = false; clearInterval(pollTimer); }
+    throw new Error(credential ? "这台设备凭证已失效或被撤销，请重新绑定；本地数据保留" : "旧同步已升级或口令不对，请到同步页面绑定；本地数据保留");
+  }
   return r;
 }
 const q = k => `k=${encodeURIComponent(k)}`;
@@ -258,24 +265,31 @@ onLocalChange(k => {
 });
 let starting = null;
 export function startSync() {
-  if (syncState.on) return syncNow();
   if (starting) return starting;
+  if (syncState.on) return syncNow();
   starting = beginSync().catch(e => { syncState.error = e.message || String(e); }).finally(() => { starting = null; });
   return starting;
 }
 async function beginSync() {
   let conf = await idbGet("sync:conf");
+  let attemptedMigration = false;
   if (!conf?.url) {
     if (await idbGet("sync:disabled")) return;
     const base = await serverBase();
     if (!base) return;
     // 只使用已有的受口令保护的服务器地址，不猜账号、不扫描网络。
-    const p = await probe(`${base}/sync`);
-    conf = { url: p.url };
+    conf = await migrateLegacy({ url: `${base}/sync` });
+    attemptedMigration = true;
+    if (!conf.device) await probe(conf.url);
     for (const k of await localData()) dirty.add(k);
     await saveDirty();
     await idbSet("sync:conf", conf);
   }
+  // 改鉴权方式时保留 seq、known、base 和待同步项，仍是原来那份云端数据。
+  if (!conf.device && !attemptedMigration) conf = await migrateLegacy(conf);
+  credential = conf.device?.token || "";
+  showBinding(conf);
+  syncState.revoked = false;
   syncState.url = conf.url;
   syncState.on = true;
   seq = (await idbGet("sync:seq")) || 0;
@@ -322,16 +336,22 @@ export async function probe(url) {
 
 // 旧入口的 server/local 参数仍可传入，但连接一律无损合并，不再清库或强制覆盖云端。
 export async function enableSync(url) {
-  const p = await probe(url);
+  url = trim(url);
+  if (!/^https?:\/\/[^/]+\/p\/[^/]+\/sync$/.test(url)) throw new Error("请填写原来的服务器同步地址");
+  const previous = await idbGet("sync:conf");
   syncState.on = false;
   if (running) await running;
-  await flushStore();
+  await flushStore(); await flushMessages();
+  // 升级后的服务器只在 Authorization 中接收旧口令，不再向旧含口令 URL 发请求。
+  const conf = await migrateLegacy({ url });
+  if (!conf.device) await probe(url); // 仅保留尚未升级服务器的旧行为
   await idbDel("sync:disabled");
-  await idbSet("sync:conf", { url: p.url });
-  await idbSet("sync:seq", 0);
-  await idbSet("sync:known", {});
-  await idbDel("sync:base");
-  for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
+  await idbSet("sync:conf", conf);
+  if (!previous || new URL(previous.url).origin !== new URL(conf.url).origin) {
+    await idbSet("sync:seq", 0); await idbSet("sync:known", {});
+    await idbDel("sync:base");
+    for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
+  }
   dirty.clear();
   for (const k of await localData()) dirty.add(k);
   await saveDirty();
@@ -350,6 +370,8 @@ export async function disableSync() {
   for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
   for (const k of ["sync:conf", "sync:seq", "sync:known", "sync:dirty", "sync:base"]) await idbDel(k);
   syncState.url = "";
+  credential = "";
+  showBinding(null);
   syncState.pending = 0;
 }
 
@@ -359,3 +381,22 @@ watch(() => store.apis.map(a => a.baseUrl), () => { if (!syncState.on) startSync
 // 自动发现遇到断网也要能在恢复网络、回到前台时重试。
 for (const event of ["online", "pageshow", "focus"]) addEventListener(event, () => { if (!syncState.on) startSync(); });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !syncState.on) startSync(); });
+
+// 新设备第一次连接保留所有本地内容，无基线地合并云端，绝不清库或强制覆盖。
+export async function bindDevice(code, name, origin) {
+  syncState.on = false;
+  if (running) await running;
+  await flushStore(); await flushMessages();
+  const previous = await idbGet("sync:conf");
+  const conf = await redeemCode(code, name, origin);
+  // 同一服务器的凭证更换不重置合并基线。
+  if (!previous || new URL(previous.url).origin !== new URL(conf.url).origin) {
+    await idbSet("sync:seq", 0); await idbSet("sync:known", {});
+    await idbDel("sync:base");
+    for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
+  }
+  dirty.clear();
+  for (const k of await localData()) dirty.add(k);
+  await saveDirty();
+  return startSync();
+}

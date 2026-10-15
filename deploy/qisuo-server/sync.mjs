@@ -44,7 +44,7 @@ async function readBody(req) {
   return Buffer.concat(cs);
 }
 
-export async function handleSync(req, res, rest, query, CORS) {
+export async function handleSync(req, res, rest, query, CORS, authorize) {
   const send = (code, obj) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(obj)); };
   try {
     const ix = load();
@@ -65,6 +65,7 @@ export async function handleSync(req, res, rest, query, CORS) {
     if (req.method !== "PUT" && req.method !== "DELETE") return send(405, { error: { message: "不支持" } });
     const base = query.get("base");
     const body = req.method === "PUT" ? await readBody(req) : null; // 先收完再比号：中间别人交的也算
+    authorize?.(); // 上传期间可能刚被撤销，落盘前再确认一次
     const now = ix.items[k];
     const curRev = now?.rev || 0;
     if (base !== "*" && Number(base) !== curRev) return send(409, { error: { message: "别的设备先改了" }, rev: curRev });
