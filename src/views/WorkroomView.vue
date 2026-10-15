@@ -232,16 +232,19 @@ const DECISION = { accept: "允许了这一次", acceptForSession: "这次任务
 const KIND = { add: "新建", delete: "删除", update: "修改" };
 const openOut = ref({}); // 哪条命令展开着（整条命令 + 输出）
 // 连着跑的命令收成一行「跑了 N 条命令」，点开才看每一条（命令太长，摊开一大串看不懂）
+// 夹在命令中间、已经答过的审批（「你这次任务里都允许」）也收进去；还在等你点的照样露在外面
 const openGrp = ref({});
+const quietAsk = it => it.kind === "approval" && it.state !== "pending";
 const shown = computed(() => {
   const out = [];
   for (const it of timeline.value) {
     const last = out[out.length - 1];
-    if (it.kind !== "command") out.push(it);
-    else if (last?.kind === "cmds") last.list.push(it);
-    else out.push({ kind: "cmds", id: `g:${it.id}`, list: [it] });
+    if (it.kind !== "command" && !quietAsk(it)) out.push(it);
+    else if (last?.kind === "cmds") { last.seq.push(it); if (it.kind === "command") last.list.push(it); }
+    else out.push({ kind: "cmds", id: `g:${it.id || out.length}`, seq: [it], list: it.kind === "command" ? [it] : [] });
   }
-  return out;
+  // 只收到审批、没有命令的：还是原样一行
+  return out.flatMap(g => (g.kind === "cmds" && !g.list.length ? g.seq : [g]));
 });
 const firstLine = c => { const l = cmdText(c).split("\n")[0]; return l.length > 36 ? l.slice(0, 36) + "…" : l; };
 const grpState = list => (list.some(c => c.status === "inProgress") ? "inProgress" : list.some(c => c.status === "failed") ? "failed" : "completed");
@@ -379,7 +382,9 @@ const RULES = [
               <i class="st" :class="grpState(it.list)" /><span>{{ grpLabel(it.list) }}</span><em>{{ openGrp[it.id] ? "收起 ▴" : "展开 ▾" }}</em>
             </button>
             <template v-if="openGrp[it.id]">
-              <div v-for="c in it.list" :key="c.id" class="card cmd" :class="c.status">
+              <template v-for="(c, k) in it.seq" :key="c.id || k">
+              <p v-if="c.kind === 'approval'" class="line">{{ c.state === "auto" ? `自动放行：${cmdText(c.command) || "改文件"}` : `你${DECISION[c.decision] || "回答了"}` }}</p>
+              <div v-else class="card cmd" :class="c.status">
                 <div class="cmd-head" @click="openOut[c.id] = !openOut[c.id]">
                   <code :class="{ clamp: !openOut[c.id] }">$ {{ cmdText(c.command) }}</code>
                   <span class="badge"><i v-if="c.auto" class="auto">自动放行</i>{{ CMD_STATE[c.status] || "…" }}<template v-if="c.exitCode != null"> · {{ c.exitCode }}</template><template v-if="c.durationMs"> · {{ dur(c.durationMs) }}</template></span>
@@ -387,6 +392,7 @@ const RULES = [
                 <pre v-if="openOut[c.id] && c.output" class="out">{{ c.output }}</pre>
                 <small v-else-if="c.output" class="muted tap" @click="openOut[c.id] = true">看输出（{{ c.output.split("\n").length }} 行）</small>
               </div>
+              </template>
             </template>
           </div>
           <div v-else-if="it.kind === 'files'" class="card files">

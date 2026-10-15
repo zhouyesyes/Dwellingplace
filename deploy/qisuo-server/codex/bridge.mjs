@@ -226,6 +226,7 @@ function onRequest(m) {
 const BASE_INSTRUCTIONS = [
   "用中文回复。",
   "这台机器上有一个没有界面的浏览器：Playwright + Chromium 已经全局装好（在 node 里直接 require('playwright') 或 import 'playwright'），带中文字体。改了网页、要看界面对不对时，可以写个小脚本：起一个本地服务（比如 npx vite --port 5199 或 node 的 http 模块），用 chromium.launch() 打开，按手机尺寸（390×844）截图存到 /tmp，再用看图工具看截图。",
+  "她发来的视频（录屏）：浏览器解不了 iPhone 的 H.264 / HEVC，用 ffmpeg 拆成截图再看，比如 ffmpeg -i 视频 -vf fps=1,scale=480:-1 /tmp/frame-%02d.png（长的就把 fps 调低），拆完用看图工具看。",
   "网络：只能连 OpenAI，再加上她放行的几个网站（一般有 GitHub 和 npm）；别的连不上，需要的话先说明，让她决定要不要放行。",
   `「${GIT_PROJECT}」项目是 GitHub 上 ${GIT_REPO} 的代码，动手前先 git pull、读根目录的 AGENTS.md（大家的施工说明）和 docs/worklog.md 最上面几条（cc 和你都在改这个仓库），做完在日志最上面记一条。你可以在本地提交（git commit），但推不上去：推上线要她在工作间里点「推上线」。`,
 ].join("\n");
