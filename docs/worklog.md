@@ -14,6 +14,11 @@
 ## 日志
 
 ### 2026-10-15 · cc
+- 闯祸修复：上一条往 `codex-home/config.toml` 写了 `approval_policy = "untrusted"`，这个版本的 Codex 不认（报 `is no longer supported; remove this setting`），工作间起不来、页面显示要登录
+- 她在服务器上手动删了那一行、重启了工作间；`setup.sh` 改成只写 `sandbox_mode`，并且每次都删掉 `approval_policy` 那一行
+- **注意**：改 Codex 的 config.toml 之前，先查清楚这个版本认不认；审批规则只在开线程 / 接上线程时传（`RUN_OPTS`），别写进设置文件
+
+### 2026-10-15 · cc
 - 修重启后旧任务连 `pwd` 都跑不了（`bwrap: No permissions to create a new namespace`）、审批又特别多：重启后 `thread/resume` 没带 `sandbox` / `approvalPolicy`，接上的线程退回 Codex 默认（套沙盒、什么都问），容器里套不上沙盒
 - `bridge.mjs`：开新线程、接上旧线程都带 `RUN_OPTS`（不套沙盒、按栖所规则审批）；`setup.sh` 在 `codex-home/config.toml` 最前面写上 `sandbox_mode` / `approval_policy`，双保险
 - 新开关「放手让它做」（`policy.autoAll`，她同意加的，**默认关**，她自己在规则里打开）：项目里、不在 `RISKY` 里的命令都放行；删、装、联网、项目外面照样问
