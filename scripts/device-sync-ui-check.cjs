@@ -8,7 +8,8 @@ const fs=require('node:fs'), os=require('node:os'), path=require('node:path'), h
   const master=crypto.randomBytes(32).toString('base64url');
   const {createDeviceSync}=await import('../deploy/qisuo-server/devices.mjs');
   const {handleSync}=await import('../deploy/qisuo-server/sync.mjs');
-  const service=createDeviceSync({dir,masterMatches:t=>t===master});
+  let serverOffset=0;
+  const service=createDeviceSync({dir,masterMatches:t=>t===master,now:()=>Date.now()+serverOffset});
   const server=http.createServer((req,res)=>{
     const u=new URL(req.url,'http://local');
     const cors={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'*','Access-Control-Expose-Headers':'*'};
@@ -64,8 +65,65 @@ const fs=require('node:fs'), os=require('node:os'), path=require('node:path'), h
     const b=await makePage();
     await b.evaluate(async()=>{await(await import('/src/lib/kv.js')).set('note:new','新设备离线内容');});
     await b.goto(front+'/#/settings/sync');
-    await b.getByLabel('这台设备的名字').fill('我的平板');await b.getByLabel('绑定码',{exact:true}).fill(code);
-    await b.getByRole('button',{name:'绑定这台设备',exact:true}).click();
+    await b.getByLabel('这台设备的名字').fill('我的平板');
+    if(process.env.QISUO_QR_CHECK){
+      let redeems=0,external=0;
+      b.on('request',r=>{const u=new URL(r.url());if(u.pathname==='/sync/redeem')redeems++;if(u.hostname==='untrusted.example')external++;});
+      const open=()=>b.getByRole('button',{name:'扫码或识别二维码图片',exact:true}).click();
+      const file=(buffer,type='image/png')=>b.getByLabel('选择二维码图片').setInputFiles({name:'fixture.png',mimeType:type,buffer});
+      const pngFor=async text=>Buffer.from(await b.evaluate(async text=>{
+        const {qrSvg}=await import('/src/lib/bindingQr.js');const img=new Image();img.src='data:image/svg+xml,'+encodeURIComponent(qrSvg(text));await img.decode();
+        const c=document.createElement('canvas');c.width=c.height=390;c.getContext('2d').drawImage(img,0,0,390,390);return c.toDataURL('image/png').split(',')[1];
+      },text),'base64');
+      const original=await a.locator('.binding-qr').screenshot();
+      await open();
+      await b.evaluate(()=>{Object.defineProperty(navigator.mediaDevices,'getUserMedia',{configurable:true,value:async()=>{throw Object.assign(new Error(),{name:'NotAllowedError'});}});});
+      await b.getByRole('button',{name:'开启摄像头',exact:true}).click();await b.getByRole('alert').filter({hasText:'授权'}).waitFor();
+      await file(Buffer.from('bad'),'text/plain');await b.getByRole('alert').filter({hasText:'请选择'}).waitFor();
+      await file(Buffer.from('bad'));await b.getByRole('alert').filter({hasText:'图片无法读取'}).waitFor();
+      const payload={type:'qisuo-device',v:1,code,origin:front};
+      await file(await pngFor(JSON.stringify({...payload,v:2})));await b.getByRole('alert').filter({hasText:'协议'}).waitFor();
+      await file(await pngFor(JSON.stringify({...payload,origin:'http://untrusted.example'})));await b.getByRole('alert').filter({hasText:'HTTPS'}).waitFor();
+      await file(await pngFor(JSON.stringify({...payload,origin:'https://untrusted.example'})));
+      await b.getByRole('region',{name:'确认二维码服务器'}).waitFor();assert.equal(redeems,0);assert.equal(external,0);
+      assert((await b.getByRole('region',{name:'确认二维码服务器'}).innerText()).includes('https://untrusted.example'));
+      await b.getByRole('button',{name:'取消二维码绑定',exact:true}).click();assert.equal(await b.getByLabel('绑定码',{exact:true}).inputValue(),'');
+      // 真实 Canvas MediaStream 走 video/jsqr 实时解码；不访问真实摄像头。
+      await b.evaluate(async png=>{
+        const img=new Image();img.src='data:image/png;base64,'+png;await img.decode();
+        window.fixtureCanvas=document.createElement('canvas');const c=window.fixtureCanvas;c.width=c.height=390;c.getContext('2d').drawImage(img,0,0,390,390);
+        window.fixtureStream=c.captureStream(5);Object.defineProperty(navigator.mediaDevices,'getUserMedia',{configurable:true,value:async()=>window.fixtureStream});
+      },original.toString('base64'));
+      await open();await b.getByRole('button',{name:'开启摄像头',exact:true}).click();
+      await b.getByRole('region',{name:'确认二维码服务器'}).waitFor();
+      assert(await b.evaluate(()=>window.fixtureStream.getTracks().every(t=>t.readyState==='ended')));assert.equal(redeems,0);
+      await b.getByRole('button',{name:'取消二维码绑定',exact:true}).click();
+      // 关闭仍在扫描的界面也必须释放全部 tracks。
+      await b.evaluate(()=>{window.fixtureCanvas.getContext('2d').fillStyle='white';window.fixtureCanvas.getContext('2d').fillRect(0,0,390,390);window.fixtureStream=window.fixtureCanvas.captureStream(5);});
+      await open();await b.getByRole('button',{name:'开启摄像头',exact:true}).click();
+      await until(()=>b.evaluate(()=>!!document.querySelector('video')?.srcObject));
+      await b.getByRole('button',{name:'关闭扫码界面'}).click();
+      assert(await b.evaluate(()=>window.fixtureStream.getTracks().every(t=>t.readyState==='ended')));
+      await open();
+      const blank=await b.evaluate(()=>window.fixtureCanvas.toDataURL('image/png').split(',')[1]);
+      await file(Buffer.from(blank,'base64'));await b.getByRole('alert').filter({hasText:'没有识别到'}).waitFor();
+      await file(original);await b.getByRole('region',{name:'确认二维码服务器'}).waitFor();assert.equal(redeems,0);
+      for(const theme of ['light','dark']){await b.evaluate(t=>document.documentElement.dataset.theme=t,theme);await b.waitForTimeout(220);await b.screenshot({path:`/tmp/device-qr-confirm-${theme}.png`,fullPage:true,animations:'disabled'});}
+      serverOffset=360000;
+      await b.getByRole('button',{name:'确认此服务器并绑定',exact:true}).click();
+      await b.getByRole('status').filter({hasText:'过期'}).waitFor();assert.equal(redeems,1);
+      assert(!await b.evaluate(async()=>(await import('/node_modules/.vite/deps/idb-keyval.js')).get('sync:conf')));
+      serverOffset=0;await a.getByRole('button',{name:'重新生成绑定码',exact:true}).click();
+      await until(async()=>await output.innerText()!==code);
+      const fresh=await a.locator('.binding-qr').screenshot();
+      await open();await file(fresh);await b.getByRole('region',{name:'确认二维码服务器'}).waitFor();assert.equal(redeems,1);
+      await b.getByRole('button',{name:'确认此服务器并绑定',exact:true}).click();
+      await b.getByRole('heading',{name:'这台设备已绑定',exact:true}).waitFor();assert.equal(redeems,2);assert.equal(external,0);
+      console.log('通过：实际二维码图片和相机实时识别、拒绝授权/坏图/非法协议/不安全 origin、跨源仅展示确认、关闭 tracks、过期失败保留、确认后复用兑换接口');
+    }else{
+      await b.getByLabel('绑定码',{exact:true}).fill(code);
+      await b.getByRole('button',{name:'绑定这台设备',exact:true}).click();
+    }
     await b.getByRole('heading',{name:'这台设备已绑定',exact:true}).waitFor();
     await until(()=>b.evaluate(async()=>(await import('/src/lib/kv.js')).get('msgs:kept').then(v=>v?.[0]?.text==='原来云端的聊天')));
     assert.equal(await b.evaluate(async()=>(await import('/src/lib/kv.js')).get('note:new')),'新设备离线内容');
@@ -74,7 +132,7 @@ const fs=require('node:fs'), os=require('node:os'), path=require('node:path'), h
     for(const p of [a,b])assert(!p.url().includes(master));
     await a.getByRole('button',{name:'刷新',exact:true}).click();
     await a.getByText('我的平板',{exact:true}).waitFor();
-    for(const theme of ['light','dark']){await a.evaluate(t=>document.documentElement.dataset.theme=t,theme);await a.screenshot({path:`/tmp/device-sync-${theme}.png`,fullPage:true});}
+    for(const theme of ['light','dark']){await a.evaluate(t=>document.documentElement.dataset.theme=t,theme);await a.waitForTimeout(220);await a.screenshot({path:`/tmp/device-sync-${theme}.png`,fullPage:true,animations:'disabled'});}
     await a.setViewportSize({width:820,height:1180});await a.screenshot({path:'/tmp/device-sync-tablet.png',fullPage:true});
     // UI 撤销另一台，原设备仍能读，新设备无法同步，也不能从旧 API 配置绕回主口令。
     a.once('dialog',d=>d.accept());

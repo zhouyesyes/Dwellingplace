@@ -14,6 +14,15 @@
 ## 日志
 
 ### 2026-10-15 · Codex
+- 离线检查 main 工作树起初干净，上游本地跟踪点 origin/main=7129869，待推 b5a5db4/bee3740。建立恢复分支 backup/device-binding-before-qr-bee3740 后，将 bee3740 重写为 8f4486b：移除 Pages workflow 的两行 VITE_SYNC_ORIGIN env 并修正文档，绑定同步/服务端/迁移实现逐文件对比不变，b5a5db4 未改。不是追加 revert；main 待推范围 workflow diff 和 log 均为空，旧提交只留本地恢复引用，不能 push --all。
+- 完成一次性绑定二维码：本地受限 QR 10-L 编码器（271 UTF-8 字节上限，固定掩码、静区），已有 jsqr 解码；无新增依赖/锁文件改动。payload 仅协议标识/版本、绑定码和公开 origin，严格校验字段/版本/规范序列化/HTTPS（本机回环例外），不含长期凭证或用户数据。
+- 新设备支持后置相机实时扫码与本地 PNG/JPEG/WebP/GIF 图片识别；识别后先展示完整 origin，明确确认才复用 bindDevice → redeemCode，不静默切换服务器、不在确认前发请求。权限拒绝/摄像头不可用/坏图/无二维码/过期或兑换失败均有提示；保留手输。成功、关闭、失焦到后台/离页停止 tracks 和循环，迟到的权限流也释放；弹层有无障碍标签、Esc/焦点约束。
+- **验证**：新增 binding-qr-check 覆盖真实 jsqr 回读、旋转/容量、协议/重复字段/恶意 origin/过期生成、相机取消/迟到权限/解码在途清理。扩展 device-sync-ui-check 的 QISUO_QR_CHECK 模式，实际 Canvas MediaStream → video → jsqr 实时识别、图片与坏图/空图、跨源确认/取消、过期失败后重扫、确认后原兑换、关闭 tracks 均通过；原手输双设备回归、sync-check、sync-server-check、device-sync-server-check（含并发）、device-sync-cache-check、workroom-ui-check、workroom-progress-check、chat-stream-check、Node 语法、Vite 生产构建均通过。检查手机浅深色/平板展示和确认页面截图；无独立类型检查配置。
+- **还剩/注意**：真机摄像头/权限体验待验收；超长公开域名超二维码容量时提示改手输。二维码过期由服务端最终核验，保存在图片中也不能延长有效期。跨源前端可通过二维码确认目标 origin；纯手输可用高级公开域名，Pages workflow 不注入构建变量。完整说明和历史核验命令见 docs/sync-checks.md。
+- 本轮未联网/未 git pull、未安装、未推送、未部署；未改工作间布局/折叠及其他无关代码，未接触真实数据/密钥，截图只在 /tmp。推送前仍需主人检查真实远端状态；恢复分支不属于 main 待推提交。
+
+
+### 2026-10-15 · Codex
 - 完成单人个人设备绑定，不做账号系统：继续使用原 DATA_DIR/sync 和 rev；新增 /sync 设备鉴权、公开发现、5 分钟一次性绑定码、独立长期凭证、设备列表/单台撤销。绑定码约 60 bit；限流和使用记录持久化；签发/消费同一原子账本，响应丢失支持同一本机请求幂等重试。凭据不放 URL/日志/同步数据或普通备份。
 - 首台旧配置自动迁移，保留 seq/known/消息基线/待上传项；之后关闭主口令同步及再次引导，其他旧设备由已绑定设备给码，无损合并本地内容。不能让丢失设备用旧 API 中缓存的主口令绕过撤销；服务器未升级时保留旧行为，网络错误不降级。撤销检查包含上传落盘前。
 - 同步页改成「这台设备已绑定 / 绑定新设备 / 输入绑定码」，带设备列表、撤销和倒计时；高级配置折叠。现有 jsqr 只识别二维码，不新增依赖，保留二维码待支持入口。设备凭证仅本机 IndexedDB，非硬件或 HttpOnly 保险箱。

@@ -4,12 +4,31 @@ import { syncState, syncNow, startSync, bindDevice, enableSync, disableSync } fr
 import { binding, createBindingCode, listDevices, revokeDevice } from '../lib/deviceSync.js';
 import { toast } from '../lib/toast.js';
 import SubHeader from '../components/SubHeader.vue';
+import BindingScanner from '../components/BindingScanner.vue';
+import { createBindingPayload, parseBindingPayload, qrSvg } from '../lib/bindingQr.js';
 
 const code = ref(''), name = ref('我的设备'), url = ref(''), origin = ref(''), busy = ref(false);
+const scannerOpen = ref(false), scanned = ref(null);
 const clock = ref(Date.now());
 const bound = computed(() => !!binding.device && !syncState.revoked);
 const remaining = computed(() => Math.max(0, Math.ceil((binding.expiresAt - clock.value) / 1000)));
 const shownCode = computed(() => remaining.value ? binding.code : '');
+const qrResult = computed(() => {
+  if (!shownCode.value) return { src: '', error: '' };
+  try {
+    const text = createBindingPayload({code: shownCode.value, origin: binding.server, expiresAt: binding.expiresAt});
+    return { src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(qrSvg(text)), error: '' };
+  } catch (e) { return { src: '', error: e.message }; }
+});
+const qrImage = computed(() => qrResult.value.src);
+const qrError = computed(() => qrResult.value.error);
+function scannedResult(result) { scanned.value = result; scannerOpen.value = false; }
+const confirmScan = () => act(async () => {
+  // 再校验一次；确认前不发现服务器、不修改配置，也不兑换。
+  const result = parseBindingPayload(JSON.stringify(scanned.value));
+  await bindDevice(result.code, name.value, result.origin);
+  scanned.value = null; await listDevices(); toast('这台设备已绑定');
+});
 let tick;
 onMounted(async () => {
   tick = setInterval(() => { clock.value = Date.now(); }, 1000);
@@ -44,6 +63,7 @@ async function revoke(d) {
 <template>
   <div class="page">
     <SubHeader title="设备与同步" />
+    <BindingScanner v-if="scannerOpen" @result="scannedResult" @close="scannerOpen = false" />
     <div class="card body">
       <h2>{{ bound ? '这台设备已绑定' : syncState.revoked ? '这台设备已被撤销' : '输入绑定码' }}</h2>
       <p class="desc">所有设备共用云端同一份栖所。本地保留离线副本，重新联网后自动合并。</p>
@@ -53,6 +73,14 @@ async function revoke(d) {
         <button class="btn wide" :disabled="busy || syncState.busy" @click="syncNow">现在同步</button>
       </template>
       <form v-else @submit.prevent="bind">
+        <button type="button" class="btn soft wide" @click="scanned = null; scannerOpen = true">扫码或识别二维码图片</button>
+        <section v-if="scanned" class="scan-confirm" aria-label="确认二维码服务器">
+          <p>二维码指定的数据服务器：</p>
+          <strong>{{ scanned.origin }}</strong>
+          <p>请确认这是你自己的服务器。确认前不会连接或切换服务器；二维码是否过期由服务器核验。</p>
+          <button type="button" class="btn wide" :disabled="busy" @click="confirmScan">确认此服务器并绑定</button>
+          <button type="button" class="btn soft wide" :disabled="busy" @click="scanned = null">取消二维码绑定</button>
+        </section>
         <p class="desc">在一台已绑定的设备打开这里，点「绑定新设备」，再把绑定码填到下面。不需要同步链接或服务器口令。</p>
         <label>这台设备的名字<input v-model="name" class="input" maxlength="60" placeholder="例如：我的 iPad" autocomplete="off" /></label>
         <label>绑定码<input v-model="code" class="input pairing-input" maxlength="32" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX" /></label>
@@ -70,7 +98,9 @@ async function revoke(d) {
           <output class="pair-code" aria-label="一次性绑定码">{{ shownCode }}</output>
           <p class="desc">{{ remaining }} 秒后失效 · 只给你自己的新设备</p>
         </template>
-        <button class="btn soft wide" disabled title="当前版本先使用绑定码">二维码绑定（待支持）</button>
+        <img v-if="qrImage" :src="qrImage" class="binding-qr" alt="5 分钟有效的一次性栖所设备绑定二维码" />
+        <p v-if="qrImage" class="desc">在新设备打开同步页，点「扫码或识别二维码图片」。二维码与上方绑定码共用一次绑定机会。</p>
+        <p v-if="qrError" class="warn" role="status">{{ qrError }}</p>
       </div>
       <div class="section-label devices-heading">已绑定设备<button class="btn soft" :disabled="busy" @click="act(listDevices)">刷新</button></div>
       <div class="card body">
@@ -94,6 +124,8 @@ async function revoke(d) {
 </template>
 
 <style scoped>
+.binding-qr { display: block; width: min(100%, 300px); height: auto; margin: 16px auto; background: white; }
+.scan-confirm { border: 1px solid var(--line); padding: 12px; margin-top: 12px; border-radius: 12px; overflow-wrap: anywhere; }
 .body { padding: 16px 18px; }
 h2 { margin: 0 0 8px; font-size: 1.1rem; }
 .desc { margin: 8px 0 12px; color: var(--text-2); line-height: 1.7; font-size: .93rem; }
