@@ -2,7 +2,7 @@
 import { themePref, setTheme } from "../lib/theme.js";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { store, today, fmtTokens } from "../store/index.js";
+import { store } from "../store/index.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
 import SubHeader from "../components/SubHeader.vue";
@@ -19,12 +19,6 @@ function setHelper(v) {
   const [apiId, model] = v.split("\u0000");
   store.settings.helper = { apiId, model };
 }
-const usageToday = computed(() => store.usage[today()] || {});
-function usageLine(api) {
-  const u = usageToday.value[api.id];
-  if (!u) return "今天还没用过";
-  return `今天 ${u.calls} 次 · 输入 ${fmtTokens(u.input)} · 输出 ${fmtTokens(u.output)} tokens`;
-}
 </script>
 
 <template>
@@ -33,14 +27,8 @@ function usageLine(api) {
 
     <div class="section-label">API</div>
     <div class="list-card">
-      <button v-for="a in store.apis" :key="a.id" class="list-row" @click="router.push(`/settings/api/${a.id}`)">
-        <span class="api-dot" :class="{ def: a.id === store.defaultApiId }"><Icon :name="a.id === store.defaultApiId ? 'star' : 'key'" :size="18" /></span>
-        <span class="grow">
-          <span>{{ a.name || "未命名" }}</span><span v-if="a.id === store.defaultApiId" class="tag">默认</span>
-          <span class="sub">{{ a.model || "未选模型" }}</span>
-          <span class="sub usage">{{ usageLine(a) }}</span>
-        </span>
-        <Icon name="right" class="chev" :size="18" />
+      <button class="list-row" @click="router.push('/settings/apis')">
+        <Icon name="key" :size="20" /><span class="grow">API<span class="sub">配置接口、查看额度和用量</span></span><Icon name="right" class="chev" :size="18" />
       </button>
       <!-- 整理用的模型：聊天摘要、共读的前情、共写的总结（不是他自己想记的记忆） -->
       <label class="list-row helper">
@@ -52,12 +40,6 @@ function usageLine(api) {
           </optgroup>
         </select>
       </label>
-      <button class="list-row" @click="router.push('/settings/billing')">
-        <Icon name="box" :size="20" /> <span class="grow">用量和余额<span class="sub">额度怎么算、每一轮请求了几次；每天的 tokens 和余额</span></span><Icon name="right" class="chev" :size="18" />
-      </button>
-      <button class="list-row add" @click="router.push('/settings/api/new')">
-        <Icon name="plus" :size="20" /> <span class="grow">添加 API</span>
-      </button>
     </div>
 
     <div class="section-label">聊天</div>
@@ -65,7 +47,6 @@ function usageLine(api) {
 
     <div class="section-label">更多</div>
     <div class="list-card">
-      <button class="list-row" @click="router.push('/work')"><Icon name="box" :size="20" /><span class="grow">工作间<span class="sub">Codex 在你服务器的沙盒里写代码、跑命令</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="palette" :size="20" /><span class="grow">字号</span>
@@ -95,11 +76,6 @@ function usageLine(api) {
 
 <style scoped>
 .moved { font-size: 0.82rem; color: var(--text-3); line-height: 1.7; margin: 0 6px 18px; }
-.add { color: var(--text-2); }
-.api-dot { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--bg-deep); color: var(--text-2); }
-.api-dot.def { background: var(--yellow); color: var(--ink); }
-.tag { font-size: 0.733rem; background: var(--yellow); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
-.usage { color: var(--text-3); }
 .num-input { width: 70px; border: 0; background: var(--bg); border-radius: 10px; padding: 6px 8px; text-align: center; outline: none; }
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }

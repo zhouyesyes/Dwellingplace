@@ -1,5 +1,5 @@
 <script setup>
-// 用量和余额：每个 API 在这台手机上每天用了多少次、多少 tokens；DeepSeek、OpenRouter 还能直接查账户余额和花费
+// API 管理：每个 API 在这台手机上每天用了多少次、多少 tokens；DeepSeek、OpenRouter 还能直接查账户余额和花费
 import { ref, computed, onMounted } from "vue";
 import { store, fmtTokens, today } from "../store/index.js";
 import { isPlan } from "../lib/providers.js";
@@ -11,12 +11,14 @@ const codexLimits = computed(() => limitsOf(wr.status?.rateLimits));
 const sharedBars = computed(() => codexLimits.value.map(l => ({ label: l.label, left: 100 - l.used, reset: resetIn(l.resetsAt) })));
 onMounted(() => { refreshWork().catch(() => {}); });
 const resetIn = s => { if (!s) return ""; const m = Math.round((s * 1000 - Date.now()) / 60000); return m <= 0 ? "" : m < 60 ? `${m} 分钟后恢复` : m < 1440 ? `${Math.round(m / 60)} 小时后恢复` : `${Math.round(m / 1440)} 天后恢复`; };
+import { useRouter } from "vue-router";
+import Icon from "../components/Icon.vue";
+const router = useRouter();
 import SubHeader from "../components/SubHeader.vue";
 
 // ---------- ChatGPT 会员额度：放在最上面 ----------
 const planApis = computed(() => store.apis.filter(a => a.type === "openai" && isPlan(a)));
 const otherApis = computed(() => store.apis.filter(a => !planApis.value.includes(a)));
-const showOthers = ref(!planApis.value.length);
 const plan = ref({}); // apiId -> { loading, error, st }
 const planBase = a => String(a.baseUrl).trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
 async function checkPlan(a) {
@@ -90,29 +92,10 @@ const showTurns = ref(false);
 
 <template>
   <div class="page">
-    <SubHeader title="用量和余额">
+    <SubHeader title="API">
       <button class="btn soft small" @click="refresh">刷新</button>
+      <button class="btn small" @click="router.push('/settings/api/new')">添加 API</button>
     </SubHeader>
-
-    <div class="card body how">
-      <b>额度到底怎么算</b>
-      <template v-if="planApis.length">
-        <p><i>ChatGPT 会员额度</i>不按次数、也不按条数。OpenAI 按这一轮让模型算了多少来扣：输入、输出（连同思考）的 tokens，模型越大、思考越多扣得越多，折成「5 小时」和「每周」两个百分比。具体怎么换算 OpenAI 没公开；下面「最近每一轮」里，栖所在每轮之后看一眼百分比，记下这一轮大概用掉了多少。</p>
-      </template>
-      <p v-if="otherApis.length"><i>用 Key 的 API</i>（DeepSeek、OpenRouter、Claude 等）按 tokens 收钱：输入多少、输出多少（思考也算输出），命中缓存的输入便宜很多。请求次数本身不收钱。</p>
-      <p>两种都一样的一点：<b>每多请求一次，前面的设定、记忆、摘要和最近的聊天就要再发一遍输入</b>。用工具、翻记忆、搜索、续发，每一步都要多请求一次；按空行分气泡、[停顿] 都是同一次生成，不多花。</p>
-    </div>
-
-    <div v-if="turns.length" class="card body">
-      <div class="turn-head" @click="showTurns = !showTurns"><b>最近每一轮</b><span class="muted small">{{ turns.length }} 轮 {{ showTurns ? "▴" : "▾" }}</span></div>
-      <template v-if="showTurns">
-        <div v-for="t in turns" :key="t.ts" class="turn">
-          <div class="turn-row"><span>{{ hm(t.ts) }}</span><span class="grow">{{ t.wake ? `唤醒 · ${t.wake.reasons.join("；")}` : apiName(t.apiId) }}</span><b :class="{ many: t.rounds > 1 }">{{ t.wake?.direct ? "直接发，没请求" : `请求 ${t.rounds} 次` }}<template v-if="t.sends">（续发 {{ t.sends }}）</template></b></div>
-          <div v-if="t.wake && !t.wake.direct" class="turn-sub">{{ t.wake.error ? `失败：${t.wake.error}` : t.wake.free ? `自由时间：${t.wake.free}` : t.wake.silent ? "醒了，没发消息" : "醒了，发了消息" }}<template v-if="t.wake.ctx"> · 带的上下文 {{ fmtTokens(t.wake.ctx) }}</template></div>
-          <div v-if="!t.wake?.direct" class="turn-sub">输入 {{ fmtTokens(t.input) }}<template v-if="t.cached">（缓存 {{ fmtTokens(t.cached) }}）</template> · 输出 {{ fmtTokens(t.output) }}<template v-for="p in t.plan || []" :key="p.label"> · {{ p.label }} {{ p.d == null ? `用了 ${p.used}%` : `+${p.d}%` }}</template></div>
-        </div>
-      </template>
-    </div>
 
     <!-- 没有接 ChatGPT 会员的 API、但工作间里登录了：也显示这份额度 -->
     <div v-if="!planApis.length && sharedBars.length" class="card plan">
@@ -124,10 +107,16 @@ const showTurns = ref(false);
       <p class="muted small">聊天和工作间（Codex）用的是同一份额度。</p>
     </div>
 
-    <div v-for="a in planApis" :key="a.id" class="card plan">
+    <div v-for="a in planApis" :key="a.id" class="card plan api-item">
+      <button class="api-edit" @click="router.push(`/settings/api/${a.id}`)">
+        <Icon :name="a.id === store.defaultApiId ? 'star' : 'key'" :size="20" />
+        <span class="grow"><b>{{ a.name || "未命名" }}</b><span v-if="a.id === store.defaultApiId" class="tag">默认</span><span class="model">{{ a.model || "未选模型" }}</span></span>
+        <span class="edit-label">编辑</span><Icon name="right" :size="18" />
+      </button>
+
       <div class="plan-top">
         <b>ChatGPT 会员额度</b>
-        <span class="muted small">{{ plan[a.id]?.st?.email || a.name }}</span>
+
       </div>
       <p v-if="plan[a.id]?.loading" class="muted">正在查…</p>
       <p v-else-if="plan[a.id]?.error" class="bad">查不到：{{ plan[a.id].error }}</p>
@@ -143,29 +132,46 @@ const showTurns = ref(false);
           <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
         </div>
         <p v-if="!bars(plan[a.id].st.limits).length" class="muted small">OpenAI 不告诉栖所还剩多少，准确的数字在 ChatGPT 里看：</p>
-        <p v-if="bars(plan[a.id].st.limits).length" class="muted small">（{{ ago(plan[a.id].st.limits.at) }}聊天时 OpenAI 带回来的）</p>
+        <p v-if="bars(plan[a.id].st.limits).length && plan[a.id].st.limits?.at" class="muted small">（{{ ago(plan[a.id].st.limits.at) }}聊天时 OpenAI 带回来的）</p>
       </template>
+        <div class="total">最近 14 天：{{ sum(a).calls }} 次 · 输入 {{ fmtTokens(sum(a).input) }} · 输出 {{ fmtTokens(sum(a).output) }}</div>
+        <div v-for="r in rowsOf(a)" :key="r.d" class="day" @click="open[a.id + r.d] = !open[a.id + r.d]">
+          <div class="day-row">
+            <b>{{ short(r.d) }}</b>
+            <span>{{ r.u.calls }} 次</span>
+            <span>输入 {{ fmtTokens(r.u.input) }}</span>
+            <span>输出 {{ fmtTokens(r.u.output) }}</span>
+            <i>{{ r.u.models ? (open[a.id + r.d] ? "▴" : "▾") : "" }}</i>
+          </div>
+          <div v-if="open[a.id + r.d] && r.u.models" class="models">
+            <div v-for="(m, name) in r.u.models" :key="name" class="m-row"><span class="m-name">{{ name }}</span><span>{{ m.calls }} 次 · {{ fmtTokens(m.input) }} / {{ fmtTokens(m.output) }}</span></div>
+          </div>
+        </div>
+        <p v-if="!rowsOf(a).length" class="muted small">最近 14 天在这台手机上还没用过。</p>
       <div class="plan-foot">
         <span>今天在这台设备上聊了 {{ todayCalls(a) }} 次</span>
         <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT 里看用量 ›</a>
       </div>
     </div>
 
-    <button v-if="planApis.length && otherApis.length" class="others-btn" @click="showOthers = !showOthers">
-      其他 API（{{ otherApis.length }}）<span>{{ showOthers ? "▴" : "▾" }}</span>
-    </button>
+    <template v-for="a in otherApis" :key="a.id">
+      <div class="card body api-item">
+      <button class="api-edit" @click="router.push(`/settings/api/${a.id}`)">
+        <Icon :name="a.id === store.defaultApiId ? 'star' : 'key'" :size="20" />
+        <span class="grow"><b>{{ a.name || "未命名" }}</b><span v-if="a.id === store.defaultApiId" class="tag">默认</span><span class="model">{{ a.model || "未选模型" }}</span></span>
+        <span class="edit-label">编辑</span><Icon name="right" :size="18" />
+      </button>
 
-    <template v-for="a in showOthers ? otherApis : []" :key="a.id">
-      <div class="section-label">{{ a.name || "未命名" }} · {{ a.model || "未选模型" }}</div>
-      <div class="card body">
         <template v-if="kindOf(a)">
+          <p v-if="!a.key" class="muted small">尚未配置 Key，暂时无法查询余额。</p>
           <p class="acc-title">{{ kindOf(a) === "deepseek" ? "DeepSeek 账户" : "OpenRouter 账户" }}</p>
           <p v-if="account[a.id]?.loading" class="muted">正在查…</p>
           <p v-else-if="account[a.id]?.error" class="bad">查不到：{{ account[a.id].error }}</p>
+          <p v-if="a.key && account[a.id]?.lines && !account[a.id].lines.length" class="muted small">服务商暂未返回余额信息。</p>
           <p v-for="l in account[a.id]?.lines || []" :key="l" class="acc">{{ l }}</p>
           <p v-if="kindOf(a) === 'deepseek'" class="muted small">DeepSeek 只能查余额，每天花了多少钱要去它的控制台看；下面是在这台手机上记的次数和 tokens。</p>
         </template>
-        <p v-else class="muted small">这个服务商查不了余额，下面是在这台手机上记的次数和 tokens。</p>
+        <p v-else class="muted small">暂无余额信息，下面是这台设备记录的用量。</p>
 
         <div class="total">最近 14 天：{{ sum(a).calls }} 次 · 输入 {{ fmtTokens(sum(a).input) }} · 输出 {{ fmtTokens(sum(a).output) }}</div>
         <div v-for="r in rowsOf(a)" :key="r.d" class="day" @click="open[a.id + r.d] = !open[a.id + r.d]">
@@ -183,6 +189,26 @@ const showTurns = ref(false);
         <p v-if="!rowsOf(a).length" class="muted small">最近 14 天在这台手机上还没用过。</p>
       </div>
     </template>
+    <details class="card body how">
+      <summary>额度到底怎么算</summary>
+      <template v-if="planApis.length">
+        <p><i>ChatGPT 会员额度</i>不按次数、也不按条数。OpenAI 按这一轮让模型算了多少来扣：输入、输出（连同思考）的 tokens，模型越大、思考越多扣得越多，折成「5 小时」和「每周」两个百分比。具体怎么换算 OpenAI 没公开；下面「最近每一轮」里，栖所在每轮之后看一眼百分比，记下这一轮大概用掉了多少。</p>
+      </template>
+      <p v-if="otherApis.length"><i>用 Key 的 API</i>（DeepSeek、OpenRouter、Claude 等）按 tokens 收钱：输入多少、输出多少（思考也算输出），命中缓存的输入便宜很多。请求次数本身不收钱。</p>
+      <p>两种都一样的一点：<b>每多请求一次，前面的设定、记忆、摘要和最近的聊天就要再发一遍输入</b>。用工具、翻记忆、搜索、续发，每一步都要多请求一次；按空行分气泡、[停顿] 都是同一次生成，不多花。</p>
+    </details>
+
+    <div v-if="turns.length" class="card body">
+      <div class="turn-head" @click="showTurns = !showTurns"><b>最近每一轮</b><span class="muted small">{{ turns.length }} 轮 {{ showTurns ? "▴" : "▾" }}</span></div>
+      <template v-if="showTurns">
+        <div v-for="t in turns" :key="t.ts" class="turn">
+          <div class="turn-row"><span>{{ hm(t.ts) }}</span><span class="grow">{{ t.wake ? `唤醒 · ${t.wake.reasons.join("；")}` : apiName(t.apiId) }}</span><b :class="{ many: t.rounds > 1 }">{{ t.wake?.direct ? "直接发，没请求" : `请求 ${t.rounds} 次` }}<template v-if="t.sends">（续发 {{ t.sends }}）</template></b></div>
+          <div v-if="t.wake && !t.wake.direct" class="turn-sub">{{ t.wake.error ? `失败：${t.wake.error}` : t.wake.free ? `自由时间：${t.wake.free}` : t.wake.silent ? "醒了，没发消息" : "醒了，发了消息" }}<template v-if="t.wake.ctx"> · 带的上下文 {{ fmtTokens(t.wake.ctx) }}</template></div>
+          <div v-if="!t.wake?.direct" class="turn-sub">输入 {{ fmtTokens(t.input) }}<template v-if="t.cached">（缓存 {{ fmtTokens(t.cached) }}）</template> · 输出 {{ fmtTokens(t.output) }}<template v-for="p in t.plan || []" :key="p.label"> · {{ p.label }} {{ p.d == null ? `用了 ${p.used}%` : `+${p.d}%` }}</template></div>
+        </div>
+      </template>
+    </div>
+
     <p v-if="!store.apis.length" class="muted center">还没有添加 API。</p>
     <p v-if="planApis.length" class="note">会员额度是 OpenAI 按自己的方式算的（和 ChatGPT 本身共用），栖所只能显示 OpenAI 告诉它的部分。</p>
     <p class="note">次数和 tokens 是栖所在这台手机上记的（聊天、群聊都算）；唤醒是中转去调用的，记在「唤醒」页每次醒来的那一条里。余额和花费是服务商那边的数字。</p>
@@ -190,6 +216,15 @@ const showTurns = ref(false);
 </template>
 
 <style scoped>
+.api-item { margin-bottom: 14px; }
+.api-edit { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0 0 12px; margin-bottom: 12px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); text-align: left; }
+.api-edit .grow { flex: 1; min-width: 0; }
+.api-edit b { font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.model { display: block; margin-top: 4px; color: var(--text-3); font-size: .82rem; overflow-wrap: anywhere; }
+.edit-label { color: var(--text-2); font-size: .82rem; }
+.tag { margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--yellow); color: var(--ink); font-size: .73rem; }
+.how summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+
 .body { padding: 14px 16px; }
 .plan { padding: 18px 18px 14px; }
 .plan-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
@@ -202,7 +237,6 @@ const showTurns = ref(false);
 .bar i.low { background: var(--danger); }
 .plan-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.82rem; color: var(--text-2); }
 .plan-foot a { color: var(--ink); white-space: nowrap; }
-.others-btn { display: flex; justify-content: space-between; width: 100%; margin: 18px 0 0; border: 0; background: var(--card); border-radius: 16px; padding: 12px 16px; box-shadow: var(--shadow-soft); color: var(--text-2); font-size: 0.9rem; }
 .acc-title { margin: 0 0 4px; font-weight: 600; font-size: 0.9rem; }
 .acc { margin: 2px 0; font-size: 0.88rem; line-height: 1.6; }
 .muted { color: var(--text-3); font-size: 0.85rem; margin: 4px 0; line-height: 1.6; }

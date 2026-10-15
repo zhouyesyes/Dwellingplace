@@ -14,6 +14,14 @@
 ## 日志
 
 ### 2026-10-15 · Codex
+- 设置首页将各 API 提供方和独立「用量和余额」收为统一「API」入口，保留「整理用的模型」及其他设置；仅移除设置里的工作间入口，未动主屏插件、工作间及键盘修复。
+- 复用 BillingView 为 /settings/apis API 管理页，旧 /settings/billing 重定向；各 API 卡片顶部可编辑、下方直接显示自身额度/余额与 14 天次数/tokens/每日模型明细，会员 API 也补齐按日统计。原会员共享额度、服务商余额请求、刷新、每轮统计、额度说明均保留，说明折叠放在卡片后；无余额/未配 Key/空结果有简洁状态。编辑保存/删除/直接打开时的返回兜底改到 API 管理页。
+- 新增 scripts/settings-api-ui-check.cjs，临时浏览器与拦截模拟接口覆盖首页收拢、整理模型保留、6 个 API 入口、编辑保存/添加与返回、会员额度、DeepSeek/OpenRouter 余额、查询失败、每日模型/每轮统计、旧路由与空列表；未使用真实账号、Key 或服务商请求。
+- **验证**：设置专项、workroom-ui-check、workroom-progress-check.mjs、chat-stream-check.mjs、Vite 生产构建、git diff --check 通过；查看 390×844 设置首页/API 管理页浅深色截图（/tmp/settings-*.png）。项目无独立类型检查配置，构建仅既有静态/动态导入提示。
+- **还剩/注意**：真机 Safari/PWA 的返回手势、滚动与真实服务商额度（网络/CORS/权限）仍需复核；仅本地提交，未推送或上线，无服务器修改、无新增依赖。
+
+
+### 2026-10-15 · Codex
 - 离线检查 main 工作树起初干净，上游本地跟踪点 origin/main=7129869，待推 b5a5db4/bee3740。建立恢复分支 backup/device-binding-before-qr-bee3740 后，将 bee3740 重写为 8f4486b：移除 Pages workflow 的两行 VITE_SYNC_ORIGIN env 并修正文档，绑定同步/服务端/迁移实现逐文件对比不变，b5a5db4 未改。不是追加 revert；main 待推范围 workflow diff 和 log 均为空，旧提交只留本地恢复引用，不能 push --all。
 - 完成一次性绑定二维码：本地受限 QR 10-L 编码器（271 UTF-8 字节上限，固定掩码、静区），已有 jsqr 解码；无新增依赖/锁文件改动。payload 仅协议标识/版本、绑定码和公开 origin，严格校验字段/版本/规范序列化/HTTPS（本机回环例外），不含长期凭证或用户数据。
 - 新设备支持后置相机实时扫码与本地 PNG/JPEG/WebP/GIF 图片识别；识别后先展示完整 origin，明确确认才复用 bindDevice → redeemCode，不静默切换服务器、不在确认前发请求。权限拒绝/摄像头不可用/坏图/无二维码/过期或兑换失败均有提示；保留手输。成功、关闭、失焦到后台/离页停止 tracks 和循环，迟到的权限流也释放；弹层有无障碍标签、Esc/焦点约束。

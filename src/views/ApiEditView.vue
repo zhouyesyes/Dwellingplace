@@ -13,7 +13,7 @@ const route = useRoute();
 const router = useRouter();
 const isNew = route.params.id === "new";
 const original = isNew ? null : apiById(route.params.id);
-if (!isNew && !original) router.replace("/settings");
+if (!isNew && !original) router.replace("/settings/apis");
 
 const form = reactive(JSON.parse(JSON.stringify(original || newApi("anthropic"))));
 form.favModels ??= [];
@@ -159,20 +159,20 @@ function save() {
   if (makeDefault.value) store.defaultApiId = id;
   else if (store.defaultApiId === id) store.defaultApiId = null;
   toast("已保存");
-  goBack(router, "/settings");
+  goBack(router, "/settings/apis");
 }
 
 function remove() {
   if (!confirm(`删除「${original.name}」？`)) return;
   store.apis.splice(store.apis.indexOf(original), 1);
   if (store.defaultApiId === original.id) store.defaultApiId = store.apis[0]?.id ?? null;
-  router.replace("/settings");
+  router.replace("/settings/apis");
 }
 </script>
 
 <template>
   <div class="page">
-    <SubHeader :title="isNew ? '添加 API' : '编辑 API'">
+    <SubHeader home="/settings/apis" :title="isNew ? '添加 API' : '编辑 API'">
       <button class="btn small" :disabled="!valid" @click="save">保存</button>
     </SubHeader>
 
