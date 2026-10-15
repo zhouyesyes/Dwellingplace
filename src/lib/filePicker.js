@@ -6,12 +6,12 @@ export const fileActivity = reactive({ selecting: false, processing: 0, cropping
 let active = false;
 export function pickFile(accept = "image/*", multiple = false) {
   if (active || fileActivity.processing || fileActivity.cropping) { toast("正在处理，请稍等"); return Promise.resolve([]); }
-  active = true;
   return new Promise(resolve => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = accept;
     input.multiple = multiple;
+    active = true;
     // 不用 display:none，兼容移动 Safari 的原生文件选择。
     input.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0";
     let settled = false;
@@ -36,10 +36,9 @@ export function pickFile(accept = "image/*", multiple = false) {
     input.addEventListener("change", selected);
     input.addEventListener("input", selected);
     input.addEventListener("cancel", cancelled);
-    document.body.append(input);
     fileActivity.selecting = true;
     fileActivity.cancel = cancelled;
-    try { input.click(); }
+    try { document.body.append(input); input.click(); }
     catch { cancelled(); toast("无法打开文件选择，请再试一次", 4000); }
     // 不用 focus/visibility 推断取消：iOS 恢复焦点后可能还在准备照片。
   });

@@ -25,9 +25,10 @@ function canvasOf(src, w, h, side) {
 
 async function imagePart(file) {
   const bmp = await decodeImage(file);
-  const data = canvasOf(bmp, bmp.width, bmp.height, MAX_SIDE);
-  bmp.close?.();
-  return { type: "image", data, mime: "image/jpeg" };
+  try {
+    const data = canvasOf(bmp, bmp.width, bmp.height, MAX_SIDE);
+    return { type: "image", data, mime: "image/jpeg" };
+  } finally { bmp.close?.(); }
 }
 
 // 视频：等它能跳、跳到几个时间点、各截一张。iPhone 上要静音 + playsinline 才肯加载

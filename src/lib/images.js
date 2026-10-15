@@ -44,6 +44,8 @@ export async function imageURL(id) {
   if (urlCache.has(id)) return urlCache.get(id);
   const blob = await get("img:" + id);
   if (!blob) return null;
+  // 多个头像同时读同一张图时，只保留一个对象 URL。
+  if (urlCache.has(id)) return urlCache.get(id);
   const url = URL.createObjectURL(blob);
   urlCache.set(id, url);
   return url;
@@ -70,8 +72,12 @@ export function useImage(getId) {
     let current = true;
     onCleanup(() => { current = false; });
     const id = getId();
-    const next = id ? await imageURL(id) : null;
-    if (current) url.value = next;
+    try {
+      const next = id ? await imageURL(id) : null;
+      if (current) url.value = next;
+    } catch {
+      if (current) { url.value = null; toast("图片暂时读不出来，请稍后重试", 4000); }
+    }
   });
   return url;
 }

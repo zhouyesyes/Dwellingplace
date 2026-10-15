@@ -6,9 +6,11 @@ export const cropState = reactive({ open: false, url: null, aspect: 1, round: fa
 
 export function cropImage(file, { aspect = 1, round = false, title = "调整位置" } = {}) {
   if (cropState.open) return Promise.resolve(null);
+  // URL 创建失败时不能留下全局裁剪锁。
+  const url = URL.createObjectURL(file);
   fileActivity.cropping = true;
   return new Promise(resolve => {
-    Object.assign(cropState, { open: true, url: URL.createObjectURL(file), aspect, round, title, resolve });
+    Object.assign(cropState, { open: true, url, aspect, round, title, resolve });
   });
 }
 

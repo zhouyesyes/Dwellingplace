@@ -6,10 +6,12 @@ const assert = require('node:assert/strict');
  try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.route('**/*', r => new URL(r.request().url()).hostname === '127.0.0.1' ? r.continue() : r.abort());
-  await page.goto('http://127.0.0.1:5199');
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto(process.env.QISUO_TEST_URL || 'http://127.0.0.1:5199');
   const result = await page.evaluate(async () => {
    const { pickFile, fileActivity, decodeImage } = await import('/src/lib/filePicker.js');
-   const { saveImage, pickAndCrop, imageURL } = await import('/src/lib/images.js');
+   const { saveImage, pickAndCrop, imageURL, useImage } = await import('/src/lib/images.js');
    const { cropState, finishCrop } = await import('/src/lib/crop.js');
    const check = (ok, message) => { if (!ok) throw Error(message); };
    const click = HTMLInputElement.prototype.click;
@@ -50,6 +52,51 @@ const assert = require('node:assert/strict');
      try { failed = false; try { await saveImage(file); } catch { failed = true; } check(failed, '空压缩结果不能保存'); }
      finally { HTMLCanvasElement.prototype.toBlob = toBlob; }
     } finally { window.createImageBitmap = bitmap; }
+    // 异常路径不能遗留全局锁或未处理 Promise。
+    const append = document.body.append;
+    document.body.append = () => { throw Error('模拟挂载失败'); };
+    try { check((await pickFile()).length === 0 && !fileActivity.selecting, '挂载失败清理'); }
+    finally { document.body.append = append; }
+    pending = pickFile(); fileActivity.cancel(); await pending;
+    const createURL = URL.createObjectURL;
+    URL.createObjectURL = () => { throw Error('模拟 URL 创建失败'); };
+    try {
+     pending = pickAndCrop(); select();
+     check(await pending === null && !fileActivity.cropping && !cropState.open, 'URL 失败不能遗留裁剪锁');
+    } finally { URL.createObjectURL = createURL; }
+    const {set} = await import('/src/lib/kv.js');
+    await set('img:review-concurrent', file);
+    let created = 0;
+    URL.createObjectURL = value => { created++; return createURL(value); };
+    try {
+     const urls = await Promise.all([imageURL('review-concurrent'), imageURL('review-concurrent')]);
+     check(urls[0] === urls[1] && created === 1, '并发读取只创建一个 URL');
+    } finally { URL.createObjectURL = createURL; }
+    const {effectScope, ref, nextTick} = await import('/node_modules/.vite/deps/vue.js');
+    const get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function () { throw Error('模拟读取失败'); };
+    const scope = effectScope();
+    let displayed;
+    try {
+     scope.run(() => { displayed = useImage(() => 'review-read-failure'); });
+     await new Promise(r => setTimeout(r, 50));
+     check(displayed.value === null, '读取失败清空显示');
+    } finally { scope.stop(); IDBObjectStore.prototype.get = get; }
+    // 旧异步结果和组件卸载后均不能回写。
+    const id = ref('review-concurrent'); const scope2 = effectScope();
+    scope2.run(() => { displayed = useImage(() => id.value); });
+    id.value = null; await nextTick(); await new Promise(r => setTimeout(r, 50));
+    check(displayed.value === null, '旧结果不能覆盖新状态'); scope2.stop();
+    const {seeFiles} = await import('/src/lib/seeFiles.js');
+    const bitmapForFailure = window.createImageBitmap;
+    const context = HTMLCanvasElement.prototype.getContext;
+    let closed = 0;
+    window.createImageBitmap = async () => ({width: 20, height: 30, close() { closed++; }});
+    HTMLCanvasElement.prototype.getContext = () => null;
+    try {
+     const result = await seeFiles([file]);
+     check(closed === 1 && result.parts.length === 0 && result.seen[0].includes('没读出来'), '工作间转码失败释放 bitmap');
+    } finally { window.createImageBitmap = bitmapForFailure; HTMLCanvasElement.prototype.getContext = context; }
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function () { throw new Error('模拟存储空间不足'); };
     try { let failed = false; try { await saveImage(file); } catch { failed = true; } check(failed && !fileActivity.processing, '存储失败必须上报并解锁'); }
@@ -66,6 +113,7 @@ const assert = require('node:assert/strict');
    } finally { HTMLInputElement.prototype.click = click; }
   });
   assert.match(result, /通过/);
+  assert.deepEqual(errors, [], '不应有未捕获的浏览器异常');
   for (const theme of ['light', 'dark']) {
    await page.evaluate(async t => { const {store} = await import('/src/store/index.js'); store.settings.theme = t; document.documentElement.dataset.theme = t; }, theme);
    await page.screenshot({ path: `/tmp/image-picker-${theme}.png` });

@@ -14,6 +14,13 @@
 ## 日志
 
 ### 2026-10-15 · Codex
+- 最终审查本地 8f5bde8，补齐异常路径的最小修复：cropImage 先创建对象 URL 再置锁，创建失败不会卡住所有选图；input 挂载失败也走取消清理；useImage 捕获 IndexedDB/URL 读取异常并提示，避免未处理 Promise；imageURL 在异步读取后复查缓存，多个头像并发读取只创建一个 URL；工作间图片转码用 finally 释放 ImageBitmap。
+- 逐项检查 input/change 双事件、重复/迟到事件、focus/visibility、同文件重选、取消和 DOM 清理：事件结算只执行一次，清理旧监听后迟到事件不会影响新选择；没有基于 focus/visibility 的误取消；旧 Safari 不发 cancel 时需用「取消选择」退出。压缩/表情包计数均在 finally 解锁；裁剪失败保留重试或取消；共用图片调用者已有 catch 或由 pickAndCrop 捕获，正常路径无新增未捕获 Promise。图片显示 URL 在缓存中保留至删除是原有设计，旧异步显示结果受清理标记约束。
+- **验证**：扩展 image-picker-check，覆盖挂载失败恢复、裁剪 URL 创建失败解锁、并发 URL 去重、读取失败无 pageerror、旧结果隔离、工作间转码异常释放 bitmap；原选图专项、chat-stream-check、workroom-progress-check、workroom-ui-check、git diff --check、Vite 生产构建通过（既有导入提示）。复用已有临时服务；为避免旧 Vite HMR 时间戳造成测试动态导入多份模块，另起 5200 临时验证服务，未重启现有服务。测试支持 QISUO_TEST_URL。
+- **未通过项**：额外 workroom-attachments-check 在第一个上传用例前失败，临时 fixture 没创建现有 bridge 要求的附件目录；服务端及此测试均未在 8f5bde8 或本轮修改，未扩大范围修复，不计为通过。项目无独立 lint/typecheck 配置。
+- **还剩/注意**：仍需真机 Safari/PWA 验证相册/拍照/iCloud 延迟返回、取消后重选同图、大图/HEIC 方向及连续操作；Chromium 不能证明原生相册兼容性。未安装依赖、删除数据、重启现有服务、推送或部署，本轮另行本地提交。
+
+### 2026-10-15 · Codex
 - 修复共用选图链路：原 pickFile 使用脱离 DOM 的临时 input、只监听 change、取消不释放，无防重复和处理状态；移动 Safari 有兼容风险。新 filePicker 将 input 挂在 body，保留到选定/取消，input/change 去重，先复制 File 再清理；每次新 input 支持同图重选，不通过焦点/可见性事件猜取消（避免相册准备照片时误丢结果）。原生 cancel 与旧 Safari 手动取消均可恢复。
 - App 增加全局选择/处理反馈及交互遮挡；压缩/持久化期间阻止重复选择。解码增加原生 Image 回退，释放 bitmap；空压缩结果明确报错。裁剪显示读取中、加载失败提示并退出、保存失败提示、防重复完成；pickAndCrop 统一捕获保存异常。useImage 取消过期异步结果，避免旧头像/封面覆盖新图。
 - 覆盖聊天发图、双方头像/头像库、首页封面/头像、聊天背景、记忆图片、书籍封面、写作封面/图片附件、纪念日背景、表情包；共用文件选择的书籍/字体/备份导入同步受益。工作间和二维码为独立常驻 input，原有预览/识别反馈保留；工作间看图解码也复用 Safari 回退。图片先存本地 IndexedDB，没有统一远程上传步骤，本轮未改同步服务。
