@@ -46,24 +46,39 @@ onMounted(async () => {
   if (route.query.t) open(String(route.query.t));
 });
 onBeforeUnmount(disconnect);
-// Safari 弹键盘时除了缩短视口，还会平移可视区域；容器跟着两者一起走。
+// Safari 收键盘时高度和 offsetTop 不一定同时恢复，不能把残留偏移当成整页的 top。
 const viewport = ref({});
 let viewportFrame;
+let viewportSettles = [];
 const updateViewport = () => {
   cancelAnimationFrame(viewportFrame);
   viewportFrame = requestAnimationFrame(() => {
     const vv = window.visualViewport;
-    viewport.value = { height: `${vv?.height || window.innerHeight}px`, top: `${vv?.offsetTop || 0}px` };
+    const height = vv?.height || window.innerHeight;
+    const gap = Math.max(0, window.innerHeight - height);
+    const top = Math.min(Math.max(0, vv?.offsetTop || 0), gap);
+    viewport.value = { height: `${height}px`, top: `${top}px` };
+    // 工作间只让正文滚动；收键盘后清掉 Safari 为聚焦输入框产生的文档滚动。
+    if (gap <= 1 && (!vv || !vv.scale || vv.scale === 1) && window.scrollY) window.scrollTo(0, 0);
   });
+};
+const settleViewport = () => {
+  viewportSettles.forEach(clearTimeout);
+  updateViewport();
+  // 等 Safari 的收键盘动画结束再读一次，不缓存键盘高度。
+  viewportSettles = [100, 350, 700].map(ms => setTimeout(updateViewport, ms));
 };
 onMounted(() => {
   updateViewport();
+  document.addEventListener('focusout', settleViewport);
   window.visualViewport?.addEventListener('resize', updateViewport);
   window.visualViewport?.addEventListener('scroll', updateViewport);
   window.addEventListener('resize', updateViewport);
 });
 onBeforeUnmount(() => {
   cancelAnimationFrame(viewportFrame);
+  viewportSettles.forEach(clearTimeout);
+  document.removeEventListener('focusout', settleViewport);
   window.visualViewport?.removeEventListener('resize', updateViewport);
   window.visualViewport?.removeEventListener('scroll', updateViewport);
   window.removeEventListener('resize', updateViewport);
@@ -558,7 +573,7 @@ const RULES = [
 .working i:nth-child(3) { animation-delay: .3s; margin-right: 4px; }
 @keyframes hop { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
 .dock { position: relative; flex: none; width: 100%; z-index: 1; display: flex; align-items: flex-end; gap: 8px; max-width: 820px; margin: 0 auto; padding: 10px 14px calc(var(--safe-bottom) + 12px); }
-.dock .input { flex: 1; resize: none; min-height: 44px; height: 44px; max-height: min(160px, 30dvh); min-width: 0; font-size: max(16px, 1rem); line-height: 1.5; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .94); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
+.dock .input { flex: 1; resize: none; min-height: 44px; height: 44px; max-height: min(160px, 30dvh); min-width: 0; font-size: 14px; line-height: 22px; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .94); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--card); color: var(--text-3); box-shadow: var(--shadow-soft); flex: none; }
 .send.on { background: var(--ink); color: var(--on-ink); }
 .send.stop { color: var(--danger); }

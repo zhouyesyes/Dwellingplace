@@ -43,9 +43,11 @@ const assert = require('node:assert/strict');
   await page.setViewportSize({ width: 390, height: 844 });
   await input.fill('很长的草稿\n'.repeat(80));
   await page.evaluate(() => {
-    window.mockViewport = new EventTarget();
-    Object.assign(window.mockViewport, {height: 430, offsetTop: 90});
-    Object.defineProperty(window, 'visualViewport', {configurable:true, value:window.mockViewport});
+    window.mockViewport = window.visualViewport;
+    Object.defineProperties(window.mockViewport, {
+      height: { configurable: true, writable: true, value: 430 },
+      offsetTop: { configurable: true, writable: true, value: 90 }
+    });
     window.dispatchEvent(new Event('resize'));
   });
   await page.waitForTimeout(100);
@@ -57,14 +59,35 @@ const assert = require('node:assert/strict');
     await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
     await page.screenshot({path:`/tmp/workroom-keyboard-${theme}.png`});
   }
+  // 高度先恢复、offsetTop 还停在键盘打开时：不能在顶部留下空白。
+  await page.evaluate(()=>{ window.mockViewport.height=844;window.mockViewport.offsetTop=300;window.mockViewport.dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(100);
+  rect=await page.locator('.wr').boundingBox();assert.equal(rect.y,0);assert.equal(rect.height,844);
+  // 连续开关；部分恢复时也不能让容器底部超出布局视口。
+  await page.evaluate(()=>{ window.mockViewport.height=700;window.mockViewport.offsetTop=300;window.mockViewport.dispatchEvent(new Event('scroll')); });
+  await page.waitForTimeout(100);
+  rect=await page.locator('.wr').boundingBox();assert.equal(rect.y,144);assert.equal(rect.y+rect.height,844);
+  // 最后一次 viewport 事件遗漏时，失焦后的动画收尾也会重读。
+  await input.blur();
+  await page.evaluate(()=>{ window.mockViewport.height=844;window.mockViewport.offsetTop=300; });
+  await page.waitForTimeout(800);
+  rect=await page.locator('.wr').boundingBox();assert.equal(rect.y,0);assert.equal(rect.height,844);
   await page.evaluate(()=>{ window.mockViewport.height=844;window.mockViewport.offsetTop=0;dispatchEvent(new Event('resize')); });
   await page.waitForTimeout(100);
   rect=await page.locator('.wr').boundingBox();assert.equal(rect.y,0);assert.equal(rect.height,844);
+  await page.evaluate(() => {
+    document.body.style.minHeight = '1800px';
+    window.scrollTo(0, 200);
+    window.mockViewport.dispatchEvent(new Event('scroll'));
+  });
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.scrollY), 0);
+  await page.evaluate(() => document.body.style.minHeight = '');
   await page.setViewportSize({ width: 820, height: 1180 });
   await page.evaluate(()=>{ window.mockViewport.height=650;window.mockViewport.offsetTop=40;dispatchEvent(new Event('resize')); });
   await page.waitForTimeout(100);
   assert((await page.locator('.tl').boundingBox()).height>200);
   await page.screenshot({path:'/tmp/workroom-tablet.png'});
   await page.evaluate(() => clearInterval(window.streamTimer));
-  await browser.close(); console.log('通过：长历史流式输出、输入聚焦、附件移除、手机视口缩小、浅深色截图');
+  await browser.close(); console.log('通过：长历史流式输出、输入聚焦、附件移除、手机视口缩小、键盘分步恢复/失焦收尾/文档滚动复位、浅深色截图');
 })().catch(e => { console.error(e); process.exit(1); });
