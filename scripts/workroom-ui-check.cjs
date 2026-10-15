@@ -8,22 +8,27 @@ const assert = require('node:assert/strict');
   await page.route('**/*', route => {
     const url = new URL(route.request().url());
     if (url.hostname !== '127.0.0.1') return route.abort();
-    if (url.pathname === '/mock/codex/status') return route.fulfill({ json: { account: {}, projects: ['测试'], threads: [{ id: 'test', project: '测试', title: '测试' }] } });
+    if (url.pathname.startsWith('/p/mock/sync')) return route.fulfill({status:503,json:{}});
+    if (url.pathname === '/p/mock/codex/status') return route.fulfill({ json: { account: {}, projects: ['测试'], threads: [{ id: 'test', project: '测试', title: '测试' }] } });
     if (url.pathname.endsWith('/test/events')) return route.fulfill({ json: { thread: { id: 'test', project: '测试' }, events: [], approvals: [] } });
-    if (url.pathname === '/mock/codex/events') return route.fulfill({ contentType: 'text/event-stream', body: ': mock\n\n' });
+    if (url.pathname === '/p/mock/codex/events') return route.fulfill({ contentType: 'text/event-stream', body: ': mock\n\n' });
     return route.continue();
   });
   await page.goto('http://127.0.0.1:5199/');
-  await page.evaluate(async () => { const { wr } = await import('/src/lib/workroom.js'); wr.base = '/mock'; });
-  await page.evaluate(() => { location.hash = '/work'; });
-  await page.evaluate(async () => { const { wr, refresh } = await import('/src/lib/workroom.js'); wr.base = '/mock'; await refresh(); });
+  await page.evaluate(async () => { const { wr } = await import('/src/lib/workroom.js'); wr.base = location.origin + '/p/mock'; });
+  await page.evaluate(async () => { await (await import('/node_modules/.vite/deps/idb-keyval.js')).set('sync:conf',{url:location.origin+'/p/mock/sync'}); location.hash = '/work'; });
+  await page.waitForURL('**/#/work');
+  await page.waitForTimeout(200);
+  await page.evaluate(async () => { const { wr, refresh } = await import('/src/lib/workroom.js'); wr.base = location.origin + '/p/mock'; await refresh(); });
   await page.getByText('测试', { exact: true }).last().click();
   await page.getByText('直接用 Codex', { exact: true }).click();
+  for(let i=0;i<100;i++){ if(await page.evaluate(async()=>(await import('/src/lib/workroom.js')).thread('test').loaded)) break; await page.waitForTimeout(30); }
   await page.evaluate(async () => {
     const { apply } = await import('/src/lib/workroom.js');
     for (let i = 0; i < 150; i++) apply({ method: 'item/completed', params: { threadId: 'test', item: { id: 'old'+i, type: 'agentMessage', text: '历史消息 **正文**\n'.repeat(5) } } });
     window.streamTimer = setInterval(() => apply({ method: 'item/agentMessage/delta', params: { threadId: 'test', itemId: 'live', delta: '流式正文 ' } }), 5);
   });
+  await page.locator('.agent').first().waitFor();
   const input = page.locator('textarea');
   await input.click(); await input.fill('流式生成时仍能输入');
   assert.equal(await input.inputValue(), '流式生成时仍能输入');
@@ -34,6 +39,32 @@ const assert = require('node:assert/strict');
   for (const theme of ['light', 'dark']) { await page.evaluate(t => document.documentElement.dataset.theme = t, theme); await page.screenshot({ path: `/tmp/workroom-${theme}.png` }); }
   await page.setViewportSize({ width: 390, height: 480 });
   await input.click(); const small = await input.boundingBox(); assert(small.y + small.height <= 480);
+  // 模拟 Safari：布局视口不变，可视区域被键盘缩短并向上平移。
+  await page.setViewportSize({ width: 390, height: 844 });
+  await input.fill('很长的草稿\n'.repeat(80));
+  await page.evaluate(() => {
+    window.mockViewport = new EventTarget();
+    Object.assign(window.mockViewport, {height: 430, offsetTop: 90});
+    Object.defineProperty(window, 'visualViewport', {configurable:true, value:window.mockViewport});
+    window.dispatchEvent(new Event('resize'));
+  });
+  await page.waitForTimeout(100);
+  let rect = await page.locator('.wr').boundingBox();
+  assert.equal(rect.y,90); assert.equal(rect.height,430);
+  assert((await page.locator('.tl').boundingBox()).height > 100);
+  assert((await input.boundingBox()).height <= 160);
+  for (const theme of ['light','dark']) {
+    await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+    await page.screenshot({path:`/tmp/workroom-keyboard-${theme}.png`});
+  }
+  await page.evaluate(()=>{ window.mockViewport.height=844;window.mockViewport.offsetTop=0;dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(100);
+  rect=await page.locator('.wr').boundingBox();assert.equal(rect.y,0);assert.equal(rect.height,844);
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.evaluate(()=>{ window.mockViewport.height=650;window.mockViewport.offsetTop=40;dispatchEvent(new Event('resize')); });
+  await page.waitForTimeout(100);
+  assert((await page.locator('.tl').boundingBox()).height>200);
+  await page.screenshot({path:'/tmp/workroom-tablet.png'});
   await page.evaluate(() => clearInterval(window.streamTimer));
   await browser.close(); console.log('通过：长历史流式输出、输入聚焦、附件移除、手机视口缩小、浅深色截图');
 })().catch(e => { console.error(e); process.exit(1); });

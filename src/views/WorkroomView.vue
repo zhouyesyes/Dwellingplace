@@ -46,9 +46,28 @@ onMounted(async () => {
   if (route.query.t) open(String(route.query.t));
 });
 onBeforeUnmount(disconnect);
-const updateViewport = () => document.documentElement.style.setProperty('--work-height', `${window.visualViewport?.height || window.innerHeight}px`);
-onMounted(() => { updateViewport(); window.visualViewport?.addEventListener('resize', updateViewport); });
-onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', updateViewport); document.documentElement.style.removeProperty('--work-height'); });
+// Safari 弹键盘时除了缩短视口，还会平移可视区域；容器跟着两者一起走。
+const viewport = ref({});
+let viewportFrame;
+const updateViewport = () => {
+  cancelAnimationFrame(viewportFrame);
+  viewportFrame = requestAnimationFrame(() => {
+    const vv = window.visualViewport;
+    viewport.value = { height: `${vv?.height || window.innerHeight}px`, top: `${vv?.offsetTop || 0}px` };
+  });
+};
+onMounted(() => {
+  updateViewport();
+  window.visualViewport?.addEventListener('resize', updateViewport);
+  window.visualViewport?.addEventListener('scroll', updateViewport);
+  window.addEventListener('resize', updateViewport);
+});
+onBeforeUnmount(() => {
+  cancelAnimationFrame(viewportFrame);
+  window.visualViewport?.removeEventListener('resize', updateViewport);
+  window.visualViewport?.removeEventListener('scroll', updateViewport);
+  window.removeEventListener('resize', updateViewport);
+});
 
 const st = computed(() => wr.status);
 const projects = computed(() => st.value?.projects || []);
@@ -249,7 +268,7 @@ const RULES = [
 </script>
 
 <template>
-  <div class="wr">
+  <div class="wr" :style="viewport">
     <header class="bar">
       <button class="icon-btn" aria-label="返回" @click="cur ? close() : goBack(router, '/settings')"><Icon name="back" /></button>
       <div class="ttl">
@@ -410,7 +429,7 @@ const RULES = [
       <footer class="dock">
         <input ref="picker" type="file" multiple hidden @change="chooseFiles" />
         <button class="send" :disabled="sending" aria-label="添加附件" @click="picker.click()">＋</button>
-        <textarea v-model="draft" v-auto-grow rows="1" class="input" :placeholder="together ? `和${him}说…` : running ? '插一句（不用停下它）…' : '要做什么…'" />
+        <textarea v-model="draft" v-auto-grow="160" rows="1" class="input" :placeholder="together ? `和${him}说…` : running ? '插一句（不用停下它）…' : '要做什么…'" />
         <button v-if="running" class="send stop" aria-label="停下" @click="stop"><Icon name="stop" :size="18" /></button>
         <button class="send" :class="{ on: draft.trim() }" :disabled="sending" aria-label="发送" @click="send"><Icon name="send" :size="18" /></button>
       </footer>
@@ -428,8 +447,8 @@ const RULES = [
 </template>
 
 <style scoped>
-.wr { height: var(--work-height, 100dvh); overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
-.bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 12px 10px; background: rgba(var(--glass-rgb), .86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.wr { position: fixed; inset: 0 0 auto; width: 100%; height: 100dvh; min-height: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.bar { flex: none; position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 12px 10px; background: rgba(var(--glass-rgb), .86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 .ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ttl b { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ttl small { font-size: .72rem; color: var(--text-3); display: flex; align-items: center; gap: 5px; }
@@ -533,7 +552,7 @@ const RULES = [
 .working i:nth-child(3) { animation-delay: .3s; margin-right: 4px; }
 @keyframes hop { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-3px); opacity: 1; } }
 .dock { position: relative; flex: none; width: 100%; z-index: 1; display: flex; align-items: flex-end; gap: 8px; max-width: 820px; margin: 0 auto; padding: 10px 14px calc(var(--safe-bottom) + 12px); }
-.dock .input { flex: 1; resize: none; min-height: 44px; height: 44px; max-height: 40vh; line-height: 1.5; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .94); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
+.dock .input { flex: 1; resize: none; min-height: 44px; height: 44px; max-height: min(160px, 30dvh); min-width: 0; font-size: max(16px, 1rem); line-height: 1.5; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .94); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--card); color: var(--text-3); box-shadow: var(--shadow-soft); flex: none; }
 .send.on { background: var(--ink); color: var(--on-ink); }
 .send.stop { color: var(--danger); }
