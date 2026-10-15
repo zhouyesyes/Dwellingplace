@@ -4,7 +4,7 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy } from "../lib/workTogether.js";
@@ -50,7 +50,7 @@ onBeforeUnmount(disconnect);
 // 不然 Codex 等你点、你这边什么也看不到
 async function watchdog() {
   if (document.hidden) return;
-  if (!wr.live) { disconnect(); connect(); }
+  ensureLive();
   await refresh();
   const id = cur.value;
   if (!id || !t.value) return;
@@ -62,6 +62,7 @@ async function watchdog() {
   if (!wr.live || waiting.some(a => !shownKeys.has(a.key))) loadThread(id).catch(() => {});
 }
 const dogTimer = setInterval(watchdog, 8000);
+// 从后台回来：手机在后台会悄悄掐断连接、页面却以为还连着，直接重连（服务器会马上回一句，很快就绿）
 const onShow = () => { if (!document.hidden) { disconnect(); connect(); watchdog(); } };
 document.addEventListener("visibilitychange", onShow);
 onBeforeUnmount(() => { clearInterval(dogTimer); document.removeEventListener("visibilitychange", onShow); });

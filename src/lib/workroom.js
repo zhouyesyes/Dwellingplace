@@ -174,13 +174,21 @@ function queueEvent(ev) {
   pendingEvents.push(ev);
   if (!batchTimer) batchTimer = setTimeout(flushEvents, 50);
 }
-let es = null, retry = null;
+let es = null, retry = null, esAt = 0;
+// 看门狗用：没连着就连；连了半分钟还没连上（卡住了）才掐掉重来。别太急，服务器刚开始可能要等十几秒才回第一句
+export function ensureLive() {
+  if (wr.live) return;
+  if (es && es.readyState === EventSource.CONNECTING && Date.now() - esAt < 30_000) return;
+  disconnect();
+  connect();
+}
 export async function connect() {
   if (es) return;
   if (!wr.base) wr.base = await serverBase();
   if (!wr.base) return;
   const since = wr.lastSeq || wr.status?.seq || 0;
   es = new EventSource(`${wr.base}/codex/events?since=${since}`);
+  esAt = Date.now();
   es.onopen = () => { wr.live = true; };
   es.onmessage = e => {
     let ev;

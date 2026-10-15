@@ -467,6 +467,7 @@ async function route(req, res, url) {
 
 function sse(req, res, since) {
   res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no", Connection: "keep-alive" });
+  res.write(": 连上了\n\n"); // 马上回一句：不然要等到第一条消息或 20 秒的心跳，栖所才知道连上了
   // 断线补回：内存里还留着的都补上；太早的（已经不在内存里）告诉栖所去按线程拉
   const first = ring[0]?.seq ?? seq + 1;
   if (since && since + 1 < first) res.write(`data: ${JSON.stringify({ seq: 0, method: "qisuo/gap", params: { since, first } })}\n\n`);
