@@ -1,5 +1,6 @@
 // 表情包：你上传、起名字；他在回复里写 [表情:名字] 就显示成那张图。你也能从「＋」里发
 import { reactive } from "vue";
+import { decodeImage, fileActivity } from "./filePicker.js";
 import { store, uid } from "../store/index.js";
 import { set } from "./kv.js";
 import { imageURL, deleteImage } from "./images.js";
@@ -31,21 +32,26 @@ export function withStickers(html) {
 
 // 存图：小的原样存（动图还会动、透明底保留），大的缩到 512 存成 webp
 export async function addSticker(file, name) {
-  let blob = file;
-  if (file.size > 1_500_000 || !/^image\/(gif|png|webp|jpeg)$/.test(file.type)) {
-    const bmp = await createImageBitmap(file);
-    const k = Math.min(1, 512 / Math.max(bmp.width, bmp.height));
-    const c = document.createElement("canvas");
-    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-    blob = await new Promise(r => c.toBlob(r, "image/webp", 0.85));
-  }
-  const id = uid();
-  await set("img:" + id, blob);
-  store.stickers ??= [];
-  let n = String(name || "").trim().slice(0, 20) || "表情";
-  for (let i = 2; stickerByName(n); i++) n = `${String(name || "表情").trim().slice(0, 16)}${i}`;
-  store.stickers.push({ id, name: n, img: id });
+  fileActivity.processing++;
+  let bmp;
+  try {
+    let blob = file;
+    if (file.size > 1_500_000 || !/^image\/(gif|png|webp|jpeg)$/.test(file.type)) {
+      bmp = await decodeImage(file);
+      const k = Math.min(1, 512 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      blob = await new Promise(r => c.toBlob(r, "image/webp", 0.85));
+    }
+    if (!blob) throw new Error("图片压缩失败，请重试");
+    const id = uid();
+    await set("img:" + id, blob);
+    store.stickers ??= [];
+    let n = String(name || "").trim().slice(0, 20) || "表情";
+    for (let i = 2; stickerByName(n); i++) n = `${String(name || "表情").trim().slice(0, 16)}${i}`;
+    store.stickers.push({ id, name: n, img: id });
+  } finally { bmp?.close?.(); fileActivity.processing--; }
 }
 export function removeSticker(s) {
   store.stickers.splice(store.stickers.indexOf(s), 1);

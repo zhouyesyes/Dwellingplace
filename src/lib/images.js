@@ -2,7 +2,10 @@
 import { ref, watchEffect } from "vue";
 import { get, set, del } from "./kv.js";
 import { uid } from "../store/index.js";
-import { cropImage } from "./crop.js";
+import { cropImage, cropState } from "./crop.js";
+import { pickFile, decodeImage, fileActivity } from "./filePicker.js";
+import { toast } from "./toast.js";
+export { pickFile } from "./filePicker.js";
 
 const urlCache = new Map();
 
@@ -10,25 +13,30 @@ const urlCache = new Map();
 export const CHAT_IMAGE = { maxSize: 1280, quality: 0.8 };
 
 export async function saveImage(file, { maxSize = 1600, quality = 0.85, square = false } = {}) {
-  const bmp = await createImageBitmap(file);
-  let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
-  if (square) {
-    const s = Math.min(sw, sh);
-    sx = (sw - s) / 2; sy = (sh - s) / 2; sw = sh = s;
-  }
-  const scale = Math.min(1, maxSize / Math.max(sw, sh));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(sw * scale);
-  canvas.height = Math.round(sh * scale);
-  const ctx = canvas.getContext("2d");
-  // 透明图片转 JPEG 会变黑，先铺一层底色
-  ctx.fillStyle = "#fffdf8";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", quality));
-  const id = uid();
-  await set("img:" + id, blob);
-  return id;
+  fileActivity.processing++;
+  let bmp;
+  try {
+    bmp = await decodeImage(file);
+    let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
+    if (square) {
+      const s = Math.min(sw, sh);
+      sx = (sw - s) / 2; sy = (sh - s) / 2; sw = sh = s;
+    }
+    const scale = Math.min(1, maxSize / Math.max(sw, sh));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
+    const ctx = canvas.getContext("2d");
+    // 透明图片转 JPEG 会变黑，先铺一层底色
+    ctx.fillStyle = "#fffdf8";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", quality));
+    if (!blob) throw new Error("图片压缩失败，请重试");
+    const id = uid();
+    await set("img:" + id, blob);
+    return id;
+  } finally { bmp?.close?.(); fileActivity.processing--; }
 }
 
 export async function imageURL(id) {
@@ -58,29 +66,24 @@ export async function deleteImage(id) {
 // 在组件里用：const url = useImage(() => role.avatar)
 export function useImage(getId) {
   const url = ref(null);
-  watchEffect(async () => {
+  watchEffect(async onCleanup => {
+    let current = true;
+    onCleanup(() => { current = false; });
     const id = getId();
-    url.value = id ? await imageURL(id) : null;
+    const next = id ? await imageURL(id) : null;
+    if (current) url.value = next;
   });
   return url;
 }
 
-export function pickFile(accept = "image/*", multiple = false) {
-  return new Promise(resolve => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = accept;
-    input.multiple = multiple;
-    input.onchange = () => resolve([...input.files]);
-    input.click();
-  });
-}
-
 // 选一张图 → 裁剪 → 压缩保存，返回图片 id（取消则返回 null）
 export async function pickAndCrop({ aspect = 1, round = false, title, maxSize = 1600 } = {}) {
+  if (cropState.open) return null;
   const [file] = await pickFile("image/*");
   if (!file) return null;
-  const blob = await cropImage(file, { aspect, round, title });
-  if (!blob) return null;
-  return saveImage(blob, { maxSize });
+  try {
+    const blob = await cropImage(file, { aspect, round, title });
+    if (!blob) return null;
+    return await saveImage(blob, { maxSize });
+  } catch (e) { toast("图片没保存：" + (e?.message || "请重试"), 5000); return null; }
 }

@@ -2,6 +2,9 @@
 import { ref, reactive, watch, nextTick } from "vue";
 import { cropState, finishCrop } from "../lib/crop.js";
 
+import { toast } from "../lib/toast.js";
+const saving = ref(false);
+function failed() { toast("无法读取这张图片，请尝试 JPEG 或 PNG", 5000); finishCrop(null); }
 const img = ref(null);
 const frameEl = ref(null);
 const v = reactive({ w: 0, h: 0, fw: 0, fh: 0, s: 1, min: 1, tx: 0, ty: 0, ready: false });
@@ -80,17 +83,23 @@ function wheel(e) {
 }
 
 async function confirm() {
-  const sw = v.fw / v.s, sh = v.fh / v.s;
-  const scale = Math.min(1, 1800 / Math.max(sw, sh));
-  const c = document.createElement("canvas");
-  c.width = Math.round(sw * scale);
-  c.height = Math.round(sh * scale);
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.drawImage(img.value, -v.tx / v.s, -v.ty / v.s, sw, sh, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
-  finishCrop(blob);
+  if (saving.value || !v.ready) return;
+  saving.value = true;
+  try {
+    const sw = v.fw / v.s, sh = v.fh / v.s;
+    const scale = Math.min(1, 1800 / Math.max(sw, sh));
+    const c = document.createElement("canvas");
+    c.width = Math.round(sw * scale);
+    c.height = Math.round(sh * scale);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img.value, -v.tx / v.s, -v.ty / v.s, sw, sh, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
+    if (!blob) throw new Error("图片压缩失败");
+    finishCrop(blob);
+  } catch (e) { toast("裁剪失败：" + e.message, 4000); }
+  finally { saving.value = false; }
 }
 </script>
 
@@ -101,15 +110,15 @@ async function confirm() {
         <div class="title">{{ cropState.title }}</div>
         <div class="stage" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @wheel.prevent="wheel">
           <div ref="frameEl" class="frame" :class="{ round: cropState.round }" :style="{ width: v.fw + 'px', height: v.fh + 'px' }">
-            <img ref="img" :src="cropState.url" alt="" draggable="false" @load="layout"
+            <img ref="img" :src="cropState.url" alt="" draggable="false" @load="layout" @error="failed"
               :style="{ width: v.w + 'px', height: v.h + 'px', transform: `translate(${v.tx}px, ${v.ty}px) scale(${v.s})`, opacity: v.ready ? 1 : 0 }" />
             <div class="mask" />
           </div>
         </div>
-        <div class="hint">拖动调整位置，双指缩放</div>
+        <div class="hint">{{ !v.ready ? "正在读取图片…" : "拖动调整位置，双指缩放" }}</div>
         <div class="actions">
-          <button class="btn soft" @click="finishCrop(null)">取消</button>
-          <button class="btn" :disabled="!v.ready" @click="confirm">完成</button>
+          <button class="btn soft" :disabled="saving" @click="finishCrop(null)">取消</button>
+          <button class="btn" :disabled="!v.ready || saving" @click="confirm">完成</button>
         </div>
       </div>
     </Transition>

@@ -1,3 +1,4 @@
+import { decodeImage } from "./filePicker.js";
 // 工作间「和他一起」：她发来的附件，在手机上先「看一遍」，变成他能直接看懂的东西一起发给他
 //   图片 → 缩小成 JPEG（GIF 只取第一帧）
 //   视频 → 均匀截几张画面（听不到声音）
@@ -23,7 +24,7 @@ function canvasOf(src, w, h, side) {
 }
 
 async function imagePart(file) {
-  const bmp = await createImageBitmap(file);
+  const bmp = await decodeImage(file);
   const data = canvasOf(bmp, bmp.width, bmp.height, MAX_SIDE);
   bmp.close?.();
   return { type: "image", data, mime: "image/jpeg" };
