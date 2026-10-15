@@ -192,9 +192,10 @@ async function send() {
     const id = cur.value;
     const attached = [];
     for (const f of files.value) attached.push(await uploadAttachment(id, f.file));
-    if (mode) { const p = talk(role.value, id, text, attached, files.value.map(f => f.file)); down(); await p; }
+    const picked = files.value.map(f => f.file);
+    while (files.value.length) removeFile(0); // 传上去了就收起来，不等他回完
+    if (mode) { const p = talk(role.value, id, text, attached, picked); down(); await p; }
     else { await say(id, text, attached); }
-    while (files.value.length) removeFile(0);
     down();
   } catch (e) { if (!draft.value) draft.value = text; toast(e.message, 5000); } finally { sending.value = false; }
 }
@@ -232,6 +233,8 @@ function grpLabel(list) {
   return `跑了 ${list.length} 条命令${bad ? `，${bad} 条没成功` : ""}`;
 }
 const openDiff = ref({});
+const openTask = ref({}); // 他交给 Codex 的说明，哪条展开着
+const longTask = t => String(t || "").split("\n").length > 4 || String(t || "").length > 120;
 const diffLines = d => String(d || "").split("\n").map(l => ({ l, c: /^\+(?!\+\+)/.test(l) ? "add" : /^-(?!--)/.test(l) ? "del" : /^@@/.test(l) ? "hunk" : "" }));
 const dur = ms => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 const resetText = s => { if (!s) return ""; const m = Math.round((s * 1000 - Date.now()) / 60000); return m <= 0 ? "" : m < 60 ? `${m} 分钟后恢复` : `${Math.round(m / 60)} 小时后恢复`; };
@@ -342,7 +345,7 @@ const RULES = [
               <small v-for="(n, k) in it.notes || []" :key="k" class="him-note">{{ n }}</small>
             </div>
           </div>
-          <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}</b><p>{{ it.text }}</p></div>
+          <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task" @click="openTask[i] = !openTask[i]"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}<em v-if="longTask(it.text)">{{ openTask[i] ? "收起 ▴" : "展开 ▾" }}</em></b><p :class="{ clamp: !openTask[i] }">{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
           <WorkMarkdown v-else-if="it.kind === 'agent'" class="agent" :text="it.text" :render="workMd" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
@@ -543,6 +546,9 @@ const RULES = [
 .task { padding: 10px 12px; border-left: 3px solid var(--accent); }
 .task b { font-size: .78rem; color: var(--accent); }
 .task p { margin: 4px 0 0; font-size: .84rem; line-height: 1.6; white-space: pre-wrap; color: var(--text-2); }
+.task b { display: flex; align-items: baseline; }
+.task b em { margin-left: auto; font-style: normal; font-weight: 400; font-size: .7rem; color: var(--text-3); }
+.task p.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .your-turn { margin: 4px 0 0; font-size: .8rem; color: var(--accent); text-align: center; }
 .your-turn .tap { margin-left: 4px; }
 .rule { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
@@ -551,6 +557,6 @@ const RULES = [
 .rule small { font-size: .74rem; color: var(--text-3); }
 .attachments { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 14px; font-size: .75rem; overflow-wrap: anywhere; }
 .attachments a, .attachments > div { display: flex; flex-direction: column; gap: 4px; color: var(--text); }
-.attachments img, .attachments video { max-width: 160px; max-height: 100px; border-radius: 8px; }
+.attachments img, .attachments video { align-self: flex-start; width: auto; height: auto; max-width: 160px; max-height: 160px; object-fit: contain; border-radius: 8px; }
 .pending { max-height: 160px; overflow-y: auto; flex: none; }
 </style>
