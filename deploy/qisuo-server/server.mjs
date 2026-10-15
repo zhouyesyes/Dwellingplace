@@ -79,6 +79,7 @@ async function proxy(req, res, target, rest, search, extra = {}) {
   out["Cache-Control"] = "no-store";
   out["X-Accel-Buffering"] = "no";
   res.writeHead(up.status, out);
+  res.flushHeaders(); // 先把头送出去（实时过程靠这个才「连上」）
   if (!up.body) return res.end();
   try {
     for await (const chunk of up.body) res.write(chunk); // 流式回复一块一块往回送
