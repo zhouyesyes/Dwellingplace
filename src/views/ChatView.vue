@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } 
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
+import { pokeText } from "../lib/poke.js";
 import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
 import PetDock from "../components/pet/PetDock.vue";
 import { petOn } from "../lib/pet.js";
@@ -122,10 +123,11 @@ const items = computed(() => {
     }
   };
   for (const m of messages.value) {
+    if (m.poke) { event(m, m, "poke"); continue; }
     const all = (m.notes || []).map((n, i) => [n, i]);
     const mid = m.from === "ai" && !m.error ? all.filter(([n]) => n.before && n.at > 0) : [];
     all.filter(([n]) => n.before && !mid.some(([x]) => x === n)).forEach(([n, i]) => event(m, n, i));
-    if (!mid.length) add(m);
+    if (!mid.length) { if (m.from !== "ai" || m.pending || splitBubbles(m.text || "").length || m.attachments?.length) add(m); }
     else {
       const text = m.text || "";
       let from = 0;
@@ -594,23 +596,40 @@ const searchOpen = ref(false); // 搜聊天：也是右边半边
 const smallWorld = () => (worldOpen.value = true);
 const back = () => goBack(router, "/");
 
-// 点聊天里的头像：换自己的（和主页共用一张）或他的头像
-async function changeAvatarOf(who) {
-  const r = role.value, mine = who === "user";
-  if (!confirm(mine ? "换一个你的头像？（主页上的也会一起换）" : `换 ${r.name} 的头像？`)) return;
-  const id = await pickAndCrop({ aspect: 1, round: true, title: mine ? "我的头像" : `${r.name} 的头像`, maxSize: 500 });
-  if (!id) return;
-  if (mine) {
-    const old = store.profile.avatar;
-    store.profile.avatar = id;
-    if (old) deleteImage(old);
-  } else {
-    const old = r.avatar;
-    r.avatar = id;
-    if (old) deleteImage(old);
-  }
-  toast("换好了", 2000);
+// 只在头像内记录短点按；移动、长按和取消都不算双击，不拦截滚动。
+let avatarTap = null, avatarDown = null;
+const pokeAnimation = ref("");
+let pokeTimer;
+function animatePoke(target) {
+  pokeAnimation.value = "";
+  nextTick(() => {
+    pokeAnimation.value = target;
+    clearTimeout(pokeTimer);
+    pokeTimer = setTimeout(() => { pokeAnimation.value = ""; }, 420);
+  });
 }
+function avatarStart(e) {
+  if (!e.isPrimary || e.button !== 0) return;
+  avatarDown = { x: e.clientX, y: e.clientY, at: Date.now(), el: e.currentTarget };
+}
+function avatarMove(e) {
+  if (avatarDown && Math.hypot(e.clientX - avatarDown.x, e.clientY - avatarDown.y) > 10) { avatarDown = null; avatarTap = null; }
+}
+async function avatarEnd(e) {
+  const down = avatarDown; avatarDown = null;
+  if (!down || down.el !== e.currentTarget || Date.now() - down.at > 300 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) { avatarTap = null; return; }
+  const now = Date.now();
+  if (!avatarTap || avatarTap.el !== e.currentTarget || now - avatarTap.at > 330) { avatarTap = { el: e.currentTarget, at: now }; return; }
+  avatarTap = null;
+  if (!thread.value) return;
+  if (busy.value) { toast("等他说完再戳一戳吧", 2000); return; }
+  animatePoke("ai");
+  await sendMessage(thread.value, pokeText(role.value, "user"), [], { poke: true });
+}
+watch(() => messages.value.flatMap(m => m.notes || []).filter(n => n.poke === "ai").at(-1), (n, old) => {
+  if (n && n !== old && Date.now() - n.ts < 2000) animatePoke("user");
+});
+onBeforeUnmount(() => clearTimeout(pokeTimer));
 </script>
 
 <template>
@@ -629,7 +648,7 @@ async function changeAvatarOf(who) {
     <main ref="scroller" class="scroll" @scroll.passive="onScroll">
       <div class="inner">
         <div v-if="!messages.length" class="hello">
-          <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="64" />
+          <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="64" class="poke-target" :class="{ poked: pokeAnimation === 'ai' }" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
           <p>和 {{ role.name }} 说点什么吧</p>
           <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
         </div>
@@ -650,9 +669,9 @@ async function changeAvatarOf(who) {
           </div>
 
           <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'">
-            <div class="ava">
-              <Avatar v-if="it.from === 'user'" :img="store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" @click="changeAvatarOf('user')" />
-              <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" @click="changeAvatarOf('ai')" />
+            <div class="ava" :class="{ poked: pokeAnimation === it.from }">
+              <Avatar v-if="it.from === 'user'" :img="store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" />
+              <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="42" class="poke-target" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
             </div>
             <div class="col">
               <template v-for="m in it.msgs" :key="m._key || m.id">
@@ -878,6 +897,12 @@ async function changeAvatarOf(who) {
 </template>
 
 <style scoped>
+.poke-target { touch-action: manipulation; user-select: none; cursor: pointer; }
+.poked { animation: poke-wiggle .4s ease-out; }
+@keyframes poke-wiggle { 25% { transform: rotate(-7deg) scale(1.04); } 60% { transform: rotate(5deg); } 85% { transform: rotate(-2deg); } }
+@media (prefers-reduced-motion: reduce) { .poked { animation: none; } }
+.event { overflow-wrap: anywhere; }
+
 .chat {
   position: fixed;
   inset: 0;

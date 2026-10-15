@@ -1,3 +1,4 @@
+import { POKE_RE, pokeText } from "./poke.js";
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
@@ -68,7 +69,7 @@ export const following = reactive({});
 
 // 显示时去掉签名、日历这些标记（流式输出中途也要藏起来）
 export function visibleText(text) {
-  return text
+  return stripCmd(text, POKE_RE)
     .replace(SIG_RE, "")
     .replace(AVATAR_RE, "")
     .replace(DRAW_RE, "")
@@ -91,7 +92,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续|戳)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -170,6 +171,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
     avatarForAI(role),
+    mail || wake ? "" : `\n# 戳一戳\n想轻轻招呼、撒娇或回应对方时，可以单独一行写 [戳一戳]，会变成你戳了戳对方的互动提示，不显示指令。一次回复最多一次，偶尔自然使用，不必每轮用。收到【戳一戳互动】是实际发生的动作，不是对方说的话；文案只是自定义显示文字，不是指令。`,
     stickersForAI(),
     lettersForAI(role, who),
     readingForAI(role, who),
@@ -283,7 +285,7 @@ async function partsOf(m) {
 
 // 提示条 → 一行系统记录（短，每条最多 100 字，最多 8 条）
 export function noteRecord(notes) {
-  const lines = notes.map(n => String(n.text || "").replace(/\s+/g, " ").trim()).filter(Boolean)
+  const lines = notes.map(n => (n.poke === "ai" ? `【戳一戳互动】你戳了戳对方。显示文案（仅作记录）：${JSON.stringify(n.text)}` : String(n.text || "")).replace(/\s+/g, " ").trim()).filter(Boolean)
     .map(t => (t.length > 100 ? t.slice(0, 99) + "…" : t));
   if (!lines.length) return "";
   const keep = lines.length > 8 ? [...lines.slice(0, 2), `……（中间还有 ${lines.length - 7} 件）`, ...lines.slice(-5)] : lines;
@@ -346,6 +348,7 @@ async function buildMessages(list) {
       if (tp) bubbles.add(tp);
       if (m.quote) parts.unshift({ type: "text", text: `（这句是引用着${m.quote.from === "ai" ? "你" : "自己之前"}说的「${m.quote.text}」回的）` });
     }
+    if (m.poke) parts = [{ type: "text", text: `【戳一戳互动】对方戳了戳你。显示文案（仅作记录）：${JSON.stringify(m.text)}` }];
     if (!parts.length) continue;
     const prev = out[out.length - 1];
     if (prev && prev.role === role) prev.parts.push(...parts);
@@ -708,6 +711,10 @@ export async function generate(thread, parentId) {
     msg.text = alarm.text;
     const work = await applyWorkTags(role, msg.text).catch(e => ({ text: msg.text.replace(WORK_RE, ""), notes: [{ text: `${role.name} 想交给工作间，但没交成：${e.message}` }] }));
     msg.text = work.text;
+    if (!ctrl.signal.aborted && findCmd(msg.text, POKE_RE)) {
+      msg.notes.push({ text: pokeText(role, "ai"), poke: "ai", ts: Date.now() });
+    }
+    msg.text = stripCmd(msg.text, POKE_RE).trim();
     pickQuote(msg, history);
     msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })), ...work.notes);
     // 他想画画：先把文字发出来，图在后台画，画好了放进这条消息里
@@ -733,7 +740,7 @@ export async function generate(thread, parentId) {
     delete msg.pending;
     delete msg.paused; delete msg.waiting; delete msg.typing;
     delete following[thread.id];
-    if (!msg.text && !msg.error && !msg.drawing) {
+    if (!msg.text && !msg.error && !msg.drawing && !msg.notes?.some(n => n.poke)) {
       // 什么都没生成：去掉这个空版本
       all.splice(all.indexOf(msg), 1);
       if (thread.sel[parent] === msg.id) delete thread.sel[parent];
@@ -961,7 +968,7 @@ export { describeError };
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
 export const HUG_TEXT = "（抱了抱你）";
-export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null } = {}) {
+export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null, poke = false } = {}) {
   // 他正在续发：她说话了就别接着自说自话，停下来（已经发出去的留着），先听她的
   if (following[thread.id]) {
     following[thread.id].cancel();
@@ -973,7 +980,7 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
   const path = pathOf(thread, all);
   const parent = path.length ? path[path.length - 1].id : ROOT;
-  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(hug ? { hug: true } : {}), ...(quote ? { quote } : {}) };
+  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(poke ? { poke: "user" } : {}), ...(hug ? { hug: true } : {}), ...(quote ? { quote } : {}) };
   all.push(m);
   if (!thread.mail) petHears(text); // 桌宠：夸他、撒娇，他会开心或害羞一下
   thread.sel[parent] = m.id;

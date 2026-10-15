@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { store, newRole, roleById, deleteRole, PALETTE, BUBBLE_COLORS } from "../store/index.js";
 import { deleteImage, pickAndCrop } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
+import { POKE_DEFAULTS, cleanPoke, pokeText } from "../lib/poke.js";
 import { draftStyle } from "../lib/chat.js";
 import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -40,6 +41,7 @@ const apiPick = computed({
 
 form.me ??= { name: "", avatar: null, about: "" };
 form.style ??= "";
+form.poke = { user: cleanPoke(form.poke?.user), ai: cleanPoke(form.poke?.ai) };
 // 以前的「设定」「关于我」还存着：可以放进来当底稿
 const oldPersona = computed(() => [form.persona?.trim(), form.me?.about?.trim() && `（以前写的关于${form.me.name || "你"}）\n${form.me.about.trim()}`].filter(Boolean).join("\n\n"));
 function useOld() {
@@ -126,6 +128,7 @@ async function changeAvatar() {
 function save() {
   if (!valid.value) return;
   form.name = form.name.trim();
+  form.poke = { user: cleanPoke(form.poke.user), ai: cleanPoke(form.poke.ai) };
   if (original) {
     if (original.avatar && original.avatar !== form.avatar) deleteImage(original.avatar);
     if (original.me?.avatar && original.me.avatar !== form.me.avatar) deleteImage(original.me.avatar);
@@ -196,6 +199,16 @@ async function remove() {
         </select>
         <small class="field-hint">每个 API 的默认模型和标了星的模型都能选</small>
       </label>
+    </div>
+
+    <div class="section-label">戳一戳</div>
+    <div class="card body">
+      <label v-for="(label, key) in { user: '你戳他', ai: '他戳你' }" :key="key" class="field">
+        <span>{{ label }}</span>
+        <input v-model="form.poke[key]" class="input" maxlength="60" :placeholder="POKE_DEFAULTS[key]" />
+        <small class="field-hint">{{ pokeText(form, key) }}</small>
+      </label>
+      <small class="field-hint">最多 60 字；{他}、{我} 随昵称变化。留空用默认文案。聊天中双击他的头像即可戳一戳。</small>
     </div>
 
     <div class="section-label">在他面前的我</div>
