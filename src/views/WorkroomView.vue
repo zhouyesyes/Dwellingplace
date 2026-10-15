@@ -54,6 +54,9 @@ async function watchdog() {
   await refresh();
   const id = cur.value;
   if (!id || !t.value) return;
+  // 服务器说没在干活了，页面还以为在干（重启时那一轮没了）：以服务器为准，停止键也就不会白按
+  const meta = (wr.status?.threads || []).find(x => x.id === id);
+  if (meta && !meta.turnId && t.value.turnId) t.value.turnId = null;
   const waiting = (wr.status?.approvals || []).filter(a => a.threadId === id);
   const shownKeys = new Set(t.value.items.filter(x => x.kind === "approval" && x.state === "pending").map(x => x.key));
   if (!wr.live || waiting.some(a => !shownKeys.has(a.key))) loadThread(id).catch(() => {});

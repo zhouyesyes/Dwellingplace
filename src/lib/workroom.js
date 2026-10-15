@@ -65,6 +65,9 @@ export function apply(ev) {
   const tid = p.threadId || p.thread?.id;
   if (ev.method === "account/rateLimits/updated" && wr.status) wr.status.rateLimits = p.rateLimits || wr.status.rateLimits;
   if (ev.method === "account/login/completed") { wr.login = null; refresh(); }
+  // Codex 重启了：正在干的那一轮没了，等你点的审批也作废了
+  if (ev.method === "qisuo/codex/exited") for (const x of Object.values(wr.threads)) x.turnId = null;
+  if (ev.method === "qisuo/approval/cleared") for (const x of Object.values(wr.threads)) { const it = x.byId[`ap:${ev.params?.key}`]; if (it) { it.state = "answered"; it.decision = "cancel"; } }
   if (!tid) return;
   const t = thread(tid);
   switch (ev.method) {
@@ -148,8 +151,10 @@ export async function loadThread(id) {
   const t = thread(id);
   const r = await api(`/threads/${id}/events`);
   t.meta = r.thread;
-  t.items = []; t.byId = {}; t.diffs = {}; t.turnId = r.thread.turnId || null;
+  t.items = []; t.byId = {}; t.diffs = {};
   for (const ev of r.events) apply(ev);
+  // 还在不在干活：以服务器现在说的为准（重启过的话，存盘里只有「开始」没有「结束」）
+  t.turnId = r.thread.turnId || null;
   // 还在等的审批（存盘的事件里有，但可能已经答过了）：以服务器现在的为准
   const live = new Set((r.approvals || []).map(a => a.key));
   for (const it of t.items) if (it.kind === "approval" && it.state === "pending" && !live.has(it.key)) it.state = "answered";
