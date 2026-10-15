@@ -14,6 +14,11 @@
 ## 日志
 
 ### 2026-10-15 · cc
+- 接着上一条：重装后交活还是失败，这次报 `no rollout found for thread id …`（`thread/resume` 的说法），之前只认了 `thread not found`。`NOT_FOUND` 加上这种说法，接不上就开新线程
+- 工作间：附件传上去就收起待发的预览，不等他回完；附件图片按原比例缩小（以前被拉扁）；他交给 Codex 的长说明默认只露 4 行，点一下展开
+- **还剩**：她在服务器上再跑一次安装，回「数据同步」让他再交一次
+
+### 2026-10-15 · cc
 - 修工作间交活失败「没交成：thread not found」：任务建好还没干过活，服务器重装 / Codex 重启了，Codex 那边没留底，重启后不认这个线程
 - `bridge.mjs`：发消息时 Codex 说找不到线程 → 先 `thread/resume`，再不行就 `thread/start` 开一个新的接着做，记在 `t.codex`；栖所这边的任务编号不变（进来的事件把 Codex 的编号换回栖所的）
 - 新建任务时把说明存进 `t.instructions`，重开时带上；Codex 重启后清掉旧的 `turnId`；插话插到已经不在的一轮，改成开新的一轮

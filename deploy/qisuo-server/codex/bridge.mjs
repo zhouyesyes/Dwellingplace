@@ -81,7 +81,7 @@ function emit(method, params) {
 // 栖所这边的任务编号一直不变；Codex 那边找不到原来的线程时（比如重启前还没干过活，没留底），会接一个新的，记在 t.codex
 const cid = t => t.codex || t.id;
 const ours = codexId => Object.values(threads).find(t => t.codex === codexId)?.id || codexId;
-const NOT_FOUND = /thread not found|no such thread|unknown thread/i;
+const NOT_FOUND = /thread not found|no rollout found|no such thread|unknown thread/i; // Codex 说法不止一种
 const startOpts = t => ({ cwd: path.join(WORK, t.project), sandbox: "danger-full-access", approvalPolicy: "untrusted", developerInstructions: [BASE_INSTRUCTIONS, t.instructions || ""].filter(Boolean).join("\n\n"), ...(t.model ? { model: t.model } : {}) });
 // 先照常做；Codex 说找不到这个线程：先试着接上，接不上就开一个新的，再做一次
 async function withThread(t, run) {
