@@ -313,7 +313,8 @@ async function attachmentRoute(req, res, url, match) {
   const id = randomUUID();
   const root = path.join(WORK, ".qisuo-attachments");
   if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || fs.statSync(root).uid !== 0)) throw new Error("附件目录不安全");
-  fs.mkdirSync(root, { recursive: true, mode: 0o755 });
+  // 这个目录由安装脚本建好（归 root）；连接程序没有越权写的本事，自己建不了
+  if (!fs.existsSync(root)) throw new Error("附件文件夹还没建好：在服务器上重新运行一次栖所服务器的安装那一行");
   const dir = path.join(root, id);
   fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
   const file = path.join(dir, name);
