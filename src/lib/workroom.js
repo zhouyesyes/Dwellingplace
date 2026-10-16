@@ -269,7 +269,13 @@ export async function newThread(project, title) {
   await refresh();
   return r.thread;
 }
-export const say = (id, text, attachments = []) => api(`/threads/${id}/send`, { method: "POST", body: { text, attachments: attachments.map(a => a.id) } });
+// 一条最多带 4 个附件（服务器的规矩）：多的分几条接着发
+export async function say(id, text, attachments = []) {
+  const ids = attachments.map(a => a.id);
+  const r = await api(`/threads/${id}/send`, { method: "POST", body: { text, attachments: ids.slice(0, 4) } });
+  for (let i = 4; i < ids.length; i += 4) await api(`/threads/${id}/send`, { method: "POST", body: { text: `（接上一条，还有素材 ${i + 1}–${Math.min(i + 4, ids.length)}）`, attachments: ids.slice(i, i + 4) } });
+  return r;
+}
 export const interrupt = id => api(`/threads/${id}/interrupt`, { method: "POST" });
 export const answer = (key, decision) => api(`/approvals/${key}`, { method: "POST", body: { decision } });
 export const setPolicy = p => api("/policy", { method: "POST", body: p }).then(refresh);

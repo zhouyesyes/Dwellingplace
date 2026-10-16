@@ -51,3 +51,39 @@ export async function collectPreviews(project, task, collected, upload, publish 
     return result;
   } finally { for (const fd of handles.reverse()) fs.closeSync(fd); }
 }
+
+// 一般产物：Codex 把做好的图片放进 项目/.qisuo-outputs/<任务编号>/，这一轮结束收取，显示给她看。
+// 和上面一样逐层固定目录；只收这一层里的图片，已经收过的（名字 + 大小 + 修改时间）不重复收。
+const OUT_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+export async function collectOutputs(project, task, collected, upload) {
+  if (!/^[\w-]{1,100}$/.test(task)) return [];
+  const root = path.join(project, '.qisuo-outputs', task);
+  if (!fs.existsSync(root) || fs.realpathSync(root) !== root) return [];
+  const handles = [];
+  const openDir = (parent, name) => {
+    const fd = fs.openSync(path.join(parent, name), fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+    handles.push(fd); return `/proc/self/fd/${fd}`;
+  };
+  try {
+    let dir = '/';
+    for (const part of root.split(path.sep).filter(Boolean)) dir = openDir(dir, part);
+    const out = [];
+    for (const name of fs.readdirSync(dir).sort()) {
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      if (!OUT_TYPES[ext] || out.length >= 30) continue;
+      let fd = null;
+      try {
+        fd = fs.openSync(path.join(dir, name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); // 链接到别处的不收
+        const st = fs.fstatSync(fd);
+        const key = `${name}:${st.size}:${st.mtimeMs}`;
+        if (!st.isFile() || !st.size || st.size > 20 * 1024 * 1024 || collected.includes(key)) continue;
+        const data = Buffer.alloc(st.size);
+        let size = 0, n;
+        while (size < st.size && (n = fs.readSync(fd, data, size, st.size - size, null)) > 0) size += n;
+        out.push({ ...await upload(name, data.subarray(0, size), OUT_TYPES[ext]) });
+        collected.push(key);
+      } catch { /* 这一张收不了就跳过 */ } finally { if (fd !== null) fs.closeSync(fd); }
+    }
+    return out;
+  } finally { for (const fd of handles.reverse()) fs.closeSync(fd); }
+}
