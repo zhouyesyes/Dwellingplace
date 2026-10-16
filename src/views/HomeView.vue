@@ -9,32 +9,40 @@ import WidgetDesk from "../components/home/WidgetDesk.vue";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 
 import { syncState, startSync, resumeSync } from "../lib/sync.js";
+import { useHomePullRefresh } from "../lib/homePullRefresh.js";
 import { wr, refresh as refreshWorkroom } from "../lib/workroom.js";
 
 const refreshing = ref(false);
 const refreshError = ref("");
-const checked = ref(false);
-const refreshLabel = computed(() => {
-  if (refreshing.value || syncState.busy) return "正在同步…";
-  if (refreshError.value || syncState.error) return "刷新失败，点此重试";
-  if (syncState.deferred || syncState.pending) return "仍有内容待同步 · 刷新";
-  if (!syncState.on) return "刷新 · 尚未连接同步";
-  if (checked.value || syncState.lastAt) return syncState.updated ? "已更新 · 刷新" : "已是最新 · 刷新";
-  return "刷新";
-});
+const home = ref(null);
+const feedback = ref("");
+let feedbackTimer;
+let disposed = false;
+const busy = computed(() => refreshing.value || syncState.busy);
+const { distance, armed } = useHomePullRefresh(home, busy, refreshHome);
+const pullLabel = computed(() => distance.value ? (armed.value ? "松开刷新" : "下拉刷新") : refreshing.value ? "正在刷新…" : feedback.value);
+const refreshLabel = computed(() => busy.value ? "正在刷新…" : refreshError.value || syncState.error ? "刷新失败，点击重试" : "刷新主页");
 async function refreshHome() {
-  if (refreshing.value) return;
+  if (busy.value) return;
+  clearTimeout(feedbackTimer);
+  feedback.value = "";
   refreshing.value = true;
   refreshError.value = "";
   try {
     await startSync();
+    if (syncState.error) throw new Error(syncState.error);
     if (store.widgets.some(w => w.type === "work")) {
       await refreshWorkroom();
       if (wr.error) throw new Error(wr.error);
     }
-    checked.value = true;
-  } catch (e) { refreshError.value = e.message || String(e); }
-  finally { refreshing.value = false; }
+    feedback.value = syncState.deferred || syncState.pending ? "仍有内容待同步" : !syncState.on ? "尚未连接同步" : "已是最新";
+  } catch (e) {
+    refreshError.value = e.message || String(e);
+    feedback.value = "刷新失败，请重试";
+  } finally {
+    refreshing.value = false;
+    if (!disposed) feedbackTimer = setTimeout(() => { feedback.value = ""; }, refreshError.value ? 3500 : 1800);
+  }
 }
 let foregroundAt = 0;
 function foreground() {
@@ -51,6 +59,8 @@ onMounted(() => {
   window.addEventListener("online", foreground);
 });
 onBeforeUnmount(() => {
+  disposed = true;
+  clearTimeout(feedbackTimer);
   document.removeEventListener("visibilitychange", foreground);
   for (const event of ["pageshow", "focus", "online"]) window.removeEventListener(event, foreground);
 });
@@ -93,7 +103,10 @@ function rename() {
 </script>
 
 <template>
-  <div class="home">
+  <div ref="home" class="home">
+    <div class="pull-space" :style="{ height: `calc(${distance || (pullLabel ? 40 : 0)}px + ${distance || pullLabel ? 'var(--safe-top)' : '0px'})` }">
+      <div class="pull-status" role="status" aria-live="polite"><span v-if="pullLabel" aria-hidden="true">↻ </span>{{ pullLabel }}</div>
+    </div>
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : {}" @click="changeCover" />
     <div class="head">
       <!-- 我和他的头像挨在一起；右边是进聊天的入口 -->
@@ -107,7 +120,10 @@ function rename() {
         <button class="tools" aria-label="设置" @click="router.push('/settings')"><Icon name="settings" :size="19" /></button>
         <button v-if="him" class="talk" @click="router.push(`/chat/${MAIN}`)"><Icon name="chat" :size="18" />对话</button>
       </div>
-      <h1 @click="rename">{{ store.profile.name }}</h1>
+      <div class="name-row">
+        <h1 @click="rename">{{ store.profile.name }}</h1>
+        <button class="refresh-home" :disabled="busy" :aria-busy="busy" :aria-label="refreshLabel" :title="refreshLabel" @click="refreshHome">↻</button>
+      </div>
 
       <div class="bio" @click="bioOpen = true">
         <p v-if="store.profile.bioSelf" class="self">{{ store.profile.bioSelf }}</p>
@@ -117,10 +133,6 @@ function rename() {
         <p v-if="!store.profile.bioSelf && !aiBios.length" class="placeholder">点这里写简介，或者让他帮你写一段 ✎</p>
       </div>
 
-      <div class="refresh-row" aria-live="polite" role="status">
-        <button class="refresh-home" :disabled="refreshing || syncState.busy" :aria-busy="refreshing || syncState.busy" @click="refreshHome">↻ {{ refreshLabel }}</button>
-        <span v-if="refreshError || syncState.error" class="refresh-error">{{ refreshError || syncState.error }}</span>
-      </div>
       <WidgetDesk />
     </div>
 
@@ -129,10 +141,14 @@ function rename() {
 </template>
 
 <style scoped>
-.refresh-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 12px 6px 0; }
-.refresh-home { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text-2); font-size: .8rem; cursor: pointer; }
-.refresh-home:disabled { opacity: .7; cursor: progress; }
-.refresh-error { color: var(--danger); font-size: .75rem; overflow-wrap: anywhere; }
+.pull-space { overflow: hidden; transition: height .18s ease; }
+.pull-status { box-sizing: border-box; padding-top: var(--safe-top); height: 100%; display: flex; justify-content: center; align-items: center; gap: 5px; font-size: .8rem; color: var(--text-2); }
+.name-row { display: flex; align-items: center; gap: 8px; }
+.name-row h1 { flex: 1; }
+.refresh-home { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-2); font-size: 1.4rem; }
+.refresh-home:disabled { opacity: .5; cursor: progress; }
+.refresh-home:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .pull-space { transition: none; } }
 .home { min-height: 100%; padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 40px); }
 .cover {
   height: calc(var(--safe-top) + min(62vw, 340px));

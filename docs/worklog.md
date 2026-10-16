@@ -13,6 +13,14 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 主页下拉刷新
+- 移除简介下的大号刷新按钮，标题旁保留 44px 点击范围的小刷新图标（aria-label/title、键盘焦点）；顶部流式轻提示显示下拉刷新、松开刷新、正在刷新与短暂结果，避开安全区，不覆盖头像及插件操作。未连接或仍有待同步内容如实提示，不误报最新；失败可再次下拉或点图标重试。
+- 复用 HomeView.refreshHome → startSync（原全局同步及合并保护）→ 已有工作间 refresh，不重载页面、不重建组件、不清空输入；补检查 syncState.error（原入口可能只记录错误而不抛出）。刷新锁与原 syncState.busy 共用，阻止重复请求。
+- 新增 src/lib/homePullRefresh.js：单指从页面顶部开始，下移方向须大于横移 1.5 倍，10px 判方向、实际下移 128px 达阈值（阻尼后 64px）；非被动 touchmove 仅在接管后 preventDefault 抑制原生回弹，松手一次触发。插件区域、桌面编辑中、输入/按钮/链接、可滚动容器均排除；多指、取消、失焦、隐藏、旋转及离页清理，阻止下拉后的封面误点击。WidgetDesk 和 widgetLayout 未修改。
+- 验证：新增 home-pull-refresh-check（阈值/方向/取消/编辑/容器/非顶部/在途去重/重试/键盘及真实 CDP 触摸文案和收起），原 home-refresh-check、widget-layout-check、sync-check 均通过；生产构建、diff --check 通过（仅原有三条导入提示）。复用已有依赖，新开独立临时 5205 验证服务；查看手机浅色及平板深色截图，原专项另覆盖手机/平板/桌面浅深色。未安装依赖、删除数据、重启既有服务、推送或部署。
+- **还剩/真机验收**：iPhone 与 iPad Safari/主屏 PWA 分别横竖屏，在封面顶部短拉/横拉不刷新、超过阈值松手只刷新一次，刷新中再拉不重复；另一设备改简介/图片/插件后下拉应更新。检查聊天草稿、编辑内容保留；插件横滑/长按排序与编辑模式不刷新；断网失败后恢复可重试；桌面 Tab/Enter/空格使用小按钮。Chromium 不能替代 iOS 回弹、系统手势与 standalone 实测。
+
+
 
 ### 2026-10-16 · Codex · 复核 4c0d64b
 - 离线完整审阅 WidgetDesk.vue、widgetLayout.js、widget-layout-check.cjs 的提交 diff。确认三处缺口并最小修复：仅按 760–1366px 判断会影响普通桌面，现 JS/CSS 同时要求 any-pointer:coarse（触屏笔记本也可能满足，不声称只识别 iPad）；拖动未隔离 pointerId，现拒绝非主指针/鼠标非左键，移动/抬手按指针 ID 匹配，补失焦/隐藏/离页/滚动/尺寸变化收尾与 capture 释放；空桌面两段提示原来被指定到同一行，现只显示编辑入口。卸载增加 disposed/异步会话检查，阻止 nextTick 后重新观察或旧拖动回调干扰新会话。事件和媒体监听器成对清理，ResizeObserver 断开、RAF 取消。
