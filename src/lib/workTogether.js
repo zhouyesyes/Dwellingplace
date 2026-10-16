@@ -17,6 +17,7 @@ import { wr, thread, say, interrupt } from "./workroom.js";
 import { pinnedOf, newMemory } from "./memoryTags.js";
 import { tail } from "./budget.js";
 import { seeFiles } from "./seeFiles.js";
+import { materialsForAI, gatherFiles } from "./workDispatch.js";
 
 const CHAIN_MAX = 3;
 const TALK_TOKENS = 8000;
@@ -90,6 +91,7 @@ async function prompt(role, id, extra, fresh) {
     `\n# 工作间里你们刚才说的\n${recent || "（刚进来）"}`,
     [
       `\n# 你能做的（写在回复里，不是每次都要）`,
+      `- ${materialsForAI(me, { chat: false, tag: "交给Codex" })}`,
       `- 把活交给 Codex：另起一段写 <交给Codex>任务说明</交给Codex>。说明写清楚：要做什么、在哪些文件、做完怎么确认（比如跑哪个测试）、别碰什么。Codex 看不到你们的聊天，只看得到这段说明。正在干活时交过去，就是插一句话给它。`,
       `- 让 Codex 停下：单独一行写 [停下Codex]`,
       `- 记下一个项目决定（以后每次都会带着）：另起一行写 [记下决定:内容]`,
@@ -102,7 +104,7 @@ async function prompt(role, id, extra, fresh) {
 }
 
 // ---------- 他回复里的动作 ----------
-const DISPATCH_RE = /<交给Codex>([\s\S]*?)<\/交给Codex>/g;
+const DISPATCH_RE = /<交给Codex([^>]*)>([\s\S]*?)<\/交给Codex>/g;
 const STOP_RE = /\[停下Codex\]/g;
 const DECIDE_RE = /\[记下决定[:：]([^\]]{2,600})\]/g;
 const SUMMARY_RE = /<施工摘要>([\s\S]*?)<\/施工摘要>/g;
@@ -128,14 +130,21 @@ async function act(role, id, raw, { fromReport, fresh }) {
     await interrupt(id).catch(() => {});
     notes.push("让 Codex 停下了");
   }
-  const tasks = [...text.matchAll(DISPATCH_RE)].map(m => m[1].trim()).filter(Boolean);
+  const found = [...text.matchAll(DISPATCH_RE)].filter(m => m[2].trim());
+  const tasks = found.map(m => m[2].trim());
+  const want = found.map(m => (m[1].match(/素材\s*=\s*["“「]?([^"”」]+)/) || [])[1] || "").filter(Boolean).join(",");
   if (tasks.length) {
     if (fromReport && (wt.chain || 0) >= CHAIN_MAX) {
       notes.push(`已经连着交给 Codex ${CHAIN_MAX} 次了，先停下来等你`);
     } else {
       const task = tasks.join("\n\n");
       try {
-        await say(id, task, fresh?.attachments || []);
+        let lib = [];
+        if (want) {
+          try { lib = await gatherFiles(meta.project, id, want, null); if (lib.length) notes.push(`一起带上了素材库里的 ${lib.length} 个`); }
+          catch (e) { notes.push(`素材没带上：${e.message}`); }
+        }
+        await say(id, task, [...(fresh?.attachments || []), ...lib]);
         delete phases[id]; // 交活已收到回应，执行状态交给 Codex 的真实事件
         wt.awaiting = true;
         wt.dispatchedAt = Date.now();
