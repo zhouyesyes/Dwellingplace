@@ -1,6 +1,6 @@
 <script setup>
 // 一本书的卡片：读到哪（我、他）、便利贴几张、读了多久；读完的评分和读后感（我写、请他写）；他的读书笔记；换封面改名拿下来
-import { ref, computed } from "vue";
+import { ref, shallowRef, computed, watch } from "vue";
 import { store, MAIN, roleById } from "../../store/index.js";
 import { progressOf, fmtDur, notesOf, removeBook } from "../../lib/books.js";
 import { readingMemsOf, hisReview, writeImpression } from "../../lib/reading.js";
@@ -8,6 +8,8 @@ import { bookImpression, rereadBook, roundOf, IMPRESSION_MAX } from "../../lib/b
 import { pickAndCrop, deleteImage } from "../../lib/images.js";
 import { describeError } from "../../lib/chat.js";
 import { toast } from "../../lib/toast.js";
+import { previewReimport, confirmReimport, restoreReimport } from "../../lib/bookReimport.js";
+import { pickFile } from "../../lib/images.js";
 import Sheet from "../Sheet.vue";
 import BookCover from "./BookCover.vue";
 
@@ -19,6 +21,40 @@ const pct = p => `${Math.round(p * 100)}%`;
 const chName = pos => (pos ? b.value.chapters[pos.ch]?.title || "" : "");
 const notes = computed(() => (b.value ? notesOf(b.value.id) : []));
 const mems = computed(() => (b.value ? readingMemsOf(b.value.id) : []));
+
+const replacing = ref(false);
+const preview = shallowRef(null);
+const importError = ref('');
+watch(() => props.book?.id, () => { preview.value = null; importError.value = ''; });
+async function reimport() {
+  const id = b.value.id;
+  const [file] = await pickFile('.epub,application/epub+zip');
+  if (!file || b.value?.id !== id) return;
+  replacing.value = true;
+  preview.value = null;
+  importError.value = '';
+  try { preview.value = await previewReimport(id, file); }
+  catch (e) { importError.value = `未覆盖：${e.message}`; }
+  finally { replacing.value = false; }
+}
+async function applyImport() {
+  replacing.value = true;
+  try {
+    await confirmReimport(preview.value);
+    preview.value = null;
+    toast('覆盖完成，笔记已保留；可在书籍管理中恢复备份', 4500);
+    // 正文与位置一起从持久化结果重新加载，阅读器不会继续使用旧章缓存。
+    window.location.reload();
+  } catch (e) { importError.value = `未覆盖，旧书保持完整：${e.message}`; }
+  finally { replacing.value = false; }
+}
+async function restoreImport() {
+  if (!confirm('恢复覆盖前的正文、阅读进度和笔记？覆盖后新增的笔记会保留在待重新定位中。')) return;
+  replacing.value = true;
+  try { await restoreReimport(b.value.id); window.location.reload(); }
+  catch (e) { importError.value = `未恢复：${e.message}`; }
+  finally { replacing.value = false; }
+}
 
 // 我的评分和读后感
 const draft = ref(null);
@@ -152,7 +188,33 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
         <article v-for="m in mems" :key="m.id" class="mem"><b>{{ m.title }}</b><p>{{ m.content }}</p><small>{{ m.date }}</small></article>
       </section>
 
+      <section v-if="b.reimport">
+        <h4>上次覆盖导入</h4>
+        <p>{{ b.reimport.moved }} 条笔记已定位，{{ notes.filter(n => n.unlocated).length }} 条待重新定位。</p>
+        <p v-if="b.reimport.approximate">部分阅读位置无法精确恢复，已回到匹配章节的相近段落；未匹配章节回到书首。</p>
+        <button class="btn soft small" :disabled="replacing" @click="restoreImport">恢复覆盖前备份</button>
+      </section>
+      <section v-if="notes.some(n => n.unlocated)">
+        <h4>待重新定位 / 未定位笔记</h4>
+        <article v-for="n in notes.filter(n => n.unlocated)" :key="n.id" class="mem">
+          <b>{{ n.unlocated.chapter }} · {{ n.from === 'ai' ? '他' : '我' }}</b>
+          <p>「{{ n.unlocated.quote || n.quote || '未保存摘录' }}」</p><p>{{ n.text || '（划线）' }}</p>
+        </article>
+      </section>
+      <section v-if="preview" class="reimport-preview" aria-label="覆盖导入预览">
+        <h4>覆盖《{{ preview.title }}》</h4>
+        <p>新文件：{{ preview.newTitle }} · {{ preview.author }}</p>
+        <p>章节 {{ preview.oldChapters }} → {{ preview.newChapters }}；插图 {{ preview.oldImages }} → {{ preview.newImages }}</p>
+        <p>{{ preview.reason }}</p>
+        <p>可定位笔记 {{ preview.moved }} 条；待重新定位 {{ preview.unresolved }} 条。</p>
+        <details v-if="preview.pending.length"><summary>查看待重新定位的笔记</summary><article v-for="n in preview.pending" :key="n.id" class="mem"><b>{{ n.unlocated.chapter }}</b><p>「{{ n.unlocated.quote }}」</p><p>{{ n.text || '（划线）' }}</p></article></details>
+        <p v-if="preview.approximate">部分阅读位置将回到匹配章节的相近段落，未匹配章节回到书首。</p>
+        <p>保留原书、封面、排序和全部笔记。确认时自动保存覆盖前备份，可恢复到覆盖前；失败时旧书不变。备份保存在当前设备，下次成功覆盖会更新。</p>
+        <div class="row"><button class="btn soft small" :disabled="replacing" @click="preview = null">取消</button><button class="btn small" :disabled="replacing || !preview.allowed" @click="applyImport">确认覆盖并保留笔记</button></div>
+      </section>
+      <p v-if="importError" role="alert">{{ importError }}</p>
       <section class="acts">
+        <button class="list-row" :disabled="replacing" @click="reimport">{{ replacing ? "正在核对…" : "重新导入并覆盖 EPUB" }}</button>
         <button class="list-row" @click="changeCover">换封面</button>
         <button class="list-row" @click="rename">改书名</button>
         <button class="list-row danger" @click="takeDown">从书架上拿下来</button>
@@ -171,6 +233,9 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
 .stats div { background: var(--bg); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stats b { font-size: 1.1rem; font-weight: 600; }
 .stats span { font-size: .72rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+section p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); overflow-wrap: anywhere; }
+.reimport-preview .btn:not(.soft) { color: var(--on-ink); }
+.reimport-preview { padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
 section { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 h4 { margin: 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
 .rv { width: 100%; padding: 12px 14px; border-radius: 14px; background: var(--bg); }

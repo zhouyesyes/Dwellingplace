@@ -17,6 +17,7 @@ export async function loadBook(id) {
   if (!cache.has(id)) cache.set(id, (await get(key(id))) || { chapters: [] });
   return cache.get(id);
 }
+export const replaceBookCache = (id, body) => cache.set(id, body);
 export const bookById = id => (store.books || []).find(b => b.id === id);
 export const notesOf = (bookId, ch) => (store.bookNotes || []).filter(n => n.bookId === bookId && (ch == null || n.ch === ch));
 
@@ -83,7 +84,7 @@ function parseTxt(buf, name) {
 }
 
 // EPUB：其实是个 zip。按 spine（阅读顺序）一篇篇拿出正文；目录里有名字就用目录的名字
-async function parseEpub(buf) {
+export async function parseEpub(buf) {
   const files = unzipSync(buf);
   const text = p => (files[p] ? strFromU8(files[p]) : "");
   const xml = s => new DOMParser().parseFromString(s, "application/xml");
@@ -122,6 +123,7 @@ async function parseEpub(buf) {
   for (const ref of opf.querySelectorAll("spine > itemref")) {
     const it = items[ref.getAttribute("idref")];
     if (!it || !/html|xml/.test(it.type)) continue;
+    if (!files[it.href]) throw new Error("EPUB 章节文件缺失，不能导入");
     const doc = new DOMParser().parseFromString(text(it.href), "text/html");
     const blocks = [...doc.body?.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre") || []].filter(e => !e.querySelector("p, li, blockquote"));
     let paras = blocks.map(e => e.textContent.replace(/\s+/g, " ").trim()).filter(Boolean);
@@ -166,7 +168,7 @@ async function parseEpub(buf) {
     }
     if (paras.join("").length < 20 && !media.length) continue; // 封面、版权页这种几乎没字的跳过
     const h = doc.querySelector("h1, h2, h3")?.textContent.trim();
-    chapters.push({ title: (labels[it.href] || h || doc.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras, ...(media.length ? { media } : {}) });
+    chapters.push({ sourceId: ref.getAttribute("idref"), sourcePath: it.href, title: (labels[it.href] || h || doc.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras, ...(media.length ? { media } : {}) });
   }
 
   // 封面：properties="cover-image"，或者 <meta name="cover" content="图片的 id">

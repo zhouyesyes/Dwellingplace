@@ -3,7 +3,7 @@
 //   msgs:<id>     某个对话的全部消息
 //   img:<id>      压缩后的图片（Blob）
 import { reactive, watch } from "vue";
-import { get, set, del } from "../lib/kv.js";
+import { get, set, del, setMany } from "../lib/kv.js";
 import { migrateFlat } from "../lib/tree.js";
 import { defaultMedia } from "../lib/media.js";
 
@@ -394,3 +394,32 @@ export const fmtTokens = n =>
   : n >= 1e5 ? Math.round(n / 1e3) + "k"
   : n >= 1e3 ? trim0((n / 1e3).toFixed(1)) + "k"
   : String(n);
+
+// 调用方在事务完成前不修改响应式数据，避免自动保存出半份状态。
+export async function commitBookTransaction(entries, next, expected = []) {
+  const before = JSON.parse(JSON.stringify(store));
+  await flushStore();
+  if (JSON.stringify(store) !== JSON.stringify(before)) throw new Error("保存期间数据发生变化，请重新预览");
+  await setMany([...entries, ["meta", next]], [...expected, ["meta", before]]);
+  // 只应用本次改变的字段，不用旧快照覆盖事务等待期间新增的其他数据。
+  const patch = (target, old, value) => {
+    for (const k of new Set([...Object.keys(old), ...Object.keys(value)])) {
+      if (JSON.stringify(old[k]) === JSON.stringify(value[k])) continue;
+      if (!(k in value)) delete target[k];
+      else if (old[k] && value[k] && typeof old[k] === 'object' && typeof value[k] === 'object' && !Array.isArray(old[k]) && !Array.isArray(value[k])) patch(target[k], old[k], value[k]);
+      else target[k] = value[k];
+    }
+  };
+  // 书架顺序不变，只更新同一本书；便利贴按稳定 ID 更新。
+  for (const b of next.books) {
+    const old = before.books.find(x => x.id === b.id), current = store.books.find(x => x.id === b.id);
+    if (old && current) patch(current, old, b);
+  }
+  for (const n of next.bookNotes) {
+    const old = (before.bookNotes || []).find(x => x.id === n.id);
+    const current = (store.bookNotes || []).find(x => x.id === n.id);
+    if (old && current) patch(current, old, n);
+    else if (!old) store.bookNotes.push(n);
+  }
+
+}
