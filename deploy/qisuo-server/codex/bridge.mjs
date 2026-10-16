@@ -442,6 +442,8 @@ function saveMaterial(project, a, taskId) {
   const existing = readJSON(path.join(dir, a.id + ".json"), null);
   if (existing) {
     safeOriginal(existing.path);
+    // 她再次主动保存这个任务附件时，恢复收件箱入口；不迁移原件。
+    if (existing.deletedAt) { delete existing.deletedAt; writeJSON(path.join(dir, a.id + ".json"), existing); }
     if (taskId) {
       existing.tasks = [...new Set([...(existing.tasks || []),taskId])];
       if (a.notification === "delivered") {
@@ -464,7 +466,7 @@ function saveMaterial(project, a, taskId) {
 }
 async function materialRoute(req, res, url, project, id, action) {
   const dir = materialDir(project);
-  if (!id && req.method === "GET") return json(res, 200, { materials: fs.readdirSync(dir).filter(n => /^[a-f0-9-]{36}\.json$/.test(n)).map(n => materialMeta(project, n.slice(0,-5))) });
+  if (!id && req.method === "GET") return json(res, 200, { materials: fs.readdirSync(dir).filter(n => /^[a-f0-9-]{36}\.json$/.test(n)).map(n => materialMeta(project, n.slice(0,-5))).filter(a => !a.deletedAt) });
   if (!id && req.method === "POST") {
     // 复用同一上传校验；专用来源槽位不创建 Codex 线程。
     const slot = { id: "materials-" + project, project };
@@ -480,7 +482,12 @@ async function materialRoute(req, res, url, project, id, action) {
     return fs.createReadStream(null, { fd:openOriginal(a.path), autoClose:true }).on("error", () => res.destroy()).pipe(res);
   }
   if (req.method !== "POST") throw new Error("请求方法不支持");
-  if (action === "rename") {
+  if (action === "delete") {
+    // 只移出本项目收件箱，历史派单和素材库的原件路径永久保留。
+    a.deletedAt = new Date().toISOString();
+  } else if (a.deletedAt) {
+    throw new Error("素材已从收件箱删除，请刷新列表");
+  } else if (action === "rename") {
     const name = String(b.name || "").normalize("NFC");
     if (!name || name.length > 120 || /[\/\\\x00-\x1f\x7f]/.test(name) || name.startsWith(".") || path.extname(name).toLowerCase() !== path.extname(a.originalName).toLowerCase()) throw new Error("名称不合法，需保留原扩展名");
     a.name = name; // 显示名可改，原件路径永久稳定。
@@ -536,7 +543,7 @@ function attachmentsDelivered(t, attachments, text = "") {
 
 async function route(req, res, url) {
   const p = url.pathname;
-  const materials = p.match(/^\/projects\/([^/]+)\/materials(?:\/([a-f0-9-]{36})(?:\/(rename|archive|attach))?)?$/);
+  const materials = p.match(/^\/projects\/([^/]+)\/materials(?:\/([a-f0-9-]{36})(?:\/(rename|archive|attach|delete))?)?$/);
   if (materials) return materialRoute(req, res, url, decodeURIComponent(materials[1]), materials[2], materials[3]);
   const save = p.match(/^\/threads\/([\w-]+)\/attachments\/([a-f0-9-]{36})\/material$/);
   if (save && req.method === "POST") {

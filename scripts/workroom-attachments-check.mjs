@@ -266,3 +266,22 @@ await request('POST','/threads/test/send',{text:'重试新通知',attachments:[s
 assert.equal(context.lookup(context.threads.test,saved.value.id).notification,'delivered');
 assert.equal(context.lookup(context.threads.test,saved.value.id).purpose,'新用途未通知');
 console.log('通过：旧通知晚返回不能覆盖新用途/待通知状态，新版本失败后可准确重试');
+// 删除仅修改当前项目的收件箱可见性，历史任务与归档原件不受影响。
+const deletion = await request('POST','/projects/测试/materials?name=删除验收.png',png,'image/png');
+const deletionId=deletion.value.id;
+await assert.rejects(request('POST',`/projects/其他项目/materials/${deletionId}/delete`,{}),/不属于/);
+await request('POST',`/projects/测试/materials/${deletionId}/attach`,{taskId:'test'});
+await request('POST',`/projects/测试/materials/${deletionId}/archive`,{});
+const beforeDelete=context.materialMeta('测试',deletionId);
+await request('POST',`/projects/测试/materials/${deletionId}/delete`,{});
+await request('POST',`/projects/测试/materials/${deletionId}/delete`,{});
+assert(!(await request('GET','/projects/测试/materials')).value.materials.some(a=>a.id===deletionId));
+assert.deepEqual(fs.readFileSync(beforeDelete.path),png);
+assert.deepEqual(fs.readFileSync(beforeDelete.libraryPath),png);
+assert.equal(context.lookup(context.threads.test,deletionId).id,deletionId);
+await assert.rejects(request('POST',`/projects/测试/materials/${deletionId}/attach`,{taskId:'test'}),/已从收件箱删除/);
+console.log('通过：收件箱删除幂等、项目隔离、列表移除、原件/素材库/历史任务附件保留');
+
+await request('POST',`/threads/test/attachments/${deletionId}/material`,{});
+assert((await request('GET','/projects/测试/materials')).value.materials.some(a=>a.id===deletionId));
+console.log('通过：主动重新保存任务附件可恢复收件箱入口，沿用原件与 ID');

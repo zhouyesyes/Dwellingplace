@@ -45,16 +45,20 @@ const assert = require('node:assert/strict');
   await page.evaluate(({id,preview,size}) => {
     window.mockSse.onmessage({data:JSON.stringify({seq:9000,ts:Date.now(),method:'qisuo/preview/ready',params:{threadId:'test',attachments:[{id,name:'phone-light.png',type:'image/png',size,preview}]}})});
   }, {id,preview,size:png.length});
-  const link = page.locator('.tl .attachments a');
+  const link = page.locator('.tl .preview-grid button');
   await link.waitFor();
-  assert((await link.innerText()).includes('/settings · 390×844'));
-  assert((await link.getAttribute('href')).endsWith('/threads/test/attachments/' + id));
-  await page.waitForFunction(() => document.querySelector('.tl .attachments img')?.naturalWidth === 390);
+  assert.equal((await link.innerText()).trim(),'');
+  assert((await link.locator('img').getAttribute('src')).endsWith('/threads/test/attachments/' + id));
+  await page.waitForFunction(() => document.querySelector('.tl .preview-grid img')?.naturalWidth === 390);
+  await link.click();
+  await page.getByRole('dialog',{name:'效果图查看器'}).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.gallery').count(),0);
   for (const theme of ['light','dark']) {
     await page.evaluate(theme => document.documentElement.dataset.theme=theme,theme);
     await page.waitForTimeout(300);
     await page.screenshot({path:path.join('.qisuo-previews/manual',run,`workroom-${theme}.png`)});
   }
-  console.log('通过：真实 PNG 经 SSE 任务产物事件显示缩略图、带任务归属的附件链接、路由/尺寸/时间标注，浅深色截图');
+  console.log('通过：真实 PNG 经 SSE 任务产物事件显示缩略图、带任务归属的缩略图、隐藏元数据与大图关闭，浅深色截图');
   } finally { clearTimeout(deadline); await browser.close(); }
 })().catch(e => { console.error(e); process.exit(1); });

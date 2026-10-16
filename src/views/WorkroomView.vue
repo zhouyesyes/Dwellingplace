@@ -8,6 +8,7 @@ import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, start
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy, phases as himPhases } from "../lib/workTogether.js";
+import WorkroomGallery from "../components/WorkroomGallery.vue";
 import WorkroomMaterials from "../components/WorkroomMaterials.vue";
 import WorkMarkdown from "../components/WorkMarkdown.vue";
 import Avatar from "../components/Avatar.vue";
@@ -428,7 +429,8 @@ const RULES = [
         <WorkroomMaterials :key="cur" :project="t.meta?.project || project" :task="cur" :revision="filesRevision + t.items.filter(i => i.kind === 'user' || i.kind === 'preview').length" :tasks="st.threads || []" />
         <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
         <template v-for="(it, i) in shown" :key="it.id || i">
-          <div v-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}<small v-if="a.preview">{{ a.preview.route }} · {{ a.preview.width }}×{{ a.preview.height }} · {{ a.preview.theme }} · {{ a.preview.generatedAt }}</small></a></div>
+          <WorkroomGallery v-if="it.kind === 'preview' && it.attachments?.length" :files="it.attachments" :task="cur" />
+          <div v-else-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}<small v-if="a.preview">{{ a.preview.route }} · {{ a.preview.width }}×{{ a.preview.height }} · {{ a.preview.theme }} · {{ a.preview.generatedAt }}</small></a></div>
           <div v-if="it.kind === 'talkMe'" class="me"><p>{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'talkHim'" class="him">
             <Avatar :img="role?.avatar" :name="him" :color="role?.color" :size="30" />

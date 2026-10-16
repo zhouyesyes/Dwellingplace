@@ -6,24 +6,30 @@ const task = { id:'preview-task', project:'栖所', title:'贴纸原图调色（
 exports.install = async (context, origin, mode) => {
   const materials = [{id,name:'测试贴纸原图.png',originalName:'测试贴纸原图.png',type:'image/png',size:png.length,path:'/work/.qisuo-attachments/projects/栖所/inbox/'+id+'/测试贴纸原图.png',purpose:'保留透明背景，统一调色；此为无敏感信息的测试 PNG',status:'pending',tasks:[],projectPath:'../.qisuo-attachments/projects/栖所/inbox/'+id+'/测试贴纸原图.png'}];
   const attachments = [{...materials[0],projectPath:undefined,path:'/work/.qisuo-attachments/tasks/preview-task/'+id+'/测试贴纸原图.png',notification:'pending'}];
-  if (mode === 'workroom-materials-long') {
+  if (mode === 'workroom-materials-long' || mode === 'workroom-materials-delete') {
     for (let i = 1; i <= 25; i++) materials.push({...materials[0], id:'preview-'+i, name:`虚构素材-${i}.png`});
   }
   const attempts = [];
   const calls = [];
-  const state = {calls, attempts, hold:null, failNotifyOnce:false};
+  const state = {calls, attempts, hold:null, failNotifyOnce:false, deleteFailed:false};
   await context.addInitScript(() => { Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text => {window.copiedMaterialPath=text;}}}); window.EventSource = class { constructor() { this.readyState=1; queueMicrotask(()=>this.onopen?.()); } close(){this.readyState=2;} }; });
   await context.route(origin + '/p/preview/**', async route => {
     const req = route.request(), url = new URL(req.url()), p = decodeURIComponent(url.pathname.replace('/p/preview/codex',''));
     const send = json => route.fulfill({json});
     if(p==='/status') return send({ready:true,account:{type:'chatgpt'},projects:['栖所'],threads:[task],policy:{},seq:0});
     if(p==='/projects/git') return send({cloned:false});
-    if(p==='/threads/preview-task/events') return send({thread:task,events:[],approvals:[]});
+    if(p==='/threads/preview-task/events') return send({thread:task,events:['workroom-gallery','workroom-gallery-grid'].includes(mode) ? [{seq:1,method:'qisuo/user/message',params:{threadId:task.id,text:'虚构验收任务\n'.repeat(45)}},{seq:2,method:'qisuo/preview/ready',params:{threadId:task.id,attachments:Array.from({length:4},(_,i)=>({...attachments[0],id:'gallery-'+i,name:'内部文件-'+i+'.png',preview:{route:'/settings',width:390,height:844,theme:'light'}}))}}] : [],approvals:[]});
     if(p==='/threads/preview-task/attachments' && req.method()==='GET') return send({attachments});
     if(p==='/projects/栖所/materials' && req.method()==='GET') return send({materials});
     if((p.startsWith('/threads/preview-task/attachments/') || p.startsWith('/projects/栖所/materials/')) && req.method()==='GET') return route.fulfill({contentType:'image/png',body:png,headers:{'Content-Disposition':url.searchParams.has('download')?'attachment; filename=test.png':'inline'}});
     const b = req.headers()['content-type']?.startsWith('application/json') ? req.postDataJSON() : {};
     if(p.endsWith('/material')) return send(materials[0]);
+    if(p.endsWith('/delete')) {
+      const fileId=p.split('/').at(-2); calls.push({delete:fileId,project:'栖所'});
+      if(fileId==='preview-2' && !state.deleteFailed) { state.deleteFailed=true; return route.fulfill({status:503,json:{error:{message:'模拟单项删除失败'}}}); }
+      const i=materials.findIndex(a=>a.id===fileId); if(i<0) return route.fulfill({status:404,json:{error:{message:'素材不存在'}}});
+      materials.splice(i,1); return send({ok:true});
+    }
     if(p.endsWith('/rename')) { materials[0].name=b.name; return send(materials[0]); }
     if(p.endsWith('/archive')) { materials[0].status='archived'; materials[0].libraryPath=materials[0].path.replace('/inbox/','/library/'); materials[0].libraryProjectPath=materials[0].projectPath.replace('/inbox/','/library/'); return send(materials[0]); }
     if(p.endsWith('/attach')) return send(attachments[0]);
@@ -52,7 +58,7 @@ exports.prepare = async (page, origin, mode) => {
   }));
   await page.goto(origin+'/#/work');
   await page.getByText('项目素材收件箱',{exact:true}).waitFor();
-  if(mode==='workroom-attachments') {
+  if(mode==='workroom-attachments' || ['workroom-gallery','workroom-gallery-grid'].includes(mode)) {
     await page.locator('button.row').filter({hasText:task.title}).click();
     await page.getByText('直接用 Codex',{exact:true}).click();
     await page.getByText('任务原始附件',{exact:true}).waitFor();
@@ -78,6 +84,10 @@ exports.prepare = async (page, origin, mode) => {
     assert(await page.getByText('虚构素材-25.png',{exact:true}).isVisible());
     assert(await page.locator('button.row.add').isVisible());
   }
+  if (['workroom-gallery','workroom-gallery-grid'].includes(mode)) {
+    await page.locator('.preview-grid button').first().scrollIntoViewIfNeeded();
+    await page.locator('.preview-grid img').first().waitFor();
+  }
   if (mode === 'workroom-materials-pending') {
     await page.locator('.material-panel input[type=file]').setInputFiles(Array.from({length:11},(_,i)=>({name:i===2?'失败重试.png':`待上传-${i+1}.png`,mimeType:'image/png',buffer:png})));
     await page.locator('.material-queue').waitFor();
@@ -87,6 +97,68 @@ exports.prepare = async (page, origin, mode) => {
 };
 exports.verify = async (page, mode, state) => {
   const panel = page.locator('.material-panel');
+  if(mode==='workroom-materials-delete') {
+    const del=panel.getByRole('button',{name:'删除 测试贴纸原图.png',exact:true});
+    page.once('dialog',d=>d.dismiss()); await del.click(); assert.equal(state.calls.length,0);
+    page.once('dialog',d=>d.accept()); await del.click();
+    await panel.getByText('已删除 1 个',{exact:true}).waitFor();
+    await panel.getByRole('button',{name:'多选删除',exact:true}).click();
+    await panel.locator('input[type=checkbox]').nth(0).check();
+    await panel.locator('input[type=checkbox]').nth(1).check();
+    await panel.locator('input[type=checkbox]').nth(2).check();
+    page.once('dialog',d=>d.accept()); await panel.getByRole('button',{name:'删除所选（3）',exact:true}).click();
+    await panel.getByRole('status').filter({hasText:'已删除 2 个；失败 1 个：虚构素材-2.png'}).waitFor();
+    assert.equal(await panel.locator('.material-body > .material-file').count(),23);
+    assert.equal(await panel.locator('input[type=checkbox]:checked').count(),1);
+    page.once('dialog',d=>d.accept()); await panel.getByRole('button',{name:'删除所选（1）',exact:true}).click();
+    await panel.getByText('已删除 1 个',{exact:true}).waitFor();
+    assert(state.calls.every(c=>c.project==='栖所'));
+    return;
+  }
+  if(['workroom-gallery','workroom-gallery-grid'].includes(mode)) {
+    assert.equal(await page.locator('.preview-grid button').count(),4);
+    assert.equal((await page.locator('.preview-grid').innerText()).trim(),'');
+    const top=await page.locator('main.tl').evaluate(el=>el.scrollTop);
+    await page.getByRole('button',{name:'查看效果图 1',exact:true}).click();
+    await page.getByRole('dialog',{name:'效果图查看器'}).waitFor();
+    const stage=page.locator('.gallery-stage');
+    const cdp=await page.context().newCDPSession(page);
+    const touch=async(type,points)=> { await cdp.send('Input.dispatchTouchEvent',{type:({touchstart:'touchStart',touchmove:'touchMove',touchend:'touchEnd'})[type],touchPoints:points.map(([x,y],id)=>({x,y,id}))}); await page.waitForTimeout(30); };
+    await touch('touchstart',[[300,300]]); await touch('touchmove',[[100,300]]); await touch('touchend',[]);
+    assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4');
+    await touch('touchstart',[[100,300],[200,300]]); await touch('touchmove',[[50,300],[250,300]]); await touch('touchend',[]);
+    assert((await stage.locator('img').getAttribute('style')).includes('scale(2)'));
+    await touch('touchstart',[[300,300]]); await touch('touchmove',[[100,300]]); await touch('touchend',[]);
+    assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4');
+    await touch('touchstart',[[50,300],[250,300]]); await touch('touchmove',[[100,300],[200,300]]); await touch('touchend',[]);
+    assert((await stage.locator('img').getAttribute('style')).includes('scale(1)'));
+    await page.locator('.gallery-top summary').click(); await page.getByRole('button',{name:'恢复原比例',exact:true}).click();
+    await page.locator('.gallery-top summary').click();
+    await touch('touchstart',[[300,300]]); await touch('touchmove',[[100,300]]); await touch('touchend',[]);
+    assert.equal(await page.locator('.gallery-top span').innerText(),'3 / 4');
+    await stage.dispatchEvent('pointerup',{pointerType:'touch',clientX:195,clientY:100});
+    assert.equal(await page.locator('.gallery').count(),1,'触屏点击遮罩不能退出');
+    await page.getByRole('button',{name:'关闭大图'}).click();
+    assert.equal(await page.locator('main.tl').evaluate(el=>el.scrollTop),top);
+    await page.getByRole('button',{name:'查看效果图 1',exact:true}).click();
+    await page.keyboard.press('ArrowRight'); assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4');
+    await page.getByRole('button',{name:'下一张',exact:true}).click();
+    assert.equal(await page.locator('.gallery-top span').innerText(),'3 / 4');
+    await page.keyboard.press('ArrowLeft'); await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.gallery').count(),0);
+    assert.equal(await page.locator('main.tl').evaluate(el=>el.scrollTop),top);
+    await page.getByRole('button',{name:'查看效果图 1',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('.gallery-stage img')?.naturalWidth>0);
+    await page.mouse.click(190,100);
+    assert.equal(await page.locator('.gallery').count(),0,'鼠标点击图片留白遮罩退出');
+    await cdp.detach();
+    if(mode==='workroom-gallery-grid') return;
+    await page.getByRole('button',{name:'查看效果图 1',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('.gallery-stage img')?.naturalWidth>0);
+    assert(await stage.locator('img').evaluate(el=>el.getBoundingClientRect().height>100));
+    return;
+  }
+
   if (mode === 'workroom-materials-long') return;
   if (mode === 'workroom-materials-pending') {
     assert(await panel.locator('input[type=file]').getAttribute('multiple') !== null);

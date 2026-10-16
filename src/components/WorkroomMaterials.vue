@@ -4,8 +4,26 @@ import { listAttachments, listMaterials, uploadAttachment, uploadMaterial, saveA
 import { toast } from '../lib/toast.js';
 const props = defineProps({ project:String, task:String, revision:Number, tasks:{ type:Array, default:() => [] } });
 const entries = ref([]), error = ref(''), busy = ref(false), purpose = ref(''), selectedTask = ref(''), picker = ref(null);
+const selecting = ref(false), chosen = ref([]), deleteResult = ref('');
+async function removeSaved(items) {
+  if (busy.value || !items.length) return;
+  if (!confirm(`从当前项目收件箱删除这 ${items.length} 个素材？原件及已有任务、素材库引用会保留。`)) return;
+  const project = props.project;
+  busy.value = true;
+  const failures = [];
+  let success = 0;
+  try {
+    for (const a of items) {
+      try { await changeMaterial(project, a.id, 'delete'); success++; chosen.value = chosen.value.filter(id => id !== a.id); }
+      catch(e) { failures.push(`${a.name}：${e.message}`); }
+    }
+    if (project === props.project) { await load(); deleteResult.value = `已删除 ${success} 个` + (failures.length ? `；失败 ${failures.length} 个：${failures.join('；')}` : ''); }
+  } finally { busy.value = false; }
+}
 const inbox = ref(false), preview = ref(null);
 const isMaterials = computed(() => !props.task || inbox.value);
+watch(() => [props.project, props.task, isMaterials.value], () => { selecting.value = false; chosen.value = []; deleteResult.value = ''; });
+
 const taskOptions = computed(() => props.tasks.filter(t => t.project === props.project && t.status !== 'archived'));
 const source = a => isMaterials.value ? materialUrl(props.project,a.id) : attachmentUrl(props.task,a.id);
 const status = a => isMaterials.value ? ({ pending:'待整理', used:'已用于任务', archived:'已归档' }[a.status] || '待整理') : a.notification === 'delivered' ? '已通知 Codex' : '已保存，待通知 Codex';
@@ -130,9 +148,14 @@ function attach(a) {
       <p v-if="error" class="material-error" role="alert">{{ error }}<br />已上传的原件会保留；可刷新后重试通知。</p>
       <label v-if="isMaterials && !task && entries.length">附加到任务<select v-model="selectedTask"><option value="">选择同项目任务</option><option v-for="t in taskOptions" :key="t.id" :value="t.id">{{ t.title }}</option></select></label>
       <p v-if="!entries.length && !error" class="material-note">{{ isMaterials ? '还没有素材，上传后可复制路径或附加到任务。' : '还没有附件，可上传原文件或从项目素材选择。' }}</p>
+      <div v-if="isMaterials && entries.length" class="material-actions">
+        <button :disabled="busy" @click="selecting = !selecting; chosen = []">{{ selecting ? '取消多选' : '多选删除' }}</button>
+        <template v-if="selecting"><button :disabled="busy" @click="chosen = entries.map(a => a.id)">全选</button><button :disabled="busy || !chosen.length" @click="removeSaved(entries.filter(a => chosen.includes(a.id)))">删除所选（{{ chosen.length }}）</button></template>
+      </div>
+      <p v-if="deleteResult" role="status" aria-live="polite">{{ deleteResult }}</p>
       <article v-for="a in entries" :key="a.id" class="material-file">
         <button v-if="a.type.startsWith('image/')" class="material-thumb" :aria-label="'预览 ' + a.name" @click="preview = a"><img :src="source(a)" :alt="a.name" loading="lazy" /></button>
-        <b>{{ a.name }}</b><small>{{ a.type }} · {{ Math.ceil(a.size/1024) }} KB · {{ status(a) }}</small>
+        <label v-if="selecting && isMaterials" class="delete-choice"><input v-model="chosen" type="checkbox" :value="a.id" :disabled="busy" />选择 {{ a.name }}</label><b>{{ a.name }}</b><small>{{ a.type }} · {{ Math.ceil(a.size/1024) }} KB · {{ status(a) }}</small>
         <p v-if="a.purpose">用途：{{ a.purpose }}</p>
         <code>{{ a.libraryProjectPath || a.projectPath || a.libraryPath || a.path }}</code>
         <small v-if="a.tasks?.length">关联任务：{{ a.tasks.join('、') }}</small>
@@ -141,6 +164,7 @@ function attach(a) {
           <a :href="source(a) + '?download=1'" download>下载原件</a>
           <button @click="copyPath(a)">复制路径</button>
           <template v-if="isMaterials">
+            <button :disabled="busy" :aria-label="'删除 ' + a.name" @click="removeSaved([a])">删除</button>
             <button :disabled="busy" @click="rename(a)">重命名</button>
             <button :disabled="busy" @click="attach(a)">附加并通知任务</button>
             <button v-if="a.status !== 'archived'" :disabled="busy" @click="run(() => changeMaterial(project,a.id,'archive'))">保存到素材库</button>
@@ -159,6 +183,9 @@ function attach(a) {
 </template>
 
 <style scoped>
+.delete-choice { display:flex; align-items:center; min-height:44px; }
+.delete-choice input { width:22px; height:22px; }
+.material-actions button { min-height:44px; }
 .material-queue { border:1px solid var(--line); border-radius:10px; padding:10px; margin:12px 0; }
 .material-queue .material-file { display:grid; grid-template-columns:52px minmax(0,1fr) auto; gap:4px 10px; padding:8px 0; min-height:68px; align-items:center; }
 .material-queue .material-file b, .material-queue .material-file small, .material-queue .material-file span { grid-column:2; }
