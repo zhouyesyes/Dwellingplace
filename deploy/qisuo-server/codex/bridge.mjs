@@ -579,6 +579,8 @@ async function route(req, res, url) {
   if (p === "/projects/delete") {
     const name = projectName((await body(req)).name);
     if (!name || !listProjects().includes(name)) return json(res, 404, { error: { message: "没有这个项目" } });
+    // 栖所自己的代码：不让删（她点错删过一次，没推上去的改动全没了）
+    if (name === GIT_PROJECT) return json(res, 403, { error: { message: `「${GIT_PROJECT}」是栖所自己的代码，不能删` } });
     if (Object.values(threads).some(t => t.project === name && t.turnId)) return json(res, 409, { error: { message: "这个项目里还有任务在干活，先让它停下" } });
     // 以 codex 用户删（文件是它的）；任务记录收起来（不删，记录还在 /bridge 里）
     const r = spawnSync("rm", ["-rf", "--", path.join(WORK, name)], { uid: UID, gid: UID, encoding: "utf8" });
