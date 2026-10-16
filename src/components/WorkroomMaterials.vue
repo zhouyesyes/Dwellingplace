@@ -139,9 +139,24 @@ function newGroup() {
   naming.value = { title:'新文件夹的名字', initial:'', save:async name => { await editMaterialGroup(props.project, { action:'create', name }); await load(); } };
 }
 
-// 打开时后面的工作间页面别跟着滑
-watch(open, v => { document.body.style.overflow = v ? 'hidden' : ''; });
-onBeforeUnmount(() => { document.body.style.overflow = ''; });
+// 打开时后面的工作间页面别跟着滑。
+// iPhone 收键盘后页面会留一点偏移，「固定在顶上」的东西跟着往下掉：整页按看得见的那块区域摆，收键盘后把偏移清掉
+const box = ref({});
+let frame = 0;
+function fit() {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    const vv = window.visualViewport;
+    box.value = { top:`${vv?.offsetTop || 0}px`, height:`${vv?.height || window.innerHeight}px`, bottom:'auto' };
+  });
+}
+function settle() { setTimeout(() => { if ((window.visualViewport?.height || 0) >= window.innerHeight - 1 && window.scrollY) window.scrollTo(0, 0); fit(); }, 350); }
+function listen(on) {
+  const f = on ? 'addEventListener' : 'removeEventListener';
+  window.visualViewport?.[f]('resize', fit); window.visualViewport?.[f]('scroll', fit); window[f]('resize', fit); document[f]('focusout', settle);
+}
+watch(open, v => { document.body.style.overflow = v ? 'hidden' : ''; listen(v); if (v) { window.scrollTo(0, 0); fit(); } });
+onBeforeUnmount(() => { document.body.style.overflow = ''; listen(false); cancelAnimationFrame(frame); });
 function close() { open.value = false; endSelect(); fromLib.value = false; menuFor.value = null; }
 onBeforeUnmount(() => clearTimeout(pressTimer));
 </script>
@@ -167,7 +182,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
     </button>
 
     <!-- 整页 -->
-    <Teleport to="body"><div v-if="open" class="page">
+    <Teleport to="body"><div v-if="open" class="page" :style="box">
       <header>
         <button class="back" aria-label="返回" @click="selecting ? endSelect() : fromLib ? (fromLib = false) : close()">‹</button>
         <b>{{ selecting ? `选了 ${chosen.length} 个` : fromLib ? '从素材库挑（点一下就发给这个任务）' : task ? '这个任务的附件' : '素材库' }}</b>
