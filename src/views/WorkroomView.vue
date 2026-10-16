@@ -440,7 +440,7 @@ const RULES = [
         <section v-if="creatingTask" class="new-task">
           <form @submit.prevent="addThread">
             <label>任务名称<input v-model="taskName" :disabled="taskSaving || !!createdDraft" maxlength="120" @compositionstart="taskComposing = true" @compositionend="taskComposing = false" @keydown.enter="e => { if (e.isComposing || taskComposing || e.keyCode === 229) e.preventDefault(); }" /></label>
-            <button type="button" :disabled="taskSaving" @click="attachmentSource = 'inbox'">从素材收件箱选择</button>
+            <button type="button" :disabled="taskSaving" @click="attachmentSource = 'inbox'">从素材库选</button>
             <button type="button" :disabled="taskSaving" @click="attachmentSource = 'upload'">临时上传</button>
             <div v-if="attachmentSource === 'upload'">
               <label>临时上传<input type="file" multiple :disabled="taskSaving" @change="chooseFiles" /></label>
