@@ -1,0 +1,55 @@
+{
+  "originalHashesUnchanged": true,
+  "checks": [
+    {
+      "name": "01-星星.png",
+      "size": [
+        1229,
+        1048
+      ],
+      "edge": 0,
+      "cream": 87928,
+      "solid": 863906
+    },
+    {
+      "name": "02-爱心.png",
+      "size": [
+        1131,
+        1128
+      ],
+      "edge": 0,
+      "cream": 71323,
+      "solid": 844578
+    },
+    {
+      "name": "03-雨伞.png",
+      "size": [
+        1219,
+        1124
+      ],
+      "edge": 0,
+      "cream": 141756,
+      "solid": 627680
+    },
+    {
+      "name": "04-开心.png",
+      "size": [
+        1213,
+        1105
+      ],
+      "edge": 0,
+      "cream": 109423,
+      "solid": 856289
+    },
+    {
+      "name": "05-读书.png",
+      "size": [
+        1042,
+        987
+      ],
+      "edge": 0,
+      "cream": 121008,
+      "solid": 716216
+    }
+  ]
+}
