@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onBeforeUnmount } from 'vue';
 import { listAttachments, listMaterials, uploadAttachment, uploadMaterial, saveAttachmentMaterial, changeMaterial, attachmentUrl, materialUrl, say } from '../lib/workroom.js';
 import { toast } from '../lib/toast.js';
 const props = defineProps({ project:String, task:String, revision:Number, tasks:{ type:Array, default:() => [] } });
@@ -28,20 +28,57 @@ async function notify(a, task = props.task) {
   await say(task, `已追加原始附件。用途：${a.purpose || '请读取原文件，并按任务要求处理。'}`, [a]);
   toast('Codex 已接收附件通知');
 }
-function upload(event) {
-  const file = event.target.files?.[0]; event.target.value = '';
-  if (!file) return;
-  if (!file.size || file.size > 20 * 1024 * 1024) { toast("文件必须非空且不超过 20 MB"); return; }
-  const project = props.project, task = props.task, material = isMaterials.value;
-  run(async () => {
-    if (material) await uploadMaterial(project,file,purpose.value);
-    else {
-      const a = await uploadAttachment(task,file,purpose.value);
-      // 原件已持久保存；通知失败仍在列表里，可单独重试，不必再次上传。
-      try { await notify(a,task); } catch(e) { await load(); throw e; }
+const queue = ref([]), batchResult = ref('');
+const totalSize = computed(() => queue.value.reduce((n, f) => n + f.file.size, 0));
+const failed = computed(() => queue.value.filter(f => f.state === 'failed').length);
+const completed = computed(() => queue.value.filter(f => ['success', 'failed'].includes(f.state)).length);
+const sizeText = n => n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${Math.ceil(n / 1024)} KB`;
+function clearQueue() {
+  queue.value.forEach(f => { if (f.url) URL.revokeObjectURL(f.url); });
+  queue.value = [];
+  batchResult.value = '';
+}
+watch(() => [props.project, props.task, isMaterials.value], clearQueue);
+onBeforeUnmount(clearQueue);
+function removePending(f) {
+  if (busy.value || f.state === 'success') return;
+  if (f.url) URL.revokeObjectURL(f.url);
+  queue.value = queue.value.filter(x => x !== f);
+}
+function choose(event) {
+  for (const file of event.target.files || []) {
+    const invalid = !file.size || file.size > 20 * 1024 * 1024 ? '文件必须非空且不超过 20 MB' :
+      !/\.(png|jpe?g|gif|webp|mp4|webm|pdf|txt|md|csv|json|zip)$/i.test(file.name) ? '不支持的文件类型' : '';
+    queue.value.push({ file, url: !invalid && file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      state: invalid ? 'failed' : 'pending', error: invalid, invalid, uploaded: null });
+  }
+  event.target.value = '';
+  batchResult.value = '';
+}
+async function uploadBatch(retry = false) {
+  if (busy.value) return;
+  const items = queue.value.filter(f => f.state === (retry ? 'failed' : 'pending'));
+  if (!items.length) return;
+  const project = props.project, task = props.task, material = isMaterials.value, usage = purpose.value;
+  busy.value = true;
+  batchResult.value = '';
+  try {
+    for (const f of items) {
+      f.state = 'uploading';
+      f.error = '';
+      try {
+        if (f.invalid) throw Error(f.invalid);
+        // 通知失败只重试通知，已保存的原件不重复上传。
+        if (!f.uploaded) f.uploaded = material ? await uploadMaterial(project, f.file, usage) : await uploadAttachment(task, f.file, usage);
+        if (!material) await notify(f.uploaded, task);
+        f.state = 'success';
+      } catch(e) { f.state = 'failed'; f.error = (f.uploaded ? '原件已保存，通知失败：' : '') + e.message; }
     }
-    purpose.value = '';
-  });
+    const success = items.filter(f => f.state === 'success').length;
+    batchResult.value = `本次成功 ${success} 个，失败 ${items.length - success} 个。已成功的原件会保留。`;
+    toast(batchResult.value, 5000);
+    await load();
+  } finally { busy.value = false; }
 }
 function rename(a) {
   const name = prompt('重命名显示名称（保留扩展名；原文件路径保持稳定）',a.name);
@@ -69,10 +106,27 @@ function attach(a) {
       <p class="material-note">原文件保留，不压缩。每个文件最多 20 MB。任务结束后仍保留；归档只整理引用，不删除原件。</p>
       <label>用途说明<input v-model="purpose" maxlength="2000" placeholder="例如：保留透明背景，统一贴纸颜色" /></label>
       <div class="material-actions">
-        <input ref="picker" type="file" hidden accept=".png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.pdf,.txt,.md,.csv,.json,.zip" @change="upload" />
-        <button :disabled="busy" @click="picker.click()">{{ busy ? '处理中…' : isMaterials ? '上传原始素材' : '上传并通知 Codex' }}</button>
+        <input ref="picker" type="file" multiple :disabled="busy" hidden accept=".png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.pdf,.txt,.md,.csv,.json,.zip" @change="choose" />
+        <button :disabled="busy" @click="picker.click()">选择图片 / 文件（可多选）</button>
         <button :disabled="busy" @click="load">刷新列表</button>
       </div>
+      <section v-if="queue.length" class="material-queue" aria-label="待上传文件">
+        <p>已选择 {{ queue.length }} 个文件 · 共 {{ sizeText(totalSize) }}<span v-if="completed"> · 成功 {{ queue.filter(f => f.state === 'success').length }} 个 / 失败 {{ failed }} 个</span></p>
+        <p class="material-note">同名文件分别保存，不覆盖已有素材。成功项会保留在下方素材列表。</p>
+        <div v-for="(f, i) in queue" :key="i" class="material-file">
+          <img v-if="f.url" class="pending-thumb" :src="f.url" alt="待上传图片缩略图" />
+          <b>{{ f.file.name }}</b><small>{{ sizeText(f.file.size) }} · {{ { pending:'待上传', uploading:'正在处理…', success:'成功', failed:'失败' }[f.state] }}</small>
+          <span v-if="f.error" role="alert">{{ f.error }}</span>
+          <button v-if="f.state !== 'success'" :disabled="busy" :aria-label="'移除 ' + f.file.name" @click="removePending(f)">移除</button>
+        </div>
+        <div class="material-actions">
+          <button :disabled="busy || !queue.some(f => f.state === 'pending')" @click="uploadBatch()">{{ isMaterials ? '开始上传' : '上传并通知 Codex' }}</button>
+          <button v-if="failed" :disabled="busy" @click="uploadBatch(true)">仅重试失败项（{{ failed }}）</button>
+          <button :disabled="busy" @click="clearQueue">清空上传清单</button>
+        </div>
+        <p role="status" aria-live="polite">{{ busy ? `正在处理，已完成 ${completed} / ${queue.length} 个，请保持页面打开…` : batchResult }}</p>
+      </section>
+      <p class="material-note" role="status">已保存 {{ entries.length }} 个{{ isMaterials ? '素材' : '附件' }}</p>
       <p v-if="error" class="material-error" role="alert">{{ error }}<br />已上传的原件会保留；可刷新后重试通知。</p>
       <label v-if="isMaterials && !task && entries.length">附加到任务<select v-model="selectedTask"><option value="">选择同项目任务</option><option v-for="t in taskOptions" :key="t.id" :value="t.id">{{ t.title }}</option></select></label>
       <p v-if="!entries.length && !error" class="material-note">{{ isMaterials ? '还没有素材，上传后可复制路径或附加到任务。' : '还没有附件，可上传原文件或从项目素材选择。' }}</p>
@@ -105,7 +159,12 @@ function attach(a) {
 </template>
 
 <style scoped>
-.material-panel { margin:12px 14px; border:1px solid var(--line); border-radius:12px; color:var(--text); font-size:.82rem; overflow-wrap:anywhere; }
+.material-queue { border:1px solid var(--line); border-radius:10px; padding:10px; margin:12px 0; }
+.material-queue .material-file { display:grid; grid-template-columns:52px minmax(0,1fr) auto; gap:4px 10px; padding:8px 0; min-height:68px; align-items:center; }
+.material-queue .material-file b, .material-queue .material-file small, .material-queue .material-file span { grid-column:2; }
+.material-queue .material-file button { grid-column:3; grid-row:1 / span 2; min-height:44px; }
+.pending-thumb { grid-column:1; grid-row:1 / span 2; width:52px; height:52px; object-fit:contain; }
+.material-panel { flex-shrink:0; margin:12px 14px; border:1px solid var(--line); border-radius:12px; color:var(--text); font-size:.82rem; overflow-wrap:anywhere; }
 summary { padding:12px; cursor:pointer; font-weight:600; }
 .material-body { padding:0 12px 12px; }
 .material-note, small { color:var(--text-2); }

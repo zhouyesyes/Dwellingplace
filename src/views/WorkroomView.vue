@@ -336,7 +336,7 @@ const RULES = [
 </script>
 
 <template>
-  <div class="wr" :style="viewport">
+  <div class="wr" :class="{ overview: !cur }" :style="viewport">
     <header class="bar">
       <button class="icon-btn" aria-label="返回" @click="cur ? close() : goBack(router, '/settings')"><Icon name="back" /></button>
       <div class="ttl">
@@ -524,6 +524,7 @@ const RULES = [
 
 <style scoped>
 .wr { position: fixed; inset: 0 0 auto; width: 100%; height: 100dvh; min-height: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.wr.overview { display: block; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-bottom) + 24px); }
 .bar { flex: none; position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 12px 10px; background: rgba(var(--glass-rgb), .86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 .ttl { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ttl b { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -572,7 +573,7 @@ const RULES = [
 .wait { font-style: normal; font-size: .7rem; color: #fff; background: var(--danger); border-radius: 999px; padding: 1px 8px; }
 .tl > * { flex-shrink: 0; }
 .bar, .modes { flex-shrink: 0; }
-.tl { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.tl { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; max-width: 820px; width: 100%; margin: 0 auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .me { align-self: flex-end; max-width: 85%; text-align: right; }
 .me p { margin: 0; background: var(--ink); color: var(--on-ink); padding: 9px 13px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; line-height: 1.6; font-size: .92rem; text-align: left; }
 .me small { font-size: .68rem; color: var(--text-3); }

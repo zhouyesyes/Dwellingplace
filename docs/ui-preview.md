@@ -21,6 +21,15 @@ node scripts/ui-preview.cjs --task 工作间任务编号 --route /settings
 node scripts/ui-preview.cjs --task 工作间任务编号 --route /books --views phone,tablet --themes light
 ```
 
+项目素材收件箱可用纯虚构数据验收（不连接生产服务）：
+
+```sh
+node scripts/ui-preview.cjs --task 工作间任务编号 --route /work --fixture workroom-materials-long
+node scripts/ui-preview.cjs --task 工作间任务编号 --route /work --fixture workroom-materials-pending
+```
+
+前者生成 26 个素材并验证真实模拟触摸滑动、滚到最后一个素材和任务入口；后者选择 11 个原图，截图待上传清单。手机与平板浅色另自动验证移除、进行中状态、部分失败保留成功项、只重试失败、原字节一致、同名分别保存和不合规文件拒绝；浅深色截图都在交互断言前保存。原 `workroom-materials` / `workroom-attachments` fixture 继续可用，后者增加通知失败后不重复上传的验证。以上是 Chromium 隔离验证，iPad Safari / PWA 仍需真机复验。
+
 手动测试可不传 `--task`，产物放入 `manual`。不支持携带查询参数的路由，避免意外把令牌写入标注。当前每次命令只截一个路由；多个页面分别运行。
 
 截图和清单：`.qisuo-previews/<任务编号>/<随机运行编号>/`。PNG 下边缘标注路由、视口、主题及 UTC 生成时间；`manifest.json` 最后写入，标记这一组已经完成。该目录已被 Git 忽略。预览临时构建会自动清理，验收截图会保留，不自动删除任务产物。

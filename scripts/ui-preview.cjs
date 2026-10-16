@@ -15,7 +15,7 @@ const { chromium } = require('playwright');
   const themes = option('--themes', 'light,dark').split(',');
   if (!/^[\w-]{1,100}$/.test(task) || !/^\/[\w/-]*$/.test(route) || views.some(v => !sizes[v]) || themes.some(t => !['light','dark'].includes(t))) throw Error('任务编号、路由、视口或主题不合法；路由不接受查询参数');
   const fixture = option('--fixture', '');
-  if (fixture && (route !== '/work' || !['workroom-materials','workroom-attachments'].includes(fixture))) throw Error('不支持这个隔离 fixture');
+  if (fixture && (route !== '/work' || !['workroom-materials','workroom-attachments','workroom-materials-long','workroom-materials-pending'].includes(fixture))) throw Error('不支持这个隔离 fixture');
   const mock = fixture ? require('./fixtures/workroom-materials.cjs') : null;
   const run = randomUUID();
   const output = path.resolve('.qisuo-previews', task, run);
@@ -54,14 +54,14 @@ const { chromium } = require('playwright');
     const screenshots = [];
     for (const view of views) for (const theme of themes) {
       const [width,height] = sizes[view];
-      const context = await browser.newContext({ viewport: { width,height }, colorScheme: theme, serviceWorkers: 'block' });
+      const context = await browser.newContext({ viewport: { width,height }, hasTouch: view !== 'desktop', colorScheme: theme, serviceWorkers: 'block' });
       // 禁止 API、外部图片/字体、WebSocket；仅允许本次静态资源的 GET。
       await context.route('**/*', r => {
         const u = new URL(r.request().url());
         return u.origin === origin && r.request().method() === 'GET' && !/^\/(api|codex|sync)(\/|$)/.test(u.pathname) ? r.continue() : r.abort();
       });
       await context.routeWebSocket('**/*', socket => socket.close());
-      const state = mock ? await mock.install(context,origin) : null;
+      const state = mock ? await mock.install(context,origin,fixture) : null;
       const page = await context.newPage();
       if (mock) await mock.prepare(page,origin,fixture);
       else await page.goto(`${origin}/#${route}`);
@@ -79,7 +79,7 @@ const { chromium } = require('playwright');
       const file = `${view}-${theme}.png`;
       await page.screenshot({ path: path.join(output, file) });
       screenshots.push({ file, route, width, height, theme, generatedAt });
-      if (mock && view === 'phone' && theme === 'light') { await mock.verify(page,fixture,state); console.log('隔离界面交互验收通过：' + fixture); }
+      if (mock && ['phone','tablet'].includes(view) && theme === 'light') { await mock.verify(page,fixture,state); console.log('隔离界面交互验收通过：' + fixture); }
       await context.close();
     }
     fs.writeFileSync(path.join(output, 'manifest.json'), JSON.stringify({ version:1, screenshots }, null, 2), { flag:'wx' });
