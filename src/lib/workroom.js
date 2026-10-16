@@ -45,11 +45,29 @@ async function refreshStatus() {
     wr.error = "";
     noteWorkroom(wr.status);
     for (const t of wr.status.threads || []) thread(t.id).meta = t;
+    noteMaterials(wr.status).catch(() => {});
   } catch (e) {
     wr.error = e.message;
   }
   return wr.status;
 }
+
+// 素材库清单：每个项目有哪些文件夹、各有哪些文件（聊天里他派活时看，见 workDispatch.js）。5 分钟最多问一次
+let materialsAt = 0;
+async function noteMaterials(st) {
+  if (!st?.account || Date.now() - materialsAt < 5 * 60_000) return;
+  materialsAt = Date.now();
+  const out = {};
+  for (const p of st.projects || []) {
+    const [{ materials = [] }, { groups = [] }] = await Promise.all([listMaterials(p), listMaterialGroups(p)]);
+    if (!materials.length) continue;
+    const name = id => materials.find(m => m.id === id)?.name;
+    const used = new Set(groups.flatMap(g => g.files));
+    out[p] = [...groups.map(g => ({ folder: g.name, files: g.files.map(name).filter(Boolean) })), { folder: "", files: materials.filter(m => !used.has(m.id)).map(m => m.name) }].filter(g => g.files.length);
+  }
+  store.workMaterials = out;
+}
+export const forgetMaterials = () => { materialsAt = 0; };
 
 // 工作间能用吗（登录了）、有哪些项目：存一份，聊天的系统提示和唤醒里用（不用每次都去问服务器）
 export function noteWorkroom(st) {

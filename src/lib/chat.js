@@ -709,7 +709,7 @@ export async function generate(thread, parentId) {
     msg.text = xm.text;
     const alarm = await applyAlarmTags(role, msg.text);
     msg.text = alarm.text;
-    const work = await applyWorkTags(role, msg.text).catch(e => ({ text: msg.text.replace(WORK_RE, ""), notes: [{ text: `${role.name} 想交给工作间，但没交成：${e.message}` }] }));
+    const work = await applyWorkTags(role, msg.text, history).catch(e => ({ text: msg.text.replace(WORK_RE, ""), notes: [{ text: `${role.name} 想交给工作间，但没交成：${e.message}` }] }));
     msg.text = work.text;
     if (!ctrl.signal.aborted && findCmd(msg.text, POKE_RE)) {
       msg.notes.push({ text: pokeText(role, "ai"), poke: "ai", ts: Date.now() });
