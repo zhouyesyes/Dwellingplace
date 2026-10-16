@@ -29,7 +29,7 @@ const taskOptions = computed(() => props.tasks.filter(t => t.project === props.p
 const grouped = computed(() => {
   if (!lib.value) return [{ id:'task', name:'', items:entries.value }];
   const used = new Set(groups.value.flatMap(g => g.files));
-  const out = groups.value.map(g => ({ ...g, items:entries.value.filter(a => g.files.includes(a.id)) })).filter(g => g.items.length);
+  const out = groups.value.map(g => ({ ...g, items:entries.value.filter(a => g.files.includes(a.id)) })); // 空文件夹也显示（刚建的）
   const rest = entries.value.filter(a => !used.has(a.id));
   if (rest.length) out.push({ id:'', name:'没分组的', items:rest });
   return out;
@@ -137,6 +137,9 @@ function newGroup() {
   naming.value = { title:'新文件夹的名字', initial:'', save:async name => { await editMaterialGroup(props.project, { action:'create', name }); await load(); } };
 }
 
+// 打开时后面的工作间页面别跟着滑
+watch(open, v => { document.body.style.overflow = v ? 'hidden' : ''; });
+onBeforeUnmount(() => { document.body.style.overflow = ''; });
 function close() { open.value = false; endSelect(); fromLib.value = false; menuFor.value = null; }
 onBeforeUnmount(() => clearTimeout(pressTimer));
 </script>
@@ -162,7 +165,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
     </button>
 
     <!-- 整页 -->
-    <div v-if="open" class="page">
+    <Teleport to="body"><div v-if="open" class="page">
       <header>
         <button class="back" aria-label="返回" @click="selecting ? endSelect() : fromLib ? (fromLib = false) : close()">‹</button>
         <b>{{ selecting ? `选了 ${chosen.length} 个` : fromLib ? '从素材库挑（点一下就发给这个任务）' : task ? '这个任务的附件' : '素材库' }}</b>
@@ -172,11 +175,12 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
           <button v-if="!fromLib" class="act main" :disabled="busy" @click="upload()">＋ 上传</button>
         </template>
       </header>
-      <p v-if="!selecting && !fromLib" class="hint">{{ task ? '传上来的会直接告诉 Codex。' : '存在这里的图片和文件，派活时可以一起带给他。长按可以多选。' }}</p>
+      <WorkroomNameForm v-if="naming" class="naming" v-bind="naming" @close="naming = null" />
+      <p v-if="!selecting && !fromLib && !naming" class="hint">{{ task ? '传上来的会直接告诉 Codex。' : '存在这里的图片和文件，派活时可以一起带给他。长按可以多选。' }}</p>
       <p v-if="error" class="hint bad">{{ error }}</p>
       <p v-if="busy" class="hint">在处理…</p>
       <div class="body">
-        <p v-if="!entries.length && !error" class="hint">还没有东西，点右上角「＋ 上传」</p>
+        <p v-if="!entries.length && !groups.length && !error" class="hint">还没有东西，点右上角「＋ 上传」</p>
         <section v-for="g in grouped" :key="g.id" class="group">
           <div v-if="g.name" class="ghead">
             <p class="gname">{{ g.name }} <small>{{ g.items.length }}</small></p>
@@ -189,6 +193,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
               </div>
             </template>
           </div>
+          <button v-if="!g.items.length && !fromLib" class="empty" @click="upload(g.id)">空的，点这里往里加</button>
           <div class="grid">
             <button v-for="a in g.items" :key="a.id" class="cell" :class="{ on: chosen.includes(a.id) }"
               @pointerdown="pressStart(a)" @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd" @contextmenu.prevent
@@ -206,8 +211,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
         <button v-if="lib" class="danger" @click="removeChosen">删除</button>
         <button @click="endSelect">取消</button>
       </footer>
-      <WorkroomNameForm v-if="naming" v-bind="naming" @close="naming = null" />
-    </div>
+    </div></Teleport>
     <input ref="picker" type="file" multiple hidden accept=".png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.pdf,.txt,.md,.csv,.json,.zip" @change="chooseFiles" />
   </template>
   <div v-if="preview" hidden>
@@ -221,7 +225,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
 .entry .covers { flex:1; display:flex; justify-content:flex-end; gap:4px; }
 .entry .covers img { width:26px; height:26px; object-fit:cover; border-radius:6px; }
 .entry i { font-style:normal; color:var(--text-3); }
-.page { position:fixed; inset:0; z-index:50; background:var(--bg); display:flex; flex-direction:column; font-size:.82rem; color:var(--text); }
+.page { position:fixed; inset:0; z-index:60; overscroll-behavior:none; background:var(--bg); display:flex; flex-direction:column; font-size:.82rem; color:var(--text); }
 header { display:flex; align-items:center; gap:6px; padding:calc(var(--safe-top) + 10px) 12px 8px; }
 header b { flex:1; min-width:0; font-size:.92rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 header button { border:0; background:none; color:var(--text-2); font-size:.78rem; padding:6px 8px; border-radius:999px; }
@@ -231,6 +235,8 @@ header .main { background:var(--ink); color:var(--on-ink); padding:6px 12px; }
 .hint.bad { color:var(--danger); }
 .body { flex:1; overflow-y:auto; padding:0 12px calc(var(--safe-bottom) + 80px); }
 .group { margin-bottom:14px; position:relative; }
+.empty { display:block; width:100%; border:1.5px dashed var(--line); background:none; border-radius:10px; padding:14px; font-size:.74rem; color:var(--text-3); }
+.naming { margin:0 12px 10px; font-size:.82rem; }
 .ghead { display:flex; align-items:center; }
 .gname { flex:1; margin:6px 4px; font-size:.76rem; color:var(--text-2); }
 .gname small { color:var(--text-3); margin-left:4px; }
