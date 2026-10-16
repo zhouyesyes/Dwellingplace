@@ -89,6 +89,8 @@ async function sendTo(taskId, items) {
     if (props.task) fromLib.value = false;
   });
 }
+const moveTarget = ref('');
+watch(moveTarget, id => { if (id) { const ids = chosen.value; moveTarget.value = ''; run(async () => { await editMaterialGroup(props.project, { action:'append', id, files:ids }); endSelect(); toast('挪过去了'); }); } });
 const sendTarget = ref('');
 watch(sendTarget, id => { if (id) { sendTo(id, picked()); sendTarget.value = ''; } });
 async function removeChosen() {
@@ -185,7 +187,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
           <div v-if="g.name" class="ghead">
             <p class="gname">{{ g.name }} <small>{{ g.items.length }}</small></p>
             <template v-if="g.id && !fromLib">
-              <button class="more" aria-label="文件夹选项" @click="menuFor = menuFor === g.id ? null : g.id">…</button>
+              <button class="more" aria-label="文件夹选项" @click="menuFor = menuFor === g.id ? null : g.id">管理</button>
               <div v-if="menuFor === g.id" class="menu">
                 <button @click="menuFor = null; upload(g.id)">往这里加</button>
                 <button @click="renameGroup(g)">改名字</button>
@@ -208,6 +210,7 @@ onBeforeUnmount(() => clearTimeout(pressTimer));
       <footer v-if="selecting" class="bar">
         <label v-if="lib && !task" class="send">发给任务…<select v-model="sendTarget"><option value="" disabled>选一个任务</option><option v-for="x in taskOptions" :key="x.id" :value="x.id">{{ x.title }}</option></select></label>
         <button v-else-if="task" @click="sendTo(task, picked())">再发给 Codex</button>
+        <label v-if="lib && !task && groups.length" class="send">移到文件夹…<select v-model="moveTarget"><option value="" disabled>选一个文件夹</option><option v-for="x in groups" :key="x.id" :value="x.id">{{ x.name }}</option></select></label>
         <button v-if="lib" class="danger" @click="removeChosen">删除</button>
         <button @click="endSelect">取消</button>
       </footer>
@@ -240,7 +243,7 @@ header .main { background:var(--ink); color:var(--on-ink); padding:6px 12px; }
 .ghead { display:flex; align-items:center; }
 .gname { flex:1; margin:6px 4px; font-size:.76rem; color:var(--text-2); }
 .gname small { color:var(--text-3); margin-left:4px; }
-.more { border:0; background:none; color:var(--text-3); font-size:1rem; padding:0 8px; }
+.more { border:0; background:var(--card); color:var(--text-2); font-size:.72rem; padding:4px 10px; border-radius:999px; box-shadow:var(--shadow-soft); }
 .menu { position:absolute; right:4px; top:28px; z-index:2; background:var(--card); border-radius:12px; box-shadow:var(--shadow-soft); display:flex; flex-direction:column; padding:4px; }
 .menu button { border:0; background:none; color:var(--text); font-size:.8rem; padding:8px 14px; text-align:left; }
 .danger { color:var(--danger) !important; }
@@ -252,7 +255,7 @@ header .main { background:var(--ink); color:var(--on-ink); padding:6px 12px; }
 .file small { font-weight:400; font-size:.6rem; color:var(--text-3); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tick { position:absolute; top:4px; right:4px; width:18px; height:18px; border-radius:50%; background:rgba(var(--glass-rgb), .9); box-shadow:inset 0 0 0 1.5px var(--line); font-style:normal; font-size:.7rem; line-height:18px; text-align:center; color:var(--accent); }
 .cell.on .tick { background:var(--accent); color:#fff; box-shadow:none; }
-.bar { position:fixed; left:0; right:0; bottom:0; display:flex; gap:8px; justify-content:center; padding:10px 14px calc(var(--safe-bottom) + 12px); background:rgba(var(--glass-rgb), .94); -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); }
+.bar { position:fixed; left:0; right:0; bottom:0; display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding:10px 14px calc(var(--safe-bottom) + 12px); background:rgba(var(--glass-rgb), .94); -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); }
 .bar button, .bar .send { border:0; background:var(--card); color:var(--text); font-size:.8rem; padding:8px 14px; border-radius:999px; box-shadow:var(--shadow-soft); position:relative; }
 .bar .send select { position:absolute; inset:0; opacity:0; font-size:16px; }
 .pick .grid { grid-template-columns:repeat(auto-fill, minmax(64px, 1fr)); }
