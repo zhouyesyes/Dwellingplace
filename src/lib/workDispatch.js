@@ -14,25 +14,26 @@ const attr = (s, k) => (String(s || "").match(new RegExp(`${k}\\s*=\\s*["“「]
 const DAILY_MAX = 20; // 她活多，5 次不够用（2026-10-16 调到 20）
 const today = () => new Date().toDateString();
 
-export function workroomForAI(who) {
+export function workroomForAI(who, { wake = false } = {}) {
   const w = store.settings.workroom;
   if (!w?.projects?.length) return "";
   return [
     `\n# 工作间`,
     `你在${who}的服务器上有一个工作间：Codex（一个写代码、跑命令的工程助手）在里面的项目文件夹里干活。项目：${w.projects.map(p => `「${p}」`).join("、")}${w.projects.includes("栖所") ? "（「栖所」就是你们现在用的这个栖所的代码）" : ""}。`,
     `${who}让你去做、或者你发现栖所哪里坏了想修，可以把活交给工作间：另起一段写 <交给工作间 项目="项目名">要做什么、在哪些文件、做完怎么确认（比如构建、截图看看）、别碰什么</交给工作间>。Codex 看不到你们的聊天，只看得到这段说明，要写清楚。`,
-    materialsForAI(who),
+    materialsForAI(who, { chat: !wake }),
     `交过去以后，过程都在工作间里；删东西、装东西这类事 Codex 会等${who}点允许，推上线也要${who}在工作间里点，你只负责说清楚要做什么。一天最多交 ${DAILY_MAX} 次，小事别交，聊天里说说就好。`,
   ].join("\n");
 }
 
 // 素材库里有什么（给他看的清单，太长就截）
-function materialsForAI(who) {
+export function materialsForAI(who, { chat = true, tag = "交给工作间" } = {}) {
   const lib = store.workMaterials || {};
   const lines = Object.entries(lib).map(([p, gs]) => `「${p}」：${gs.map(g => `${g.folder ? `文件夹「${g.folder}」` : "没分组的"}（${g.files.slice(0, 12).join("、")}${g.files.length > 12 ? ` 等 ${g.files.length} 个` : ""}）`).join("；")}`);
   return [
     lines.length ? `素材库（${who}存在工作间里的图片和文件）：${lines.join("\n").slice(0, 2500)}` : "",
-    `交活时要带上素材，在标签里加 素材="文件夹名或文件名，逗号隔开"；要带上${who}最近在聊天里发给你的图片和文件，加 带上聊天附件="是"（会先存进素材库，再一起交给 Codex）。例如 <交给工作间 项目="栖所" 素材="贴纸" 带上聊天附件="是">…</交给工作间>`,
+    chat ? `交活时要带上素材，在标签里加 素材="文件夹名或文件名，逗号隔开"；要带上${who}最近在聊天里发给你的图片和文件，加 带上聊天附件="是"（会先存进素材库，再一起交给 Codex）。例如 <交给工作间 项目="栖所" 素材="贴纸" 带上聊天附件="是">…</交给工作间>`
+      : `交活时要带上素材库里的东西，在标签里加 素材="文件夹名或文件名，逗号隔开"，例如 <${tag}${tag === "交给工作间" ? ' 项目="栖所"' : ""} 素材="贴纸">…</${tag}>（只能带素材库里的）`,
   ].filter(Boolean).join("\n");
 }
 
@@ -60,7 +61,7 @@ async function chatFiles(history) {
 }
 
 // 把素材（按文件夹名 / 文件名）和聊天附件挂到任务上，返回挂好的附件
-async function gatherFiles(project, taskId, want, history) {
+export async function gatherFiles(project, taskId, want, history) {
   const files = [];
   const names = want.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
   if (names.length) {
