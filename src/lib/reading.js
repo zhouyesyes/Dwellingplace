@@ -1,3 +1,4 @@
+import { readingPageParts } from "./readingImages.js";
 // 共读里给他看的东西
 //   系统提示：有个书架；他可以写 [便利贴:书名|原文里的一小句|想说的话]，贴在那句话旁边
 //   【此刻】：24 小时里读过的书、来往的划线批注（见 moment.js）
@@ -223,7 +224,7 @@ export function applyReadMemTags(role, text) {
 
 // ---------- 读书页里直接问他 ----------
 // 「问问他」：给他看这一段（和前后各一段），他回一张便利贴；想记的读书笔记也一起记下
-export async function askHim(role, b, { ch, p, paras, chapterTitle, question, quote }) {
+export async function askHim(role, b, { ch, p, paras, chapterTitle, question, quote, page }) {
   const { oneShot, meName } = await import("./chat.js");
   const me = meName(role);
   const around = [paras[p - 1], paras[p + 1]].filter(Boolean).map(x => x.slice(0, 300));
@@ -239,7 +240,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
     `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
     `如果让你自己有收获、想记住，可以在最后另起一行写 [读书笔记:${b.title}|标题|内容]，会记进你的记忆库（不是每次都要）。`,
   ].filter(Boolean).join("\n");
-  const raw = await oneShot(role, prompt, { raw: true });
+  const raw = await oneShot(role, prompt, { raw: true, parts: await readingPageParts(page) });
   const { text: t1, notes } = applyReadMemTags(role, raw);
   const { visibleText } = await import("./chat.js");
   const text = visibleText(t1).trim();
@@ -348,11 +349,11 @@ export async function placeAlong(b, notes, seenCh = -1) {
     addNote(b, { ch: n.ch, p: n.p, start: st, end: Math.min(en, para.length), quote: para.slice(st, en), text: n.text, from: "ai" }).seen = n.ch === seenCh;
   }
 }
-export async function readAlong(role, b, { from, to, maxChars = 24000 }) {
+export async function readAlong(role, b, { from, to, maxChars = 24000, page }) {
   const { oneShot } = await import("./chat.js");
   const items = await alongSlice(b, from, to, maxChars);
   if (!items.length) throw new Error("这几页没有字");
-  const raw = await oneShot(role, await alongPrompt(role, b, items, from), { raw: true });
+  const raw = await oneShot(role, await alongPrompt(role, b, items, from), { raw: true, parts: await readingPageParts(page) });
   const r = await parseAlong(role, items, raw);
   if (!r.notes.length) throw new Error("他没有写什么");
   markHisPos(b, r.upTo.ch, r.upTo.p);

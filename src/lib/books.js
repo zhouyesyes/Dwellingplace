@@ -160,7 +160,9 @@ async function parseEpub(buf) {
         }
       }
       const p = textBlocks.filter(e => !e.contains(node) && (e.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).length;
-      media.push({ p: Math.min(p, paras.length), resource: resources[resource] ? resource : '' });
+      media.push({ p: Math.min(p, paras.length), resource: resources[resource] ? resource : '',
+        alt: (node.getAttribute('alt') || node.querySelector('title')?.textContent || '').trim().slice(0, 1000),
+        caption: (node.closest('figure')?.querySelector('figcaption')?.textContent || '').trim().slice(0, 1000) });
     }
     if (paras.join("").length < 20 && !media.length) continue; // 封面、版权页这种几乎没字的跳过
     const h = doc.querySelector("h1, h2, h3")?.textContent.trim();

@@ -9,6 +9,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
+import { captureReadingPage } from "../lib/readingImages.js";
 import { askHim, readAlong, alongSlice, placeAlong } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
@@ -295,7 +296,7 @@ async function ask() {
   else Object.assign(addNote(b.value, { ...at, text: "", from: "me" }), { seen: true, ask: true }); // 没写话也留一道线：问过他这里
   asking.value = true;
   try {
-    const { text, notes } = await askHim(r, b.value, { ch: ch.value, p: at.p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim(), quote: at.quote });
+    const { text, notes } = await askHim(r, b.value, { ch: ch.value, p: at.p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim(), quote: at.quote, page: captureReadingPage(scroller.value, content.value, ch.value) });
     addNote(b.value, { ...at, text, from: "ai" }).seen = true;
     toast(notes[0] || `${r.name} 在那句旁边写了一句`, 2500);
   } catch (e) {
@@ -313,7 +314,9 @@ const PAGES = 10;
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
+  const page = captureReadingPage(el, content.value, ch.value);
   const seen = visibleParas();
+  if (!seen.length && page.images.length) seen.push(Math.max(0, Math.min(page.images[0].p, paras.value.length - 1)));
   if (!seen.length) return toast("这一页没有字");
   const from = { ch: ch.value, p: Math.min(...seen) };
   // 一页大概多少字：就按这一页算；往后数够十页
@@ -328,7 +331,7 @@ async function readThisPage() {
   along.value = true;
   store.settings.readTip = true;
   try {
-    const res = await readAlong(r, b.value, { from, to, maxChars });
+    const res = await readAlong(r, b.value, { from, to, maxChars, page });
     b.value.alongTo = res.upTo;
     await placeAlong(b.value, res.notes, -1);
     for (const n of store.bookNotes.slice(-res.notes.length)) n.seen = n.ch !== ch.value;
@@ -412,10 +415,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       @scroll.passive="onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
-        <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :source="content.resources?.[m.resource]" @settled="measure" />
+        <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" />
         <p :data-p="i" :class="{ 'his-end': b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
       </template>
-      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :source="content.resources?.[m.resource]" @settled="measure" />
+      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" />
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>

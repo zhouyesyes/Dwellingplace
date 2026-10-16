@@ -8,7 +8,7 @@ exports.prepare = async page => {
     'META-INF/container.xml': '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>',
     'OPS/book.opf': '<package><metadata><title>虚构插图测试书</title></metadata><manifest><item id="c" href="text/nested/ch.xhtml" media-type="application/xhtml+xml"/><item id="s" href="images/树 影.svg" media-type="image/svg+xml"/><item id="p" href="images/p.png" media-type="image/png"/></manifest><spine><itemref idref="c"/></spine></package>',
     'OPS/images/树 影.svg': svg,
-    'OPS/text/nested/ch.xhtml': '<html><body><h1>树影与书页</h1><p>这是一段足够长的虚构正文，用来检查插图与阅读分页。</p><picture><source srcset="../../images/p.png"/><img src="../../images/树%20影.svg"/></picture><p>插图之后的文字仍保持段落编号，可以照常划线和写批注。</p><svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><image href="../../images/p.png" width="200" height="100"/></svg><img src="../../../../private.png"/>' + '<p>接着翻过一页，树影落在纸上。这些文字全部是隔离测试使用的安全内容。</p>'.repeat(25) + '</body></html>',
+    'OPS/text/nested/ch.xhtml': '<html><body><h1>树影与书页</h1><p>这是一段足够长的虚构正文，用来检查插图与阅读分页。</p><figure><figcaption>安全测试题注：树影</figcaption><picture><source srcset="../../images/p.png"/><img src="../../images/树%20影.svg" alt="故意不描述形状的替代文字"/></picture></figure><p>插图之后的文字仍保持段落编号，可以照常划线和写批注。</p><svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><image href="../../images/p.png" width="200" height="100"/></svg><img src="../../../../private.png"/>' + '<p>接着翻过一页，树影落在纸上。这些文字全部是隔离测试使用的安全内容。</p>'.repeat(65) + '</body></html>',
   };
   const raster = await page.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 80; canvas.height = 40;
@@ -31,7 +31,7 @@ exports.prepare = async page => {
     const id = await importBook(new File([new Uint8Array(bytes)], '测试.epub'));
     const body = await loadBook(id);
     if (body.chapters[0].media.length !== 7 || Object.keys(body.resources).length !== 7) throw Error('图片解析失败');
-    if (body.chapters[0].paras.length !== 28 || body.chapters[0].paras[1] !== '这是一段足够长的虚构正文，用来检查插图与阅读分页。') throw Error('文字段落编号变化');
+    if (body.chapters[0].paras.length !== 68 || body.chapters[0].paras[1] !== '这是一段足够长的虚构正文，用来检查插图与阅读分页。') throw Error('文字段落编号变化');
     const saved = await get('book:' + id);
     if (!saved.resources || saved.chapters[0].media[2].resource) throw Error('持久化或越界隔离失败');
     store.books[0] = { ...store.books.find(b => b.id === id), id: 'preview-book' };
@@ -56,6 +56,7 @@ exports.verify = async page => {
     return { count: images.length, fit: images.every(i => i.width <= column + 1 && i.height <= el.clientHeight), placeholder: el.querySelector('.image-missing')?.textContent, pages: Math.round(el.scrollWidth / el.clientWidth) };
   });
   assert.equal(result.count,6); assert.ok(result.fit); assert.equal(result.placeholder,'图片暂不可用'); assert.ok(result.pages > 1);
+  await require('./reading-images.cjs').verify(page);
   // 实际点击手机两侧前后翻页，再回到插图所在页截图。
   const box = await page.locator('.page').boundingBox();
   await page.mouse.click(box.x + box.width - 5, box.y + 100);

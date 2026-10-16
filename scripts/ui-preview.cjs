@@ -41,7 +41,7 @@ const { chromium } = require('playwright');
     await build({ configFile: false, envDir: temporary, base: './', plugins: [vue()], build: { outDir: dist, emptyOutDir: true }, logLevel: 'warn' });
     if (fixture === 'reader-images') {
       const entry = path.join(temporary, 'image-fixture.js');
-      fs.writeFileSync(entry, `export { importBook, loadBook } from ${JSON.stringify(path.resolve('src/lib/books.js'))}; export { store } from ${JSON.stringify(path.resolve('src/store/index.js'))}; export { get, set } from ${JSON.stringify(path.resolve('src/lib/kv.js'))}; export * from ${JSON.stringify(path.resolve('src/lib/epubImages.js'))};`);
+      fs.writeFileSync(entry, `export { importBook, loadBook } from ${JSON.stringify(path.resolve('src/lib/books.js'))}; export { store } from ${JSON.stringify(path.resolve('src/store/index.js'))}; export { get, set } from ${JSON.stringify(path.resolve('src/lib/kv.js'))}; export * from ${JSON.stringify(path.resolve('src/lib/epubImages.js'))}; export * from ${JSON.stringify(path.resolve('src/lib/readingImages.js'))}; export { streamChat } from ${JSON.stringify(path.resolve('src/lib/providers.js'))}; export { askHim, readAlong } from ${JSON.stringify(path.resolve('src/lib/reading.js'))};`);
       await build({ configFile: false, envDir: temporary, define: { 'process.env.NODE_ENV': '"production"' }, build: { outDir: dist, emptyOutDir: false, lib: { entry, formats: ['es'], fileName: () => 'image-fixture.js' } }, logLevel: 'warn' });
     }
     const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml', '.webp':'image/webp', '.woff2':'font/woff2', '.json':'application/json' };
