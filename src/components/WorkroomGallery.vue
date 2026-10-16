@@ -27,10 +27,14 @@ function key(e) {
   }
 }
 const distance = t => Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+function rebase(touches) {
+  start = { x:touches[0].clientX, y:touches[0].clientY, panX:x.value, panY:y.value, scale:scale.value };
+  pinch = touches.length > 1 ? { distance:distance(touches), scale:scale.value } : null;
+}
 function down(e) {
-  moved = false; multi = e.touches.length > 1;
-  start = { x:e.touches[0].clientX, y:e.touches[0].clientY, panX:x.value, panY:y.value, scale:scale.value };
-  pinch = multi ? { distance:distance(e.touches), scale:scale.value } : null;
+  if (!start) { moved = false; multi = false; }
+  multi ||= e.touches.length > 1;
+  rebase(e.touches);
 }
 function move(e) {
   e.preventDefault(); moved = true;
@@ -45,7 +49,11 @@ function move(e) {
   }
 }
 function up(e) {
-  if (e.touches.length) return;
+  if (e.touches.length) {
+    // 捏合松开一指后，从剩余触点和当前位移继续拖；整次手势结束前不允许换页。
+    rebase(e.touches);
+    return;
+  }
   if (start && !multi && start.scale === 1 && scale.value === 1) {
     const dx = e.changedTouches[0].clientX-start.x, dy = e.changedTouches[0].clientY-start.y;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)*1.5) step(dx < 0 ? 1 : -1);

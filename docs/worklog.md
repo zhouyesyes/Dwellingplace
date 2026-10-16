@@ -13,6 +13,15 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 修复效果图捏合转单指拖动跳位
+- 接着 b46ba87 独立验收发现的问题修复；先 git pull（已最新），起始工作区干净。仅改 WorkroomGallery.vue、现有 workroom-materials fixture 的查看器断言和本日志，不改素材删除语义、服务端、主页/聊天/共读；无新增依赖，无推送或部署。
+- 触点增加/减少时用当前触点坐标、图片当前位移及缩放重设基准；捏合松开任意一指后不再沿用原第一指起点。多指标记保持到全部松手，捏回 1 倍后剩余指继续横拖也不能误换页；全部松手后的新单指滑动恢复正常。
+- 明确回归序列已写入持久 fixture：固定 Touch identifier，分别保留第一指/第二指，断言松指不跳、1×2px 位移只拖动 1×2px、放大横拖不换页、捏回原比例后同次手势不换页、新手势左右换页。先在旧代码跑失败（预期 x=1，实际 x=-49；退出 1），修复后手机 390×844/平板 834×1194 浅深色四组通过；精确小位移用 DOM TouchEvent，已有 CDP 手势断言仍运行，不能冒充 Safari 真机。
+- 通过（退出均为 0）：手机/平板查看器定向回归；workroom-attachments、workroom-progress、preview-artifacts；workroom-ui 与 workroom-preview-ui（/tmp 临时入口仅跳过截图写入，其余断言不变）；git diff --check；npx --no-install vite build --outDir /tmp/qisuo-gesture-build。构建只有既有导入/耗时提示，界面有既有 CalendarWidget 提示。
+- ui-preview 当前任务 --route /work --fixture workroom-gallery --views phone,tablet 退出 0，运行 1afe8b1d-7edf-4f62-9d44-f68502cda0e7 生成新的四张截图；人工查看手机浅色/平板深色，四组含新增回归断言。旧 .qisuo-previews 文件逐个 SHA-256 校验变化为 0，没有覆盖或删除已有截图。
+- **还剩/真机风险**：iPhone/iPad Safari 与 PWA 的真实触点交接、系统手势、横竖屏/分屏仍需真机确认；本机 Chromium/DOM/CDP 不替代 iOS 实测。本次未改缩放边界与其他查看器行为。
+
+
 ### 2026-10-16 · Codex · 工作间收件箱删除与沉浸式效果图
 - 当前任务 01a14402-031e-74e0-b2e0-08fce990ec17。先 git pull 并读施工日志；按仓库要求 npm ci 恢复现有锁定依赖，无新增包。仅改工作间组件、bridge 素材接口及对应验证/文档，未修改主页、聊天或共读，未读取/删除真实素材，未推送或部署。
 - 收件箱新增每项删除、多选/全选/取消、二次确认；逐项请求，成功项移除，失败项显示文件名/原因并保留勾选可重试。服务端从当前项目目录按 ID 查找，POST delete 只写 deletedAt 并从列表隐藏，不 unlink、不迁移；任务附件、原路径和素材库链接都保留。删除幂等，已删除条目拒绝再改名/归档/挂接；从历史任务主动再次保存可恢复收件箱入口。既有多选上传、滚动、预览/下载/路径、重命名/挂接通知/归档沿用。

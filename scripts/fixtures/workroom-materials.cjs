@@ -126,6 +126,42 @@ exports.verify = async (page, mode, state) => {
     const touch=async(type,points)=> { await cdp.send('Input.dispatchTouchEvent',{type:({touchstart:'touchStart',touchmove:'touchMove',touchend:'touchEnd'})[type],touchPoints:points.map(([x,y],id)=>({x,y,id}))}); await page.waitForTimeout(30); };
     await touch('touchstart',[[300,300]]); await touch('touchmove',[[100,300]]); await touch('touchend',[]);
     assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4');
+    // 精确复现触点连续变化：固定 identifier，分别松开第一指和第二指。
+    const emitTouch = (type, touches, changed = touches) => stage.evaluate((el, args) => {
+      const points = list => list.map(([identifier, clientX, clientY]) => new Touch({identifier, target:el, clientX, clientY}));
+      el.dispatchEvent(new TouchEvent(args.type, {bubbles:true, cancelable:true, touches:points(args.touches), changedTouches:points(args.changed)}));
+    }, {type, touches, changed});
+    const transform = () => stage.locator('img').evaluate(el => {
+      const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      return {x:m.m41, y:m.m42, scale:m.a};
+    });
+    for (const survivor of [0,1]) {
+      await emitTouch('touchstart',[[0,100,300],[1,200,300]]);
+      await emitTouch('touchmove',[[0,50,300],[1,250,300]]);
+      const before = await transform();
+      assert.equal(before.scale,2);
+      const x = survivor === 0 ? 50 : 250, ended = 1-survivor;
+      await emitTouch('touchend',[[survivor,x,300]],[[ended,ended === 0 ? 50 : 250,300]]);
+      assert.deepEqual(await transform(),before,'松开任意一指本身不能使图片跳位');
+      await emitTouch('touchmove',[[survivor,x+1,302]]);
+      assert.deepEqual(await transform(),{x:before.x+1,y:before.y+2,scale:2},'剩余指移动 1×2 px，图片也只能移动 1×2 px');
+      await emitTouch('touchmove',[[survivor,x-100,302]]);
+      await emitTouch('touchend',[],[[survivor,x-100,302]]);
+      assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4','放大后连续拖图不能换页');
+      // 再次捏回原比例，松开一指后继续滑动仍属于本次多指手势。
+      await emitTouch('touchstart',[[0,50,300],[1,250,300]]);
+      await emitTouch('touchmove',[[0,100,300],[1,200,300]]);
+      assert.equal((await transform()).scale,1);
+      await emitTouch('touchend',[[1,200,300]],[[0,100,300]]);
+      await emitTouch('touchmove',[[1,100,300]]);
+      await emitTouch('touchend',[],[[1,100,300]]);
+      assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4','多指手势未结束前不能误换页');
+    }
+    // 全部松手后开始新的原比例单指滑动，左右换页都应恢复。
+    await emitTouch('touchstart',[[0,300,300]]); await emitTouch('touchmove',[[0,100,300]]); await emitTouch('touchend',[],[[0,100,300]]);
+    assert.equal(await page.locator('.gallery-top span').innerText(),'3 / 4');
+    await emitTouch('touchstart',[[0,100,300]]); await emitTouch('touchmove',[[0,300,300]]); await emitTouch('touchend',[],[[0,300,300]]);
+    assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 4');
     await touch('touchstart',[[100,300],[200,300]]); await touch('touchmove',[[50,300],[250,300]]); await touch('touchend',[]);
     assert((await stage.locator('img').getAttribute('style')).includes('scale(2)'));
     await touch('touchstart',[[300,300]]); await touch('touchmove',[[100,300]]); await touch('touchend',[]);
