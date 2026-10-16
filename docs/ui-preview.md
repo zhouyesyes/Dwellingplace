@@ -64,3 +64,13 @@ npx --no-install vite build
 ### 工作间素材的虚构界面
 
 `--route /work --fixture workroom-materials` 查看项目收件箱，`--fixture workroom-attachments` 查看任务附件。仅加载脚本内的虚构项目/任务及绘制 PNG，在空白 IndexedDB 写入本次本地 mock 地址；mock 请求由 Playwright 截获，不连接线上服务器。手机浅色截图后还运行预览、通知、重命名/归档交互断言；默认无 fixture 的隔离规则保持原样。使用真实任务 `--task` 即可按既有 manifest 回传。
+
+工作间移动端分组新增以下隔离 fixture（手机/平板、浅深色可复用 `--views`/`--themes`）：
+
+- `workroom-organized-default`：初始折叠及同一会话刷新保留展开状态。
+- `workroom-organized-expanded`：11 张图的文件夹网格、取消整组删除、中文合成不提交、确认保存、刷新改名保留、素材大图页码。
+- `workroom-organized-new`：新任务内从收件箱选素材。
+- `workroom-organized-flow`：中文新任务、混合附件来源、上传失败后复用任务重试。
+- `workroom-organized-output` / `workroom-organized-preview`：同轮分两次回传合为 11 文件的折叠产物组 / 第 2 张全屏查看。
+
+原始内部路由、尺寸和时间标注仍保存在受保护附件元数据中；当前界面默认显示折叠产物组和封面，展开为网格，不再逐项展示技术元数据。

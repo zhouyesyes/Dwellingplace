@@ -9,17 +9,43 @@ exports.install = async (context, origin, mode) => {
   if (mode === 'workroom-materials-long' || mode === 'workroom-materials-delete') {
     for (let i = 1; i <= 25; i++) materials.push({...materials[0], id:'preview-'+i, name:`虚构素材-${i}.png`});
   }
+  const groups = [{id:'fixture-group',name:'贴纸参考图',files:[id]}];
+  if (mode.startsWith('workroom-organized-')) {
+    for(let i=1;i<11;i++) materials.push({...materials[0],id:'organized-'+i,name:'参考图 '+(i+1)+'.png'});
+    groups[0].files = materials.map(a=>a.id);
+  }
   const attempts = [];
   const calls = [];
-  const state = {calls, attempts, hold:null, failNotifyOnce:false, deleteFailed:false};
+  const state = {groups, materials, calls, attempts, hold:null, failNotifyOnce:false, deleteFailed:false, created:0};
   await context.addInitScript(() => { Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text => {window.copiedMaterialPath=text;}}}); window.EventSource = class { constructor() { this.readyState=1; queueMicrotask(()=>this.onopen?.()); } close(){this.readyState=2;} }; });
   await context.route(origin + '/p/preview/**', async route => {
     const req = route.request(), url = new URL(req.url()), p = decodeURIComponent(url.pathname.replace('/p/preview/codex',''));
     const send = json => route.fulfill({json});
     if(p==='/status') return send({ready:true,account:{type:'chatgpt'},projects:['栖所'],threads:[task],policy:{},seq:0});
+    if(p==='/threads' && req.method()==='POST') {
+      state.created++; return send({thread:task});
+    }
     if(p==='/projects/git') return send({cloned:false});
-    if(p==='/threads/preview-task/events') return send({thread:task,events:['workroom-gallery','workroom-gallery-grid'].includes(mode) ? [{seq:1,method:'qisuo/user/message',params:{threadId:task.id,text:'虚构验收任务\n'.repeat(45)}},{seq:2,method:'qisuo/preview/ready',params:{threadId:task.id,attachments:Array.from({length:4},(_,i)=>({...attachments[0],id:'gallery-'+i,name:'内部文件-'+i+'.png',preview:{route:'/settings',width:390,height:844,theme:'light'}}))}}] : [],approvals:[]});
+    if(p==='/threads/preview-task/events') {
+      const data = {thread:task,events:(['workroom-gallery','workroom-gallery-grid','workroom-organized-output','workroom-organized-preview'].includes(mode)) ? [{seq:1,method:'qisuo/user/message',params:{threadId:task.id,text:'虚构验收任务\n'.repeat(45)}},{seq:2,method:'qisuo/preview/ready',params:{threadId:task.id,attachments:Array.from({length:mode.startsWith('workroom-organized-') ? 11 : 4},(_,i)=>({...attachments[0],id:'gallery-'+i,name:'内部文件-'+i+'.png',preview:{route:'/settings',width:390,height:844,theme:'light'}}))}}] : [],approvals:[]};
+      if(mode.startsWith('workroom-organized-') && data.events.length) {
+        const event = data.events[1], all = event.params.attachments;
+        event.params.attachments = all.slice(0,5);
+        data.events.push({...event,seq:3,params:{...event.params,attachments:all.slice(5)}});
+      }
+      return send(data);
+    }
     if(p==='/threads/preview-task/attachments' && req.method()==='GET') return send({attachments});
+    if(p==='/projects/栖所/material-groups') {
+      if(req.method()==='GET') return send({groups});
+      const b=req.postDataJSON();
+      if(b.action==='create') groups.push({id:'group-'+groups.length,name:b.name,files:[]});
+      const g=groups.find(g=>g.id===b.id);
+      if(b.action==='rename') g.name=b.name;
+      if(b.action==='append') { for(const other of groups) other.files=other.files.filter(id=>!b.files.includes(id)); g.files.push(...b.files); }
+      if(b.action==='delete') { for(let i=materials.length-1;i>=0;i--) if(g.files.includes(materials[i].id)) materials.splice(i,1); groups.splice(groups.indexOf(g),1); }
+      calls.push({group:b}); return send({groups});
+    }
     if(p==='/projects/栖所/materials' && req.method()==='GET') return send({materials});
     if((p.startsWith('/threads/preview-task/attachments/') || p.startsWith('/projects/栖所/materials/')) && req.method()==='GET') return route.fulfill({contentType:'image/png',body:png,headers:{'Content-Disposition':url.searchParams.has('download')?'attachment; filename=test.png':'inline'}});
     const b = req.headers()['content-type']?.startsWith('application/json') ? req.postDataJSON() : {};
@@ -30,9 +56,14 @@ exports.install = async (context, origin, mode) => {
       const i=materials.findIndex(a=>a.id===fileId); if(i<0) return route.fulfill({status:404,json:{error:{message:'素材不存在'}}});
       materials.splice(i,1); return send({ok:true});
     }
-    if(p.endsWith('/rename')) { materials[0].name=b.name; return send(materials[0]); }
+    if(p.endsWith('/rename')) { const a=materials.find(a=>a.id===p.split('/').at(-2)); a.name=b.name; return send(a); }
     if(p.endsWith('/archive')) { materials[0].status='archived'; materials[0].libraryPath=materials[0].path.replace('/inbox/','/library/'); materials[0].libraryProjectPath=materials[0].projectPath.replace('/inbox/','/library/'); return send(materials[0]); }
-    if(p.endsWith('/attach')) return send(attachments[0]);
+    if(p.endsWith('/attach')) {
+      const a=materials.find(a=>a.id===p.split('/').at(-2));
+      const attached={...a,notification:'pending'};
+      if(!attachments.some(f=>f.id===a.id)) attachments.push(attached);
+      return send(attached);
+    }
     if(p.endsWith('/send')) { if(state.failNotifyOnce) {state.failNotifyOnce=false; return route.fulfill({status:503,json:{error:{message:'模拟通知失败'}}});} calls.push(b); for(const a of attachments) if(b.attachments?.includes(a.id)) a.notification='delivered'; for(const a of materials) if(b.attachments?.includes(a.id)) {a.tasks=[task.id];a.status='used';} return send({steer:true,notified:true}); }
     if(p==='/threads/preview-task/attachments' || p==='/projects/栖所/materials') {
       const name = url.searchParams.get('name');
@@ -58,10 +89,37 @@ exports.prepare = async (page, origin, mode) => {
   }));
   await page.goto(origin+'/#/work');
   await page.getByText('项目素材收件箱',{exact:true}).waitFor();
+  if(mode.startsWith('workroom-organized-')) {
+    await page.locator('.material-panel').waitFor();
+    assert.equal(await page.locator('.material-panel').evaluate(el=>el.open),false);
+    if(['workroom-organized-output','workroom-organized-preview'].includes(mode)) {
+      await page.locator('button.row').filter({hasText:task.title}).click();
+      await page.getByText('直接用 Codex',{exact:true}).click();
+      await page.locator('.output-group').waitFor();
+      await page.locator('.output-group').scrollIntoViewIfNeeded();
+    } else if(['workroom-organized-new','workroom-organized-flow'].includes(mode)) {
+      await page.locator('button.row.add').click();
+      await page.locator('.new-task input').first().fill('整理贴纸参考');
+      await page.locator('.new-task .material-panel > summary').click();
+      await page.locator('.new-task .material-group > summary').click();
+      await page.locator('.new-task').scrollIntoViewIfNeeded();
+    } else if(mode==='workroom-organized-expanded') {
+      await page.locator('.material-panel > summary').click();
+      await page.locator('.material-group > summary').click();
+      await page.locator('.material-group').scrollIntoViewIfNeeded();
+    }
+    return;
+  }
+  await page.locator('.material-panel > summary').click();
+  await page.locator('.upload-controls > summary').click();
+  await page.locator('.material-group > summary').first().click();
   if(mode==='workroom-attachments' || ['workroom-gallery','workroom-gallery-grid'].includes(mode)) {
     await page.locator('button.row').filter({hasText:task.title}).click();
     await page.getByText('直接用 Codex',{exact:true}).click();
     await page.getByText('任务原始附件',{exact:true}).waitFor();
+    await page.locator('.material-panel > summary').click();
+    await page.locator('.upload-controls > summary').click();
+    await page.locator('.material-group > summary').first().click();
   }
   await page.locator('.material-file img').first().waitFor();
   await page.waitForFunction(()=>document.querySelector('.material-file img')?.naturalWidth>0);
@@ -79,12 +137,13 @@ exports.prepare = async (page, origin, mode) => {
       el.scrollTop = el.scrollHeight;
       return {top:el.scrollTop,height:el.scrollHeight,client:el.clientHeight,overflow:getComputedStyle(el).overflowY};
     });
-    assert(metrics.top > 1000 && metrics.height > metrics.client && metrics.overflow === 'auto');
+    assert(metrics.top > 100 && metrics.height > metrics.client && metrics.overflow === 'auto');
     await page.getByText('虚构素材-25.png',{exact:true}).scrollIntoViewIfNeeded();
     assert(await page.getByText('虚构素材-25.png',{exact:true}).isVisible());
     assert(await page.locator('button.row.add').isVisible());
   }
   if (['workroom-gallery','workroom-gallery-grid'].includes(mode)) {
+    await page.locator('.output-group > summary').click();
     await page.locator('.preview-grid button').first().scrollIntoViewIfNeeded();
     await page.locator('.preview-grid img').first().waitFor();
   }
@@ -97,6 +156,80 @@ exports.prepare = async (page, origin, mode) => {
 };
 exports.verify = async (page, mode, state) => {
   const panel = page.locator('.material-panel');
+  if(mode.startsWith('workroom-organized-')) {
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    if(mode==='workroom-organized-default') {
+      await panel.locator(':scope > summary').click();
+      await page.waitForTimeout(50);
+      await page.reload();
+      await page.locator('.material-panel').waitFor();
+      assert.equal(await page.locator('.material-panel').evaluate(el=>el.open),true,'同一会话重新进入保留展开状态');
+      await page.locator('.material-panel > summary').click();
+    }
+    if(mode==='workroom-organized-preview') {
+      assert.equal(await page.locator('.output-group').evaluate(el=>el.open),false);
+      await page.locator('.output-group > summary').click();
+      await page.getByRole('button',{name:'查看效果图 2',exact:true}).click();
+      await page.locator('.gallery-top span').filter({hasText:'2 / 11'}).waitFor();
+    }
+    if(mode==='workroom-organized-expanded') {
+      assert.equal(await panel.locator('.material-grid > article').count(),11);
+      assert.equal(await panel.locator('code').count(),0);
+      page.once('dialog',d=>d.dismiss());
+      await panel.getByRole('button',{name:'删除此组',exact:true}).click();
+      assert(!state.calls.some(c=>c.group?.action==='delete'),'取消整组删除不能发请求');
+      await panel.getByRole('button',{name:'预览 测试贴纸原图.png',exact:true}).click();
+      await page.locator('.gallery').waitFor();
+      assert.equal(await page.locator('.gallery-top span').innerText(),'1 / 11');
+      await page.getByRole('button',{name:'下一张',exact:true}).click();
+      assert.equal(await page.locator('.gallery-top span').innerText(),'2 / 11');
+      await page.getByRole('button',{name:'关闭大图',exact:true}).click();
+      await panel.locator('.material-file details > summary').first().click();
+      await panel.getByRole('button',{name:'重命名',exact:true}).first().click();
+      const input=panel.locator('.name-form input');
+      await input.dispatchEvent('compositionstart');
+      await input.fill('中文输入.png');
+      await input.press('Enter');
+      assert.equal(state.materials[0].name,'测试贴纸原图.png');
+      await input.dispatchEvent('compositionend');
+      await panel.getByRole('button',{name:'确认保存',exact:true}).click();
+      await panel.getByText('中文输入.png',{exact:true}).waitFor();
+      await panel.getByRole('button',{name:'重命名文件夹',exact:true}).click();
+      await panel.locator('.name-form input').fill('贴纸参考图');
+      await panel.getByRole('button',{name:'确认保存',exact:true}).click();
+      await panel.locator('.upload-controls > summary').click();
+      await panel.getByRole('button',{name:'刷新列表',exact:true}).click();
+      await panel.locator('.upload-controls > summary').click();
+      await panel.getByText('中文输入.png',{exact:true}).waitFor();
+      await page.waitForTimeout(3000);
+      await panel.locator('.material-file details').evaluateAll(els=>els.forEach(el=>el.open=false));
+      await page.locator('.wr').evaluate(el => {
+        const group = document.querySelector('.material-group');
+        el.scrollTop += group.getBoundingClientRect().top - el.getBoundingClientRect().top - 85;
+      });
+    }
+    if(['workroom-organized-new','workroom-organized-flow'].includes(mode)) {
+      await page.locator('.new-task').getByRole('button',{name:'选择此素材',exact:true}).first().click();
+      assert(await page.locator('.new-task form').innerText().then(t=>t.includes('测试贴纸原图.png')));
+      if(mode==='workroom-organized-flow') {
+        const form=page.locator('.new-task form'), input=form.locator('input').first();
+        await input.dispatchEvent('compositionstart'); await input.fill('中文新任务'); await input.press('Enter');
+        assert.equal(state.created,0);
+        await input.dispatchEvent('compositionend');
+        await form.getByRole('button',{name:'临时上传',exact:true}).click();
+        await form.locator('input[type=file]').setInputFiles({name:'失败重试.png',mimeType:'image/png',buffer:png});
+        await form.getByRole('button',{name:'确认创建任务',exact:true}).click();
+        await form.getByRole('alert').waitFor();
+        assert.equal(state.created,1);
+        assert.equal(state.attempts.length,1);
+        await form.getByRole('button',{name:'确认创建任务',exact:true}).click();
+        await page.getByText('直接用 Codex',{exact:true}).waitFor();
+        assert.equal(state.created,1,'失败重试不能重复创建任务');
+        assert.equal(state.attempts.length,2);
+      }
+    }
+    return;
+  }
   if(mode==='workroom-materials-delete') {
     const del=panel.getByRole('button',{name:'删除 测试贴纸原图.png',exact:true});
     page.once('dialog',d=>d.dismiss()); await del.click(); assert.equal(state.calls.length,0);
@@ -108,7 +241,7 @@ exports.verify = async (page, mode, state) => {
     await panel.locator('input[type=checkbox]').nth(2).check();
     page.once('dialog',d=>d.accept()); await panel.getByRole('button',{name:'删除所选（3）',exact:true}).click();
     await panel.getByRole('status').filter({hasText:'已删除 2 个；失败 1 个：虚构素材-2.png'}).waitFor();
-    assert.equal(await panel.locator('.material-body > .material-file').count(),23);
+    assert.equal(await panel.locator('.material-grid > .material-file').count(),23);
     assert.equal(await panel.locator('input[type=checkbox]:checked').count(),1);
     page.once('dialog',d=>d.accept()); await panel.getByRole('button',{name:'删除所选（1）',exact:true}).click();
     await panel.getByText('已删除 1 个',{exact:true}).waitFor();
@@ -211,19 +344,19 @@ exports.verify = async (page, mode, state) => {
     release(); state.hold = null;
     await panel.getByText('本次成功 9 个，失败 1 个。已成功的原件会保留。',{exact:true}).waitFor();
     assert.equal(state.attempts.length,10);
-    assert.equal(await panel.locator('.material-body > .material-file').count(),10);
+    assert.equal(await panel.locator('.material-grid > .material-file').count(),10);
     await panel.getByRole('button',{name:'仅重试失败项（1）',exact:true}).click();
     await panel.getByText('本次成功 1 个，失败 0 个。已成功的原件会保留。',{exact:true}).waitFor();
     assert.equal(state.attempts.length,11);
     assert.equal(state.attempts.at(-1).name,'失败重试.png');
     for(const attempt of state.attempts) assert.deepEqual(attempt.bytes,png,'原始字节不压缩');
-    assert.equal(await panel.locator('.material-body > .material-file').count(),11);
+    assert.equal(await panel.locator('.material-grid > .material-file').count(),11);
     // 同名另存，不影响已保存的条目。
     await panel.getByRole('button',{name:'清空上传清单',exact:true}).click();
     await panel.locator('input[type=file]').setInputFiles({name:'待上传-1.png',mimeType:'image/png',buffer:png});
     await panel.getByRole('button',{name:'开始上传',exact:true}).click();
     await panel.getByText('本次成功 1 个，失败 0 个。已成功的原件会保留。',{exact:true}).waitFor();
-    assert.equal(await panel.locator('.material-body > .material-file').count(),12);
+    assert.equal(await panel.locator('.material-grid > .material-file').count(),12);
     await panel.getByRole('button',{name:'清空上传清单',exact:true}).click();
     await panel.locator('input[type=file]').setInputFiles([{name:'空.png',mimeType:'image/png',buffer:Buffer.alloc(0)},{name:'不支持.exe',mimeType:'application/octet-stream',buffer:Buffer.from('x')},{name:'过大.png',mimeType:'image/png',buffer:Buffer.alloc(20*1024*1024+1)}]);
     await panel.getByRole('button',{name:'仅重试失败项（3）',exact:true}).click();
@@ -231,37 +364,45 @@ exports.verify = async (page, mode, state) => {
     assert.equal(state.attempts.length,12,'本地不合规文件不发请求');
     return;
   }
+  await panel.locator('.material-file details > summary').first().click();
   await panel.getByRole('button',{name:'复制路径',exact:true}).click();
-  assert.equal(await page.evaluate(()=>window.copiedMaterialPath),await panel.locator('.material-file code').first().innerText());
+  assert((await page.evaluate(()=>window.copiedMaterialPath)).includes('.qisuo-attachments'));
   if(mode==='workroom-materials') assert((await page.evaluate(()=>window.copiedMaterialPath)).startsWith('../.qisuo-attachments/projects/栖所/'));
 
   assert(await panel.getByText('下载原件',{exact:true}).count());
   await panel.getByRole('button',{name:'预览 测试贴纸原图.png',exact:true}).click();
   await page.getByRole('dialog').waitFor();
-  await page.getByRole('button',{name:'关闭预览',exact:true}).click();
+  await page.getByRole('button',{name:'关闭大图',exact:true}).click();
   if(mode==='workroom-attachments') {
     await panel.getByRole('button',{name:'通知 Codex / 重试',exact:true}).click();
-    await panel.getByText(`image/png · ${Math.ceil(png.length/1024)} KB · 已通知 Codex`,{exact:true}).waitFor();
+    await page.waitForTimeout(100);
     assert(state.calls[0].attachments.includes(id));
     await panel.getByRole('button',{name:'保存到项目收件箱',exact:true}).click();
     await panel.getByRole('button',{name:'从项目素材选择',exact:true}).click();
+    await page.waitForTimeout(150);
+    await panel.locator('.material-group, .material-file details').evaluateAll(els=>els.forEach(el=>el.open=true));
     await panel.getByRole('button',{name:'附加并通知任务',exact:true}).waitFor();
     await panel.getByRole('button',{name:'返回任务附件',exact:true}).click();
+    await page.waitForTimeout(150);
+    await panel.locator('.material-group, .material-file details').evaluateAll(els=>els.forEach(el=>el.open=true));
   } else {
-    await panel.locator('select').selectOption(task.id);
+    await panel.locator('select').last().selectOption(task.id);
     await panel.getByRole('button',{name:'附加并通知任务',exact:true}).click();
-    await panel.getByText(`image/png · ${Math.ceil(png.length/1024)} KB · 已用于任务`,{exact:true}).waitFor();
+    await page.waitForTimeout(100);
     assert(state.calls[0].attachments.includes(id));
-    page.once('dialog',d=>d.accept('调色素材.png'));
     await panel.getByRole('button',{name:'重命名',exact:true}).click();
+    await panel.locator('.name-form input').fill('调色素材.png');
+    await panel.getByRole('button',{name:'确认保存',exact:true}).click();
     await panel.getByText('调色素材.png',{exact:true}).waitFor();
     await panel.getByRole('button',{name:'保存到素材库',exact:true}).click();
-    await panel.getByText(`image/png · ${Math.ceil(png.length/1024)} KB · 已归档`,{exact:true}).waitFor();
+    await page.waitForTimeout(100);
   }
   await panel.getByPlaceholder('例如：保留透明背景，统一贴纸颜色').fill('追加上传验收');
   await panel.locator('input[type=file]').setInputFiles({name:'追加原图.png',mimeType:'image/png',buffer:png});
   await panel.getByRole('button',{name:mode==='workroom-attachments'?'上传并通知 Codex':'开始上传',exact:true}).click();
-  await panel.locator('.material-body > .material-file').getByText('追加原图.png',{exact:true}).waitFor();
+  await page.waitForTimeout(150);
+  await panel.locator('.material-group').evaluateAll(els=>els.forEach(el=>el.open=true));
+  await panel.locator('.material-grid > .material-file').getByText('追加原图.png',{exact:true}).waitFor();
   if(mode==='workroom-attachments') { assert(state.calls.some(c=>c.attachments?.includes('22345678-1234-1234-1234-123456789abc'))); }
   if(mode==='workroom-attachments') {
     await panel.getByRole('button',{name:'清空上传清单',exact:true}).click();

@@ -109,3 +109,13 @@ assert.equal(lifecycle.testApi.thread('old').byId['ap:ask'].state, 'answered');
 lifecycle.testApi.apply({ method: 'qisuo/codex/exited', params: {} });
 assert.equal(lifecycle.testApi.thread('old').turnId, null);
 console.log('通过：保留远端的历史执行状态纠正、重启清理和失效审批清理');
+
+// 同一轮多次截图回传合并、去重，下一轮保留独立产物组。
+const output = (ids) => lifecycle.testApi.apply(ev('qisuo/preview/ready','outputs',{attachments:ids.map(id=>({id,name:id+'.png'}))}));
+output(['one','two']); output(['two','three']);
+assert.equal(lifecycle.testApi.thread('outputs').items.length,1);
+assert.equal(lifecycle.testApi.thread('outputs').items[0].attachments.length,3);
+lifecycle.testApi.apply(ev('turn/completed','outputs',{turn:{id:'first'}}));
+output(['four']);
+assert.equal(lifecycle.testApi.thread('outputs').items.filter(i=>i.kind==='preview').length,2);
+console.log('通过：同轮多次截图合组/去重，跨轮产物独立保留');

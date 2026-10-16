@@ -77,9 +77,15 @@ export function apply(ev) {
   if (!tid) return;
   const t = thread(tid);
   switch (ev.method) {
-    case "qisuo/preview/ready":
-      add(t, { kind: "preview", attachments: p.attachments || [], ts: ev.ts });
+    case "qisuo/preview/ready": {
+      // 同一轮连续回传的多次截图合为一个产物组，旧事件重放也沿用。
+      const last = t.items.at(-1);
+      if (last?.kind === "preview") {
+        const ids = new Set(last.attachments.map(a => a.id));
+        last.attachments.push(...(p.attachments || []).filter(a => !ids.has(a.id)));
+      } else add(t, { kind:"preview", attachments:p.attachments || [], ts:ev.ts });
       break;
+    }
     case "qisuo/preview/error":
       add(t, { kind: "previewError", text: p.message, ts: ev.ts });
       break;
@@ -237,7 +243,7 @@ export function disconnect() { flushEvents(); progressed.clear(); clearTimeout(r
 // ---------- 做事 ----------
 export async function startLogin() { wr.login = await api("/login", { method: "POST" }); return wr.login; }
 export const logout = () => api("/logout", { method: "POST" }).then(refresh);
-export const newProject = name => api("/projects", { method: "POST", body: { name } }).then(refresh);
+export const newProject = async name => { const result = await api("/projects", { method:"POST", body:{name} }); await refresh(); return result; };
 export const deleteProject = name => api("/projects/delete", { method: "POST", body: { name } }).then(refresh);
 export async function newThread(project, title) {
   const r = await api("/threads", { method: "POST", body: { project, title } });
@@ -282,3 +288,8 @@ export async function uploadMaterial(project, file, purpose = "") {
   if (!r.ok) throw new Error(data.error?.message || "素材上传失败");
   return data;
 }
+
+
+// 文件夹只整理引用，不移动或覆盖原件。
+export const listMaterialGroups = project => api(`/projects/${encodeURIComponent(project)}/material-groups`);
+export const editMaterialGroup = (project, body) => api(`/projects/${encodeURIComponent(project)}/material-groups`, { method:'POST', body });

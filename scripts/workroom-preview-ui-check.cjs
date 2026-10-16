@@ -46,6 +46,7 @@ const assert = require('node:assert/strict');
     window.mockSse.onmessage({data:JSON.stringify({seq:9000,ts:Date.now(),method:'qisuo/preview/ready',params:{threadId:'test',attachments:[{id,name:'phone-light.png',type:'image/png',size,preview}]}})});
   }, {id,preview,size:png.length});
   const link = page.locator('.tl .preview-grid button');
+  await page.locator('.output-group > summary').click();
   await link.waitFor();
   assert.equal((await link.innerText()).trim(),'');
   assert((await link.locator('img').getAttribute('src')).endsWith('/threads/test/attachments/' + id));

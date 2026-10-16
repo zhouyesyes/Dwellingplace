@@ -4,10 +4,12 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, startLogin, logout, newProject, deleteProject, archive, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, startLogin, logout, newProject, deleteProject, archive, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl, changeMaterial, listAttachments } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy, phases as himPhases } from "../lib/workTogether.js";
+import { productText } from "../lib/workroomProducts.js";
+import WorkroomNameForm from "../components/WorkroomNameForm.vue";
 import WorkroomGallery from "../components/WorkroomGallery.vue";
 import WorkroomMaterials from "../components/WorkroomMaterials.vue";
 import WorkMarkdown from "../components/WorkMarkdown.vue";
@@ -110,6 +112,7 @@ const st = computed(() => wr.status);
 const projects = computed(() => st.value?.projects || []);
 const project = ref("");
 watch(projects, ps => { if (!project.value && ps.length) project.value = ps[0]; }, { immediate: true });
+watch(project, () => { creatingTask.value = false; selectedMaterials.value = []; createdDraft.value = null; taskName.value = ''; });
 const threadsHere = computed(() => (st.value?.threads || []).filter(t => t.project === project.value && t.status !== "archived"));
 const limits = computed(() => limitsOf(st.value?.rateLimits));
 
@@ -122,10 +125,16 @@ async function login() {
 const copy = t => navigator.clipboard?.writeText(t).then(() => toast("复制了")).catch(() => {});
 
 // ---------- 项目、任务 ----------
-async function addProject() {
-  const n = prompt("新项目叫什么？（会在服务器上建一个同名文件夹）");
-  if (!n?.trim()) return;
-  try { await newProject(n); project.value = n.trim(); } catch (e) { toast(e.message, 4000); }
+const naming = ref(null), creatingTask = ref(false), taskName = ref(''), taskError = ref(''), taskSaving = ref(false), taskComposing = ref(false);
+const selectedMaterials = ref([]), attachmentSource = ref('inbox');
+function addProject() {
+  naming.value = {title:'新项目名称',save:async name => {
+    const result = await newProject(name); project.value = result.name; toast('项目已保存');
+  }};
+}
+function selectMaterial(a) {
+  if (selectedMaterials.value.length + files.value.length >= 4) { toast('每个任务首次最多选择 4 个附件，其他可稍后追加'); return; }
+  if (!selectedMaterials.value.some(f => f.id === a.id)) selectedMaterials.value.push(a);
 }
 // 删任务：只是从列表里收起来（服务器上的记录还留着），项目文件夹里的代码不动
 async function dropThread(x) {
@@ -159,16 +168,26 @@ async function pullNow() {
   gitBusy.value = true;
   try { const r = await gitPull(project.value); toast(r.pulled ? `拉下来了 ${r.pulled} 个新提交` : "已经是最新的了"); } catch (e) { toast(e.message, 6000); } finally { gitBusy.value = false; loadGit(); }
 }
+const createdDraft = ref(null);
 async function addThread() {
-  const n = prompt("这个任务叫什么？", "");
-  if (n == null) return;
+  if (taskSaving.value || taskComposing.value) return;
+  if (!taskName.value.trim()) { taskError.value = '请输入任务名称'; return; }
+  taskSaving.value = true; taskError.value = '';
   try {
-    const created = await newThread(project.value, n.trim());
-    await open(created.id);
-    for (const f of files.value) { if (f.uploadedTask !== created.id) { f.uploaded = await uploadAttachment(created.id, f.file, f.purpose); f.uploadedTask = created.id; } }
-    filesRevision.value++;
-    toast(files.value.length ? "任务已创建，附件已保留；点击发送通知 Codex" : "任务已创建");
-  } catch (e) { toast(e.message, 4000); }
+    // 失败重试复用已创建任务和已上传文件，避免重复任务、重复原件。
+    const created = createdDraft.value || await newThread(project.value, taskName.value.trim());
+    createdDraft.value = created;
+    for (const a of selectedMaterials.value) {
+      await changeMaterial(project.value,a.id,'attach',{taskId:created.id});
+    }
+    for (const f of files.value) {
+      if (f.uploadedTask !== created.id) { f.uploaded = await uploadAttachment(created.id,f.file,f.purpose); f.uploadedTask = created.id; }
+    }
+    await open(created.id); filesRevision.value++;
+    creatingTask.value = false; createdDraft.value = null; selectedMaterials.value = []; taskName.value = '';
+    toast('任务和附件已保存；发送消息后通知 Codex');
+  } catch(e) { taskError.value = e.message; toast(e.message,4000); }
+  finally { taskSaving.value = false; }
 }
 
 // ---------- 一个任务（线程）的时间线 ----------
@@ -254,7 +273,7 @@ const picker = ref(null);
 function removeFile(i) { URL.revokeObjectURL(files.value[i].url); files.value.splice(i, 1); }
 function chooseFiles(event) {
   for (const file of event.target.files || []) {
-    if (files.value.length >= 4) { toast("每条消息最多 4 个附件"); break; }
+    if (files.value.length + selectedMaterials.value.length >= 4) { toast("每条消息最多 4 个附件"); break; }
     if (!/\.(png|jpe?g|gif|webp|mp4|webm|pdf|txt|md|csv|json|zip)$/i.test(file.name)) { toast("支持图片 PNG/JPEG/GIF/WebP、视频 MP4/WebM，以及 PDF/TXT/MD/CSV/JSON/ZIP"); continue; }
     if (!file.size || file.size > 20 * 1024 * 1024) { toast("附件必须非空且不超过 20 MB"); continue; }
     files.value.push({ file, url: URL.createObjectURL(file), purpose: "", uploaded: null });
@@ -276,6 +295,10 @@ async function send() {
   try {
     const attached = [];
     for (const f of files.value) { if (f.uploadedTask !== id) { f.uploaded = await uploadAttachment(id, f.file, f.purpose); f.uploadedTask = id; } attached.push(f.uploaded); }
+    const saved = (await listAttachments(id)).attachments || [];
+    for (const a of saved.filter(a => a.notification !== 'delivered')) {
+      if (!attached.some(f => f.id === a.id) && attached.length < 4) attached.push(a);
+    }
     submitting.value.uploading = false;
     const picked = files.value.map(f => f.file);
     if (mode) { const p = talk(role.value, id, text, attached, picked); down(); await p; }
@@ -381,8 +404,8 @@ const RULES = [
       </div>
       <p class="sec">项目<small>　服务器上的文件夹，Codex 只能动这里面的东西</small></p>
       <div class="chips">
-        <button v-for="p in projects" :key="p" :class="{ on: project === p }" @click="project = p">{{ p }}</button>
-        <button class="add" @click="addProject">＋ 新项目</button>
+        <button v-for="p in projects" :key="p" :class="{ on: project === p }" :disabled="taskSaving" @click="project = p">{{ p }}</button>
+        <button class="add" :disabled="taskSaving" @click="addProject">＋ 新项目</button>
       </div>
       <button v-if="project && project !== '栖所'" class="del-proj" @click="dropProject">删掉「{{ project }}」这个项目</button>
       <template v-if="project">
@@ -404,6 +427,7 @@ const RULES = [
             <small v-else-if="!git.dirty.length && !git.behind">和线上一样，没有要推的</small>
           </template>
         </div>
+        <WorkroomNameForm v-if="naming" v-bind="naming" @close="naming = null" />
         <WorkroomMaterials :project="project" :tasks="st.threads || []" />
         <p class="sec">任务<small>　每个任务是一段单独的工作记录</small></p>
         <button v-for="x in threadsHere" :key="x.id" class="row" @click="open(x.id)">
@@ -412,9 +436,22 @@ const RULES = [
           <i v-if="(st.approvals || []).some(a => a.threadId === x.id)" class="wait">等你点</i>
           <span v-if="!x.turnId" class="del-task" role="button" aria-label="删掉这个任务" @click.stop="dropThread(x)">删</span>
         </button>
-        <label class="new-files">新任务的原始附件（可选）<input type="file" multiple @change="chooseFiles" /></label>
-        <div v-for="(f,i) in files" :key="f.url" class="new-files">{{ f.file.name }}<input v-model="f.purpose" maxlength="2000" placeholder="用途说明" /><button @click="removeFile(i)">移除</button></div>
-        <button class="row add" @click="addThread"><b>＋ 新任务</b></button>
+        <button class="row add" @click="creatingTask = !creatingTask"><b>＋ 新任务</b></button>
+        <section v-if="creatingTask" class="new-task">
+          <form @submit.prevent="addThread">
+            <label>任务名称<input v-model="taskName" :disabled="taskSaving || !!createdDraft" maxlength="120" @compositionstart="taskComposing = true" @compositionend="taskComposing = false" @keydown.enter="e => { if (e.isComposing || taskComposing || e.keyCode === 229) e.preventDefault(); }" /></label>
+            <button type="button" :disabled="taskSaving" @click="attachmentSource = 'inbox'">从素材收件箱选择</button>
+            <button type="button" :disabled="taskSaving" @click="attachmentSource = 'upload'">临时上传</button>
+            <div v-if="attachmentSource === 'upload'">
+              <label>临时上传<input type="file" multiple :disabled="taskSaving" @change="chooseFiles" /></label>
+              <div v-for="(f,i) in files" :key="f.url">{{ f.file.name }}<input v-model="f.purpose" placeholder="用途说明" /><button type="button" :disabled="taskSaving" @click="removeFile(i)">移除</button></div>
+            </div>
+            <p v-for="a in selectedMaterials" :key="a.id">{{ a.name }} <button type="button" :disabled="taskSaving" @click="selectedMaterials = selectedMaterials.filter(f => f.id !== a.id)">移除</button></p>
+            <p v-if="taskError" role="alert">{{ taskError }}</p>
+            <button type="submit" :disabled="taskSaving || taskComposing">{{ taskSaving ? '正在保存…' : '确认创建任务' }}</button>
+          </form>
+          <WorkroomMaterials v-if="attachmentSource === 'inbox' && !taskSaving" :project="project" pick @select="selectMaterial" />
+        </section>
       </template>
       <p v-else class="hint">先建一个项目。以后要改的代码放进服务器的 codex-work 文件夹，或者让 Codex 自己建。</p>
     </template>
@@ -430,7 +467,7 @@ const RULES = [
         <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
         <template v-for="(it, i) in shown" :key="it.id || i">
           <WorkroomGallery v-if="it.kind === 'preview' && it.attachments?.length" :files="it.attachments" :task="cur" />
-          <div v-else-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}<small v-if="a.preview">{{ a.preview.route }} · {{ a.preview.width }}×{{ a.preview.height }} · {{ a.preview.theme }} · {{ a.preview.generatedAt }}</small></a></div>
+          <WorkroomGallery v-else-if="it.attachments?.length" :files="it.attachments" :task="cur" title="任务附件" />
           <div v-if="it.kind === 'talkMe'" class="me"><p>{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'talkHim'" class="him">
             <Avatar :img="role?.avatar" :name="him" :color="role?.color" :size="30" />
@@ -442,7 +479,7 @@ const RULES = [
           <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}</b></div>
           <div v-else-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
           <p v-else-if="it.kind === 'previewError'" class="hint">{{ it.text }}</p>
-          <WorkMarkdown v-else-if="it.kind === 'agent'" class="agent" :text="it.text" :render="workMd" />
+          <WorkMarkdown v-else-if="it.kind === 'agent'" class="agent" :text="productText(it.text, t.items.filter(i => i.kind === 'preview').flatMap(i => i.attachments || []))" :render="workMd" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
           <div v-else-if="it.kind === 'plan'" class="card plan">
             <b>计划</b>
@@ -525,6 +562,10 @@ const RULES = [
 </template>
 
 <style scoped>
+.new-task { margin:12px; padding:12px; border:1px solid var(--line); border-radius:12px; }
+.new-task input { box-sizing:border-box; width:100%; font-size:16px; min-height:44px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; }
+.new-task button { min-height:44px; margin:6px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+
 .wr { position: fixed; inset: 0 0 auto; width: 100%; height: 100dvh; min-height: 0; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
 .wr.overview { display: block; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-bottom) + 24px); }
 .bar { flex: none; position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: calc(var(--safe-top) + 10px) 12px 10px; background: rgba(var(--glass-rgb), .86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }

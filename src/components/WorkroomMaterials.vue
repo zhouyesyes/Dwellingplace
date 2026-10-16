@@ -1,9 +1,48 @@
 <script setup>
 import { ref, watch, computed, onBeforeUnmount } from 'vue';
-import { listAttachments, listMaterials, uploadAttachment, uploadMaterial, saveAttachmentMaterial, changeMaterial, attachmentUrl, materialUrl, say } from '../lib/workroom.js';
+import { listAttachments, listMaterials, uploadAttachment, uploadMaterial, saveAttachmentMaterial, changeMaterial, attachmentUrl, materialUrl, say, listMaterialGroups, editMaterialGroup } from '../lib/workroom.js';
+import WorkroomGallery from './WorkroomGallery.vue';
+import WorkroomNameForm from './WorkroomNameForm.vue';
 import { toast } from '../lib/toast.js';
-const props = defineProps({ project:String, task:String, revision:Number, tasks:{ type:Array, default:() => [] } });
-const entries = ref([]), error = ref(''), busy = ref(false), purpose = ref(''), selectedTask = ref(''), picker = ref(null);
+const props = defineProps({ project:String, task:String, revision:Number, pick:Boolean, tasks:{ type:Array, default:() => [] } });
+const emit = defineEmits(['select']);
+const naming = ref(null), groups = ref([]), targetGroup = ref(''), queueGroup = ref('');
+const openKey = computed(() => 'workroom-inbox:' + props.project + ':' + (props.task || ''));
+const opened = ref(false);
+watch(openKey, key => { opened.value = sessionStorage.getItem(key) === 'open'; }, {immediate:true});
+function togglePanel(e) { opened.value = e.target.open; sessionStorage.setItem(openKey.value, opened.value ? 'open' : 'closed'); }
+const grouped = computed(() => {
+  if (!isMaterials.value) return [{id:'task',name:'任务附件',items:entries.value}];
+  const used = new Set(groups.value.flatMap(g => g.files));
+  const result = groups.value.map(g => ({...g, items:entries.value.filter(a => g.files.includes(a.id))}));
+  const older = entries.value.filter(a => !used.has(a.id));
+  if (older.length) result.push({id:'legacy',name:'已有素材',items:older});
+  return result;
+});
+async function organizeExisting(name) {
+  const project = props.project;
+  const files = grouped.value.find(g => g.id === 'legacy')?.items.map(a => a.id) || [];
+  const result = await editMaterialGroup(project,{action:'create',name});
+  const id = result.groups.at(-1).id;
+  if (files.length) await editMaterialGroup(project,{action:'append',id,files});
+  return id;
+}
+function nameGroup(g) {
+  naming.value = { title:g ? '文件夹名称' : '新建文件夹', initial:g?.name || '', save:async name => {
+    if (g?.id === 'legacy') { await organizeExisting(name); await load(); }
+    else {
+      const result = await editMaterialGroup(props.project, {action:g ? 'rename':'create', id:g?.id, name});
+      groups.value = result.groups;
+    }
+    toast('名称已保存');
+  }};
+}
+async function deleteGroup(g) {
+  if (g.id === 'legacy') return removeSaved([...g.items]);
+  if (!confirm('删除「' + g.name + '」及其中 ' + g.items.length + ' 个素材？原件和已有任务引用会保留。')) return;
+  await run(async () => { await editMaterialGroup(props.project,{action:'delete',id:g.id}); toast('文件夹已删除'); });
+}
+const entries = ref([]), error = ref(''), busy = ref(false), purpose = ref(''), selectedTask = ref(''), picker = ref(null), uploadControls = ref(null);
 const selecting = ref(false), chosen = ref([]), deleteResult = ref('');
 async function removeSaved(items) {
   if (busy.value || !items.length) return;
@@ -34,9 +73,14 @@ async function load() {
   try {
     const result = isMaterials.value ? (await listMaterials(props.project)).materials : (await listAttachments(props.task)).attachments;
     if (seq === loadSeq) entries.value = result || [];
-  } catch(e) { if (seq === loadSeq) { error.value = e.message; entries.value = []; } }
+    if (isMaterials.value) {
+      const result = await listMaterialGroups(props.project);
+      if (seq === loadSeq) groups.value = result.groups || [];
+    }
+  } catch(e) { if (seq === loadSeq) { error.value = e.message; } }
 }
-watch(() => [props.project,props.task,isMaterials.value,props.revision], () => { preview.value = null; load(); }, { immediate:true });
+watch(() => [props.project,props.task,isMaterials.value], () => { preview.value = null; naming.value = null; });
+watch(() => [props.project,props.task,isMaterials.value,props.revision], load, { immediate:true });
 async function run(fn) {
   if (busy.value) return;
   busy.value = true;
@@ -54,7 +98,7 @@ const sizeText = n => n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : 
 function clearQueue() {
   queue.value.forEach(f => { if (f.url) URL.revokeObjectURL(f.url); });
   queue.value = [];
-  batchResult.value = '';
+  batchResult.value = ''; queueGroup.value = '';
 }
 watch(() => [props.project, props.task, isMaterials.value], clearQueue);
 onBeforeUnmount(clearQueue);
@@ -81,6 +125,14 @@ async function uploadBatch(retry = false) {
   busy.value = true;
   batchResult.value = '';
   try {
+    if (material && !queueGroup.value) {
+      if (targetGroup.value === 'legacy') queueGroup.value = await organizeExisting('已有素材');
+      else if (targetGroup.value) queueGroup.value = targetGroup.value;
+      else {
+        const result = await editMaterialGroup(project,{action:'create',name:'上传批次 ' + new Date().toLocaleString('zh-CN')});
+        queueGroup.value = result.groups.at(-1).id; groups.value = result.groups;
+      }
+    }
     for (const f of items) {
       f.state = 'uploading';
       f.error = '';
@@ -88,23 +140,25 @@ async function uploadBatch(retry = false) {
         if (f.invalid) throw Error(f.invalid);
         // 通知失败只重试通知，已保存的原件不重复上传。
         if (!f.uploaded) f.uploaded = material ? await uploadMaterial(project, f.file, usage) : await uploadAttachment(task, f.file, usage);
+        if (material) await editMaterialGroup(project,{action:'append',id:queueGroup.value,files:[f.uploaded.id]});
         if (!material) await notify(f.uploaded, task);
         f.state = 'success';
-      } catch(e) { f.state = 'failed'; f.error = (f.uploaded ? '原件已保存，通知失败：' : '') + e.message; }
+      } catch(e) { f.state = 'failed'; f.error = (f.uploaded ? (material ? '原件已保存，分组失败：' : '原件已保存，通知失败：') : '') + e.message; }
     }
     const success = items.filter(f => f.state === 'success').length;
     batchResult.value = `本次成功 ${success} 个，失败 ${items.length - success} 个。已成功的原件会保留。`;
     toast(batchResult.value, 5000);
     await load();
-  } finally { busy.value = false; }
+  } catch(e) { error.value = e.message; toast(e.message,5000); } finally { busy.value = false; }
 }
 function rename(a) {
-  const name = prompt('重命名显示名称（保留扩展名；原文件路径保持稳定）',a.name);
-  if (name != null) run(() => changeMaterial(props.project,a.id,'rename',{name}));
+  naming.value = {title:'素材名称（保留扩展名）',initial:a.name,save:async name => {
+    await changeMaterial(props.project,a.id,'rename',{name}); await load(); toast('名称已保存');
+  }};
 }
 async function copyPath(a) {
   try { await navigator.clipboard.writeText(a.libraryProjectPath || a.projectPath || a.libraryPath || a.path); toast('已复制 Codex 可读取的路径'); }
-  catch { toast('复制失败，可在下方选择路径复制'); }
+  catch { toast('复制失败，请检查浏览器剪贴板权限后重试'); }
 }
 function attach(a) {
   const id = props.task || selectedTask.value;
@@ -117,13 +171,17 @@ function attach(a) {
 </script>
 
 <template>
-  <details class="material-panel" open>
+  <details class="material-panel" :open="opened" @toggle="togglePanel">
     <summary>{{ isMaterials ? '项目素材收件箱' : '任务原始附件' }}</summary>
     <div class="material-body">
+      <WorkroomNameForm v-if="naming" :key="naming" v-bind="naming" @close="naming = null" />
+      <details v-if="!pick" ref="uploadControls" class="upload-controls"><summary>上传与整理</summary>
+      <button v-if="isMaterials && !pick" :disabled="busy" @click="nameGroup(null)">新建文件夹</button>
+      <label v-if="isMaterials && !pick">上传到<select v-model="targetGroup" :disabled="busy || queue.length > 0"><option value="">新的上传批次</option><option v-if="grouped.some(g => g.id === 'legacy')" value="legacy">已有素材</option><option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option></select></label>
       <div v-if="task" class="material-actions"><button :disabled="busy" @click="inbox = !inbox">{{ inbox ? '返回任务附件' : '从项目素材选择' }}</button></div>
-      <p class="material-note">原文件保留，不压缩。每个文件最多 20 MB。任务结束后仍保留；归档只整理引用，不删除原件。</p>
-      <label>用途说明<input v-model="purpose" maxlength="2000" placeholder="例如：保留透明背景，统一贴纸颜色" /></label>
-      <div class="material-actions">
+      <p v-if="!pick" class="material-note">原文件保留，不压缩。每个文件最多 20 MB。任务结束后仍保留；归档只整理引用，不删除原件。</p>
+      <label v-if="!pick">用途说明<input v-model="purpose" maxlength="2000" placeholder="例如：保留透明背景，统一贴纸颜色" /></label>
+      <div v-if="!pick" class="material-actions">
         <input ref="picker" type="file" multiple :disabled="busy" hidden accept=".png,.jpg,.jpeg,.gif,.webp,.mp4,.webm,.pdf,.txt,.md,.csv,.json,.zip" @change="choose" />
         <button :disabled="busy" @click="picker.click()">选择图片 / 文件（可多选）</button>
         <button :disabled="busy" @click="load">刷新列表</button>
@@ -144,27 +202,32 @@ function attach(a) {
         </div>
         <p role="status" aria-live="polite">{{ busy ? `正在处理，已完成 ${completed} / ${queue.length} 个，请保持页面打开…` : batchResult }}</p>
       </section>
+      </details>
       <p class="material-note" role="status">已保存 {{ entries.length }} 个{{ isMaterials ? '素材' : '附件' }}</p>
       <p v-if="error" class="material-error" role="alert">{{ error }}<br />已上传的原件会保留；可刷新后重试通知。</p>
-      <label v-if="isMaterials && !task && entries.length">附加到任务<select v-model="selectedTask"><option value="">选择同项目任务</option><option v-for="t in taskOptions" :key="t.id" :value="t.id">{{ t.title }}</option></select></label>
+      <label v-if="isMaterials && !pick && !task && entries.length">附加到任务<select v-model="selectedTask"><option value="">选择同项目任务</option><option v-for="t in taskOptions" :key="t.id" :value="t.id">{{ t.title }}</option></select></label>
       <p v-if="!entries.length && !error" class="material-note">{{ isMaterials ? '还没有素材，上传后可复制路径或附加到任务。' : '还没有附件，可上传原文件或从项目素材选择。' }}</p>
-      <div v-if="isMaterials && entries.length" class="material-actions">
+      <div v-if="isMaterials && !pick && entries.length" class="material-actions">
         <button :disabled="busy" @click="selecting = !selecting; chosen = []">{{ selecting ? '取消多选' : '多选删除' }}</button>
-        <template v-if="selecting"><button :disabled="busy" @click="chosen = entries.map(a => a.id)">全选</button><button :disabled="busy || !chosen.length" @click="removeSaved(entries.filter(a => chosen.includes(a.id)))">删除所选（{{ chosen.length }}）</button></template>
+        <template v-if="selecting"><button :disabled="busy || !chosen.length" @click="run(async () => { const id = task || selectedTask; if (!id) throw Error('先选择任务'); for (const a of entries.filter(a => chosen.includes(a.id))) { const file = await changeMaterial(project,a.id,'attach',{taskId:id,purpose}); await notify(file,id); } toast('所选素材已附加'); })">附加所选到任务</button><button :disabled="busy" @click="chosen = entries.map(a => a.id)">全选</button><button :disabled="busy || !chosen.length" @click="removeSaved(entries.filter(a => chosen.includes(a.id)))">删除所选（{{ chosen.length }}）</button></template>
       </div>
       <p v-if="deleteResult" role="status" aria-live="polite">{{ deleteResult }}</p>
-      <article v-for="a in entries" :key="a.id" class="material-file">
-        <button v-if="a.type.startsWith('image/')" class="material-thumb" :aria-label="'预览 ' + a.name" @click="preview = a"><img :src="source(a)" :alt="a.name" loading="lazy" /></button>
-        <label v-if="selecting && isMaterials" class="delete-choice"><input v-model="chosen" type="checkbox" :value="a.id" :disabled="busy" />选择 {{ a.name }}</label><b>{{ a.name }}</b><small>{{ a.type }} · {{ Math.ceil(a.size/1024) }} KB · {{ status(a) }}</small>
-        <p v-if="a.purpose">用途：{{ a.purpose }}</p>
-        <code>{{ a.libraryProjectPath || a.projectPath || a.libraryPath || a.path }}</code>
-        <small v-if="a.tasks?.length">关联任务：{{ a.tasks.join('、') }}</small>
+      <details v-for="g in grouped" :key="g.id" class="material-group">
+        <summary>{{ g.name }} · {{ g.items.length }} 个文件 <span class="covers"><img v-for="a in g.items.filter(a => a.type.startsWith('image/')).slice(0,3)" :key="a.id" :src="source(a)" alt="" /></span></summary>
+        <div v-if="!pick && isMaterials" class="material-actions"><button :disabled="busy" @click="nameGroup(g)">重命名文件夹</button><button :disabled="busy || queue.length > 0" @click="targetGroup = g.id; uploadControls.open = true; picker.click()">追加上传</button><button :disabled="busy" @click="deleteGroup(g)">删除此组</button></div>
+        <div class="material-grid">
+      <article v-for="a in g.items" :key="a.id" class="material-file">
+        <button v-if="a.type.startsWith('image/')" class="material-thumb" :aria-label="'预览 ' + a.name" @click="preview = {items:g.items,id:a.id}"><img :src="source(a)" :alt="a.name" loading="lazy" /></button>
+        <label v-if="selecting && isMaterials" class="delete-choice"><input v-model="chosen" type="checkbox" :value="a.id" :disabled="busy" />选择 {{ a.name }}</label><b>{{ a.name }}</b>
         <div class="material-actions">
-          <a :href="source(a)" target="_blank" rel="noopener noreferrer">预览</a>
+          <button v-if="a.type.startsWith('image/')" @click="preview = {items:g.items,id:a.id}">预览</button><a v-else :href="source(a)" target="_blank" rel="noopener noreferrer">打开文件</a>
+          <button v-if="pick" @click="emit('select',a)">选择此素材</button>
+          <button v-if="isMaterials && !pick" :disabled="busy" :aria-label="'删除 ' + a.name" @click="removeSaved([a])">删除</button>
+          <details v-if="!pick"><summary>更多</summary>
           <a :href="source(a) + '?download=1'" download>下载原件</a>
           <button @click="copyPath(a)">复制路径</button>
           <template v-if="isMaterials">
-            <button :disabled="busy" :aria-label="'删除 ' + a.name" @click="removeSaved([a])">删除</button>
+
             <button :disabled="busy" @click="rename(a)">重命名</button>
             <button :disabled="busy" @click="attach(a)">附加并通知任务</button>
             <button v-if="a.status !== 'archived'" :disabled="busy" @click="run(() => changeMaterial(project,a.id,'archive'))">保存到素材库</button>
@@ -173,16 +236,24 @@ function attach(a) {
             <button :disabled="busy" @click="run(() => saveAttachmentMaterial(task,a.id))">保存到项目收件箱</button>
             <button v-if="a.notification !== 'delivered'" :disabled="busy" @click="run(() => notify(a))">通知 Codex / 重试</button>
           </template>
+          </details>
         </div>
       </article>
+        </div>
+      </details>
     </div>
   </details>
-  <div v-if="preview" class="material-overlay" role="dialog" aria-modal="true" :aria-label="preview.name" @click.self="preview = null" @keydown.esc="preview = null">
-    <button autofocus @click="preview = null">关闭预览</button><img :src="source(preview)" :alt="preview.name" />
+  <div v-if="preview" class="material-viewer" hidden>
+    <button @click="preview = null">收起预览入口</button>
+    <WorkroomGallery :files="preview.items" :source="source" :initial-id="preview.id" title="素材预览" expanded @close="preview = null" />
   </div>
 </template>
 
 <style scoped>
+.material-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
+.material-group { margin:12px 0; border:1px solid var(--line); border-radius:10px; padding:6px; }
+.covers { display:inline-flex; gap:4px; vertical-align:middle; }
+.covers img { width:32px; height:36px; object-fit:cover; border-radius:4px; }
 .delete-choice { display:flex; align-items:center; min-height:44px; }
 .delete-choice input { width:22px; height:22px; }
 .material-actions button { min-height:44px; }
@@ -197,7 +268,7 @@ summary { padding:12px; cursor:pointer; font-weight:600; }
 .material-note, small { color:var(--text-2); }
 .material-note { line-height:1.6; }
 label { display:grid; gap:6px; margin:8px 0; }
-input, select { width:100%; min-width:0; box-sizing:border-box; padding:10px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; }
+input, select { font-size:16px; width:100%; min-width:0; box-sizing:border-box; padding:10px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; }
 .material-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:8px 0; }
 button, a { padding:8px; min-height:36px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; font:inherit; cursor:pointer; }
 button:disabled { opacity:.5; cursor:wait; }

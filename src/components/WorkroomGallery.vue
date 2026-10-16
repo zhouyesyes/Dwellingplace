@@ -1,11 +1,13 @@
 <script setup>
-import { ref, computed, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onBeforeUnmount, nextTick, onMounted } from 'vue';
 import { attachmentUrl } from '../lib/workroom.js';
-const props = defineProps({ files:Array, task:String });
+const props = defineProps({ files:Array, task:String, source:Function, title:{type:String,default:"任务产物"}, expanded:Boolean, initialId:String });
+const emit = defineEmits(['close']);
+onMounted(() => { if (props.initialId) open(Math.max(0, images.value.findIndex(a => a.id === props.initialId)), {currentTarget:document.activeElement}); });
 const images = computed(() => props.files.filter(a => a.type.startsWith('image/')));
 const index = ref(-1), dialog = ref(null), scale = ref(1), x = ref(0), y = ref(0);
 let opener, start, pinch, moved = false, multi = false, scrollPositions = [];
-const src = a => attachmentUrl(props.task, a.id);
+const src = a => props.source ? props.source(a) : attachmentUrl(props.task, a.id);
 function reset() { scale.value = 1; x.value = y.value = 0; }
 function step(n) { index.value = Math.max(0, Math.min(images.value.length - 1, index.value + n)); reset(); }
 async function open(i, e) {
@@ -14,7 +16,7 @@ async function open(i, e) {
   index.value = i; reset(); await nextTick(); dialog.value.focus({ preventScroll:true });
 }
 function close() {
-  index.value = -1; opener?.focus({ preventScroll:true });
+  index.value = -1; emit('close'); opener?.focus({ preventScroll:true });
   for (const [el, top, left] of scrollPositions) { el.scrollTop = top; el.scrollLeft = left; }
 }
 function key(e) {
@@ -75,9 +77,13 @@ function backdrop(e) {
 onBeforeUnmount(() => { start = null; });
 </script>
 <template>
+  <details class="output-group" :open="expanded">
+    <summary>{{ title }} · {{ files.length }} 个文件 <span class="covers"><img v-for="a in images.slice(0,3)" :key="a.id" :src="src(a)" alt="" /></span></summary>
   <div class="preview-grid" aria-label="任务效果图">
     <button v-for="(a,i) in images" :key="a.id" :aria-label="`查看效果图 ${i+1}`" @click="open(i,$event)"><img :src="src(a)" alt="效果图" loading="lazy" /></button>
   </div>
+    <a v-for="a in files.filter(a => !a.type?.startsWith('image/'))" :key="a.id" class="file-card" :href="src(a)" target="_blank" rel="noopener">{{ a.name }} · 打开文件</a>
+  </details>
   <Teleport to="body">
     <div v-if="index >= 0" ref="dialog" class="gallery" role="dialog" aria-modal="true" aria-label="效果图查看器" tabindex="-1" @keydown="key" @wheel.prevent @pointerup="backdrop">
       <div class="gallery-top"><span aria-live="polite">{{ index+1 }} / {{ images.length }}</span><details><summary aria-label="更多操作">•••</summary><a :href="src(images[index])+'?download=1'" download>下载原图</a><button @click="reset">恢复原比例</button></details><button class="gallery-close" aria-label="关闭大图" @click="close">✕</button></div>
@@ -90,6 +96,11 @@ onBeforeUnmount(() => { start = null; });
   </Teleport>
 </template>
 <style scoped>
+.output-group { margin:8px 0; border:1px solid var(--line); border-radius:12px; padding:10px; }
+.output-group summary { cursor:pointer; color:var(--text); }
+.covers { display:inline-flex; gap:4px; vertical-align:middle; }
+.covers img { width:36px; height:40px; object-fit:cover; border-radius:4px; }
+.file-card { display:block; padding:12px; color:var(--text); }
 .preview-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; max-width:620px; margin:8px 0; }
 .preview-grid button { padding:0; border:1px solid var(--line); border-radius:10px; background:var(--bg); overflow:hidden; cursor:zoom-in; }
 .preview-grid img { display:block; width:100%; height:160px; object-fit:contain; }

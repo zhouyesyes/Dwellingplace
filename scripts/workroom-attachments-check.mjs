@@ -285,3 +285,22 @@ console.log('通过：收件箱删除幂等、项目隔离、列表移除、原�
 await request('POST',`/threads/test/attachments/${deletionId}/material`,{});
 assert((await request('GET','/projects/测试/materials')).value.materials.some(a=>a.id===deletionId));
 console.log('通过：主动重新保存任务附件可恢复收件箱入口，沿用原件与 ID');
+
+// 文件夹元数据持久保存、重命名与删除范围；原件从不移动或覆盖。
+const folderA = (await request('POST','/projects/测试/material-groups',{action:'create',name:'第一批'})).value.groups.at(-1);
+const folderB = (await request('POST','/projects/测试/material-groups',{action:'create',name:'第二批'})).value.groups.at(-1);
+await request('POST','/projects/测试/material-groups',{action:'append',id:folderA.id,files:[deletionId]});
+await request('POST','/projects/测试/material-groups',{action:'append',id:folderB.id,files:[saved.value.id]});
+await request('POST','/projects/测试/material-groups',{action:'rename',id:folderA.id,name:'中文新名称'});
+assert.equal((await request('GET','/projects/测试/material-groups')).value.groups.find(g=>g.id===folderA.id).name,'中文新名称');
+await assert.rejects(request('POST','/projects/其他项目/material-groups',{action:'append',id:folderA.id,files:[deletionId]}),/不存在/);
+await assert.rejects(request('POST','/projects/测试/material-groups',{action:'append',id:folderA.id,files:['../bad']}),/编号/);
+await request('POST','/projects/测试/material-groups',{action:'delete',id:folderA.id});
+const remaining=(await request('GET','/projects/测试/materials')).value.materials;
+assert(!remaining.some(a=>a.id===deletionId));
+assert(remaining.some(a=>a.id===saved.value.id));
+assert.deepEqual(fs.readFileSync(beforeDelete.path),png);
+assert.deepEqual(fs.readFileSync(beforeDelete.libraryPath),png);
+assert.equal(context.lookup(context.threads.test,deletionId).id,deletionId);
+assert.equal((await request('GET','/projects/测试/material-groups')).value.groups.find(g=>g.id===folderB.id).files[0],saved.value.id);
+console.log('通过：文件夹创建/中文改名/刷新持久化/追加/项目隔离/删除仅当前组，任务引用与原字节保留');

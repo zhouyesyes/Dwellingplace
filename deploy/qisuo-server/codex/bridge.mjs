@@ -543,6 +543,45 @@ function attachmentsDelivered(t, attachments, text = "") {
 
 async function route(req, res, url) {
   const p = url.pathname;
+  const groups = p.match(/^\/projects\/([^/]+)\/material-groups$/);
+  if (groups) {
+    const project = decodeURIComponent(groups[1]), dir = materialDir(project);
+    const file = path.join(dir, "groups.json");
+    if (req.method === "GET") return json(res, 200, { groups:readJSON(file, []) });
+    if (req.method !== "POST") throw new Error("请求方法不支持");
+    const b = await body(req), current = readJSON(file, []);
+    if (b.action === "create") {
+      const name = String(b.name || "").trim().normalize("NFC");
+      if (!name || name.length > 120) throw new Error("名称需为 1–120 字");
+      current.push({ id:randomUUID(), name, files:[] });
+    } else {
+      const group = current.find(g => g.id === b.id);
+      if (!group) throw new Error("文件夹不存在，请刷新");
+      if (b.action === "rename") {
+        const name = String(b.name || "").trim().normalize("NFC");
+        if (!name || name.length > 120) throw new Error("名称需为 1–120 字");
+        group.name = name;
+      } else if (b.action === "append") {
+        if (!Array.isArray(b.files) || b.files.length > 500) throw new Error("文件列表不合法");
+        for (const id of b.files) {
+          const a = materialMeta(project, id);
+          if (a.deletedAt) throw new Error("素材已删除");
+        }
+        for (const g of current) g.files = g.files.filter(id => !b.files.includes(id));
+        group.files = [...new Set([...group.files, ...b.files])];
+      } else if (b.action === "delete") {
+        // 删除仅作用于此组引用的素材，保留原字节、历史任务及素材库。
+        for (const id of group.files) {
+          const a = materialMeta(project, id);
+          a.deletedAt ||= new Date().toISOString();
+          writeJSON(path.join(dir, id + ".json"), a);
+        }
+        current.splice(current.indexOf(group), 1);
+      } else throw new Error("不支持的文件夹操作");
+    }
+    writeJSON(file, current);
+    return json(res, 200, { groups:current });
+  }
   const materials = p.match(/^\/projects\/([^/]+)\/materials(?:\/([a-f0-9-]{36})(?:\/(rename|archive|attach|delete))?)?$/);
   if (materials) return materialRoute(req, res, url, decodeURIComponent(materials[1]), materials[2], materials[3]);
   const save = p.match(/^\/threads\/([\w-]+)\/attachments\/([a-f0-9-]{36})\/material$/);
@@ -574,6 +613,7 @@ async function route(req, res, url) {
       // 以 codex 用户建（这个程序虽然是 root，但去掉了全部特权，动不了 codex 的文件夹）
       const r = spawnSync("mkdir", ["-p", path.join(WORK, name)], { uid: UID, gid: UID, encoding: "utf8" });
       if (r.status) return json(res, 500, { error: { message: `建不了：${r.stderr}` } });
+      return json(res,200,{name,projects:listProjects()});
     }
     return json(res, 200, { projects: listProjects() });
   }

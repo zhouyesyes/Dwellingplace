@@ -15,7 +15,7 @@ const { chromium } = require('playwright');
   const themes = option('--themes', 'light,dark').split(',');
   if (!/^[\w-]{1,100}$/.test(task) || !/^\/[\w/-]*$/.test(route) || views.some(v => !sizes[v]) || themes.some(t => !['light','dark'].includes(t))) throw Error('任务编号、路由、视口或主题不合法；路由不接受查询参数');
   const fixture = option('--fixture', '');
-  if (fixture && (route !== '/work' || !['workroom-materials','workroom-attachments','workroom-materials-long','workroom-materials-pending','workroom-materials-delete','workroom-gallery','workroom-gallery-grid'].includes(fixture))) throw Error('不支持这个隔离 fixture');
+  if (fixture && (route !== '/work' || !['workroom-materials','workroom-attachments','workroom-materials-long','workroom-materials-pending','workroom-materials-delete','workroom-gallery','workroom-gallery-grid','workroom-organized-default','workroom-organized-expanded','workroom-organized-new','workroom-organized-output','workroom-organized-preview','workroom-organized-flow'].includes(fixture))) throw Error('不支持这个隔离 fixture');
   const mock = fixture ? require('./fixtures/workroom-materials.cjs') : null;
   const run = randomUUID();
   const output = path.resolve('.qisuo-previews', task, run);
@@ -69,7 +69,7 @@ const { chromium } = require('playwright');
       await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(500);
-      if (mock && ['workroom-gallery','workroom-gallery-grid','workroom-materials-delete'].includes(fixture)) { await mock.verify(page,fixture,state); console.log('隔离界面交互验收通过：' + fixture); }
+      if (mock && (fixture.startsWith('workroom-organized-') || ['workroom-gallery','workroom-gallery-grid','workroom-materials-delete'].includes(fixture))) { await mock.verify(page,fixture,state); console.log('隔离界面交互验收通过：' + fixture); }
       const generatedAt = new Date().toISOString();
       const label = `${route} · ${width}×${height} · ${theme} · ${generatedAt}`;
       await page.evaluate(label => {
@@ -80,7 +80,7 @@ const { chromium } = require('playwright');
       const file = `${view}-${theme}.png`;
       await page.screenshot({ path: path.join(output, file) });
       screenshots.push({ file, route, width, height, theme, generatedAt });
-      if (mock && !['workroom-gallery','workroom-gallery-grid','workroom-materials-delete'].includes(fixture) && ['phone','tablet'].includes(view) && theme === 'light') { await mock.verify(page,fixture,state); console.log('隔离界面交互验收通过：' + fixture); }
+      if (mock && !(fixture.startsWith('workroom-organized-') || ['workroom-gallery','workroom-gallery-grid','workroom-materials-delete'].includes(fixture)) && ['phone','tablet'].includes(view) && theme === 'light') { await mock.verify(page,fixture,state); console.log('隔离界面交互验收通过：' + fixture); }
       await context.close();
     }
     fs.writeFileSync(path.join(output, 'manifest.json'), JSON.stringify({ version:1, screenshots }, null, 2), { flag:'wx' });
