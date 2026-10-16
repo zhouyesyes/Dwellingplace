@@ -1,3 +1,4 @@
+import { decodeTxt } from "./txtEncoding.js";
 // 共读：书架上的书。一本书一个项目。
 //   store.books      [{ id, title, author, cover, chapters: [{ title, n }], pos: { ch, p }, hisPos, addedAt, readAt, readSecs, mine, his }]
 //                    cover：封面图（images 里的 id），没有就画一个纯色的；n：这一章有几段
@@ -22,11 +23,11 @@ export const bookById = id => (store.books || []).find(b => b.id === id);
 export const notesOf = (bookId, ch) => (store.bookNotes || []).filter(n => n.bookId === bookId && (ch == null || n.ch === ch));
 
 // ---------- 导入 ----------
-export async function importBook(file) {
+export async function importBook(file, { encoding } = {}) {
   const name = file.name.replace(/\.[^.]+$/, "");
   const buf = new Uint8Array(await file.arrayBuffer());
   const isEpub = /\.epub$/i.test(file.name) || (buf[0] === 0x50 && buf[1] === 0x4b);
-  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name);
+  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name, encoding);
   const chapters = parsed.chapters.filter(c => c.paras.length || c.media?.length);
   if (!chapters.length) throw new Error("这本书里没读出文字");
   const id = uid();
@@ -55,14 +56,12 @@ export async function removeBook(b) {
   await del(key(b.id));
 }
 
-// TXT：先当 UTF-8 读，读不通就当 GBK（国内很多 txt 小说是 GBK）
-function decodeTxt(buf) {
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { /* 不是 UTF-8 */ }
-  try { return new TextDecoder("gb18030").decode(buf); } catch { return new TextDecoder().decode(buf); }
-}
+// TXT 解码通过后仍沿用原来的分章规则。
 const CH_RE = /^\s*(第[零〇一二两三四五六七八九十百千万0-9０-９]+[章回节卷集部篇幕].{0,30}|序章.{0,20}|楔子.{0,20}|引子.{0,20}|尾声.{0,20}|番外.{0,30}|后记.{0,20}|Chapter\s*\d+.{0,40}|CHAPTER\s*\d+.{0,40})\s*$/;
-function parseTxt(buf, name) {
-  const lines = decodeTxt(buf).replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
+function parseTxt(buf, name, encoding) {
+  const decoded = decodeTxt(buf, encoding);
+  if (decoded.suspicious) throw new Error("编码可能不正确，请切换编码后再确认");
+  const lines = decoded.text.replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
   const chapters = [];
   let cur = { title: "开头", paras: [] };
   for (const l of lines) {

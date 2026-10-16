@@ -9,6 +9,7 @@ import { readingMemsOf } from "../lib/reading.js";
 import { pickFile } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
+import { decodeTxt, detectTxtEncoding, TXT_ENCODINGS, encodingLabel } from "../lib/txtEncoding.js";
 import Icon from "../components/Icon.vue";
 import BookCover from "../components/books/BookCover.vue";
 import BookInfo from "../components/books/BookInfo.vue";
@@ -21,12 +22,18 @@ const tab = ref("books");
 const busy = ref(false);
 const info = ref(null);
 
-async function add() {
-  const [file] = await pickFile(".txt,.epub,text/plain,application/epub+zip");
-  if (!file) return;
+const txt = ref(null);
+const encoding = ref('utf-8');
+const decoded = computed(() => txt.value ? decodeTxt(txt.value.bytes, encoding.value) : null);
+async function confirmTxt() {
+  if (!txt.value || decoded.value.suspicious || busy.value) return;
+  await place(txt.value.file, { encoding: encoding.value });
+}
+async function place(file, options) {
   busy.value = true;
   try {
-    const id = await importBook(file);
+    const id = await importBook(file, options);
+    txt.value = null;
     toast("放上书架了");
     router.push(`/read/${id}`);
   } catch (e) {
@@ -34,6 +41,22 @@ async function add() {
   } finally {
     busy.value = false;
   }
+}
+async function add() {
+  const [file] = await pickFile(".txt,.epub,text/plain,application/epub+zip");
+  if (!file) return;
+  busy.value = true;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (/\.epub$/i.test(file.name) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+      await place(file);
+    } else {
+      encoding.value = detectTxtEncoding(bytes);
+      txt.value = { file, bytes, detected: encoding.value };
+    }
+  } catch (e) {
+    toast(`没放上去：${e.message}`, 4000);
+  } finally { busy.value = false; }
 }
 
 // 长按封面：看这本书的卡片
@@ -153,12 +176,44 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
       <p class="hint">每本书的进度（你和{{ role?.name || "他" }}各读到哪）、读了多久，长按封面就能看到。</p>
     </template>
 
+    <div v-if="txt" class="txt-shade" @click.self="!busy && (txt = null)">
+      <section class="txt-dialog" role="dialog" aria-modal="true" aria-labelledby="txt-title">
+        <h2 id="txt-title">确认 TXT 正文</h2>
+        <p class="txt-name">{{ txt.file.name }}</p>
+        <label class="txt-encoding">编码
+          <select v-model="encoding" :disabled="busy" aria-label="TXT 编码">
+            <option v-for="e in TXT_ENCODINGS" :key="e" :value="e">{{ encodingLabel(e) }}</option>
+          </select>
+        </label>
+        <small>自动识别：{{ encodingLabel(txt.detected) }}</small>
+        <pre class="txt-preview">{{ decoded.text.slice(0, 700).replace(/\u0000/g, '␀') || '（正文为空）' }}</pre>
+        <p v-if="decoded.suspicious" class="txt-warning" role="alert">编码可能不正确，请切换编码后再确认。</p>
+        <div class="txt-actions">
+          <button :disabled="busy" @click="txt = null">取消</button>
+          <button :disabled="busy || decoded.suspicious || !decoded.text.trim()" @click="confirmTxt">{{ busy ? '在放…' : '确认导入' }}</button>
+        </div>
+      </section>
+    </div>
     <BookInfo :book="info" @close="info = null" @read="b => { info = null; router.push(`/read/${b.id}`); }" />
 
   </div>
 </template>
 
 <style scoped>
+.txt-shade { position: fixed; inset: 0; z-index: 100; background: #0006; display: flex; align-items: center; justify-content: center; padding: max(16px, var(--safe-top)) 16px max(16px, var(--safe-bottom)); }
+.txt-dialog { width: 100%; max-width: 440px; max-height: 100%; overflow-y: auto; padding: 20px; border-radius: 20px; background: var(--card); color: var(--text); box-sizing: border-box; }
+.txt-dialog h2 { margin: 0 0 10px; font-size: 1.15rem; }
+.txt-name { overflow-wrap: anywhere; color: var(--text-2); }
+.txt-encoding { display: flex; align-items: center; gap: 12px; }
+.txt-encoding select { flex: 1; min-width: 0; min-height: 44px; font-size: 16px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.txt-dialog small { display: block; margin-top: 8px; color: var(--text-2); }
+.txt-preview { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .9rem; line-height: 1.8; background: var(--bg); border-radius: 10px; padding: 12px; max-height: 32dvh; overflow-y: auto; }
+.txt-warning { color: var(--text); font-size: .85rem; }
+.txt-actions { display: flex; gap: 12px; }
+.txt-actions button { flex: 1; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
+.txt-actions button:last-child { background: var(--ink); color: var(--on-ink); }
+.txt-actions button:disabled { opacity: .4; }
+
 .room { min-height: 100%; padding: calc(var(--safe-top) + 12px) 22px calc(var(--safe-bottom) + 40px); max-width: 760px; margin: 0 auto; }
 .head { display: flex; justify-content: space-between; align-items: center; }
 .acts { display: flex; gap: 8px; }
