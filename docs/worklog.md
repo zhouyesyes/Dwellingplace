@@ -13,6 +13,14 @@
 
 ## 日志
 
+### 2026-10-16 · Codex
+- 排查平板重连后首页旧缓存：原数据同步 startSync 已调用 syncNow/pull，visibility/focus/pageshow/online 也已有拉取，不是所有重连都仅改连接状态。确认图片先挂载、Blob 后同步到达时 useImage 不重读；同 ID 图片 URL 缓存不失效。补独立远端落盘通知与图片响应式版本，异步读取检查版本；通知不计作本地编辑，不回传形成循环。
+- 工作间 SSE onopen 原来只改 live，现重新读状态；refresh 共用在途请求、API no-store，SW 绕过 codex 接口，防断网缓存回放。没有修改服务器。首页挂载/前台恢复补状态检查；同步前台事件一秒合并，在途复用，受保护内容延后时五秒重试。
+- 首页简介下增加 44px 手动刷新按钮，显示正在同步、已更新/已是最新、失败重试、未连接及待同步；沿用现有三方合并和编辑/生成保护，不刷新整页、不重建组件，不增加下拉手势（已有封面选图、桌面长按拖动及书架横滑）。
+- **验证**：sync-check（新增事件风暴/手动并发去重）、新增 home-refresh-check（迟到图片/同 ID 更新、本地编辑保留、390/820/1440 浅深色与横向溢出）、device-sync-cache-check、workroom-progress-check、workroom-ui-check、chat-stream-check、Vite 生产构建、git diff --check 通过。已有 Vite 静态/动态导入提示。热更新期间旧测试动态导入造成状态分裂，使用独立 5201 临时服务重新通过；测试支持 QISUO_TEST_URL。已查看手机浅深色与平板深色截图 /tmp/home-refresh-*.png。
+- **还剩/注意**：未获得原问题的真机数据，以上为已确认代码缺口；需要 iPad Safari 与主屏 PWA 分别测试锁屏/切后台、飞行模式恢复、另一设备修改简介/书架/日历/封面后自动刷新；编辑/阅读时检查输入、草稿与位置保留，连点刷新/失败重试不能重复请求。Chromium 不能证明 iOS 系统挂起行为。未安装依赖、删除数据、重启现有服务、推送或部署，仅本地提交；已有依赖直接复用。
+
+
 ### 2026-10-15 · Codex
 - 最终审查本地 8f5bde8，补齐异常路径的最小修复：cropImage 先创建对象 URL 再置锁，创建失败不会卡住所有选图；input 挂载失败也走取消清理；useImage 捕获 IndexedDB/URL 读取异常并提示，避免未处理 Promise；imageURL 在异步读取后复查缓存，多个头像并发读取只创建一个 URL；工作间图片转码用 finally 释放 ImageBitmap。
 - 逐项检查 input/change 双事件、重复/迟到事件、focus/visibility、同文件重选、取消和 DOM 清理：事件结算只执行一次，清理旧监听后迟到事件不会影响新选择；没有基于 focus/visibility 的误取消；旧 Safari 不发 cancel 时需用「取消选择」退出。压缩/表情包计数均在 finally 解锁；裁剪失败保留重试或取消；共用图片调用者已有 catch 或由 pickAndCrop 捕获，正常路径无新增未捕获 Promise。图片显示 URL 在缓存中保留至删除是原有设计，旧异步显示结果受清理标记约束。

@@ -1,6 +1,6 @@
 // 图片：压缩后以 Blob 存进 IndexedDB，显示时生成临时 URL。
-import { ref, watchEffect } from "vue";
-import { get, set, del } from "./kv.js";
+import { ref, reactive, watchEffect } from "vue";
+import { get, set, del, onRemoteChange } from "./kv.js";
 import { uid } from "../store/index.js";
 import { cropImage, cropState } from "./crop.js";
 import { pickFile, decodeImage, fileActivity } from "./filePicker.js";
@@ -8,6 +8,16 @@ import { toast } from "./toast.js";
 export { pickFile } from "./filePicker.js";
 
 const urlCache = new Map();
+const revisions = reactive({});
+onRemoteChange(k => {
+  if (!k.startsWith("img:")) return;
+  const id = k.slice(4);
+  // 旧 URL 可能仍在屏幕上使用，等新图换上后再释放。
+  const old = urlCache.get(id);
+  urlCache.delete(id);
+  revisions[id] = (revisions[id] || 0) + 1;
+  if (old) setTimeout(() => URL.revokeObjectURL(old), 60_000);
+});
 
 // 聊天里发的图：长边压到 1280、JPEG 质量 0.8。一张一般一两百 KB，TA 看得清，读起来也省 token
 export const CHAT_IMAGE = { maxSize: 1280, quality: 0.8 };
@@ -42,7 +52,9 @@ export async function saveImage(file, { maxSize = 1600, quality = 0.85, square =
 export async function imageURL(id) {
   if (!id) return null;
   if (urlCache.has(id)) return urlCache.get(id);
+  const revision = revisions[id];
   const blob = await get("img:" + id);
+  if (revision !== revisions[id]) return imageURL(id);
   if (!blob) return null;
   // 多个头像同时读同一张图时，只保留一个对象 URL。
   if (urlCache.has(id)) return urlCache.get(id);
@@ -72,9 +84,10 @@ export function useImage(getId) {
     let current = true;
     onCleanup(() => { current = false; });
     const id = getId();
+    const revision = revisions[id];
     try {
       const next = id ? await imageURL(id) : null;
-      if (current) url.value = next;
+      if (current && revision === revisions[id]) url.value = next;
     } catch {
       if (current) { url.value = null; toast("图片暂时读不出来，请稍后重试", 4000); }
     }

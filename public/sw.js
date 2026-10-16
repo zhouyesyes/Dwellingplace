@@ -15,7 +15,7 @@ self.addEventListener("activate", e => e.waitUntil((async () => {
 self.addEventListener("fetch", e => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method !== "GET" || url.origin !== location.origin || syncRequest(url) || req.headers.has("authorization")) return;
+  if (req.method !== "GET" || url.origin !== location.origin || syncRequest(url) || /\/codex(?:\/|$)/.test(url.pathname) || req.headers.has("authorization")) return;
 
   // /assets/ 下的文件名带版本号，内容不会变：缓存优先
   if (url.pathname.includes("/assets/")) {

@@ -22,7 +22,7 @@ const assert = require('node:assert/strict');
     if (url.pathname === '/p/mock/codex/events') return route.fulfill({ contentType: 'text/event-stream', body: ': mock\n\n' });
     return route.continue();
   });
-  await page.goto('http://127.0.0.1:5199/');
+  await page.goto((process.env.QISUO_TEST_URL || 'http://127.0.0.1:5199/'));
   await page.evaluate(async () => { const { wr } = await import('/src/lib/workroom.js'); wr.base = location.origin + '/p/mock'; });
   await page.evaluate(async () => { await (await import('/node_modules/.vite/deps/idb-keyval.js')).set('sync:conf',{url:location.origin+'/p/mock/sync'}); location.hash = '/work'; });
   await page.waitForURL('**/#/work');

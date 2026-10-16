@@ -11,13 +11,13 @@
 //   sync:base   上次同步时的 meta（两边都改了时，用来分清谁改了什么）
 import { reactive, watch } from "vue";
 import { get as idbGet, set as idbSet, del as idbDel, keys as idbKeys, update as idbUpdate } from "idb-keyval";
-import { onLocalChange, isLocalKey } from "./kv.js";
+import { onLocalChange, isLocalKey, notifyRemoteChange } from "./kv.js";
 import { store, applyRemoteMeta, messageCache, flushStore, hasPendingMeta, flushMessages, hasPendingMessages } from "../store/index.js";
 import { generating } from "./chat.js";
 import { serverBase } from "./server.js";
 import { migrateLegacy, redeemCode, showBinding } from "./deviceSync.js";
 
-export const syncState = reactive({ on: false, url: "", busy: false, lastAt: 0, error: "", pending: 0, revoked: false });
+export const syncState = reactive({ on: false, url: "", busy: false, lastAt: 0, error: "", pending: 0, revoked: false, updated: false, deferred: false });
 
 let credential = "";
 let known = {};
@@ -117,6 +117,8 @@ async function applyLocal(k, val, generation = edits.get(k) || 0) {
     return val;
   });
   if (!applied || (edits.get(k) || 0) !== generation || busyKey(k)) return false;
+  notifyRemoteChange(k);
+  syncState.updated = true;
   if (val === undefined) {
     const t = threadOf(k);
     if (t) delete messageCache[t];
@@ -212,6 +214,7 @@ async function pull() {
     seq = it.rev;
   }
   if (!stopped) seq = Math.max(seq, j.seq);
+  syncState.deferred = stopped;
   await idbSet("sync:seq", seq);
   await saveKnown();
 }
@@ -222,6 +225,8 @@ export function syncNow() {
   if (running) return running;
   running = (async () => {
     syncState.busy = true;
+    syncState.updated = false;
+    syncState.deferred = false;
     try {
       await flushStore();
       await flushMessages();
@@ -237,7 +242,7 @@ export function syncNow() {
     } finally {
       try { await saveKnown(); await saveDirty(); }
       catch (e) { syncState.error = e.message || String(e); }
-      if (syncState.error || dirty.size) schedulePush(5000);
+      if (syncState.error || dirty.size || syncState.deferred) schedulePush(5000);
       syncState.busy = false;
       running = null;
     }
@@ -309,12 +314,10 @@ async function beginSync() {
   // 回完一条就交
   watch(() => Object.keys(generating).length, n => { if (!n) schedulePush(800); });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") syncNow();
+    if (document.visibilityState === "visible") resumeSync();
     else if (dirty.size) syncNow(); // 切到后台前赶紧交
   });
-  addEventListener("online", () => syncNow());
-  addEventListener("pageshow", () => syncNow());
-  addEventListener("focus", () => syncNow());
+
   return syncNow();
 }
 
@@ -378,9 +381,17 @@ export async function disableSync() {
 // 填好服务器 API 地址后即尝试接通；项目没有独立的栖所账号登录事件。
 watch(() => store.apis.map(a => a.baseUrl), () => { if (!syncState.on) startSync(); }, { deep: true });
 
-// 自动发现遇到断网也要能在恢复网络、回到前台时重试。
-for (const event of ["online", "pageshow", "focus"]) addEventListener(event, () => { if (!syncState.on) startSync(); });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !syncState.on) startSync(); });
+// Safari/PWA 一次回前台常同时触发 pageshow、focus、visibility；合并成一次检查。
+let resumedAt = 0;
+export function resumeSync() {
+  if (document.visibilityState !== "visible") return;
+  const now = Date.now();
+  if (now - resumedAt < 1000) return;
+  resumedAt = now;
+  return startSync();
+}
+for (const event of ["online", "pageshow", "focus"]) addEventListener(event, resumeSync);
+document.addEventListener("visibilitychange", () => { if (!syncState.on) resumeSync(); });
 
 // 新设备第一次连接保留所有本地内容，无基线地合并云端，绝不清库或强制覆盖。
 export async function bindDevice(code, name, origin) {

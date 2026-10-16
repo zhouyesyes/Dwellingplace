@@ -10,3 +10,8 @@ const tell = k => { if (!isLocalKey(k)) for (const fn of listeners) fn(k); };
 export const get = idbGet;
 export async function set(k, v) { await idbSet(k, v); tell(k); }
 export async function del(k) { await idbDel(k); tell(k); }
+
+// 远端落盘单独通知缓存，不算本地编辑，避免再次上传形成循环。
+const remoteListeners = new Set();
+export const onRemoteChange = fn => remoteListeners.add(fn);
+export const notifyRemoteChange = k => { for (const fn of remoteListeners) fn(k); };

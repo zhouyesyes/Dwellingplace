@@ -27,13 +27,19 @@ export const wr = reactive({
 async function api(path, { method = "GET", body } = {}) {
   if (!wr.base) wr.base = await serverBase();
   if (!wr.base) throw new Error("还没有接上你自己的服务器（在「设置 → 同步」或 API 地址里填了服务器地址才找得到）");
-  const r = await fetch(`${wr.base}/codex${path}`, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(`${wr.base}/codex${path}`, { method, cache: "no-store", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || `服务器返回 ${r.status}`);
   return j;
 }
 
-export async function refresh() {
+let refreshing = null;
+export function refresh() {
+  if (refreshing) return refreshing;
+  refreshing = refreshStatus().finally(() => { refreshing = null; });
+  return refreshing;
+}
+async function refreshStatus() {
   try {
     wr.status = await api("/status");
     wr.error = "";
@@ -205,7 +211,7 @@ export async function connect() {
   const since = wr.lastSeq || wr.status?.seq || 0;
   es = new EventSource(`${wr.base}/codex/events?since=${since}`);
   esAt = Date.now();
-  es.onopen = () => { wr.live = true; };
+  es.onopen = () => { wr.live = true; refresh(); };
   es.onmessage = e => {
     let ev;
     try { ev = JSON.parse(e.data); } catch { return; }

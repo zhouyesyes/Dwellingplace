@@ -21,7 +21,7 @@ const assert = require('node:assert/strict');
     put(k, method === 'DELETE' ? undefined : route.request().postDataJSON());
     return route.fulfill({json:{rev:seq}});
   });
-  await page.goto('http://127.0.0.1:5199/');
+  await page.goto((process.env.QISUO_TEST_URL || 'http://127.0.0.1:5199/'));
   await page.evaluate(async () => {
     const db = await import('/node_modules/.vite/deps/idb-keyval.js');
     await db.set('sync:conf', {url:location.origin+'/p/test/sync'});
@@ -60,14 +60,27 @@ const assert = require('node:assert/strict');
   await until(()=>page.evaluate(async () => !(await import('/src/lib/sync.js')).syncState.pending));
   assert.equal(items.get('retry').val,'失败仍保留');
   for (const event of ['pageshow','focus','online']) {
+    await page.waitForTimeout(1100); // 前台事件按一秒合并
     const n=changes; put('foreground',event);
     await page.evaluate(event=>dispatchEvent(new Event(event)),event);
     await until(async()=>await get('foreground')===event);
     assert(changes>n);
   }
+  await page.waitForTimeout(1100);
   put('foreground','visible');
   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
   await until(async()=>await get('foreground')==='visible');
+  // 一次恢复的事件风暴和手动并发共用在途请求。
+  await page.waitForTimeout(1100);
+  const beforeBurst = changes;
+  await page.evaluate(async () => {
+    dispatchEvent(new Event('focus'));
+    dispatchEvent(new Event('pageshow'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    const s = await import('/src/lib/sync.js');
+    await Promise.all([s.syncNow(), s.syncNow(), s.syncNow()]);
+  });
+  assert.equal(changes - beforeBurst, 1);
   assert((await page.evaluate(async () => (await import('/node_modules/.vite/deps/idb-keyval.js')).keys())).some(k=>String(k).startsWith('sync:conflict:')));
   // 关闭后不能被配置监听自动重开；保留数据，再用已有 API 配置自动发现。
   await page.evaluate(async () => {
@@ -82,7 +95,7 @@ const assert = require('node:assert/strict');
     await (await import('/node_modules/.vite/deps/idb-keyval.js')).del('sync:disabled');
     await (await import('/src/lib/sync.js')).startSync();
   });
-  assert.equal(await page.evaluate(async()=>(await import('/src/lib/sync.js')).syncState.url),'http://127.0.0.1:5199/p/test/sync');
+  assert.equal(await page.evaluate(async()=>(await import('/src/lib/sync.js')).syncState.url),new URL('/p/test/sync', process.env.QISUO_TEST_URL || 'http://127.0.0.1:5199/').href);
   assert.equal(await get('retry'),'失败仍保留');
   await browser.close();
   console.log('通过：启动拉取、回前台拉取、旧缓存冲突、上传/下载期间编辑、失败保留及自动重试、冲突副本');

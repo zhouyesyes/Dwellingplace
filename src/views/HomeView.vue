@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { store, roleById, MAIN } from "../store/index.js";
 import Icon from "../components/Icon.vue";
@@ -7,6 +7,53 @@ import Avatar from "../components/Avatar.vue";
 import BioSheet from "../components/home/BioSheet.vue";
 import WidgetDesk from "../components/home/WidgetDesk.vue";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
+
+import { syncState, startSync, resumeSync } from "../lib/sync.js";
+import { wr, refresh as refreshWorkroom } from "../lib/workroom.js";
+
+const refreshing = ref(false);
+const refreshError = ref("");
+const checked = ref(false);
+const refreshLabel = computed(() => {
+  if (refreshing.value || syncState.busy) return "正在同步…";
+  if (refreshError.value || syncState.error) return "刷新失败，点此重试";
+  if (syncState.deferred || syncState.pending) return "仍有内容待同步 · 刷新";
+  if (!syncState.on) return "刷新 · 尚未连接同步";
+  if (checked.value || syncState.lastAt) return syncState.updated ? "已更新 · 刷新" : "已是最新 · 刷新";
+  return "刷新";
+});
+async function refreshHome() {
+  if (refreshing.value) return;
+  refreshing.value = true;
+  refreshError.value = "";
+  try {
+    await startSync();
+    if (store.widgets.some(w => w.type === "work")) {
+      await refreshWorkroom();
+      if (wr.error) throw new Error(wr.error);
+    }
+    checked.value = true;
+  } catch (e) { refreshError.value = e.message || String(e); }
+  finally { refreshing.value = false; }
+}
+let foregroundAt = 0;
+function foreground() {
+  if (document.visibilityState !== "visible" || Date.now() - foregroundAt < 1000) return;
+  foregroundAt = Date.now();
+  resumeSync();
+  if (store.widgets.some(w => w.type === "work")) refreshWorkroom();
+}
+onMounted(() => {
+  foreground();
+  document.addEventListener("visibilitychange", foreground);
+  window.addEventListener("pageshow", foreground);
+  window.addEventListener("focus", foreground);
+  window.addEventListener("online", foreground);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("visibilitychange", foreground);
+  for (const event of ["pageshow", "focus", "online"]) window.removeEventListener(event, foreground);
+});
 
 const router = useRouter();
 const him = computed(() => roleById(MAIN));
@@ -70,6 +117,10 @@ function rename() {
         <p v-if="!store.profile.bioSelf && !aiBios.length" class="placeholder">点这里写简介，或者让他帮你写一段 ✎</p>
       </div>
 
+      <div class="refresh-row" aria-live="polite" role="status">
+        <button class="refresh-home" :disabled="refreshing || syncState.busy" :aria-busy="refreshing || syncState.busy" @click="refreshHome">↻ {{ refreshLabel }}</button>
+        <span v-if="refreshError || syncState.error" class="refresh-error">{{ refreshError || syncState.error }}</span>
+      </div>
       <WidgetDesk />
     </div>
 
@@ -78,6 +129,10 @@ function rename() {
 </template>
 
 <style scoped>
+.refresh-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 12px 6px 0; }
+.refresh-home { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--text-2); font-size: .8rem; cursor: pointer; }
+.refresh-home:disabled { opacity: .7; cursor: progress; }
+.refresh-error { color: var(--danger); font-size: .75rem; overflow-wrap: anywhere; }
 .home { min-height: 100%; padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 40px); }
 .cover {
   height: calc(var(--safe-top) + min(62vw, 340px));
