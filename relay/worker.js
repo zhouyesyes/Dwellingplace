@@ -1099,7 +1099,9 @@ async function dispatchWork(env, role, found, notes, now) {
           if (files.length) notes.push({ text: `一起带上了素材库里的 ${files.length} 个` });
         } catch (e) { notes.push({ text: `素材没带上：${e.message}` }); }
       }
-      await post(`/threads/${thread.id}/send`, { text: task, attachments: files });
+      // 一条最多带 4 个附件：多的分几条接着发
+      await post(`/threads/${thread.id}/send`, { text: task, attachments: files.slice(0, 4) });
+      for (let i = 4; i < files.length; i += 4) await post(`/threads/${thread.id}/send`, { text: `（接上一条，还有素材 ${i + 1}–${Math.min(i + 4, files.length)}）`, attachments: files.slice(i, i + 4) });
       n++;
       out.push({ threadId: thread.id, project, title, task });
       notes.push({ text: `${role.name} 去工作间「${project}」开了个任务：${title}`, href: `/work?t=${thread.id}`, detail: task });
@@ -1567,7 +1569,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 27, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 28, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
