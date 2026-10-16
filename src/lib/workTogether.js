@@ -64,7 +64,7 @@ export function siteText(id) {
 
 // ---------- 给他看的 ----------
 // 附件怎么写进提示：刚发来的这条，内容就附在消息里他看得到；以前的只剩名字和路径（要看交给 Codex）
-const pathsOf = m => m.attachments.map(a => `${a.name} ${a.path}`).join("；");
+const pathsOf = m => m.attachments.map(a => `${a.name}（${a.type}；用途：${a.purpose || "未填写"}）${a.path}`).join("；");
 function attNote(m, fresh) {
   if (!m.attachments?.length) return "";
   if (fresh && m.seen?.length) return `\n附件（就附在这条消息里，你直接看）：${m.seen.join("；")}\n（服务器上的路径，要交给 Codex 时用：${pathsOf(m)}）`;
@@ -106,7 +106,7 @@ const DISPATCH_RE = /<交给Codex>([\s\S]*?)<\/交给Codex>/g;
 const STOP_RE = /\[停下Codex\]/g;
 const DECIDE_RE = /\[记下决定[:：]([^\]]{2,600})\]/g;
 const SUMMARY_RE = /<施工摘要>([\s\S]*?)<\/施工摘要>/g;
-async function act(role, id, raw, { fromReport }) {
+async function act(role, id, raw, { fromReport, fresh }) {
   const wt = workThread(id);
   const meta = thread(id).meta || {};
   const proj = workProject(meta.project || "");
@@ -135,7 +135,7 @@ async function act(role, id, raw, { fromReport }) {
     } else {
       const task = tasks.join("\n\n");
       try {
-        await say(id, task);
+        await say(id, task, fresh?.attachments || []);
         delete phases[id]; // 交活已收到回应，执行状态交给 Codex 的真实事件
         wt.awaiting = true;
         wt.dispatchedAt = Date.now();
@@ -157,7 +157,7 @@ async function ask(role, id, extra, { fromReport = false, fresh = null, parts = 
   try {
     const { oneShot, visibleText } = await import("./chat.js");
     const raw = await oneShot(role, await prompt(role, id, extra, fresh), { raw: true, parts });
-    const r = await act(role, id, raw, { fromReport });
+    const r = await act(role, id, raw, { fromReport, fresh });
     const list = await loadTalk(id);
     const reply = visibleText(r.text).trim();
     // at：说这句时 Codex 的过程走到第几条（时间线按这个排，不靠两边的钟）

@@ -8,6 +8,7 @@ import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, start
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy, phases as himPhases } from "../lib/workTogether.js";
+import WorkroomMaterials from "../components/WorkroomMaterials.vue";
 import WorkMarkdown from "../components/WorkMarkdown.vue";
 import Avatar from "../components/Avatar.vue";
 
@@ -155,7 +156,13 @@ async function pullNow() {
 async function addThread() {
   const n = prompt("这个任务叫什么？", "");
   if (n == null) return;
-  try { const t = await newThread(project.value, n.trim()); open(t.id); } catch (e) { toast(e.message, 4000); }
+  try {
+    const created = await newThread(project.value, n.trim());
+    await open(created.id);
+    for (const f of files.value) { if (f.uploadedTask !== created.id) { f.uploaded = await uploadAttachment(created.id, f.file, f.purpose); f.uploadedTask = created.id; } }
+    filesRevision.value++;
+    toast(files.value.length ? "任务已创建，附件已保留；点击发送通知 Codex" : "任务已创建");
+  } catch (e) { toast(e.message, 4000); }
 }
 
 // ---------- 一个任务（线程）的时间线 ----------
@@ -236,6 +243,7 @@ const waitingYou = computed(() => {
 
 const draft = ref("");
 const files = ref([]);
+const filesRevision = ref(0);
 const picker = ref(null);
 function removeFile(i) { URL.revokeObjectURL(files.value[i].url); files.value.splice(i, 1); }
 function chooseFiles(event) {
@@ -243,7 +251,7 @@ function chooseFiles(event) {
     if (files.value.length >= 4) { toast("每条消息最多 4 个附件"); break; }
     if (!/\.(png|jpe?g|gif|webp|mp4|webm|pdf|txt|md|csv|json|zip)$/i.test(file.name)) { toast("支持图片 PNG/JPEG/GIF/WebP、视频 MP4/WebM，以及 PDF/TXT/MD/CSV/JSON/ZIP"); continue; }
     if (!file.size || file.size > 20 * 1024 * 1024) { toast("附件必须非空且不超过 20 MB"); continue; }
-    files.value.push({ file, url: URL.createObjectURL(file) });
+    files.value.push({ file, url: URL.createObjectURL(file), purpose: "", uploaded: null });
   }
   event.target.value = "";
 }
@@ -261,14 +269,14 @@ async function send() {
   down();
   try {
     const attached = [];
-    for (const f of files.value) attached.push(await uploadAttachment(id, f.file));
+    for (const f of files.value) { if (f.uploadedTask !== id) { f.uploaded = await uploadAttachment(id, f.file, f.purpose); f.uploadedTask = id; } attached.push(f.uploaded); }
     submitting.value.uploading = false;
     const picked = files.value.map(f => f.file);
-    while (files.value.length) removeFile(0); // 传上去了就收起来，不等他回完
     if (mode) { const p = talk(role.value, id, text, attached, picked); down(); await p; }
     else { await say(id, text, attached); }
+    while (files.value.length) removeFile(0); // 通知成功才收起；失败可重试已上传的原件
     down();
-  } catch (e) { if (!draft.value) draft.value = text; toast(e.message, 5000); } finally { sending.value = false; submitting.value = null; }
+  } catch (e) { if (!draft.value) draft.value = text; toast(e.message, 5000); } finally { filesRevision.value++; sending.value = false; submitting.value = null; }
 }
 async function stop() { try { await interrupt(cur.value); } catch (e) { toast(e.message, 4000); } }
 async function decide(it, decision) {
@@ -390,12 +398,15 @@ const RULES = [
             <small v-else-if="!git.dirty.length && !git.behind">和线上一样，没有要推的</small>
           </template>
         </div>
+        <WorkroomMaterials :project="project" :tasks="st.threads || []" />
         <p class="sec">任务<small>　每个任务是一段单独的工作记录</small></p>
         <button v-for="x in threadsHere" :key="x.id" class="row" @click="open(x.id)">
           <b>{{ x.title }}</b>
           <small>{{ x.turnId ? "正在干活 · " : "" }}{{ new Date(x.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) }}</small>
           <i v-if="(st.approvals || []).some(a => a.threadId === x.id)" class="wait">等你点</i>
         </button>
+        <label class="new-files">新任务的原始附件（可选）<input type="file" multiple @change="chooseFiles" /></label>
+        <div v-for="(f,i) in files" :key="f.url" class="new-files">{{ f.file.name }}<input v-model="f.purpose" maxlength="2000" placeholder="用途说明" /><button @click="removeFile(i)">移除</button></div>
         <button class="row add" @click="addThread"><b>＋ 新任务</b></button>
       </template>
       <p v-else class="hint">先建一个项目。以后要改的代码放进服务器的 codex-work 文件夹，或者让 Codex 自己建。</p>
@@ -408,6 +419,7 @@ const RULES = [
         <button :class="{ on: !together }" @click="setMode('direct')">直接用 Codex</button>
       </div>
       <main ref="scroller" class="tl">
+        <WorkroomMaterials :key="cur" :project="t.meta?.project || project" :task="cur" :revision="filesRevision + t.items.filter(i => i.kind === 'user' || i.kind === 'preview').length" :tasks="st.threads || []" />
         <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
         <template v-for="(it, i) in shown" :key="it.id || i">
           <div v-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}<small v-if="a.preview">{{ a.preview.route }} · {{ a.preview.width }}×{{ a.preview.height }} · {{ a.preview.theme }} · {{ a.preview.generatedAt }}</small></a></div>
@@ -483,7 +495,7 @@ const RULES = [
         <div v-if="progress" class="working" role="status" aria-live="polite"><i /><i /><i /> {{ progress }}</div>
         <p v-else-if="waitingYou" class="your-turn">{{ together ? `等你说下一步` : "Codex 做完了，等你说下一步" }}<button v-if="together && talkList.length" class="tap" @click="finish">· 收工，让{{ him }}记下来</button></p>
       </main>
-      <div v-if="files.length" class="attachments pending"><div v-for="(f, i) in files" :key="f.url"><img v-if="f.file.type.startsWith('image/')" :src="f.url" /><video v-else-if="f.file.type.startsWith('video/')" :src="f.url" controls preload="metadata" /><span>{{ f.file.name }} · {{ Math.ceil(f.file.size / 1024) }} KB · {{ f.file.type || '未知类型' }}</span><button :disabled="sending" @click="removeFile(i)">移除</button></div></div>
+      <div v-if="files.length" class="attachments pending"><div v-for="(f, i) in files" :key="f.url"><img v-if="f.file.type.startsWith('image/')" :src="f.url" /><video v-else-if="f.file.type.startsWith('video/')" :src="f.url" controls preload="metadata" /><span>{{ f.file.name }} · {{ Math.ceil(f.file.size / 1024) }} KB · {{ f.file.type || '未知类型' }}</span><input v-model="f.purpose" maxlength="2000" :disabled="!!f.uploaded" placeholder="用途说明（可选）" /><button :disabled="sending" @click="removeFile(i)">移除</button></div></div>
       <footer class="dock">
         <input ref="picker" type="file" multiple hidden @change="chooseFiles" />
         <button class="send" :disabled="sending" aria-label="添加附件" @click="picker.click()">＋</button>
@@ -632,6 +644,8 @@ const RULES = [
 .rule span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .rule b { font-size: .9rem; font-weight: 500; }
 .rule small { font-size: .74rem; color: var(--text-3); }
+.new-files { display:block; margin:10px 14px; font-size:.8rem; overflow-wrap:anywhere; }
+.new-files input { max-width:100%; padding:8px; color:var(--text); background:var(--bg); border:1px solid var(--line); }
 .attachments { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 14px; font-size: .75rem; overflow-wrap: anywhere; }
 .attachments a, .attachments > div { display: flex; flex-direction: column; gap: 4px; color: var(--text); }
 .attachments img, .attachments video { align-self: flex-start; width: auto; height: auto; max-width: 160px; max-height: 160px; object-fit: contain; border-radius: 8px; }

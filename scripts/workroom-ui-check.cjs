@@ -106,7 +106,7 @@ const assert = require('node:assert/strict');
   assert.equal(await input.inputValue(), '流式生成时仍能输入');
   assert(await input.evaluate(el => el === document.activeElement));
   const box = await input.boundingBox(); assert(box.y >= 0 && box.y + box.height <= 844);
-  await page.locator('input[type=file]').setInputFiles({ name: '示例.txt', mimeType: 'text/plain', buffer: Buffer.from('示例') });
+  await page.locator('footer input[type=file]').setInputFiles({ name: '示例.txt', mimeType: 'text/plain', buffer: Buffer.from('示例') });
   await page.getByText('移除', { exact: true }).click(); assert.equal(await page.locator('.pending').count(), 0);
   for (const theme of ['light', 'dark']) { await page.evaluate(t => document.documentElement.dataset.theme = t, theme); await page.screenshot({ path: `/tmp/workroom-${theme}.png` }); }
   await page.setViewportSize({ width: 390, height: 480 });

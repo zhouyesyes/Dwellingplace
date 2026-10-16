@@ -51,3 +51,7 @@ npx --no-install vite build
 附件测试的临时目录属于普通用户，所以仅在测试 fixture 中把该目录的所有权查询模拟为安装后 root 所有；生产目录检查未放宽。
 
 本地截图命令现在可用。线上工作间自动回传需她先推上线，再按原流程重新运行服务器安装命令以更新容器（Dockerfile 新增复制 previews.mjs）。本次没有推送、部署、重启服务器或改动线上数据，无需审批安装新依赖。现有正在运行的 bridge 不会因为改本地源码而自动拥有新协议；本轮用隔离测试验证整条新链路，并在回复中直接提供截图。
+
+### 工作间素材的虚构界面
+
+`--route /work --fixture workroom-materials` 查看项目收件箱，`--fixture workroom-attachments` 查看任务附件。仅加载脚本内的虚构项目/任务及绘制 PNG，在空白 IndexedDB 写入本次本地 mock 地址；mock 请求由 Playwright 截获，不连接线上服务器。手机浅色截图后还运行预览、通知、重命名/归档交互断言；默认无 fixture 的隔离规则保持原样。使用真实任务 `--task` 即可按既有 manifest 回传。

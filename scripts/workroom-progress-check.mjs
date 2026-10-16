@@ -6,12 +6,13 @@ const deferred = () => { let resolve, reject; const promise = new Promise((a, b)
 const tick = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const store = { workThreads: {}, workProjects: {}, memories: [] };
 const threads = {};
+let dispatchedAttachments;
 let model, read, attachment, dispatched = 0, failSend = false;
 const thread = id => threads[id] ??= { items: [], meta: { project: '测试' } };
 const context = vm.createContext({
   reactive: x => x, store, uid: () => 'mock', wr: {}, thread,
   get: async () => { if (read) return read.promise; return []; }, set: async () => {},
-  say: async id => { dispatched++; if (failSend) throw Error('交活失败'); thread(id).turnId = 'turn'; },
+  say: async (id, text, files) => { dispatchedAttachments = files; dispatched++; if (failSend) throw Error('交活失败'); thread(id).turnId = 'turn'; },
   interrupt: async () => {}, pinnedOf: () => [], newMemory: () => ({}), tail: x => x,
   seeFiles: async () => attachment.promise,
   chat: { meName: () => '她', visibleText: x => x, oneShot: async () => model.promise },
@@ -25,7 +26,8 @@ const role = { id: 'main', name: '他' };
 
 // 提交后连本地读取和附件处理阶段都有反馈；没有半截原始模型内容进入对话。
 read = deferred(); attachment = deferred(); model = deferred();
-let pending = talk(role, 'a', '做一件事', [], [{}]);
+const inputAttachment = { id:'test-image',name:'测试.png',type:'image/png',path:'/work/原图.png',purpose:'调色' };
+let pending = talk(role, 'a', '做一件事', [inputAttachment], [{}]);
 assert.equal(phases.a, 'preparing'); assert.equal(busy.a, true);
 read.resolve([]); read = null; await tick();
 assert.equal(phases.a, 'preparing');
@@ -33,6 +35,8 @@ attachment.resolve({ parts: [], seen: [] }); await tick();
 assert.equal((await loadTalk('a')).length, 1); assert.equal(dispatched, 0);
 model.resolve('可以。<交给Codex>内部交活说明</交给Codex>'); await pending;
 assert.equal(dispatched, 1); assert.equal(thread('a').turnId, 'turn');
+assert.equal(dispatchedAttachments[0].id,inputAttachment.id);
+assert.equal(dispatchedAttachments[0].purpose,'调色');
 assert.equal(phases.a, undefined); assert.equal(busy.a, undefined);
 assert.equal((await loadTalk('a')).at(-1).text, '可以。');
 assert(!JSON.stringify(await loadTalk('a')).includes('内部交活说明'));

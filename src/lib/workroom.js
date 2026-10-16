@@ -261,9 +261,24 @@ export function limitsOf(rl) {
 }
 
 export const attachmentUrl = (id, file) => `${wr.base}/codex/threads/${encodeURIComponent(id)}/attachments/${encodeURIComponent(file)}`;
-export async function uploadAttachment(id, file) {
-  const r = await fetch(`${wr.base}/codex/threads/${encodeURIComponent(id)}/attachments?name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+export async function uploadAttachment(id, file, purpose = "") {
+  const r = await fetch(`${wr.base}/codex/threads/${encodeURIComponent(id)}/attachments?name=${encodeURIComponent(file.name)}&purpose=${encodeURIComponent(purpose)}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
   const data = await r.json();
   if (!r.ok) throw new Error(data.error?.message || "附件上传失败");
+  return data;
+}
+
+// 素材与任务共用受保护的原文件；浏览器永远不提交本地路径。
+export const listAttachments = id => api(`/threads/${encodeURIComponent(id)}/attachments`);
+export const saveAttachmentMaterial = (id, file) => api(`/threads/${encodeURIComponent(id)}/attachments/${file}/material`, { method:"POST", body:{} });
+const materialBase = project => `/projects/${encodeURIComponent(project)}/materials`;
+export const listMaterials = project => api(materialBase(project));
+export const changeMaterial = (project, id, action, body = {}) => api(`${materialBase(project)}/${id}/${action}`, { method:"POST", body });
+export const materialUrl = (project, id) => `${wr.base}/codex${materialBase(project)}/${id}`;
+export async function uploadMaterial(project, file, purpose = "") {
+  if (!wr.base) await refresh();
+  const r = await fetch(`${wr.base}/codex${materialBase(project)}?name=${encodeURIComponent(file.name)}&purpose=${encodeURIComponent(purpose)}`, { method:"POST", headers:{ "Content-Type":file.type || "application/octet-stream" }, body:file });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error?.message || "素材上传失败");
   return data;
 }

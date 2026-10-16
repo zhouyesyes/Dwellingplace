@@ -14,7 +14,8 @@ try {
   const dataRoot = path.join(root,'data');
   // 测试进程不是 root，仅将临时附件根目录的所有权查询模拟为安装后的状态。
 const fixtureFs = new Proxy(fs, { get(target, key) {
-  if (key === 'statSync') return file => { const st = fs.statSync(file); if (file === path.join(root,'.qisuo-attachments')) st.uid = 0; return st; };
+  if (key === 'statSync' || key === 'lstatSync') return file => { const st = fs[key](file); if (file.startsWith(path.join(root,'.qisuo-attachments'))) st.uid = 0; return st; };
+  if (key === 'fstatSync') return fd => { const st = fs.fstatSync(fd); if (fs.readlinkSync('/proc/self/fd/'+fd).startsWith(path.join(root,'.qisuo-attachments'))) st.uid=0; return st; };
   return target[key];
 } });
 const context = { fs: fixtureFs,path,Buffer,randomUUID,WORK:root,DATA:dataRoot,threads:{test:{id:task}},readJSON:(f,d)=>{try{return JSON.parse(fs.readFileSync(f));}catch{return d;}},writeJSON:(f,v)=>fs.writeFileSync(f,JSON.stringify(v)),json:(_,code,value)=>({code,value}) };

@@ -326,20 +326,22 @@ function fileMeta(t, id) {
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("附件编号不合法");
   const meta = readJSON(path.join(DATA, "attachments", t.id, `${id}.json`), null);
   if (!meta) throw new Error("附件不存在或不属于这个任务");
+  safeOriginal(meta.path);
   return meta;
 }
-async function attachmentRoute(req, res, url, match) {
-  const t = threads[match[1]];
+async function attachmentRoute(req, res, url, match, sourceTask) {
+  const t = sourceTask || threads[match[1]];
   if (!t) return json(res, 404, { error: { message: "没有这个任务" } });
+  if (req.method === "GET" && !match[2]) return json(res, 200, { attachments: listAttachments(t) });
   if (req.method === "GET" && match[2]) {
     const meta = fileMeta(t, match[2]);
-    res.writeHead(200, { "Content-Type": meta.type, "Content-Length": meta.size, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${/^(image|video)\//.test(meta.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(meta.name)}` });
-    return fs.createReadStream(meta.path).on("error", () => res.destroy()).pipe(res);
+    res.writeHead(200, { "Content-Type": meta.type, "Content-Length": meta.size, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${!url.searchParams.has("download") && /^(image|video)\//.test(meta.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(meta.name)}` });
+    return fs.createReadStream(null, { fd:openOriginal(meta.path), autoClose:true }).on("error", () => res.destroy()).pipe(res);
   }
   if (req.method !== "POST" || match[2]) return json(res, 405, { error: { message: "请求方法不支持" } });
   const name = String(url.searchParams.get("name") || "").normalize("NFC").replace(/[\/\\\x00-\x1f\x7f]/g, "_").replace(/^\.+/, "_").slice(0, 120);
   const ext = name.split(".").pop().toLowerCase();
-  const type = FILE_TYPES[ext];
+  const type = Object.hasOwn(FILE_TYPES, ext) ? FILE_TYPES[ext] : null;
   const claimed = String(req.headers["content-type"] || "").split(";")[0];
   if (!type || (claimed && claimed !== type && claimed !== "application/octet-stream" && !(ext === "md" && claimed === "text/markdown"))) throw new Error("不支持这个文件类型，或扩展名和 MIME 不一致");
   const data = await readLimited(req, FILE_MAX);
@@ -353,19 +355,166 @@ async function attachmentRoute(req, res, url, match) {
   if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || fs.statSync(root).uid !== 0)) throw new Error("附件目录不安全");
   // 这个目录由安装脚本建好（归 root）；连接程序没有越权写的本事，自己建不了
   if (!fs.existsSync(root)) throw new Error("附件文件夹还没建好：在服务器上重新运行一次栖所服务器的安装那一行");
-  const dir = path.join(root, id);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  const scope = path.join(root, "tasks", t.id);
+  const dir = path.join(scope, id);
   const file = path.join(dir, name);
-  fs.writeFileSync(file, data, { flag: "wx", mode: 0o644 });
-  const meta = { id, name, type, size: data.length, path: file };
+  protectedDir(dir, anchored => fs.writeFileSync(path.join(anchored,name), data, { flag:"wx", mode:0o644 }));
+  const meta = { id, name, type, size: data.length, path: file, purpose: String(url.searchParams.get("purpose") || "").slice(0, 2000), createdAt: Date.now(), notification: "pending" };
   const metadataDir = path.join(DATA, "attachments", t.id);
   fs.mkdirSync(metadataDir, { recursive: true, mode: 0o700 });
   writeJSON(path.join(metadataDir, `${id}.json`), meta);
   return json(res, 200, meta);
 }
 
+// 原件目录全部归 bridge 管；任何读取/链接前逐层拒绝符号链接，Codex 仅有读取权限。
+function protectedDir(dir, run = () => {}, create = true) {
+  const root = path.join(WORK, ".qisuo-attachments");
+  const relative = path.relative(root, dir);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("目录不安全");
+  const handles = [];
+  const open = file => {
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+    handles.push(fd);
+    const st = fs.fstatSync(fd);
+    if (st.uid !== 0 || (st.mode & 0o022)) throw new Error("目录不安全");
+    return `/proc/self/fd/${fd}`;
+  };
+  try {
+    let anchored = open(root);
+    for (const part of relative.split(path.sep).filter(Boolean)) {
+      const child = path.join(anchored, part);
+      if (create && !fs.existsSync(child)) fs.mkdirSync(child, { mode:0o755 });
+      anchored = open(child);
+    }
+    return run(anchored);
+  } catch (e) {
+    if (["ELOOP","ENOTDIR"].includes(e.code)) throw new Error("文件目录不安全");
+    throw e;
+  } finally { for (const fd of handles.reverse()) fs.closeSync(fd); }
+}
+function openOriginal(file) {
+  return protectedDir(path.dirname(file), anchored => {
+    const leaf = path.join(anchored,path.basename(file));
+    if (fs.lstatSync(leaf).isSymbolicLink()) throw new Error("文件目录不安全");
+    const fd = fs.openSync(leaf, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.uid !== 0 || (st.mode & 0o022)) { fs.closeSync(fd); throw new Error("文件不安全"); }
+    return fd;
+  }, false);
+}
+function safeOriginal(file) { fs.closeSync(openOriginal(file)); }
+function linkOriginal(source, target) {
+  // 两边的父目录描述符固定住，目录被改名也不会跟到别处。
+  protectedDir(path.dirname(source), from => {
+    safeOriginal(source);
+    protectedDir(path.dirname(target), to => fs.linkSync(path.join(from,path.basename(source)),path.join(to,path.basename(target))));
+  }, false);
+}
+function listAttachments(t) {
+  const dir = path.join(DATA, "attachments", t.id);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter(n => /^[a-f0-9-]{36}\.json$/.test(n)).map(n => fileMeta(t, n.slice(0, -5)));
+}
+function materialDir(project) {
+  if (!listProjects().includes(project) || projectName(project) !== project) throw new Error("没有这个项目");
+  const dir = path.join(DATA, "materials", project);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+function materialMeta(project, id) {
+  if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("素材编号不合法");
+  const meta = readJSON(path.join(materialDir(project), id + ".json"), null);
+  if (!meta) throw new Error("素材不存在或不属于这个项目");
+  safeOriginal(meta.path);
+  return meta;
+}
+function saveMaterial(project, a, taskId) {
+  const dir = materialDir(project);
+  const existing = readJSON(path.join(dir, a.id + ".json"), null);
+  if (existing) return existing;
+  safeOriginal(a.path);
+  // 链接原件，不移动它；任务与收件箱始终能读到同一份字节。
+  const dest = path.join(WORK, ".qisuo-attachments", "projects", project, "inbox", a.id);
+  protectedDir(dest);
+  const file = path.join(dest, path.basename(a.path));
+  linkOriginal(a.path, file);
+  const meta = { ...a, path: file, projectPath: path.relative(path.join(WORK,project), file), originalPath: a.path, originalName: a.name, project, status: taskId && a.notification === "delivered" ? "used" : "pending", tasks: taskId ? [taskId] : [], sourceTask: taskId || null };
+  writeJSON(path.join(dir, a.id + ".json"), meta);
+  return meta;
+}
+async function materialRoute(req, res, url, project, id, action) {
+  const dir = materialDir(project);
+  if (!id && req.method === "GET") return json(res, 200, { materials: fs.readdirSync(dir).filter(n => /^[a-f0-9-]{36}\.json$/.test(n)).map(n => materialMeta(project, n.slice(0,-5))) });
+  if (!id && req.method === "POST") {
+    // 复用同一上传校验；专用来源槽位不创建 Codex 线程。
+    const slot = { id: "materials-" + project, project };
+    let uploaded;
+    await attachmentRoute(req, { writeHead() {}, end(value) { uploaded = JSON.parse(value); } }, url, [null, slot.id], slot);
+    return json(res, 200, saveMaterial(project, uploaded));
+  }
+  const a = materialMeta(project, id);
+  if (req.method === "GET" && !action) {
+    res.writeHead(200, { "Content-Type": a.type, "Content-Length": a.size, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${!url.searchParams.has("download") && /^image\//.test(a.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(a.name)}` });
+    return fs.createReadStream(null, { fd:openOriginal(a.path), autoClose:true }).on("error", () => res.destroy()).pipe(res);
+  }
+  if (req.method !== "POST") throw new Error("请求方法不支持");
+  const b = await body(req);
+  if (action === "rename") {
+    const name = String(b.name || "").normalize("NFC");
+    if (!name || name.length > 120 || /[\/\\\x00-\x1f\x7f]/.test(name) || name.startsWith(".") || path.extname(name).toLowerCase() !== path.extname(a.originalName).toLowerCase()) throw new Error("名称不合法，需保留原扩展名");
+    a.name = name; // 显示名可改，原件路径永久稳定。
+  } else if (action === "archive") {
+    const library = path.join(WORK, ".qisuo-attachments", "projects", project, "library", a.id);
+    protectedDir(library);
+    const target = path.join(library, path.basename(a.path));
+    if (!a.libraryPath) linkOriginal(a.path, target);
+    a.libraryPath = target;
+    a.libraryProjectPath = path.relative(path.join(WORK,project),target);
+    a.status = "archived";
+  } else if (action === "attach") {
+    const t = threads[b.taskId];
+    if (!t || t.project !== project || t.status === "archived") throw new Error("请选择同项目的有效任务");
+    const metadataDir = path.join(DATA, "attachments", t.id);
+    fs.mkdirSync(metadataDir, { recursive:true, mode:0o700 });
+    const attached = { ...a, purpose: String(b.purpose || a.purpose || "").slice(0,2000), materialId: a.id, notification:"pending" };
+    const old = readJSON(path.join(metadataDir, a.id + ".json"), null);
+    const linked = { ...(old || attached), purpose: attached.purpose, materialId:a.id, notification:"pending" };
+    writeJSON(path.join(metadataDir, a.id + ".json"), linked);
+    return json(res, 200, linked);
+  } else throw new Error("不支持这个素材操作");
+  writeJSON(path.join(dir, id + ".json"), a);
+  return json(res, 200, a);
+}
+function attachmentsDelivered(t, attachments, text = "") {
+  // 派单直接给收件箱路径也记录来源；只匹配本项目已登记的原件。
+  const dir = path.join(DATA, "materials", t.project);
+  if (text && fs.existsSync(dir)) for (const name of fs.readdirSync(dir).filter(n => /^[a-f0-9-]{36}\.json$/.test(n))) {
+    const m = readJSON(path.join(dir,name), null);
+    if (m && [m.path,m.libraryPath,m.projectPath,m.libraryProjectPath].filter(Boolean).some(p => text.includes(p))) {
+      m.tasks = [...new Set([...(m.tasks || []),t.id])];
+      if (m.status !== "archived") m.status = "used";
+      writeJSON(path.join(dir,name),m);
+    }
+  }
+  for (const a of attachments) {
+    a.notification = "delivered";
+    writeJSON(path.join(DATA, "attachments", t.id, a.id + ".json"), a);
+    const f = path.join(DATA, "materials", t.project, (a.materialId || a.id) + ".json");
+    const m = readJSON(f, null);
+    if (m) { m.tasks = [...new Set([...(m.tasks || []), t.id])]; if (m.status !== "archived") m.status = "used"; writeJSON(f,m); }
+  }
+}
+
 async function route(req, res, url) {
   const p = url.pathname;
+  const materials = p.match(/^\/projects\/([^/]+)\/materials(?:\/([a-f0-9-]{36})(?:\/(rename|archive|attach))?)?$/);
+  if (materials) return materialRoute(req, res, url, decodeURIComponent(materials[1]), materials[2], materials[3]);
+  const save = p.match(/^\/threads\/([\w-]+)\/attachments\/([a-f0-9-]{36})\/material$/);
+  if (save && req.method === "POST") {
+    const t = threads[save[1]];
+    if (!t) throw new Error("没有这个任务");
+    return json(res, 200, saveMaterial(t.project, fileMeta(t, save[2]), t.id));
+  }
   const attachment = p.match(/^\/threads\/([\w-]+)\/attachments(?:\/([a-f0-9-]{36}))?$/);
   if (attachment) return attachmentRoute(req, res, url, attachment);
   const need = () => { if (!ready) { json(res, 503, { error: { message: "Codex 还没准备好，等几秒" } }); return false; } return true; };
@@ -448,16 +597,17 @@ async function route(req, res, url) {
       const attachments = (b.attachments || []).map(file => fileMeta(t, file));
       if (!text && !attachments.length) return json(res, 400, { error: { message: "说点什么" } });
       // 文件都写上只读路径，Codex 用工具去读；图片另外按 localImage 直接给它看（不认这种输入就退回只给路径）
-      const description = attachments.map(a => `附件：${a.name} (${a.type}, ${a.size} 字节)，本地只读路径：${a.path}`).join("\n");
+      const description = attachments.map(a => `附件：${a.name} (${a.type}, ${a.size} 字节)，本地只读路径：${a.path}；用途：${a.purpose || "未填写"}`).join("\n");
       const plain = [{ type: "text", text: [text, description, `当前工作间任务编号：${t.id}。界面验收运行 node scripts/ui-preview.cjs --task ${t.id} --route /settings（按任务更换路由），产物将在本轮结束自动收取；不部署生产环境。`].filter(Boolean).join("\n\n") }];
       const images = attachments.filter(a => /^image\/(png|jpeg|gif|webp)$/.test(a.type)).map(a => ({ type: "localImage", path: a.path }));
       const withImages = async run => { if (images.length) { try { return await run([...plain, ...images]); } catch { /* 退回只给路径 */ } } return run(plain); };
-      emit("qisuo/user/message", { threadId: id, text, attachments, steer: !!t.turnId });
+      const delivered = steer => { attachmentsDelivered(t, attachments, text); emit("qisuo/user/message", { threadId: id, text, attachments, steer }); };
       if (t.turnId) {
-        try { const r = await withImages(input => call("turn/steer", { threadId: cid(t), input, expectedTurnId: t.turnId })); return json(res, 200, { turnId: r.turnId, steer: true }); }
+        try { const r = await withImages(input => call("turn/steer", { threadId: cid(t), input, expectedTurnId: t.turnId })); delivered(true); return json(res, 200, { turnId: r.turnId, steer: true, notified: true }); }
         catch (e) { if (!NOT_FOUND.test(e.message)) throw e; delete t.turnId; } // 那一轮已经不在了：当新的一轮开始
       }
       const r = await withThread(t, threadId => withImages(input => call("turn/start", { threadId, input })));
+      delivered(false);
       t.turnId = r.turn?.id;
       saveThreads();
       return json(res, 200, { turnId: t.turnId });

@@ -13,6 +13,15 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 素材传入工作间的双通道
+- 接着已有任务原始附件与截图收取能力完成：任务新建前选择附件/各自用途，已有任务上传并通知，持久附件列表、图片预览/原件下载/路径复制、通知失败保留原件并重试。Codex 输入含名称/MIME/大小/用途/只读路径；只有 start/steer 成功才记录已通知，伙伴派单同步传原附件 ID。
+- 项目收件箱复用安全上传；按项目保存在 /work/.qisuo-attachments/projects/<项目>/inbox，正式库为 library，不进源码/Git。重命名显示名保留原始名/稳定路径；任务→收件箱、收件箱→任务、归档均使用硬链接/元数据引用，不复制字节，不覆盖同名。记录 pending/used/archived、来源任务与使用任务；路径派单成功也标记使用。原件及失败中间文件默认永久保留，无删除/自动清理接口。
+- 加固扩展名/MIME/文件头、大小、文件名/项目/任务归属，拒绝对象原型名称绕过。读写/硬链接固定 Linux 目录描述符，O_NOFOLLOW、root 所有权/不可组写检查；20 MiB/文件、原消息最多四附件，无新增依赖。旧附件路径兼容。完整 API/存储/步骤/清理策略见 docs/workroom-materials.md。
+- 验证：workroom-attachments（真实 PNG 原字节、路径/localImage/用途、运行 steer/失败 pending、同名隔离、收件箱、路径使用标记、重命名归档/硬链接、跨项目与符号链接、下载/预览）、workroom-progress（补伙伴附件透传）、preview-artifacts、workroom-ui、workroom-preview-ui 均通过；Node 语法、Vite 构建、diff --check 通过（仅既有导入提示；无独立类型检查配置）。
+- 隔离 ui-preview --task 01a143b9-f117-7043-a6cb-e59c578bb7f1 --route /work --fixture workroom-materials / workroom-attachments：各六张手机/平板/桌面浅深色，人工查看手机深色、桌面浅色和先前平板深色；另补两通道手机实际 file input 上传断言，预览/通知/重命名/归档/无横向溢出通过。素材完整六图运行 462cbba0-1f6d-4a88-b8ee-c4ffc3239553，附件 292f8656-be8b-4f1b-87d5-47f1fa51ee95，产物在任务 .qisuo-previews 下，沿用清单回传。
+- **还剩/边界**：本轮真实服务端处理函数和文件落盘/读取已验收，Codex app-server RPC 用离线替身，不能冒充线上接收实测。她以后推上线并重新运行服务器安装更新 bridge 后，需真机检验运行中追加与刷新/重启恢复；本轮未安装依赖、删除用户数据、重启/部署生产或推送。没有总配额/自动删除；后续贴纸系统按素材 ID 查询元数据和原件接口，产物另存不改原图。
+
+
 ### 2026-10-16 · Codex · 部署前界面截图回传
 - 调查确认工作间已有输入附件和受保护查看接口，没有生成产物收取；容器和本机已有全局 Playwright/Chromium/中文字体。新增 scripts/ui-preview.cjs：隔离构建、127.0.0.1 随机端口、手机/平板/桌面浅深色截图、路由/尺寸/UTC 标注，finally 关闭浏览器/服务器并清理临时构建；不加载 env、生产浏览器或数据库，空白浏览器禁外网/API/SW/WebSocket。产物在 Git 忽略的 .qisuo-previews/<任务>/<运行>/，无新依赖。
 - bridge 本轮完成时收取当前任务 manifest，将 PNG 复用原附件接口落盘并发出可持久回放的事件；工作间直接显示缩略图/查看链接与标注。Linux 描述符固定父目录、拒绝符号链接/越界，限文件大小和组数，运行编号去重；Dockerfile 复制新收取模块，setup.sh 下载清单同步补齐。每轮输入提示真实任务编号，兼容旧任务继续施工。说明见 docs/ui-preview.md。
