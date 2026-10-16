@@ -13,6 +13,14 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 排查 e1a209e 专项 reload 超时
+- 先只读复现：reload 前后 URL 均为 http://127.0.0.1:5205/#/；之前按钮 attached=1、visible=true、44×44、display:block、visibility:visible，无弹层/编辑模式；之后 body 文本为空、home 和按钮均未挂载。无 pageerror，但 console/requestfailed 出现多条 net::ERR_INSUFFICIENT_RESOURCES，涉及 letters/*.webp?import&url、stationery-geom.json?import、seeFiles.js、BookCover 的样式模块；独立不挂测试台的页面 reload 同样复现，排除测试台状态污染。现有服务返回的手势触发代码与工作区一致，未发现服务旧版或按钮条件渲染证据。
+- Chromium 仅禁用测试浏览器 HTTP 缓存后，同一现有服务连续三次加载/重载按钮均可见；据此定位为开发模式模块资源加载与缓存相关的测试环境失败，而非本次主页逻辑。仅修改 scripts/home-pull-refresh-check.cjs，保留真实 reload、可见性和原核心断言；增加 CDP Network.setCacheDisabled、前后 URL/DOM 文本/按钮矩形/弹层/编辑状态快照、console/pageerror/requestfailed 记录及失败资源断言。未用延长超时或忽略加载失败掩盖问题。
+- 补齐真实 refreshHome → startSync → syncNow 的模拟服务器验证（只拦截网络响应）：短拉不请求、达阈值尚未松手不请求、多次 move 后松手仅一次；暂停响应检查正在刷新和刷新锁，再次手势不重复；成功显示最新并收起；503 失败显示重试而非最新并收起；恢复后桌面小按钮 click/Enter/Space 各实际同步一次并成功。原方向/取消/插件/输入/滚动容器/非顶部/编辑排除断言保留。503 的 console 错误是测试故意制造的响应，不是资源加载失败。
+- **命令/结果**：`QISUO_TEST_URL=http://127.0.0.1:5205/ node scripts/home-pull-refresh-check.cjs` 退出 0；`node node_modules/vite/bin/vite.js build --outDir /tmp/qisuo-pull-review-build > /tmp/qisuo-pull-review-build.log 2>&1` 退出 0（2.31 秒，仅既有三条导入提示及外部产物目录提示）；`git diff --check` 退出 0。仅专项脚本与本日志有 diff，功能源码、iPad 三列网格和拖拽文件均未修改；复用现有依赖和 5205 服务，未安装依赖、删除数据、重启服务、推送或部署。本地另建提交。
+- **还剩**：这是 Chromium + Vite 开发资源加载的验证环境处理，不是生产 PWA 缓存修复；Safari/PWA 真机验收仍按上一条执行。此前声称专项通过不足以覆盖后来的 reload 失败，本条补上可复现证据、诊断及重跑结果。
+
+
 ### 2026-10-16 · Codex · 主页下拉刷新
 - 移除简介下的大号刷新按钮，标题旁保留 44px 点击范围的小刷新图标（aria-label/title、键盘焦点）；顶部流式轻提示显示下拉刷新、松开刷新、正在刷新与短暂结果，避开安全区，不覆盖头像及插件操作。未连接或仍有待同步内容如实提示，不误报最新；失败可再次下拉或点图标重试。
 - 复用 HomeView.refreshHome → startSync（原全局同步及合并保护）→ 已有工作间 refresh，不重载页面、不重建组件、不清空输入；补检查 syncState.error（原入口可能只记录错误而不抛出）。刷新锁与原 syncState.busy 共用，阻止重复请求。
