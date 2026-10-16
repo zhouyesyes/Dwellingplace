@@ -1,6 +1,7 @@
 <script setup>
 // 小组件桌面：长按进入编辑；编辑时可以拖动排序、删除、换大小、添加
-import { ref, computed, nextTick, onBeforeUnmount } from "vue";
+import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
+import { packWidgets } from "../../lib/widgetLayout.js";
 import { store, uid } from "../../store/index.js";
 import AnnivWidget from "../widgets/AnnivWidget.vue";
 import CalendarWidget from "../widgets/CalendarWidget.vue";
@@ -21,6 +22,61 @@ const TYPES = {
 
 const editing = ref(false);
 const widgets = computed(() => store.widgets.filter(w => TYPES[w.type]));
+
+// 平板使用像素行轨道，卡片各自占高，不再被同一行最高的卡片撑开。
+const desk = ref(null);
+const positions = ref({});
+let observer;
+let frame;
+function scheduleLayout() {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(layout);
+}
+function layout() {
+  if (!desk.value) return;
+  const tablet = matchMedia('(min-width: 760px) and (max-width: 1366px)').matches;
+  if (!tablet) { positions.value = {}; return; }
+  const column = (desk.value.clientWidth - 28) / 3;
+  const items = widgets.value.map(w => ({
+    ...w,
+    height: w.type === 'calendar' ? els[w.id]?.querySelector('.inner').scrollHeight || 1
+      : w.size === 'small' ? column : (column * 2 + 14) / 2,
+  }));
+  if (editing.value) items.push({ id: '__add', size: 'small', height: column });
+  const packed = packWidgets(items);
+  positions.value = Object.fromEntries(packed.map(p => [p.id, {
+    gridColumn: `${p.x + 1} / span ${p.width}`,
+    gridRow: `${p.y + 1} / span ${p.height}`,
+  }]));
+  positions.value.__hint = { gridColumn: "1 / -1", gridRow: `${Math.max(0, ...packed.map(p => p.y + p.height)) + 19} / span 24` };
+}
+onMounted(() => {
+  observer = new ResizeObserver(scheduleLayout);
+  observer.observe(desk.value);
+  window.addEventListener('resize', scheduleLayout);
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+  scheduleLayout();
+});
+watch([widgets, editing], async () => {
+  await nextTick();
+  observer?.disconnect();
+  if (desk.value) observer?.observe(desk.value);
+  for (const w of widgets.value) {
+    const inner = els[w.id]?.querySelector('.inner');
+    if (inner) observer?.observe(inner);
+  }
+  scheduleLayout();
+}, { deep: true, immediate: true });
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  cancelAnimationFrame(frame);
+  window.removeEventListener('resize', scheduleLayout);
+  window.removeEventListener('pointermove', onMove);
+  window.removeEventListener('pointerup', onUp);
+  window.removeEventListener('pointercancel', onUp);
+});
 
 // ---------- 长按进入编辑 ----------
 let pressTimer = null;
@@ -56,7 +112,7 @@ function onDown(e, w) {
   const el = els[w.id];
   const r = el.getBoundingClientRect();
   el.setPointerCapture(e.pointerId);
-  grab = { el, dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
+  grab = { order: [...store.widgets], targets: widgets.value.filter(item => item.id !== w.id).map(item => ({ id: item.id, rect: els[item.id].getBoundingClientRect() })), lastTarget: null, el, dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
   dragId.value = w.id;
 }
 
@@ -66,20 +122,21 @@ async function onMove(e) {
   grab.x = e.clientX;
   grab.y = e.clientY;
   place();
-  // 指到了哪个组件上，就把拖着的这个挪到那里
-  for (const w of store.widgets) {
-    if (w.id === dragId.value || !els[w.id]) continue;
-    const r = els[w.id].getBoundingClientRect();
-    if (e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom) {
-      const from = store.widgets.findIndex(x => x.id === dragId.value);
-      const to = store.widgets.indexOf(w);
-      const [moved] = store.widgets.splice(from, 1);
-      store.widgets.splice(to, 0, moved);
-      await nextTick();
-      if (grab) place();
-      break;
-    }
-  }
+  // 使用按下时的命中区，补位后的卡片移动不会在指针下反复交换。
+  const target = grab.targets.find(({ rect: r }) => e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom);
+  if (!target || target.id === grab.lastTarget) return;
+  grab.lastTarget = target.id;
+  const order = [...grab.order];
+  const from = order.findIndex(w => w.id === dragId.value);
+  const to = order.findIndex(w => w.id === target.id);
+  if (from < 0 || to < 0) return;
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  store.widgets = order;
+  await nextTick();
+  layout();
+  await nextTick();
+  if (grab) place();
 }
 
 function onUp() {
@@ -110,15 +167,16 @@ function add(type) {
 </script>
 
 <template>
-  <section class="wdesk" :class="{ editing }">
+  <section ref="desk" class="wdesk" :class="{ editing }">
     <div
       v-for="w in widgets"
       :key="w.id"
       :ref="el => (els[w.id] = el)"
       class="widget"
+      :data-widget-id="w.id"
+      :style="positions[w.id]"
       :class="[w.size, w.type, { dragging: dragId === w.id }]"
       @pointerdown="onDown($event, w)"
-      @pointermove="onMove"
       @pointerup="onUp"
       @pointercancel="onUp"
       @contextmenu.prevent
@@ -134,11 +192,11 @@ function add(type) {
       </template>
     </div>
 
-    <button v-if="editing" class="widget small add-tile" @click="addOpen = true">
+    <button v-if="editing" class="widget small add-tile" :style="positions.__add" @click="addOpen = true">
       <Icon name="plus" :size="26" /><span>添加组件</span>
     </button>
-    <p v-if="!editing" class="hint">长按组件可以排序、删除或添加</p>
-    <p v-if="!widgets.length && !editing" class="hint"><button class="btn soft small" @click="editing = true">编辑桌面</button></p>
+    <p v-if="!editing" class="hint" :style="positions.__hint">长按组件可以排序、删除或添加</p>
+    <p v-if="!widgets.length && !editing" class="hint" :style="positions.__hint"><button class="btn soft small" @click="editing = true">编辑桌面</button></p>
   </section>
 
   <Transition name="fade">
@@ -185,6 +243,14 @@ function add(type) {
 /* 平板：一行三格，小组件不再被撑得很大 */
 @media (min-width: 760px) {
   .wdesk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (min-width: 760px) and (max-width: 1366px) {
+  .wdesk { grid-auto-rows: 1px; row-gap: 0; grid-auto-flow: row; align-items: start; }
+  .widget { height: 100%; aspect-ratio: auto !important; }
+  .widget.calendar .inner { height: auto; }
+  .hint { grid-column: 1 / -1; margin-top: 18px; }
+  .wdesk.editing { margin-bottom: 150px; }
 }
 
 /* 编辑模式 */
