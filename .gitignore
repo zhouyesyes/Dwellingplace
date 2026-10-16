@@ -2,3 +2,4 @@ node_modules
 dist
 
 .qisuo-previews/
+.qisuo-outputs/

@@ -23,7 +23,7 @@
 //   GET  /policy   POST /policy {...}                 哪些事不用问你
 //   GET  /events?since=N                              实时过程（SSE）；断线了带上最后的编号再连，从断点补回
 import http from "node:http";
-import { collectPreviews } from "./previews.mjs";
+import { collectPreviews, collectOutputs } from "./previews.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import readline from "node:readline";
 import fs from "node:fs";
@@ -179,7 +179,17 @@ function onLine(line) {
       return metadata;
     }, attachments => {
       if (attachments.length) emit("qisuo/preview/ready", { threadId: t.id, attachments });
-    }, () => emit("qisuo/preview/error", { threadId: t.id, message: "有预览截图未能收取，请检查清单和附件目录。" })).then(() => saveThreads()).catch(() => emit("qisuo/preview/error", { threadId: t.id, message: "预览截图收取失败，请检查清单和附件目录；未收取的截图可在修复后重试。" })).finally(() => emit(m.method, p));
+    }, () => emit("qisuo/preview/error", { threadId: t.id, message: "有预览截图未能收取，请检查清单和附件目录。" })).then(() => saveThreads()).catch(() => emit("qisuo/preview/error", { threadId: t.id, message: "预览截图收取失败，请检查清单和附件目录；未收取的截图可在修复后重试。" }))
+      // 一般产物（做好的图片）：.qisuo-outputs/<任务编号>/ 里的，收了显示给她
+      .then(() => { t.outputKeys ||= []; return collectOutputs(path.resolve(WORK, t.project), t.id, t.outputKeys, async (name, data, type) => {
+        let metadata;
+        const res = { writeHead() {}, end(value) { metadata = JSON.parse(value); } };
+        await attachmentRoute({ method: "POST", headers: { "content-type": type }, async *[Symbol.asyncIterator]() { yield data; } }, res, new URL(`http://local/?name=${encodeURIComponent(name)}`), [null, t.id]);
+        return metadata;
+      }); })
+      .then(files => { if (files?.length) { emit("qisuo/preview/ready", { threadId: t.id, attachments: files }); saveThreads(); } })
+      .catch(() => {})
+      .finally(() => emit(m.method, p));
     return;
   }
   emit(m.method, p);
@@ -243,6 +253,7 @@ function onRequest(m) {
 const BASE_INSTRUCTIONS = [
   "用中文回复。",
   "这台机器上有一个没有界面的浏览器：Playwright + Chromium 已经全局装好（在 node 里直接 require('playwright') 或 import 'playwright'），带中文字体。改了网页、要看界面对不对时，可以写个小脚本：起一个本地服务（比如 npx vite --port 5199 或 node 的 http 模块），用 chromium.launch() 打开，按手机尺寸（390×844）截图存到 /tmp，再用看图工具看截图。",
+  "做好的图片（贴纸、效果图之类）要给她看：复制一份到项目里的 .qisuo-outputs/<当前工作间任务编号>/ 下面（png/jpg/webp/gif），这一轮结束会自动显示在她的页面上；别只说文件路径，她看不到。",
   "她发来的视频（录屏）：浏览器解不了 iPhone 的 H.264 / HEVC，用 ffmpeg 拆成截图再看，比如 ffmpeg -i 视频 -vf fps=1,scale=480:-1 /tmp/frame-%02d.png（长的就把 fps 调低），拆完用看图工具看。",
   "网络：只能连 OpenAI，再加上她放行的几个网站（一般有 GitHub 和 npm）；别的连不上，需要的话先说明，让她决定要不要放行。",
   `「${GIT_PROJECT}」项目是 GitHub 上 ${GIT_REPO} 的代码，动手前先 git pull、读根目录的 AGENTS.md（大家的施工说明）和 docs/worklog.md 最上面几条（cc 和你都在改这个仓库），做完在日志最上面记一条。你可以在本地提交（git commit），但推不上去：推上线要她在工作间里点「推上线」。`,

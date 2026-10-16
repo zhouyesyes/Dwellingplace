@@ -4,7 +4,7 @@
 // Codex 做完，下次打开工作间那个任务时他会先看一遍结果再告诉你（推上线这类事照样要你点）。
 // 一天最多交 DAILY_MAX 次（醒来时交的另算，见中转）
 import { store } from "../store/index.js";
-import { wr, refresh, newThread, say, thread, listMaterials, listMaterialGroups, changeMaterial, uploadMaterial, editMaterialGroup, forgetMaterials } from "./workroom.js";
+import { wr, refresh, newThread, say, thread, listAttachments, listMaterials, listMaterialGroups, changeMaterial, uploadMaterial, editMaterialGroup, forgetMaterials } from "./workroom.js";
 export { noteWorkroom } from "./workroom.js";
 import { workThread, loadTalk } from "./workTogether.js";
 
@@ -72,7 +72,9 @@ export async function gatherFiles(project, taskId, want, history) {
       if (g) g.files.forEach(id => ids.add(id));
       else materials.filter(m => m.name === n || m.name.replace(/\.[^.]+$/, "") === n).forEach(m => ids.add(m.id));
     }
-    for (const id of [...ids].slice(0, 30)) files.push(await changeMaterial(project, id, "attach", { taskId }));
+    // 这个任务里已经交给过 Codex 的，不再重复带
+    const had = new Set(((await listAttachments(taskId).catch(() => ({}))).attachments || []).filter(a => a.notification === "delivered").map(a => a.materialId).filter(Boolean));
+    for (const id of [...ids].filter(id => !had.has(id)).slice(0, 30)) files.push(await changeMaterial(project, id, "attach", { taskId }));
   }
   if (history) {
     const fromChat = await chatFiles(history);
