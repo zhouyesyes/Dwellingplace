@@ -4,7 +4,7 @@
 // 以后「和他一起工作」也在这里：他带着记忆来，替你指挥 Codex。
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, startLogin, logout, newProject, deleteProject, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
+import { wr, refresh, connect, disconnect, ensureLive, loadThread, thread, startLogin, logout, newProject, deleteProject, archive, gitState, gitPush, gitPull, newThread, say, interrupt, answer, setPolicy, limitsOf, uploadAttachment, attachmentUrl } from "../lib/workroom.js";
 import { blockMd } from "../lib/inlineMd.js";
 import { store, MAIN, roleById } from "../store/index.js";
 import { workThread, loadTalk, talk, report, wrapUp, turnDoneSince, busy as himBusy, phases as himPhases } from "../lib/workTogether.js";
@@ -125,6 +125,11 @@ async function addProject() {
   const n = prompt("新项目叫什么？（会在服务器上建一个同名文件夹）");
   if (!n?.trim()) return;
   try { await newProject(n); project.value = n.trim(); } catch (e) { toast(e.message, 4000); }
+}
+// 删任务：只是从列表里收起来（服务器上的记录还留着），项目文件夹里的代码不动
+async function dropThread(x) {
+  if (!confirm(`删掉任务「${x.title}」？只是从列表里拿掉，项目里的代码不会动。`)) return;
+  try { await archive(x.id); toast("删掉了"); } catch (e) { toast(e.message, 4000); }
 }
 async function dropProject() {
   const n = project.value;
@@ -378,7 +383,7 @@ const RULES = [
         <button v-for="p in projects" :key="p" :class="{ on: project === p }" @click="project = p">{{ p }}</button>
         <button class="add" @click="addProject">＋ 新项目</button>
       </div>
-      <button v-if="project" class="del-proj" @click="dropProject">删掉「{{ project }}」这个项目</button>
+      <button v-if="project && project !== '栖所'" class="del-proj" @click="dropProject">删掉「{{ project }}」这个项目</button>
       <template v-if="project">
         <div v-if="git" class="git">
           <template v-if="git.error"><small>GitHub：{{ git.error }}</small></template>
@@ -404,6 +409,7 @@ const RULES = [
           <b>{{ x.title }}</b>
           <small>{{ x.turnId ? "正在干活 · " : "" }}{{ new Date(x.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) }}</small>
           <i v-if="(st.approvals || []).some(a => a.threadId === x.id)" class="wait">等你点</i>
+          <span v-if="!x.turnId" class="del-task" role="button" aria-label="删掉这个任务" @click.stop="dropThread(x)">删</span>
         </button>
         <label class="new-files">新任务的原始附件（可选）<input type="file" multiple @change="chooseFiles" /></label>
         <div v-for="(f,i) in files" :key="f.url" class="new-files">{{ f.file.name }}<input v-model="f.purpose" maxlength="2000" placeholder="用途说明" /><button @click="removeFile(i)">移除</button></div>
@@ -562,6 +568,7 @@ const RULES = [
 .row b { flex: 1; font-size: .92rem; }
 .row small { color: var(--text-3); font-size: .72rem; }
 .row.add { background: none; box-shadow: inset 0 0 0 1.5px var(--line); color: var(--text-2); justify-content: center; }
+.del-task { font-size: .7rem; color: var(--text-3); padding: 2px 4px 2px 10px; }
 .wait { font-style: normal; font-size: .7rem; color: #fff; background: var(--danger); border-radius: 999px; padding: 1px 8px; }
 .tl > * { flex-shrink: 0; }
 .bar, .modes { flex-shrink: 0; }
