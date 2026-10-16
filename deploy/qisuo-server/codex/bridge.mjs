@@ -23,6 +23,7 @@
 //   GET  /policy   POST /policy {...}                 哪些事不用问你
 //   GET  /events?since=N                              实时过程（SSE）；断线了带上最后的编号再连，从断点补回
 import http from "node:http";
+import { collectPreviews } from "./previews.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import readline from "node:readline";
 import fs from "node:fs";
@@ -84,7 +85,7 @@ const ours = codexId => Object.values(threads).find(t => t.codex === codexId)?.i
 const NOT_FOUND = /thread not found|no rollout found|no such thread|unknown thread/i; // Codex 说法不止一种
 // 不套 Codex 自己的隔离罩（容器已经隔开了，容器里也套不上），审批按栖所的规则来。开新线程、接上旧线程都带着，不然重启后接上的线程会退回 Codex 的默认
 const RUN_OPTS = { sandbox: "danger-full-access", approvalPolicy: "untrusted" };
-const startOpts = t => ({ cwd: path.join(WORK, t.project), ...RUN_OPTS, developerInstructions: [BASE_INSTRUCTIONS, t.instructions || ""].filter(Boolean).join("\n\n"), ...(t.model ? { model: t.model } : {}) });
+const startOpts = t => ({ cwd: path.join(WORK, t.project), ...RUN_OPTS, developerInstructions: [BASE_INSTRUCTIONS, t.instructions || "", "界面任务截图：优先运行项目 scripts/ui-preview.cjs，按当前消息给出的任务编号传 --task，并按任务选择 --route；不可导入生产凭据或隐私数据。"].filter(Boolean).join("\n\n"), ...(t.model ? { model: t.model } : {}) });
 // 先照常做；Codex 说找不到这个线程：先试着接上，接不上就开一个新的，再做一次
 async function withThread(t, run) {
   try { return await run(cid(t)); } catch (e) { if (!NOT_FOUND.test(e.message)) throw e; }
@@ -168,6 +169,19 @@ function onLine(line) {
   if (m.method === "turn/completed" && threads[p.threadId]) { delete threads[p.threadId].turnId; saveThreads(); }
   if (m.method === "account/rateLimits/updated") rateLimits = p.rateLimits || rateLimits;
   if (m.method === "account/login/completed" || m.method === "account/updated") refreshAccount();
+  if (m.method === "turn/completed" && threads[p.threadId]) {
+    const t = threads[p.threadId];
+    t.previewRuns ||= [];
+    collectPreviews(path.resolve(WORK, t.project), t.id, t.previewRuns, async (name, data) => {
+      let metadata;
+      const res = { writeHead() {}, end(value) { metadata = JSON.parse(value); } };
+      await attachmentRoute({ method: "POST", headers: { "content-type": "image/png" }, async *[Symbol.asyncIterator]() { yield data; } }, res, new URL(`http://local/?name=${encodeURIComponent(name)}`), [null, t.id]);
+      return metadata;
+    }, attachments => {
+      if (attachments.length) emit("qisuo/preview/ready", { threadId: t.id, attachments });
+    }, () => emit("qisuo/preview/error", { threadId: t.id, message: "有预览截图未能收取，请检查清单和附件目录。" })).then(() => saveThreads()).catch(() => emit("qisuo/preview/error", { threadId: t.id, message: "预览截图收取失败，请检查清单和附件目录；未收取的截图可在修复后重试。" })).finally(() => emit(m.method, p));
+    return;
+  }
   emit(m.method, p);
 }
 
@@ -435,7 +449,7 @@ async function route(req, res, url) {
       if (!text && !attachments.length) return json(res, 400, { error: { message: "说点什么" } });
       // 文件都写上只读路径，Codex 用工具去读；图片另外按 localImage 直接给它看（不认这种输入就退回只给路径）
       const description = attachments.map(a => `附件：${a.name} (${a.type}, ${a.size} 字节)，本地只读路径：${a.path}`).join("\n");
-      const plain = [{ type: "text", text: [text, description].filter(Boolean).join("\n\n") }];
+      const plain = [{ type: "text", text: [text, description, `当前工作间任务编号：${t.id}。界面验收运行 node scripts/ui-preview.cjs --task ${t.id} --route /settings（按任务更换路由），产物将在本轮结束自动收取；不部署生产环境。`].filter(Boolean).join("\n\n") }];
       const images = attachments.filter(a => /^image\/(png|jpeg|gif|webp)$/.test(a.type)).map(a => ({ type: "localImage", path: a.path }));
       const withImages = async run => { if (images.length) { try { return await run([...plain, ...images]); } catch { /* 退回只给路径 */ } } return run(plain); };
       emit("qisuo/user/message", { threadId: id, text, attachments, steer: !!t.turnId });

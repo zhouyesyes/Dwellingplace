@@ -11,7 +11,7 @@ RUN npm install -g playwright@${PLAYWRIGHT_VERSION} --no-audit --no-fund \
  && apt-get update && apt-get install -y --no-install-recommends fonts-noto-cjk && rm -rf /var/lib/apt/lists/* \
  && chmod -R a+rX /opt/pw-browsers
 RUN useradd -m -u 1001 codex
-COPY bridge.mjs /opt/bridge.mjs
+COPY bridge.mjs previews.mjs /opt/
 WORKDIR /work
 # 连接程序以 root 运行（钥匙、记录别人读不到），Codex 和它的命令降成 codex 用户
 CMD ["node", "/opt/bridge.mjs"]

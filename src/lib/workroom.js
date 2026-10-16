@@ -77,6 +77,12 @@ export function apply(ev) {
   if (!tid) return;
   const t = thread(tid);
   switch (ev.method) {
+    case "qisuo/preview/ready":
+      add(t, { kind: "preview", attachments: p.attachments || [], ts: ev.ts });
+      break;
+    case "qisuo/preview/error":
+      add(t, { kind: "previewError", text: p.message, ts: ev.ts });
+      break;
     case "qisuo/user/message":
       add(t, { kind: "user", text: p.text, attachments: p.attachments || [], steer: p.steer, ts: ev.ts });
       break;

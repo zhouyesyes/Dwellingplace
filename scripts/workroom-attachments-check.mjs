@@ -6,8 +6,14 @@ import vm from 'node:vm';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qisuo-check-'));
+fs.mkdirSync(path.join(root, '.qisuo-attachments'));
 const source = fs.readFileSync('deploy/qisuo-server/codex/bridge.mjs', 'utf8');
-const context = { fs, path, randomUUID, Buffer, WORK: root, DATA: path.join(root, 'data'), threads: { test: { id: 'test', project: '测试' } }, readJSON: (p, fallback) => { try { return JSON.parse(fs.readFileSync(p)); } catch { return fallback; } }, writeJSON: (p, obj) => fs.writeFileSync(p, JSON.stringify(obj)), json: (_res, code, value) => ({ code, value }) };
+// 测试进程不是 root，仅将临时附件根目录的所有权查询模拟为安装后的状态。
+const fixtureFs = new Proxy(fs, { get(target, key) {
+  if (key === 'statSync') return file => { const st = fs.statSync(file); if (file === path.join(root,'.qisuo-attachments')) st.uid = 0; return st; };
+  return target[key];
+} });
+const context = { fs: fixtureFs, path, randomUUID, Buffer, WORK: root, DATA: path.join(root, 'data'), threads: { test: { id: 'test', project: '测试' } }, readJSON: (p, fallback) => { try { return JSON.parse(fs.readFileSync(p)); } catch { return fallback; } }, writeJSON: (p, obj) => fs.writeFileSync(p, JSON.stringify(obj)), json: (_res, code, value) => ({ code, value }) };
 vm.createContext(context);
 vm.runInContext(source.slice(source.indexOf('const FILE_MAX'), source.indexOf('async function route(')) + '\nglobalThis.upload = attachmentRoute; globalThis.lookup = fileMeta;', context);
 const upload = (name, mime, data) => context.upload({ method: 'POST', headers: { 'content-type': mime }, async *[Symbol.asyncIterator]() { yield data; } }, {}, new URL('http://local/?name=' + encodeURIComponent(name)), [null, 'test']);
@@ -25,6 +31,7 @@ console.log('通过：文件名清理、内容签名、MIME、类型、空文件
 // 临时测试目录保留供复核，不触碰项目或用户数据。
 
 context.ready = true;
+context.withThread = async (t, run) => run(t.id);
 context.emit = (_method, params) => { context.sent = params; };
 context.call = async () => ({ turn: { id: 'turn' } });
 context.saveThreads = () => {};

@@ -107,7 +107,7 @@ if [ "$CODEX" = "y" ]; then
   say "装工作间（Codex $CODEX_VERSION，第一次要几分钟）…"
   mkdir -p codex "$DIR/codex-home" "$DIR/codex-work" "$DIR/codex-bridge" "$DIR/codex-gate"
   RAW="https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main/deploy/qisuo-server/codex"
-  for f in Dockerfile Dockerfile.gate bridge.mjs gate.mjs; do curl -fsSL "$RAW/$f" -o "codex/$f"; done
+  for f in Dockerfile Dockerfile.gate bridge.mjs previews.mjs gate.mjs; do curl -fsSL "$RAW/$f" -o "codex/$f"; done
   $SUDO docker build -q --build-arg CODEX_VERSION="$CODEX_VERSION" -t qisuo-codex codex >/dev/null
   $SUDO docker build -q -f codex/Dockerfile.gate -t qisuo-codex-gate codex >/dev/null
   # 实测时已经登录过：把登录搬过来，不用再输一次码

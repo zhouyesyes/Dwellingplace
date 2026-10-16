@@ -410,7 +410,7 @@ const RULES = [
       <main ref="scroller" class="tl">
         <p v-if="!timeline.length" class="hint">{{ together ? `和${him}说说要做什么。${him}会和你商量，把具体的活交给 Codex，Codex 干活的过程都会摊在这里，做完${him}先看一遍再告诉你。` : `说说要做什么。Codex 会在「${t.meta?.project}」这个文件夹里读文件、改代码、跑命令，过程都会摊在这里。` }}</p>
         <template v-for="(it, i) in shown" :key="it.id || i">
-          <div v-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}</a></div>
+          <div v-if="it.attachments?.length" class="attachments"><a v-for="a in it.attachments" :key="a.id" :href="attachmentUrl(cur, a.id)" target="_blank" rel="noopener noreferrer"><img v-if="a.type.startsWith('image/')" :src="attachmentUrl(cur, a.id)" /><video v-else-if="a.type.startsWith('video/')" :src="attachmentUrl(cur, a.id)" controls preload="metadata" />{{ a.name }} · {{ Math.ceil(a.size / 1024) }} KB · {{ a.type }}<small v-if="a.preview">{{ a.preview.route }} · {{ a.preview.width }}×{{ a.preview.height }} · {{ a.preview.theme }} · {{ a.preview.generatedAt }}</small></a></div>
           <div v-if="it.kind === 'talkMe'" class="me"><p>{{ it.text }}</p></div>
           <div v-else-if="it.kind === 'talkHim'" class="him">
             <Avatar :img="role?.avatar" :name="him" :color="role?.color" :size="30" />
@@ -421,6 +421,7 @@ const RULES = [
           </div>
           <div v-else-if="it.kind === 'user' && sentByHim(it)" class="card task"><b>{{ him }}交给 Codex{{ it.steer ? "（插话）" : "" }}</b></div>
           <div v-else-if="it.kind === 'user'" class="me"><p>{{ it.text }}</p><small v-if="it.steer">插话</small></div>
+          <p v-else-if="it.kind === 'previewError'" class="hint">{{ it.text }}</p>
           <WorkMarkdown v-else-if="it.kind === 'agent'" class="agent" :text="it.text" :render="workMd" />
           <details v-else-if="it.kind === 'reasoning' && it.text" class="think"><summary>思考</summary><p>{{ it.text }}</p></details>
           <div v-else-if="it.kind === 'plan'" class="card plan">
