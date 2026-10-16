@@ -9,7 +9,7 @@ export { noteWorkroom } from "./workroom.js";
 import { workThread, loadTalk } from "./workTogether.js";
 
 export const WORK_RE = /<交给工作间(?:\s+项目\s*=\s*["“「]?([^"”」>]+?)["”」]?)?\s*>([\s\S]*?)<\/交给工作间>/g;
-const DAILY_MAX = 5;
+const DAILY_MAX = 20; // 她活多，5 次不够用（2026-10-16 调到 20）
 const today = () => new Date().toDateString();
 
 export function workroomForAI(who) {
