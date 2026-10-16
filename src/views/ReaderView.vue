@@ -516,7 +516,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 /* 一屏一页：字排成一栏一栏往右排，一栏正好一屏宽，翻页就是往右挪一屏 */
 .page.paged { min-height: 0; max-width: none; overflow: hidden; column-width: var(--colw, 300px); column-gap: var(--colgap, 48px); column-fill: auto; padding-bottom: calc(var(--safe-bottom) + 84px); touch-action: pan-y pinch-zoom; }
 @media (min-width: 768px) { .page.paged { padding-left: max(24px, calc((100% - 720px) / 2)); padding-right: max(24px, calc((100% - 720px) / 2)); } }
-.page.paged .ch-nav { break-inside: avoid; }
+.page.paged .ch-nav { break-inside: avoid; position: relative; }
+/* Safari 的多栏滚动末尾可能不计右 padding，末页会少滚一段留白。
+   用章末导航的定位溢出显式补足右留白，不参与排版，也不增加新的一栏。 */
+.page.paged .ch-nav::after { content: ""; position: absolute; top: 0; left: 100%; width: calc(var(--colgap, 48px) / 2); height: 1px; pointer-events: none; }
 .pgno { position: fixed; left: 22px; bottom: calc(var(--safe-bottom) + 34px); z-index: 2; font-size: .72rem; color: var(--text-3); letter-spacing: .05em; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
 .page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }

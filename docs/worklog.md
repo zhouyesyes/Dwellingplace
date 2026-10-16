@@ -13,6 +13,11 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 共读分页末页右侧留白
+- 仅修改 `ReaderView.vue` 分页章末导航的定位及伪元素：在最后一栏显式补齐半个栏间距（现有右 padding），避免多栏末尾 padding 没有计入滚动范围时末页少滚、正文向右偏。不改变字体、字号、行距、段间距或阅读设置；未改导入、图片、笔记和章节识别。
+- 新增隔离阅读 fixture `scripts/fixtures/reader-pagination.cjs`，由现有 ui-preview 的 `--fixture reader-short / reader-long --route /read/preview-book` 调用；只用全新浏览器及虚构 IndexedDB 正文，封锁外部资源/API。短章 2 段、长章 51 段（长度交错且包含跨页段落），手机/平板/桌面浅深色共 12 组验证通过：末页与首页栏宽、左右边距相同，末页滚动达到整屏位置，短章无额外分页；反复回首页/末页后截图。手机正文宽 342px、两侧各 24px；平板/桌面正文宽 720px。已目视截图，手机浅深色两种章节截图复制到当前任务 outputs。
+- `npx --no-install vite build`、`git diff --check` 通过（仅既有动态导入提示）；未安装依赖，未推送、未部署。**注意**：Chromium 原本未复现 Safari 的末尾 padding 丢失，修复针对该多栏兼容问题；本机无 WebKit/Safari，不能把移动尺寸 Chromium 验收当作 Safari 真机验证，Safari 真机效果仍待复核。任务 01a14564-6113-7631-9a4d-f78315b039e1。
+
 ### 2026-10-16 夜 · cc（她很累、很沮丧，下次先把这些修好再做新东西）
 她只想要一件事：**在栖所里看着 Codex 干活，做好的图直接在页面上看到。** 今天没做到，下次第一件事就做这个。
 - **产物没出来**：她装了最新版（含 #188），让 Codex 把 5 张贴纸放进 `.qisuo-outputs/<任务编号>/`，试了多次，服务器上这个文件夹根本没建出来。原因没查清：先在服务器上 `find /root/qisuo-server/codex-work/栖所 -name "*.png" -mmin -600 -not -path "*/node_modules/*"` 找 Codex 把贴纸放哪了；再看 Codex 那几轮是不是被插话打断、命令失败
