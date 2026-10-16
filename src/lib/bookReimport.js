@@ -1,5 +1,5 @@
 // 覆盖导入只处理选中的书；正文和笔记在事务成功前都保持原样。
-import { store, commitBookTransaction } from '../store/index.js';
+import { store, prepareBookPersistence, commitBookTransaction } from '../store/index.js';
 import { get } from './kv.js';
 import { parseEpub, replaceBookCache } from './books.js';
 const copy = x => JSON.parse(JSON.stringify(x));
@@ -30,11 +30,14 @@ export function migrateReading(book, notes, oldBody, body) {
       if (!text) return [];
       const hits = [];
       cs.forEach((c, ci) => c.paras.forEach((v, pi) => {
-        const start = exact ? (v === text ? 0 : -1) : v.indexOf(text);
-        if (start >= 0 && (exact || v.indexOf(text, start + 1) < 0)) hits.push({ ch: ci, p: pi, start });
+        if (exact) { if (v === text) hits.push({ ch: ci, p: pi, start: 0 }); }
+        else {
+          // 每个字符位置都是独立候选，包括同段重复及重叠的摘录。
+          for (let start = v.indexOf(text); start >= 0; start = v.indexOf(text, start + 1)) hits.push({ ch: ci, p: pi, start });
+        }
       }));
       const local = hits.filter(h => h.ch === target);
-      return local.length === 1 ? local : hits;
+      return local.length ? local : hits;
     };
     let hits = find(old, true);
     if (hits.length === 1) {
@@ -86,12 +89,18 @@ export function migrateReading(book, notes, oldBody, body) {
 export async function previewReimport(id, file) {
   if (!/\.epub$/i.test(file.name)) throw Error('请选择 EPUB 文件');
   if (file.size > 100 * 1024 * 1024) throw Error('文件过大，请选择小于 100 MB 的 EPUB');
+  await prepareBookPersistence();
   const book = store.books.find(b => b.id === id);
   if (!book) throw Error('这本书已不在书架上');
   const before = stateOf(id), saved = await get(`book:${id}`);
   if (!saved?.chapters?.length) throw Error('旧书正文暂不可用，不能覆盖');
   const oldBody = copy(saved);
-  const parsed = await parseEpub(new Uint8Array(await file.arrayBuffer()));
+  let parsed;
+  try { parsed = await parseEpub(new Uint8Array(await file.arrayBuffer())); }
+  catch (e) {
+    if (e.code !== 'EPUB_STRUCTURE') throw e;
+    return { id, title: book.title, newTitle: '文件异常', author: '无法读取', oldChapters: oldBody.chapters.length, newChapters: '无法读取', oldImages: imageCount(oldBody), newImages: '无法读取', moved: 0, unresolved: 0, approximate: 0, pending: [], allowed: false, reason: e.message };
+  }
   const body = { chapters: parsed.chapters, resources: parsed.resources || {} };
   if (!body.chapters.length) throw Error('文件中没有可用章节，旧书未改动');
   if (body.chapters.some(c => c.media?.some(m => !m.resource || !body.resources[m.resource]))) throw Error('文件有缺失的插图资源，请换用完整 EPUB，旧书未改动');
@@ -121,12 +130,13 @@ export async function previewReimport(id, file) {
 export async function confirmReimport(preview) {
   const plan = plans.get(preview);
   if (!plan || !preview.allowed) throw Error('请先重新选择文件并核对预览');
+  const latestMeta = await prepareBookPersistence();
   if (stateOf(preview.id) !== plan.before) throw Error('预览后阅读数据发生变化，请重新选择文件生成预览');
   const { id } = preview;
   const current = store.books.find(b => b.id === id);
   const coverImage = current.cover ? await get(`img:${current.cover}`) : null;
   if (stateOf(id) !== plan.before) throw Error('阅读数据发生变化，请重新预览');
-  const snapshot = { at: Date.now(), book: copy(store.books.find(b => b.id === id)), notes: copy((store.bookNotes || []).filter(n => n.bookId === id)), body: plan.oldBody, coverImage };
+  const snapshot = { at: Date.now(), book: copy(latestMeta.books.find(b => b.id === id)), notes: copy((latestMeta.bookNotes || []).filter(n => n.bookId === id)), body: plan.oldBody, coverImage };
   const next = copy(store);
   next.books[next.books.findIndex(b => b.id === id)] = { ...plan.migration.book, readSecs: current.readSecs, reimport: { at: snapshot.at, moved: preview.moved, unresolved: preview.unresolved, approximate: preview.approximate } };
   const migrated = new Map(plan.migration.notes.map(n => [n.id, n]));
@@ -137,6 +147,7 @@ export async function confirmReimport(preview) {
 }
 
 export async function restoreReimport(id) {
+  await prepareBookPersistence();
   const snapshot = await get(backupKey(id));
   const currentBody = await get(`book:${id}`);
   if (!snapshot || !store.books.some(b => b.id === id)) throw Error('没有找到可恢复的备份');

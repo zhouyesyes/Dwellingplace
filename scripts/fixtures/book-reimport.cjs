@@ -12,6 +12,9 @@ function epub(version, title = '安全覆盖测试书', options = {}) {
   if (options.fault === 'image') files['OPS/pic.svg'] = '损坏的图片';
   if (options.fault === 'missing-image') delete files['OPS/pic.svg'];
   if (options.fault === 'chapter') delete files['OPS/a.xhtml'];
+  if (options.fault === 'spine') files['OPS/book.opf'] = files['OPS/book.opf'].replace('</spine>', '<itemref idref="missing-manifest-chapter"/></spine>');
+  if (options.fault === 'href') files['OPS/book.opf'] = files['OPS/book.opf'].replace('href="a.xhtml"', '');
+  if (options.fault === 'blank-href') files['OPS/book.opf'] = files['OPS/book.opf'].replace('href="a.xhtml"', 'href=" "');
   return Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([k,v]) => [k,strToU8(v)]))));
 }
 exports.install = async () => ({});
@@ -49,7 +52,7 @@ exports.prepare = async (page, origin) => {
     check(!(await m.previewReimport(id,file(wrongAuthor))).allowed, '不同作者禁止覆盖');
     for (const b of broken) {
       failed = false;
-      try { await m.previewReimport(id,file(b)); } catch { failed = true; }
+      try { failed = (await m.previewReimport(id,file(b))).allowed === false; } catch { failed = true; }
       check(failed && JSON.stringify(m.store) === before && JSON.stringify(await m.get('book:' + id)) === bodyBefore, '缺章或插图异常时旧书不变');
     }
     const preview = await m.previewReimport(id,file(bytes));
@@ -103,6 +106,7 @@ exports.prepare = async (page, origin) => {
     await m.set('meta', JSON.parse(JSON.stringify(m.store)));
     window.testBookId = id;
   }, { oldBytes:[...epub(0)], bytes:[...epub(1)], wrong:[...epub(1,'另一本书')], wrongAuthor:[...epub(1,'安全覆盖测试书',{author:'不同作者'})], broken:['image','missing-image','chapter'].map(fault => [...epub(1,'安全覆盖测试书',{fault})]) });
+  await require('./book-reimport-regressions.cjs').run(page, { valid:[...epub(1)], invalid:['spine','href','blank-href','chapter'].map(fault => [...epub(1,'安全覆盖测试书',{fault})]) });
   await page.goto(origin + '/?reimport-preview=1#/books');
   await page.waitForSelector('.cv');
 };

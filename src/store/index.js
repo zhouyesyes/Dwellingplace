@@ -3,8 +3,9 @@
 //   msgs:<id>     某个对话的全部消息
 //   img:<id>      压缩后的图片（Blob）
 import { reactive, watch } from "vue";
-import { get, set, del, setMany } from "../lib/kv.js";
+import { get, set, del, setMany, editMany } from "../lib/kv.js";
 import { migrateFlat } from "../lib/tree.js";
+import { mergeBookMeta, applyBookMeta, sameMeta } from "../lib/bookMetaMerge.js";
 import { defaultMedia } from "../lib/media.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -106,13 +107,40 @@ export function newWake() {
 export const store = reactive(defaults());
 
 let metaTimer = null;
+let persistedMeta;
+let protectBookMeta = false;
+let metaSaving = Promise.resolve();
+let bookTransactionAbort = null;
+const metaCopy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+// 每个实例使用独立副本键；sessionStorage 只记录刷新时要恢复的上一份。
+let pendingBookKey;
+const pendingKey = () => pendingBookKey ??= `sync:book-pending:${uid()}`;
+
 export const hasPendingMeta = () => metaTimer !== null;
 export let flushStore = () => {};
 
 export async function loadStore() {
   try {
     const saved = await get("meta");
+    persistedMeta = metaCopy(saved);
     if (saved) Object.assign(store, defaults(), saved);
+    const previous = sessionStorage.getItem('qisuo-book-pending');
+    const pending = previous ? await get(`sync:book-pending:${previous}`) : null;
+    const sessionId = uid();
+    pendingBookKey = `sync:book-pending:${sessionId}`;
+    // 先复制再交接指针，保留旧副本；复制标签页也不会共用一个可被改写的键。
+    let copied = !pending;
+    if (pending) {
+      try { await set(pendingBookKey, pending); copied = true; }
+      catch { console.warn('未能复制待保存副本，保留原副本并在本页恢复'); }
+    }
+    if (copied) sessionStorage.setItem('qisuo-book-pending', sessionId);
+    if (pending) {
+      protectBookMeta = true;
+      metaTimer = -1;
+      persistedMeta = pending.base;
+      Object.assign(store, defaults(), pending.local);
+    }
     migrate();
   } catch (e) {
     console.warn("读取本地数据失败", e);
@@ -121,12 +149,48 @@ export async function loadStore() {
   navigator.storage?.persist?.().catch(() => {});
 
   const flush = flushStore = () => {
-    if (metaTimer === null) return;
+    if (metaTimer === null && !protectBookMeta) return;
     clearTimeout(metaTimer);
     metaTimer = null;
-    return set("meta", JSON.parse(JSON.stringify(store)));
+    const save = async () => {
+      const local = metaCopy(store);
+      if (!protectBookMeta) {
+        await set("meta", local);
+        persistedMeta = local;
+        return;
+      }
+      const outcome = await editMany(['meta'], values => {
+        const latest = values.get('meta');
+        try {
+          const merged = mergeBookMeta(persistedMeta, local, latest);
+          return { entries: sameMeta(latest, merged) ? [] : [['meta', merged]], remove: [pendingBookKey], result: { merged } };
+        } catch {
+          // 不覆盖数据库。待保存副本包含基线，刷新后仍能保留本页修改并重试。
+          return { entries: [[pendingBookKey, { base: persistedMeta, local, at: Date.now() }]], result: { conflict: true } };
+        }
+      });
+      sessionStorage.setItem('qisuo-book-pending', pendingBookKey.slice('sync:book-pending:'.length));
+      if (outcome.conflict) { metaTimer ??= -1; throw Error('其他窗口也修改了同一内容；本页修改已保存在本机，请核对后重新预览'); }
+      const current = metaCopy(store);
+      let view;
+      try { view = mergeBookMeta(local, current, outcome.merged); }
+      catch {
+        // 等待写事务时又修改了同一字段：保留原基线，不让下一次保存把冲突当作已解决。
+        persistedMeta = local;
+        await set(pendingBookKey, { base: local, local: current, at: Date.now() });
+        metaTimer ??= -1;
+        throw Error('保存期间同一内容又有变化；本页修改已保留，请核对后重新预览');
+      }
+      persistedMeta = metaCopy(outcome.merged);
+      applyBookMeta(store, current, view);
+      if (sameMeta(store, persistedMeta)) { clearTimeout(metaTimer); metaTimer = null; }
+    };
+    const result = metaSaving.then(save);
+    metaSaving = result.catch(() => { if (!sameMeta(store, persistedMeta)) metaTimer ??= -1; });
+    return result;
   };
   watch(store, () => {
+    bookTransactionAbort?.abort();
     clearTimeout(metaTimer);
     metaTimer = setTimeout(() => flush().catch(console.error), 300);
   }, { deep: true, flush: "sync" });
@@ -139,6 +203,7 @@ export async function loadStore() {
 
 // 别的设备同步过来的 meta：整份换上（再补上新字段）
 export function applyRemoteMeta(val) {
+  persistedMeta = metaCopy(val);
   Object.assign(store, defaults(), val);
   migrate();
 }
@@ -395,31 +460,27 @@ export const fmtTokens = n =>
   : n >= 1e3 ? trim0((n / 1e3).toFixed(1)) + "k"
   : String(n);
 
-// 调用方在事务完成前不修改响应式数据，避免自动保存出半份状态。
-export async function commitBookTransaction(entries, next, expected = []) {
-  const before = JSON.parse(JSON.stringify(store));
+// 重导入开始后，自动保存也使用同一并发保护，拒绝后不会由延迟定时器抹掉外部新数据。
+export async function prepareBookPersistence() {
+  protectBookMeta = true;
+  pendingKey();
   await flushStore();
-  if (JSON.stringify(store) !== JSON.stringify(before)) throw new Error("保存期间数据发生变化，请重新预览");
-  await setMany([...entries, ["meta", next]], [...expected, ["meta", before]]);
-  // 只应用本次改变的字段，不用旧快照覆盖事务等待期间新增的其他数据。
-  const patch = (target, old, value) => {
-    for (const k of new Set([...Object.keys(old), ...Object.keys(value)])) {
-      if (JSON.stringify(old[k]) === JSON.stringify(value[k])) continue;
-      if (!(k in value)) delete target[k];
-      else if (old[k] && value[k] && typeof old[k] === 'object' && typeof value[k] === 'object' && !Array.isArray(old[k]) && !Array.isArray(value[k])) patch(target[k], old[k], value[k]);
-      else target[k] = value[k];
-    }
-  };
-  // 书架顺序不变，只更新同一本书；便利贴按稳定 ID 更新。
-  for (const b of next.books) {
-    const old = before.books.find(x => x.id === b.id), current = store.books.find(x => x.id === b.id);
-    if (old && current) patch(current, old, b);
-  }
-  for (const n of next.bookNotes) {
-    const old = (before.bookNotes || []).find(x => x.id === n.id);
-    const current = (store.bookNotes || []).find(x => x.id === n.id);
-    if (old && current) patch(current, old, n);
-    else if (!old) store.bookNotes.push(n);
-  }
+  return metaCopy(persistedMeta);
+}
 
+export async function commitBookTransaction(entries, next, expected = []) {
+  const captured = metaCopy(store);
+  const commit = async () => {
+    const before = metaCopy(store);
+    if (!sameMeta(before, captured) || !sameMeta(before, persistedMeta)) throw Error("本页数据又有变化，请重新预览");
+    const abort = bookTransactionAbort = new AbortController();
+    try { await setMany([...entries, ["meta", next]], [...expected, ["meta", persistedMeta]], abort.signal); }
+    finally { bookTransactionAbort = null; }
+    persistedMeta = metaCopy(next);
+    applyBookMeta(store, before, next);
+  };
+  // 与自动保存串行，排队中的自动保存到执行时才读取内存，不能把旧章节写回去。
+  const result = metaSaving.then(commit);
+  metaSaving = result.catch(() => { if (!sameMeta(store, persistedMeta)) metaTimer ??= -1; });
+  return result;
 }

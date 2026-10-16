@@ -94,8 +94,13 @@ export async function parseEpub(buf) {
   if (!opfPath) throw new Error("这个 epub 打不开（找不到目录文件）");
   const opf = xml(text(opfPath));
   const base = dir(opfPath);
+  const invalid = message => { const error = new Error(`EPUB 文件异常：${message}，不能覆盖旧书`); error.code = 'EPUB_STRUCTURE'; throw error; };
   const items = {};
-  for (const it of opf.querySelectorAll("manifest > item")) items[it.getAttribute("id")] = { href: join(base, it.getAttribute("href")), type: it.getAttribute("media-type") || "", props: it.getAttribute("properties") || "" };
+  for (const it of opf.querySelectorAll("manifest > item")) {
+    const href = it.getAttribute("href");
+    if (!href?.trim() || !join(base, href)) invalid('资源清单缺少有效位置');
+    items[it.getAttribute("id")] = { href: join(base, href), type: it.getAttribute("media-type") || "", props: it.getAttribute("properties") || "" };
+  }
   const meta = tag => opf.getElementsByTagNameNS("*", tag)[0]?.textContent?.trim() || "";
 
   // 目录里的章节名：EPUB3 的 nav 或 EPUB2 的 toc.ncx
@@ -122,8 +127,9 @@ export async function parseEpub(buf) {
   const chapters = [];
   for (const ref of opf.querySelectorAll("spine > itemref")) {
     const it = items[ref.getAttribute("idref")];
-    if (!it || !/html|xml/.test(it.type)) continue;
-    if (!files[it.href]) throw new Error("EPUB 章节文件缺失，不能导入");
+    if (!it) invalid('阅读顺序引用了不存在的章节');
+    if (!Object.hasOwn(files, it.href)) invalid('章节资源缺失');
+    if (!/html|xml/.test(it.type)) continue;
     const doc = new DOMParser().parseFromString(text(it.href), "text/html");
     const blocks = [...doc.body?.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre") || []].filter(e => !e.querySelector("p, li, blockquote"));
     let paras = blocks.map(e => e.textContent.replace(/\s+/g, " ").trim()).filter(Boolean);
