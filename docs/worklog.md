@@ -13,6 +13,9 @@
 
 ## 日志
 
+### 2026-10-16 · cc
+- 聊天里他交给工作间的上限从一天 5 次调到 20 次（`workDispatch.js` 的 `DAILY_MAX`），她活多不够用；醒来时交的（中转 `WORK_DAY_MAX = 3`）没动
+
 ### 2026-10-16 · Codex · 排查 e1a209e 专项 reload 超时
 - 先只读复现：reload 前后 URL 均为 http://127.0.0.1:5205/#/；之前按钮 attached=1、visible=true、44×44、display:block、visibility:visible，无弹层/编辑模式；之后 body 文本为空、home 和按钮均未挂载。无 pageerror，但 console/requestfailed 出现多条 net::ERR_INSUFFICIENT_RESOURCES，涉及 letters/*.webp?import&url、stationery-geom.json?import、seeFiles.js、BookCover 的样式模块；独立不挂测试台的页面 reload 同样复现，排除测试台状态污染。现有服务返回的手势触发代码与工作区一致，未发现服务旧版或按钮条件渲染证据。
 - Chromium 仅禁用测试浏览器 HTTP 缓存后，同一现有服务连续三次加载/重载按钮均可见；据此定位为开发模式模块资源加载与缓存相关的测试环境失败，而非本次主页逻辑。仅修改 scripts/home-pull-refresh-check.cjs，保留真实 reload、可见性和原核心断言；增加 CDP Network.setCacheDisabled、前后 URL/DOM 文本/按钮矩形/弹层/编辑状态快照、console/pageerror/requestfailed 记录及失败资源断言。未用延长超时或忽略加载失败掩盖问题。
