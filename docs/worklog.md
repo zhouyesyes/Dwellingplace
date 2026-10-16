@@ -13,6 +13,13 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 接着 9bf21d7 修复纯插图共读及回归
+- `reading.js`：一起读没有正文段落时转到共用的问问他页面分支；仅文字及图片信息都为空时保留「这几页没有字」。修复 askHim 对不存在段落调用 trim/拼入 undefined 的问题；存在图片失败占位也允许发送，沿用既有图片 parts 和限制。正常文字分支及预读行为不改。
+- `ReaderView.vue`：纯插图章节点击图片（也支持键盘 Enter）打开问问他；两入口的无正文回复用「这一页的共读」弹层显示，仅临时呈现，不写入虚构段落的划线/批注，不更新 hisPos / alongTo，不触发文字前情整理。普通文字批注、进度、翻页及布局样式不改。未改 EPUB 导入器或书籍数据格式。
+- 新增安全 fixture `reader-image-only.cjs` 并接入既有 ui-preview / reader-pagination：全新浏览器真正导入两张不同 PNG（红三角、蓝方形）的 EPUB，断言 paras: []；实际点击一起读、图片→问问他，两个请求都含 2 张图；用服务器现有 toInput 转换成 input_image，逐项核对稳定图号、alt、图片数据不同、中心及边缘像素和正文顺序。两个入口分别覆盖缺失/损坏图片（4 个明确占位请求）、无图无字（2 次原提示且零请求），并断言正文、阅读位置及安全笔记哨兵不变。原 reading-images fixture 补测问问他的无图文字请求，两个入口都保持纯文本。
+- 退出 0：`node scripts/ui-preview.cjs --task 01a1457c-a30f-7d20-81e8-920050df4f18 --route /read/preview-book --fixture reader-image-only --views phone,tablet --themes light,dark`；同命令 fixture=reader-images（手机/平板浅深色）；fixture=reader-long、views=phone（浅深色末页栏宽、左右留白及完整滚动）；`./node_modules/.bin/vite build`；`git diff --check`。构建仅既有动态导入/耗时提示。调试中修正测试对关闭中弹层的点击时序和多弹层选择器，最终四组纯图验收均通过。已目视纯插图手机浅深色截图并复制到任务 outputs。
+- 测试只在本地拦截 fetch / HTTP 请求，验证到浏览器可解码的不同图像载荷、provider 序列化和服务器 input_image 转换函数；**没有真实 Responses API/GPT 调用，真实视觉理解仍未验收**，也不代表 Safari 真机通过。使用已有依赖，无模型联网、安装、推送、部署；未导入、覆盖、迁移或删除《冬牧场》及任何真实书籍。旧书缺图片资源仍需后续单独授权的安全覆盖导入，本轮不做。
+
 ### 2026-10-16 · Codex · 当前页 EPUB 图片接入共读请求
 - 新增 `readingImages.js`：点击时依据阅读器图片实际矩形与书页视口相交采集，按正文 media 顺序编号（章-图）；逐字 Range 提取当前页实际可见文字，附段落位置、alt、题注、邻近段落。ReaderView 的「一起读」「问问他」均传入页面快照；无图页返回空 parts，仍走原纯文本链路。后续十页预读文字保持原有行为，图片不随预读扩展。
 - 沿用原有 EPUB 资源及持久化；`books.js` 仅补存 alt / figcaption 两个定位字段，不改资源解析、文字分段、笔记坐标或现有书。图片在浏览器安全解码后转静态 PNG base64，走既有 image parts → image_url data URI → 服务器 Responses input_image；不发送内部路径、UUID 或远程图片链接，不改服务器。

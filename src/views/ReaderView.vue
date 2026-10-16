@@ -285,6 +285,7 @@ function dropMark(n) {
 }
 
 // 问问他：给他看划的这一句（和它所在的段落、前后各一段），他回一条批注，划在同一句上
+const imageReply = ref("");
 const asking = ref(false);
 async function ask() {
   const s = sheet.value, r = role.value;
@@ -292,13 +293,17 @@ async function ask() {
   sheet.value = null;
   clearSel();
   const at = s.at;
-  if (s.text.trim()) addNote(b.value, { ...at, text: s.text, from: "me" }).seen = true;
-  else Object.assign(addNote(b.value, { ...at, text: "", from: "me" }), { seen: true, ask: true }); // 没写话也留一道线：问过他这里
+  const imageOnly = !paras.value[at.p]?.trim();
+  if (!imageOnly) {
+    if (s.text.trim()) addNote(b.value, { ...at, text: s.text, from: "me" }).seen = true;
+    else Object.assign(addNote(b.value, { ...at, text: "", from: "me" }), { seen: true, ask: true }); // 没写话也留一道线：问过他这里
+  }
   asking.value = true;
   try {
     const { text, notes } = await askHim(r, b.value, { ch: ch.value, p: at.p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim(), quote: at.quote, page: captureReadingPage(scroller.value, content.value, ch.value) });
-    addNote(b.value, { ...at, text, from: "ai" }).seen = true;
-    toast(notes[0] || `${r.name} 在那句旁边写了一句`, 2500);
+    if (imageOnly) imageReply.value = text;
+    else addNote(b.value, { ...at, text, from: "ai" }).seen = true;
+    toast(notes[0] || (imageOnly ? `${r.name} 回复了这一页` : `${r.name} 在那句旁边写了一句`), 2500);
   } catch (e) {
     toast(`没问到：${describeError(e)}`, 4000);
   } finally {
@@ -332,6 +337,7 @@ async function readThisPage() {
   store.settings.readTip = true;
   try {
     const res = await readAlong(r, b.value, { from, to, maxChars, page });
+    if (res.imageOnly) { imageReply.value = res.text; petOnce("success"); return; }
     b.value.alongTo = res.upTo;
     await placeAlong(b.value, res.notes, -1);
     for (const n of store.bookNotes.slice(-res.notes.length)) n.seen = n.ch !== ch.value;
@@ -418,7 +424,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" />
         <p :data-p="i" :class="{ 'his-end': b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
       </template>
-      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" />
+      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" :role="!paras.length ? 'button' : null" :tabindex="!paras.length ? 0 : null" :aria-label="!paras.length ? '问问他：当前图片页' : null" @keydown.enter="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" />
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>
@@ -459,6 +465,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <textarea v-model="sheet.text" class="input" rows="4" :placeholder="sheet.mode === 'ask' ? '想问他什么（可以不写，他会自己说说读到这里的想法）' : '在这句旁边写点什么'" />
         <button class="btn" @click="sheet.mode === 'ask' ? ask() : saveNote()">{{ sheet.mode === "ask" ? "给他看" : "写上" }}</button>
       </div>
+    </Sheet>
+
+    <Sheet :open="!!imageReply" title="这一页的共读" @close="imageReply = ''">
+      <div class="compose"><p>{{ imageReply }}</p></div>
     </Sheet>
 
     <!-- 点了划线：这句上的批注 -->

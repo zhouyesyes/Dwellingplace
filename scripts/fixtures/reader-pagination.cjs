@@ -21,11 +21,13 @@ exports.prepare = async (page, origin, mode) => {
     });
     db.close();
   }, mode);
+  if (mode === 'reader-image-only') await require('./reader-image-only.cjs').prepare(page);
   if (mode === 'reader-images') await require('./reader-images.cjs').prepare(page);
   await page.goto(origin + '/?reader-preview=1#/read/preview-book');
-  await page.waitForSelector('.page > p');
+  await page.waitForSelector('.page > p, .book-image');
 };
 exports.verify = async (page, mode) => {
+  if (mode === 'reader-image-only') return require('./reader-image-only.cjs').verify(page);
   if (mode === 'reader-images') return require('./reader-images.cjs').verify(page);
   // 比较栏的盒子，避免首行缩进或段落跨栏影响测量。
   const result = await page.evaluate(async () => {

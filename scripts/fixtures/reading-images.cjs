@@ -48,6 +48,8 @@ exports.verify = async page => {
       await readAlong(role, b, { from: { ch: 0, p: 0 }, to: { ch: 0, p: 1 }, page: withImage });
       await askHim(role, b, { ch: 0, p: 1, paras: book.chapters[0].paras, chapterTitle: '测试', page: withImage });
       await readAlong(role, b, { from: { ch: 0, p: 0 }, to: { ch: 0, p: 1 }, page: without });
+      await askHim(role, b, { ch: 0, p: 1, paras: book.chapters[0].paras, chapterTitle: '测试', page: without });
+      if (requests.slice(-2).some(r => typeof r.messages.at(-1).content !== 'string')) throw Error('无图有字请求没有保持纯文本');
     } finally { window.fetch = original; }
     for (const request of requests) {
       const responseInput = toInput(request.messages).input.at(-1).content;
@@ -62,7 +64,7 @@ exports.verify = async page => {
       metadata: book.chapters[0].media[0], raster: parts.filter(p => p.type === 'image').length };
   }, conversion);
   assert.ok(result.raster > 0);
-  assert.ok(result.imageCounts[0] > 0); assert.ok(result.imageCounts[1] > 0); assert.equal(result.imageCounts[2], 0);
+  assert.ok(result.imageCounts[0] > 0); assert.ok(result.imageCounts[1] > 0); assert.equal(result.imageCounts[2], 0); assert.equal(result.imageCounts[3], 0);
   assert.deepEqual(result.labels, ['图1-1','图1-2','图1-3','图1-4','图1-5','图1-6']);
   assert.equal(result.placeholders,3); assert.deepEqual(result.empty,[]);
   assert.equal(result.metadata.alt,'故意不描述形状的替代文字'); assert.equal(result.metadata.caption,'安全测试题注：树影');

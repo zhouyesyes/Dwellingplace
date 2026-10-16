@@ -227,17 +227,21 @@ export function applyReadMemTags(role, text) {
 export async function askHim(role, b, { ch, p, paras, chapterTitle, question, quote, page }) {
   const { oneShot, meName } = await import("./chat.js");
   const me = meName(role);
+  const para = paras[p] || "";
+  const imageOnly = !para.trim();
+  if (imageOnly && !page?.images?.length && !page?.text?.trim()) throw new Error("这几页没有字");
   const around = [paras[p - 1], paras[p + 1]].filter(Boolean).map(x => x.slice(0, 300));
-  const part = quote && quote.trim() !== paras[p].trim();
+  const part = quote && quote.trim() !== para.trim();
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
     await bookContext(b, me, role, `${question || ""} ${quote || paras[p] || ""}`),
     await (async () => { const t = await sinceGist(b, { ch, p: Math.max(0, p - 1) }); return t ? `（上次整理前情之后，你们读过的原文：）\n${t}` : ""; })(),
-    part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
+    imageOnly ? `${me}指着当前图片页给你看。没有可批注的文字段落，不要编造段落或原文。` : part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
+    imageOnly && page?.text ? `当前页可见文字：\n${page.text}` : "",
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
     question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
-    `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
+    imageOnly ? `直接回应当前页的图片或图片失败占位，几句话就好（不超过 120 字）。未提供画面时明确说明看不到。` : `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
     `如果让你自己有收获、想记住，可以在最后另起一行写 [读书笔记:${b.title}|标题|内容]，会记进你的记忆库（不是每次都要）。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt, { raw: true, parts: await readingPageParts(page) });
@@ -245,6 +249,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   const { visibleText } = await import("./chat.js");
   const text = visibleText(t1).trim();
   if (!text) throw new Error("他没有写什么");
+  if (imageOnly) return { text, notes, imageOnly: true };
   markHisPos(b, ch, p);
   maybeGist(role, b, { ch, p }).catch(() => {});
   maybeImpression(role, b, { ch, p: p + 1 }).catch(() => {});
@@ -352,7 +357,11 @@ export async function placeAlong(b, notes, seenCh = -1) {
 export async function readAlong(role, b, { from, to, maxChars = 24000, page }) {
   const { oneShot } = await import("./chat.js");
   const items = await alongSlice(b, from, to, maxChars);
-  if (!items.length) throw new Error("这几页没有字");
+  if (!items.length) {
+    // 图片页没有段落可贴批注：沿用问问他的页面上下文，回复单独呈现，不伪造文字坐标。
+    const result = await askHim(role, b, { ch: from.ch, p: from.p, paras: [], chapterTitle: b.chapters[from.ch]?.title || "", page });
+    return { text: result.text, imageOnly: true, notes: [], memNotes: result.notes, upTo: { ...from }, count: 0 };
+  }
   const raw = await oneShot(role, await alongPrompt(role, b, items, from), { raw: true, parts: await readingPageParts(page) });
   const r = await parseAlong(role, items, raw);
   if (!r.notes.length) throw new Error("他没有写什么");
