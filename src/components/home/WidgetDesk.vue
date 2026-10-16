@@ -28,13 +28,17 @@ const desk = ref(null);
 const positions = ref({});
 let observer;
 let frame;
+let disposed = false;
+const tabletQuery = "(min-width: 760px) and (max-width: 1366px) and (any-pointer: coarse)";
+const tabletMedia = matchMedia(tabletQuery);
 function scheduleLayout() {
+  if (disposed) return;
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(layout);
 }
 function layout() {
-  if (!desk.value) return;
-  const tablet = matchMedia('(min-width: 760px) and (max-width: 1366px)').matches;
+  if (disposed || !desk.value) return;
+  const tablet = tabletMedia.matches;
   if (!tablet) { positions.value = {}; return; }
   const column = (desk.value.clientWidth - 28) / 3;
   const items = widgets.value.map(w => ({
@@ -53,7 +57,12 @@ function layout() {
 onMounted(() => {
   observer = new ResizeObserver(scheduleLayout);
   observer.observe(desk.value);
-  window.addEventListener('resize', scheduleLayout);
+  window.addEventListener('resize', onResize);
+  window.addEventListener('blur', onUp);
+  window.addEventListener('pagehide', onUp);
+  window.addEventListener('scroll', onScroll, true);
+  document.addEventListener('visibilitychange', onVisibility);
+  tabletMedia.addEventListener('change', onResize);
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
@@ -61,6 +70,7 @@ onMounted(() => {
 });
 watch([widgets, editing], async () => {
   await nextTick();
+  if (disposed) return;
   observer?.disconnect();
   if (desk.value) observer?.observe(desk.value);
   for (const w of widgets.value) {
@@ -70,9 +80,16 @@ watch([widgets, editing], async () => {
   scheduleLayout();
 }, { deep: true, immediate: true });
 onBeforeUnmount(() => {
+  disposed = true;
+  onUp();
   observer?.disconnect();
   cancelAnimationFrame(frame);
-  window.removeEventListener('resize', scheduleLayout);
+  window.removeEventListener('resize', onResize);
+  window.removeEventListener('blur', onUp);
+  window.removeEventListener('pagehide', onUp);
+  window.removeEventListener('scroll', onScroll, true);
+  document.removeEventListener('visibilitychange', onVisibility);
+  tabletMedia.removeEventListener('change', onResize);
   window.removeEventListener('pointermove', onMove);
   window.removeEventListener('pointerup', onUp);
   window.removeEventListener('pointercancel', onUp);
@@ -81,9 +98,11 @@ onBeforeUnmount(() => {
 // ---------- 长按进入编辑 ----------
 let pressTimer = null;
 let pressStart = null;
+let pressPointer = null;
 function cancelPress() {
   clearTimeout(pressTimer);
   pressTimer = null;
+  pressPointer = null;
 }
 
 // ---------- 拖动排序 ----------
@@ -99,7 +118,10 @@ function place() {
 }
 
 function onDown(e, w) {
+  if (grab || e.isPrimary === false || (e.pointerType === "mouse" && e.button !== 0)) return;
   if (!editing.value) {
+    cancelPress();
+    pressPointer = e.pointerId;
     pressStart = { x: e.clientX, y: e.clientY };
     pressTimer = setTimeout(() => {
       pressTimer = null;
@@ -112,13 +134,14 @@ function onDown(e, w) {
   const el = els[w.id];
   const r = el.getBoundingClientRect();
   el.setPointerCapture(e.pointerId);
-  grab = { order: [...store.widgets], targets: widgets.value.filter(item => item.id !== w.id).map(item => ({ id: item.id, rect: els[item.id].getBoundingClientRect() })), lastTarget: null, el, dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
+  grab = { pointerId: e.pointerId, order: [...store.widgets], targets: widgets.value.filter(item => item.id !== w.id).map(item => ({ id: item.id, rect: els[item.id].getBoundingClientRect() })), lastTarget: null, el, dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
   dragId.value = w.id;
 }
 
 async function onMove(e) {
-  if (pressTimer && pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > 8) cancelPress();
-  if (!grab) return;
+  if (pressTimer && pressPointer === e.pointerId && pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > 8) cancelPress();
+  if (!grab || grab.pointerId !== e.pointerId) return;
+  const active = grab;
   grab.x = e.clientX;
   grab.y = e.clientY;
   place();
@@ -134,20 +157,25 @@ async function onMove(e) {
   order.splice(to, 0, moved);
   store.widgets = order;
   await nextTick();
+  if (grab !== active) return;
   layout();
   await nextTick();
-  if (grab) place();
+  if (grab === active) place();
 }
 
-function onUp() {
+function onUp(e) {
+  if (e?.pointerId !== undefined && e.pointerId !== (grab?.pointerId ?? pressPointer)) return;
   cancelPress();
   if (grab) {
     grab.el.style.transform = "";
+    if (grab.el.hasPointerCapture(grab.pointerId)) grab.el.releasePointerCapture(grab.pointerId);
     grab = null;
     dragId.value = null;
   }
 }
-onBeforeUnmount(cancelPress);
+function onResize() { onUp(); scheduleLayout(); }
+function onScroll() { if (grab || pressTimer) onUp(); }
+function onVisibility() { if (document.hidden) onUp(); }
 
 function remove(w) {
   store.widgets.splice(store.widgets.indexOf(w), 1);
@@ -195,7 +223,7 @@ function add(type) {
     <button v-if="editing" class="widget small add-tile" :style="positions.__add" @click="addOpen = true">
       <Icon name="plus" :size="26" /><span>添加组件</span>
     </button>
-    <p v-if="!editing" class="hint" :style="positions.__hint">长按组件可以排序、删除或添加</p>
+    <p v-if="widgets.length && !editing" class="hint" :style="positions.__hint">长按组件可以排序、删除或添加</p>
     <p v-if="!widgets.length && !editing" class="hint" :style="positions.__hint"><button class="btn soft small" @click="editing = true">编辑桌面</button></p>
   </section>
 
@@ -245,7 +273,7 @@ function add(type) {
   .wdesk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-@media (min-width: 760px) and (max-width: 1366px) {
+@media (min-width: 760px) and (max-width: 1366px) and (any-pointer: coarse) {
   .wdesk { grid-auto-rows: 1px; row-gap: 0; grid-auto-flow: row; align-items: start; }
   .widget { height: 100%; aspect-ratio: auto !important; }
   .widget.calendar .inner { height: auto; }
