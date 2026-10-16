@@ -9,7 +9,7 @@ import { readingMemsOf } from "../lib/reading.js";
 import { pickFile } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
-import { decodeTxt, detectTxtEncoding, TXT_ENCODINGS, encodingLabel } from "../lib/txtEncoding.js";
+import { decodeTxt, analyzeTxt, TXT_ENCODINGS, encodingLabel } from "../lib/txtEncoding.js";
 import Icon from "../components/Icon.vue";
 import BookCover from "../components/books/BookCover.vue";
 import BookInfo from "../components/books/BookInfo.vue";
@@ -26,7 +26,7 @@ const txt = ref(null);
 const encoding = ref('utf-8');
 const decoded = computed(() => txt.value ? decodeTxt(txt.value.bytes, encoding.value) : null);
 async function confirmTxt() {
-  if (!txt.value || decoded.value.suspicious || busy.value) return;
+  if (!txt.value || !decoded.value.usable || busy.value) return;
   await place(txt.value.file, { encoding: encoding.value });
 }
 async function place(file, options) {
@@ -42,7 +42,7 @@ async function place(file, options) {
     busy.value = false;
   }
 }
-async function add() {
+async function add(forceEncoding = false) {
   const [file] = await pickFile(".txt,.epub,text/plain,application/epub+zip");
   if (!file) return;
   busy.value = true;
@@ -51,8 +51,10 @@ async function add() {
     if (/\.epub$/i.test(file.name) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) {
       await place(file);
     } else {
-      encoding.value = detectTxtEncoding(bytes);
-      txt.value = { file, bytes, detected: encoding.value };
+      const analysis = analyzeTxt(bytes);
+      encoding.value = analysis.encoding;
+      if (forceEncoding || analysis.needsPreview) txt.value = { file, bytes, detected: encoding.value };
+      else await place(file, { encoding: encoding.value });
     }
   } catch (e) {
     toast(`没放上去：${e.message}`, 4000);
@@ -105,9 +107,11 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
       <button class="icon-btn" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" /></button>
       <div class="acts">
         <button class="icon-btn" aria-label="讨论室" @click="router.push('/books/talk/hall')"><Icon name="chat" /></button>
-        <button class="icon-btn" :disabled="busy" aria-label="放一本书" @click="add"><Icon name="plus" /></button>
+        <button class="icon-btn" :disabled="busy" aria-label="放一本书" @click="add(false)"><Icon name="plus" /></button>
       </div>
     </header>
+
+    <button class="txt-retry" :disabled="busy" @click="add(true)">重新选择编码导入</button>
 
     <!-- 标题：大大的「共读」，右边一行竖着的小字；下面是一道细线和这间屋子的一句话 -->
     <div class="title">
@@ -131,7 +135,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
           <b>{{ b.title }}</b>
           <span>{{ b.mine ? "读完了 " + "★".repeat(b.mine.stars) : progressOf(b) > 0.01 ? `已读 ${Math.round(progressOf(b) * 100)}%` : "还没开始" }}</span>
         </div>
-        <button class="item add" :disabled="busy" @click="add"><span class="cv ph"><Icon name="plus" :size="22" /></span><b>{{ busy ? "在放…" : "放一本书" }}</b><span>txt / epub</span></button>
+        <button class="item add" :disabled="busy" @click="add(false)"><span class="cv ph"><Icon name="plus" :size="22" /></span><b>{{ busy ? "在放…" : "放一本书" }}</b><span>txt / epub</span></button>
       </div>
       <p class="hint">点封面去读，长按看这本书的进度、评分和读后感。</p>
     </template>
@@ -187,10 +191,11 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
         </label>
         <small>自动识别：{{ encodingLabel(txt.detected) }}</small>
         <pre class="txt-preview">{{ decoded.text.slice(0, 700).replace(/\u0000/g, '␀') || '（正文为空）' }}</pre>
-        <p v-if="decoded.suspicious" class="txt-warning" role="alert">编码可能不正确，请切换编码后再确认。</p>
+        <p v-if="decoded.suspicious" class="txt-warning" role="alert">正文可能有乱码，请核对预览或切换编码。</p>
+        <p v-if="!decoded.usable" class="txt-warning">正文为空或损坏字符过多，请选择其他编码。</p>
         <div class="txt-actions">
           <button :disabled="busy" @click="txt = null">取消</button>
-          <button :disabled="busy || decoded.suspicious || !decoded.text.trim()" @click="confirmTxt">{{ busy ? '在放…' : '确认导入' }}</button>
+          <button :disabled="busy || !decoded.usable" @click="confirmTxt">{{ busy ? '在放…' : '确认导入' }}</button>
         </div>
       </section>
     </div>
@@ -200,6 +205,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 </template>
 
 <style scoped>
+.txt-retry { display: block; margin: 8px 0 16px auto; border: 0; background: none; color: var(--text-2); font-size: 12px; text-decoration: underline; }
 .txt-shade { position: fixed; inset: 0; z-index: 100; background: #0006; display: flex; align-items: center; justify-content: center; padding: max(16px, var(--safe-top)) 16px max(16px, var(--safe-bottom)); }
 .txt-dialog { width: 100%; max-width: 440px; max-height: 100%; overflow-y: auto; padding: 20px; border-radius: 20px; background: var(--card); color: var(--text); box-sizing: border-box; }
 .txt-dialog h2 { margin: 0 0 10px; font-size: 1.15rem; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { decodeTxt } from '../src/lib/txtEncoding.js';
+import { decodeTxt, analyzeTxt } from '../src/lib/txtEncoding.js';
 const text = '第一章 春天\r\n这是我们的小说，她说我们一起回家。\r\n';
 const encode = (text, e) => execFileSync('iconv', ['-f', 'UTF-8', '-t', e], { input: text });
 for (const e of ['UTF-8', 'GBK', 'GB18030', 'UTF-16LE', 'UTF-16BE', 'UTF-16']) {
@@ -14,10 +14,10 @@ for (const e of ['UTF-16LE', 'UTF-16BE']) {
   assert.equal(decodeTxt(encode('Hello world\n123456789', e)).text, 'Hello world\n123456789');
 }
 assert.equal(decodeTxt(encode(text, 'GBK'), 'utf-8').suspicious, true);
-assert.equal(decodeTxt(Buffer.from(text), 'gb18030').suspicious, true);
-assert.equal(decodeTxt(Buffer.from(text), 'utf-16be').suspicious, true);
-assert.equal(decodeTxt(Buffer.from(text + '\0'), 'utf-8').suspicious, true);
-assert.equal(decodeTxt(Buffer.from(text.repeat(300) + '\uFFFD'), 'utf-8').suspicious, true);
+assert.equal(decodeTxt(Buffer.from(text), 'gb18030').usable, true);
+// 可读性与自动置信度分开，手动选择不比较常见字评分。
+assert.equal(analyzeTxt(Buffer.from(text + '\0'.repeat(10))).needsPreview, true);
+assert.equal(decodeTxt(Buffer.from(text.repeat(300) + '\uFFFD'), 'utf-8').suspicious, false);
 assert.equal(decodeTxt(Buffer.from('Plain ASCII\n1234')).text, 'Plain ASCII\n1234');
 console.log('TXT 编码逻辑回归通过（含 GB18030 四字节、无 BOM UTF-16、全文末尾异常）');
 
@@ -46,3 +46,23 @@ for (const e of ['UTF-16LE', 'UTF-16BE']) {
 assert.equal(decodeTxt(Buffer.concat([Buffer.from([254,255]), encode(text, 'UTF-16BE')])).text, text);
 assert.equal(decodeTxt(Buffer.alloc(0)).text, '');
 console.log('收尾复核回归通过（UTF-8 emoji/生僻字、BOM、手动纠正歧义编码）');
+
+for (const e of ['UTF-8', 'GBK', 'GB18030', 'UTF-16LE', 'UTF-16BE']) {
+  assert.equal(analyzeTxt(encode(text, e)).needsPreview, false, e + ' 正常正文应自动导入');
+}
+const novel = text + '【文案】ABC HE 王未初……☆※♡\uE001\uE002\uE003𠮷龘䶮😀';
+for (const e of ['UTF-8', 'UTF-16LE', 'UTF-16BE']) {
+  for (const bom of [false, true]) {
+    const prefix = !bom ? [] : e === 'UTF-8' ? [239,187,191] : e === 'UTF-16LE' ? [255,254] : [254,255];
+    const result = analyzeTxt(Buffer.concat([Buffer.from(prefix), encode(novel, e)]));
+    assert.equal(result.text, novel);
+    assert.equal(result.needsPreview, false);
+    assert.equal(result.usable, true);
+  }
+}
+assert.equal(analyzeTxt(ambiguous).needsPreview, true);
+assert.equal(analyzeTxt(Buffer.from('�'.repeat(20))).needsPreview, true);
+assert.equal(decodeTxt(Buffer.from('�'.repeat(20))).usable, false);
+assert.equal(analyzeTxt(Buffer.from(text + '�'.repeat(3))).needsPreview, true);
+assert.equal(decodeTxt(Buffer.from(text.repeat(3) + '�'.repeat(3))).usable, true);
+console.log('自动导入、低置信度预览、网文符号与可用性回归通过');

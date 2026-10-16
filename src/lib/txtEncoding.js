@@ -3,11 +3,17 @@ export const TXT_ENCODINGS = ['utf-8', 'gb18030', 'utf-16le', 'utf-16be'];
 export const encodingLabel = encoding => encoding.toUpperCase();
 const common = /[的一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经之进着等部度家里如水天书你她]/gu;
 function inspect(text) {
-  const bad = (text.match(/[\uFFFD\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f\uFDD0-\uFDEF\uFFFE\uFFFF]/gu) || []).length;
-  const unusual = (text.match(/[\uE000-\uF8FF]/gu) || []).length;
+  const replacements = (text.match(/\uFFFD/gu) || []).length;
+  const controls = (text.match(/[\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f\uFDD0-\uFDEF\uFFFE\uFFFF]/gu) || []).length;
   const frequent = (text.match(common) || []).length;
-  const length = Math.max(1, text.length);
-  return { bad, suspicious: bad > 0 || unusual > Math.max(2, length * .01), score: frequent / length - bad / length * 20 - unusual / length * 3 };
+  let length = 0;
+  for (const char of text) length++;
+  length = Math.max(1, length);
+  const bad = replacements + controls;
+  // 网文符号、英文、生僻字和私用区字形都不是乱码证据；偶尔引用 � 也可正常阅读。
+  const suspicious = (replacements >= 3 && replacements / length > .005) || controls > Math.max(1, length * .002);
+  const usable = !!text.trim() && replacements / length < .1 && controls / length < .02;
+  return { bad, suspicious, usable, score: frequent / length - bad / length * 20 };
 }
 function read(bytes, encoding) {
   const text = new TextDecoder(encoding).decode(bytes);
@@ -33,20 +39,28 @@ export function detectTxtEncoding(bytes) {
   const signature = signatureEncoding(bytes);
   if (signature) return signature;
   const candidates = TXT_ENCODINGS.map(e => read(bytes, e));
-  const utf8 = candidates[0];
-  if (!utf8.bad) return 'utf-8';
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return 'utf-8';
+  } catch {}
   const gb = candidates[1];
   const wide = candidates.slice(2).sort((a, b) => b.score - a.score)[0];
   return bytes.length % 2 === 0 && !wide.suspicious && wide.score > gb.score + .06 ? wide.encoding : 'gb18030';
 }
+// 置信度只决定是否先展示预览，不拿自动猜测否决手动选择。
+export function analyzeTxt(bytes) {
+  const encoding = detectTxtEncoding(bytes);
+  const result = read(bytes, encoding);
+  let validUtf8 = false;
+  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); validUtf8 = true; } catch {}
+  const signature = signatureEncoding(bytes);
+  const alternatives = TXT_ENCODINGS.filter(e => e !== encoding).map(e => read(bytes, e));
+  const gap = result.score - Math.max(...alternatives.map(c => c.score));
+  const confident = !!signature || (encoding === 'utf-8' && validUtf8) ||
+    (result.text.length >= 20 && result.score > .04 && gap > .06);
+  return { ...result, confident, needsPreview: !confident || result.suspicious || !result.usable };
+}
 export function decodeTxt(bytes, encoding = detectTxtEncoding(bytes)) {
   if (!TXT_ENCODINGS.includes(encoding)) throw new Error('不支持这个 TXT 编码');
-  const result = read(bytes, encoding);
-  const detected = detectTxtEncoding(bytes);
-  const best = read(bytes, detected);
-  // 常见汉字评分只能辅助识别，不能据此否决手动选择的生僻字正文。
-  // 仅在有 BOM、零字节特征或有效 UTF-8 的依据时，补充检查明显劣化的结果。
-  const reliable = signatureEncoding(bytes) === detected || (detected === 'utf-8' && !best.bad);
-  result.suspicious ||= reliable && encoding !== detected && !best.suspicious && best.score > result.score + .06;
-  return result;
+  return read(bytes, encoding);
 }

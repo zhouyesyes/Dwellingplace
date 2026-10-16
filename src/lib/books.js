@@ -60,7 +60,7 @@ export async function removeBook(b) {
 const CH_RE = /^\s*(第[零〇一二两三四五六七八九十百千万0-9０-９]+[章回节卷集部篇幕].{0,30}|序章.{0,20}|楔子.{0,20}|引子.{0,20}|尾声.{0,20}|番外.{0,30}|后记.{0,20}|Chapter\s*\d+.{0,40}|CHAPTER\s*\d+.{0,40})\s*$/;
 function parseTxt(buf, name, encoding) {
   const decoded = decodeTxt(buf, encoding);
-  if (decoded.suspicious) throw new Error("编码可能不正确，请切换编码后再确认");
+  if (!decoded.usable) throw new Error("正文为空或损坏字符过多，请重新选择编码导入");
   const lines = decoded.text.replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
   const chapters = [];
   let cur = { title: "开头", paras: [] };
