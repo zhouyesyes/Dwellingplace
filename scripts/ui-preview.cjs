@@ -15,7 +15,7 @@ const { chromium } = require('playwright');
   const themes = option('--themes', 'light,dark').split(',');
   if (!/^[\w-]{1,100}$/.test(task) || !/^\/[\w/-]*$/.test(route) || views.some(v => !sizes[v]) || themes.some(t => !['light','dark'].includes(t))) throw Error('任务编号、路由、视口或主题不合法；路由不接受查询参数');
   const fixture = option('--fixture', '');
-  const readerFixture = ['reader-short','reader-long'].includes(fixture) && route === '/read/preview-book';
+  const readerFixture = ['reader-short','reader-long','reader-images'].includes(fixture) && route === '/read/preview-book';
   if (fixture && !readerFixture && (route !== '/work' || !['workroom-materials','workroom-attachments','workroom-materials-long','workroom-materials-pending','workroom-materials-delete','workroom-gallery','workroom-gallery-grid','workroom-organized-default','workroom-organized-expanded','workroom-organized-new','workroom-organized-output','workroom-organized-preview','workroom-organized-flow'].includes(fixture))) throw Error('不支持这个隔离 fixture');
   const mock = fixture ? require(readerFixture ? './fixtures/reader-pagination.cjs' : './fixtures/workroom-materials.cjs') : null;
   const run = randomUUID();
@@ -39,6 +39,11 @@ const { chromium } = require('playwright');
     for (const key of Object.keys(process.env)) if (key.startsWith('VITE_')) delete process.env[key];
     const dist = path.join(temporary, 'dist');
     await build({ configFile: false, envDir: temporary, base: './', plugins: [vue()], build: { outDir: dist, emptyOutDir: true }, logLevel: 'warn' });
+    if (fixture === 'reader-images') {
+      const entry = path.join(temporary, 'image-fixture.js');
+      fs.writeFileSync(entry, `export { importBook, loadBook } from ${JSON.stringify(path.resolve('src/lib/books.js'))}; export { store } from ${JSON.stringify(path.resolve('src/store/index.js'))}; export { get, set } from ${JSON.stringify(path.resolve('src/lib/kv.js'))}; export * from ${JSON.stringify(path.resolve('src/lib/epubImages.js'))};`);
+      await build({ configFile: false, envDir: temporary, define: { 'process.env.NODE_ENV': '"production"' }, build: { outDir: dist, emptyOutDir: false, lib: { entry, formats: ['es'], fileName: () => 'image-fixture.js' } }, logLevel: 'warn' });
+    }
     const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.svg':'image/svg+xml', '.webp':'image/webp', '.woff2':'font/woff2', '.json':'application/json' };
     server = http.createServer((req, res) => {
       let file;

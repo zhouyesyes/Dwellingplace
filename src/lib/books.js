@@ -2,9 +2,10 @@
 //   store.books      [{ id, title, author, cover, chapters: [{ title, n }], pos: { ch, p }, hisPos, addedAt, readAt, readSecs, mine, his }]
 //                    cover：封面图（images 里的 id），没有就画一个纯色的；n：这一章有几段
 //                    pos / hisPos：你 / 他读到哪；readSecs：你读了多久；mine / his：读完的评分和读后感 { stars, text, at }
-//   book:<id>        正文 { chapters: [{ title, paras: [段落…] }] }（单独存，会跟着同步到各台设备）
+//   book:<id>        正文 { chapters: [{ title, paras: [段落…], media?: [{ p, resource }] }], resources?: { 路径: 图片数据 } }（单独存并同步）
 //   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen }]
 //                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你看没看过）
+import { resolveEpubPath, epubImageType, imageData } from "./epubImages.js";
 import { unzipSync, strFromU8 } from "fflate";
 import { store, uid } from "../store/index.js";
 import { get, set, del } from "./kv.js";
@@ -25,11 +26,12 @@ export async function importBook(file) {
   const buf = new Uint8Array(await file.arrayBuffer());
   const isEpub = /\.epub$/i.test(file.name) || (buf[0] === 0x50 && buf[1] === 0x4b);
   const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name);
-  const chapters = parsed.chapters.filter(c => c.paras.length);
+  const chapters = parsed.chapters.filter(c => c.paras.length || c.media?.length);
   if (!chapters.length) throw new Error("这本书里没读出文字");
   const id = uid();
-  await set(key(id), { chapters });
-  cache.set(id, { chapters });
+  const body = { chapters, ...(parsed.resources ? { resources: parsed.resources } : {}) };
+  await set(key(id), body);
+  cache.set(id, body);
   store.books ??= [];
   store.books.push({
     id,
@@ -86,14 +88,8 @@ async function parseEpub(buf) {
   const text = p => (files[p] ? strFromU8(files[p]) : "");
   const xml = s => new DOMParser().parseFromString(s, "application/xml");
   const dir = p => p.replace(/[^/]*$/, "");
-  const join = (base, rel) => {
-    const out = [];
-    for (const seg of (base + decodeURIComponent(rel.split("#")[0])).split("/")) {
-      if (seg === "..") out.pop(); else if (seg && seg !== ".") out.push(seg);
-    }
-    return out.join("/");
-  };
-  const opfPath = xml(text("META-INF/container.xml")).querySelector("rootfile")?.getAttribute("full-path");
+  const join = resolveEpubPath;
+  const opfPath = join("", xml(text("META-INF/container.xml")).querySelector("rootfile")?.getAttribute("full-path"));
   if (!opfPath) throw new Error("这个 epub 打不开（找不到目录文件）");
   const opf = xml(text(opfPath));
   const base = dir(opfPath);
@@ -118,6 +114,10 @@ async function parseEpub(buf) {
     }
   }
 
+  const resources = Object.create(null);
+  for (const item of Object.values(items)) {
+    if (epubImageType(item.type) && Object.hasOwn(files, item.href)) resources[item.href] = imageData(files[item.href], item.type);
+  }
   const chapters = [];
   for (const ref of opf.querySelectorAll("spine > itemref")) {
     const it = items[ref.getAttribute("idref")];
@@ -126,16 +126,52 @@ async function parseEpub(buf) {
     const blocks = [...doc.body?.querySelectorAll("p, h1, h2, h3, h4, h5, h6, li, blockquote, pre") || []].filter(e => !e.querySelector("p, li, blockquote"));
     let paras = blocks.map(e => e.textContent.replace(/\s+/g, " ").trim()).filter(Boolean);
     if (!paras.length) paras = (doc.body?.textContent || "").split(/\n+/).map(s => s.trim()).filter(Boolean);
-    if (paras.join("").length < 20) continue; // 封面、版权页这种几乎没字的跳过
+    // 图片单独挂在原有文字段落旁，不改变文字编号和划线偏移。
+    const media = [];
+    const textBlocks = blocks.filter(e => e.textContent.replace(/\s+/g, " ").trim());
+    for (const node of doc.body.querySelectorAll('img, svg')) {
+      if (node.parentElement?.closest('svg')) continue;
+      let resource = '';
+      if (node.localName === 'svg') {
+        const svg = node.cloneNode(true);
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svg.querySelectorAll('script, foreignObject').forEach(e => e.remove());
+        // SVG 作为独立图片加载：保留填色、字体等样式，浏览器禁用脚本与外部子资源。
+        for (const e of [svg, ...svg.querySelectorAll('*')]) {
+          for (const attr of [...e.attributes]) {
+            if (/^on/i.test(attr.name)) e.removeAttribute(attr.name);
+            else if (attr.localName === 'href') {
+              const value = attr.value;
+              if (!value.startsWith('#')) {
+                const data = resources[join(dir(it.href), value)];
+                if (data && e.localName === 'image') e.setAttributeNS(attr.namespaceURI, attr.name, data);
+                else e.removeAttributeNS(attr.namespaceURI, attr.localName);
+              }
+            }
+          }
+        }
+        resource = `inline:${it.href}:${media.length}`;
+        resources[resource] = imageData(new TextEncoder().encode(new XMLSerializer().serializeToString(svg)), 'image/svg+xml');
+      } else {
+        resource = join(dir(it.href), node.getAttribute('src'));
+        if (!resources[resource]) {
+          const source = node.closest('picture')?.querySelector('source[srcset]');
+          resource = join(dir(it.href), source?.getAttribute('srcset')?.split(',')[0].trim().split(/\s+/)[0]);
+        }
+      }
+      const p = textBlocks.filter(e => !e.contains(node) && (e.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).length;
+      media.push({ p: Math.min(p, paras.length), resource: resources[resource] ? resource : '' });
+    }
+    if (paras.join("").length < 20 && !media.length) continue; // 封面、版权页这种几乎没字的跳过
     const h = doc.querySelector("h1, h2, h3")?.textContent.trim();
-    chapters.push({ title: (labels[it.href] || h || doc.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras });
+    chapters.push({ title: (labels[it.href] || h || doc.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras, ...(media.length ? { media } : {}) });
   }
 
   // 封面：properties="cover-image"，或者 <meta name="cover" content="图片的 id">
   let coverItem = Object.values(items).find(i => /cover-image/.test(i.props));
   if (!coverItem) { const cid = opf.querySelector('meta[name="cover"]')?.getAttribute("content"); if (cid) coverItem = items[cid]; }
   const cover = coverItem && /^image\//.test(coverItem.type) && files[coverItem.href] ? new Blob([files[coverItem.href]], { type: coverItem.type }) : null;
-  return { title: meta("title"), author: meta("creator"), cover, chapters };
+  return { title: meta("title"), author: meta("creator"), cover, chapters, resources };
 }
 
 // ---------- 读到哪了、便利贴 ----------

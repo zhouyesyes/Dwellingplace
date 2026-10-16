@@ -12,6 +12,7 @@ import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading,
 import { askHim, readAlong, alongSlice, placeAlong } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
+import BookImage from "../components/books/BookImage.vue";
 import BookInfo from "../components/books/BookInfo.vue";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -29,6 +30,8 @@ const content = ref(null);
 const ch = ref(0);
 const scroller = ref(null);
 const paras = computed(() => content.value?.chapters[ch.value]?.paras || []);
+const media = computed(() => content.value?.chapters[ch.value]?.media || []);
+const imagesAt = p => media.value.filter(m => m.p === p);
 const chapterTitle = computed(() => b.value?.chapters[ch.value]?.title || "");
 
 // ---------- 翻页 ----------
@@ -41,6 +44,7 @@ let ro = null;
 function measure() {
   const el = scroller.value;
   if (!el) return;
+  el.style.setProperty("--image-height", Math.max(80, el.clientHeight - parseFloat(getComputedStyle(el).paddingTop) - parseFloat(getComputedStyle(el).paddingBottom) - 40) + "px");
   pageW.value = el.clientWidth;
   const cs = getComputedStyle(el);
   padX.value = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
@@ -102,11 +106,18 @@ onMounted(async () => {
   await nextTick();
   ro = new ResizeObserver(() => { const p = b.value?.pos?.p || 0; measure(); jumpTo(p); });
   ro.observe(scroller.value);
+  await settleImages();
   jumpTo(b.value.pos?.p || 0);
   markSeen();
 });
 onBeforeUnmount(() => ro?.disconnect());
 
+async function settleImages() {
+  measure();
+  await Promise.all([...scroller.value.querySelectorAll(".book-image img")].map(img => img.decode().catch(() => {})));
+  await nextTick();
+  measure();
+}
 function jumpTo(p) {
   const el = scroller.value;
   if (!el) return;
@@ -126,6 +137,7 @@ async function goChapter(i, toEnd = false) {
   tocOpen.value = false;
   savePos(b.value, i, 0);
   await nextTick();
+  await settleImages();
   if (toEnd && paged.value) { measure(); toPage(pageCount.value - 1, false); }
   else { scroller.value.scrollLeft = 0; jumpTo(0); }
   measure();
@@ -400,8 +412,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       @scroll.passive="onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
+        <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :source="content.resources?.[m.resource]" @settled="measure" />
         <p :data-p="i" :class="{ 'his-end': b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
       </template>
+      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :source="content.resources?.[m.resource]" @settled="measure" />
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>

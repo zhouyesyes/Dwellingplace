@@ -13,6 +13,13 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · EPUB 正文内嵌图片最小修复
+- 接着图片链路诊断：`books.js` 原来只提取文字并保存封面；现在将 manifest 图片作为 data URI 随 `book:<id>` 正文持久化，章节 media 挂在原有文字段落旁。新增 `epubImages.js` 路径/类型校验及 `BookImage.vue`，ReaderView 渲染插图并等解码后定位分页；原文字分段、笔记坐标和末页补白不改。支持 JPG/JPEG、PNG、GIF、WebP、SVG，img/picture、内联 SVG 的 image 引用；相对路径、URL 编码、嵌套目录。仅查 ZIP 内 manifest 资源，拒绝越根、协议、反斜杠及非法编码；不请求服务器路径。SVG 以独立图片上下文呈现，不将书内 HTML 注入页面。
+- 插图等比例居中，限正文栏宽与可用页高；失败显示「图片暂不可用」，不显示内部路径或链接。未实施 GPT 识图、覆盖导入或任何既有书迁移；未读取/重导入/覆盖/删除《冬牧场》或其他真实书，不动已有进度、划线、批注、便利贴。
+- 安全 fixture `reader-images.cjs` 生成测试 EPUB，真正导入 → IndexedDB → 刷新阅读：六张可解码图片（JPG/JPEG/PNG/GIF/WebP/SVG）、picture、内联 SVG、编码嵌套路径、越界占位、原文字段落编号均验；手机/平板浅深色四组检查比例/容器限制和点击前后翻页。`reader-short` / `reader-long` 手机/平板浅深色八组回归末页居中通过。指定 ui-preview（只用空白浏览器/安全数据/封锁外部 API）截图已目视手机浅色、平板深色；Chromium 模拟不能替代 iOS Safari 真机。
+- `npx --no-install vite build`、`git diff --check` 通过；仅既有动态导入/构建耗时提示。无新增依赖、推送、部署或生产服务操作。任务 01a1456e-3b5a-7bb0-87f7-7184fe2e68f4。
+- **还剩/注意**：历史书若导入时没有保存图片资源和引用，这次无法从纯文字恢复；未来需要单独设计保留书 ID、进度和笔记的安全覆盖导入，再由她授权补齐。本次没有实现或执行该流程。当前使用图片 data URI 随正文同步，体积会相应增加。
+
 ### 2026-10-16 · Codex · 共读分页末页右侧留白
 - 仅修改 `ReaderView.vue` 分页章末导航的定位及伪元素：在最后一栏显式补齐半个栏间距（现有右 padding），避免多栏末尾 padding 没有计入滚动范围时末页少滚、正文向右偏。不改变字体、字号、行距、段间距或阅读设置；未改导入、图片、笔记和章节识别。
 - 新增隔离阅读 fixture `scripts/fixtures/reader-pagination.cjs`，由现有 ui-preview 的 `--fixture reader-short / reader-long --route /read/preview-book` 调用；只用全新浏览器及虚构 IndexedDB 正文，封锁外部资源/API。短章 2 段、长章 51 段（长度交错且包含跨页段落），手机/平板/桌面浅深色共 12 组验证通过：末页与首页栏宽、左右边距相同，末页滚动达到整屏位置，短章无额外分页；反复回首页/末页后截图。手机正文宽 342px、两侧各 24px；平板/桌面正文宽 720px。已目视截图，手机浅深色两种章节截图复制到当前任务 outputs。
