@@ -29,16 +29,16 @@
 
 实际根目录由既有 `WORK_DIR`、`BRIDGE_DATA` 决定。UI 复制素材的 `projectPath`（归档后 `libraryProjectPath`），例如 `../.qisuo-attachments/projects/栖所/inbox/<UUID>/原图.png`，相对于 `/work/栖所`。API 也提供原件绝对 `path`，供工具直接读取；浏览器请求只使用文件 ID，不接受客户端提供的磁盘路径。重命名只改变显示名，永久路径中的原始名不变。
 
-元数据包括 id/name/originalName/type/size/purpose/createdAt/path/projectPath、sourceTask/originalPath/tasks；状态为 pending（待整理）、used（已用于任务）、archived（已归档）。任务来源和实际使用都记录任务 ID；实际使用表示派单被接受，不推断 Codex 是否读完或已生成产物。
+元数据包括 id/name/originalName/type/size/purpose/createdAt/path/projectPath、sourceTask/originalPath/tasks/usedTasks；状态为 pending（待整理）、used（已用于任务）、archived（已归档）。tasks 记录来源及所有挂接任务（包括通知失败的待通知引用），usedTasks 仅记录新协议下派单被接受的任务；既有数据不会凭空补猜历史使用情况。实际使用不表示 Codex 已读完或已生成产物。任务附件的 notificationRevision 防止旧通知返回覆盖新用途/待通知状态。
 
-**默认永久保留**：任务完成、中断、归档和素材归档都不会删除原件；移除待发送列表只移除本次选择，不删除服务器已上传文件。当前不提供删除 API 或定时清理；失败中断留下的原件也保留。未来清理必须由她明确发起，检查所有任务/素材引用并先备份；硬链接必须所有引用都安全解除才释放磁盘空间。当前只有单文件限制，没有总配额/到期自动清理，需按服务器磁盘容量管理。
+**默认永久保留**：任务完成、中断、归档和素材归档都不会删除原件；移除待发送列表只移除本次选择，不删除服务器已上传文件。当前不提供删除 API 或定时清理；失败中断留下的原件也保留。未来清理必须由她明确发起并先备份。目前没有清理实现，也没有验证过可直接照做的自动清理流程。不得只看 status、tasks 或 usedTasks 就删除文件：必须扫描全部任务附件元数据、项目素材元数据和路径派单记录，核对 path/originalPath/libraryPath 及相对路径，涵盖未通知、失败、中断、已归档的任务。任何仍被登记的路径都不得 unlink；只剩另一硬链接并不能让被删除的旧路径继续可读。若未来要解除引用，必须先安全更新全部引用、确认旧路径不再被使用，再移除对应链接；全部链接被移除后才释放磁盘空间。当前只有单文件限制，没有总配额/到期自动清理，需按服务器磁盘容量管理。
 
 ## 限额与安全
 
 - 每文件非空且最多 **20 MiB（20 × 1024² 字节）**；原有消息最多四附件，收件箱一次上传一个。用途最多 2000 字符，名称最多 120 字符。
 - 仅 PNG/JPEG/GIF/WebP、MP4/WebM、PDF/TXT/MD/CSV/JSON/ZIP；扩展名与 MIME 匹配，二进制检查文件头，文本拒绝 NUL，JSON 必须可解析。不支持 HTML/SVG/脚本/可执行文件，不解压、不自动运行上传内容。
 - 上传名称规范化并清理分隔符/控制字符/前导点；重命名严格拒绝路径和改扩展名。UUID 隔离、wx 排他创建、硬链接不覆盖已有文件。
-- 目录/文件归 root、目录 0755、文件 0644，Codex 只读；读取、写入、硬链接固定 Linux 目录描述符，O_NOFOLLOW 拒绝符号链接与越界，并检查所有权/写权限。旧附件原路径继续支持。
+- 目录/文件归 root、目录 0755、文件 0644，Codex 只读；读取、写入、硬链接固定 Linux 目录描述符，O_NOFOLLOW 拒绝符号链接与越界，并检查所有权/写权限。此处为 API 归属与受控目录安全，不是操作系统级任务/项目保密隔离：所有 Codex 任务共用 UID 1001，0644 文件可由该用户直接读取其他任务/项目的已知素材路径。若要求互相不可读，需另行设计独立 UID/容器或按任务挂载，当前未实现。旧附件原路径继续支持。
 - 沿用服务器及 bridge 鉴权，检查任务/项目归属；受保护查看带 nosniff、no-store、CSP sandbox，下载加 Content-Disposition。无公开素材服务、临时签名链接或新增凭据日志。
 
 ## 给后续贴纸系统的接口
@@ -83,3 +83,5 @@ fixture 只使用脚本内虚构任务和绘制的测试 PNG；在空白浏览�
 - `scripts/preview-artifacts-check.mjs`、`scripts/workroom-ui-check.cjs`：适配描述符所有权 fixture 和新增文件输入框，保留原回归断言。
 - `scripts/ui-preview.cjs`、`scripts/fixtures/workroom-materials.cjs`：隔离界面 fixture、交互验收与截图回传。
 - `docs/workroom-materials.md`、`docs/ui-preview.md`、`docs/worklog.md`：存储/接口/用法/验收边界与施工记录。
+
+最终验收的逐项功能/安全/六条验收矩阵、复现缺陷和本地/替身/线上边界见 [workroom-materials-acceptance.md](workroom-materials-acceptance.md)。

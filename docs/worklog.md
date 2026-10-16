@@ -13,6 +13,15 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 1313a2b 最终验收与独立修复
+- 按本轮「不联网」要求未 git pull；原提交保持不变。只读审查后在原提交复现四处缺陷：慢 body 的重命名覆盖期间归档状态/libraryPath；挂接成功但未通知的任务没入素材引用表；硬链接成功但元数据写入中断后重试 EEXIST；旧 RPC 晚返回覆盖重新挂接的新用途/待通知状态。仅修这些缺陷及相应测试/文档，另建提交，不 amend；功能界面、主页插件与下拉刷新均未改。
+- 修复：读完 body 再读取最新素材元数据；挂接即记 tasks，新增 usedTasks 区分真正被接受的派单；同 dev/inode 的既有链接允许恢复、其他目标拒绝覆盖；附件 notificationRevision 防旧通知覆写。旧数据不迁移/删除、不猜历史使用。
+- 真文件专项新增：实际 uid 1001 子进程从临时项目 cwd 读取 inbox/library 相对路径；真实预览下载原字节/名称/MIME/长度；跨任务/项目归属、穿越、父/叶子符号链接、打开后目录替换、非 root/可组写目录拒绝；恰好 20 MiB 接受；并发、明确通知失败/同文件重试、新旧通知版本、任务归档保留、中断链接恢复和冲突不覆盖。仅 Codex RPC 及 bridge 的临时目录 root 所有权查询用替身；真实文件读写未替换。
+- 结果：workroom-attachments、workroom-progress、preview-artifacts、workroom-ui、workroom-preview-ui、ui-preview-lifecycle、Node 语法、Vite 构建和 diff --check 全过。原 UI 用新的 configFile:false/envDir 临时目录/随机 127.0.0.1 服务，finally 关闭；无安装、联网、生产重启/部署或用户素材读取。既有导入与 CalendarWidget 提示未扩大范围处理。
+- 沿用 ui-preview 生成任务 01a143b9-f117-7043-a6cb-e59c578bb7f1 的两套六图：收件箱 d03c3906-0aa9-4593-b855-ff97dfe6e8e1，附件 89b27d6c-496d-4a87-ad58-6ea51ef85756；查看手机浅色/平板深色，复制按钮值/上传/通知/预览/重命名归档由 fixture 交互断言验证。系统剪贴板方法、UI API 为替身，不能冒充线上链路。
+- **验收边界/未实现**：完整逐项矩阵见 docs/workroom-materials-acceptance.md。API 归属与目录攻击拒绝通过，但所有任务共用 UID 1001、原件 0644，OS 级跨任务/项目互不可读未实现；严格隔离不能靠上线复验解决。真实 app-server start/steer 接收/读取、生产鉴权/proxy/root 挂载、系统复制下载、跨服务重启恢复尚未验。无自动清理；文档补明硬链接保字节不保被删路径，禁止 unlink 仍被元数据/历史派单引用的路径，不能只按 tasks/usedTasks/status 清理。没有独立 typecheck，Node --check/Vite 构建不能冒充完整类型检查。
+
+
 ### 2026-10-16 · Codex · 素材传入工作间的双通道
 - 接着已有任务原始附件与截图收取能力完成：任务新建前选择附件/各自用途，已有任务上传并通知，持久附件列表、图片预览/原件下载/路径复制、通知失败保留原件并重试。Codex 输入含名称/MIME/大小/用途/只读路径；只有 start/steer 成功才记录已通知，伙伴派单同步传原附件 ID。
 - 项目收件箱复用安全上传；按项目保存在 /work/.qisuo-attachments/projects/<项目>/inbox，正式库为 library，不进源码/Git。重命名显示名保留原始名/稳定路径；任务→收件箱、收件箱→任务、归档均使用硬链接/元数据引用，不复制字节，不覆盖同名。记录 pending/used/archived、来源任务与使用任务；路径派单成功也标记使用。原件及失败中间文件默认永久保留，无删除/自动清理接口。

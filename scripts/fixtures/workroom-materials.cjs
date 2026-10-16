@@ -7,7 +7,7 @@ exports.install = async (context, origin) => {
   const materials = [{id,name:'测试贴纸原图.png',originalName:'测试贴纸原图.png',type:'image/png',size:png.length,path:'/work/.qisuo-attachments/projects/栖所/inbox/'+id+'/测试贴纸原图.png',purpose:'保留透明背景，统一调色；此为无敏感信息的测试 PNG',status:'pending',tasks:[],projectPath:'../.qisuo-attachments/projects/栖所/inbox/'+id+'/测试贴纸原图.png'}];
   const attachments = [{...materials[0],projectPath:undefined,path:'/work/.qisuo-attachments/tasks/preview-task/'+id+'/测试贴纸原图.png',notification:'pending'}];
   const calls = [];
-  await context.addInitScript(() => { window.EventSource = class { constructor() { this.readyState=1; queueMicrotask(()=>this.onopen?.()); } close(){this.readyState=2;} }; });
+  await context.addInitScript(() => { Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text => {window.copiedMaterialPath=text;}}}); window.EventSource = class { constructor() { this.readyState=1; queueMicrotask(()=>this.onopen?.()); } close(){this.readyState=2;} }; });
   await context.route(origin + '/p/preview/**', async route => {
     const req = route.request(), url = new URL(req.url()), p = decodeURIComponent(url.pathname.replace('/p/preview/codex',''));
     const send = json => route.fulfill({json});
@@ -54,6 +54,10 @@ exports.prepare = async (page, origin, mode) => {
 };
 exports.verify = async (page, mode, state) => {
   const panel = page.locator('.material-panel');
+  await panel.getByRole('button',{name:'复制路径',exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.copiedMaterialPath),await panel.locator('.material-file code').first().innerText());
+  if(mode==='workroom-materials') assert((await page.evaluate(()=>window.copiedMaterialPath)).startsWith('../.qisuo-attachments/projects/栖所/'));
+
   assert(await panel.getByText('下载原件',{exact:true}).count());
   await panel.getByRole('button',{name:'预览 测试贴纸原图.png',exact:true}).click();
   await page.getByRole('dialog').waitFor();

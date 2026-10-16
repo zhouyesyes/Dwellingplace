@@ -359,7 +359,7 @@ async function attachmentRoute(req, res, url, match, sourceTask) {
   const dir = path.join(scope, id);
   const file = path.join(dir, name);
   protectedDir(dir, anchored => fs.writeFileSync(path.join(anchored,name), data, { flag:"wx", mode:0o644 }));
-  const meta = { id, name, type, size: data.length, path: file, purpose: String(url.searchParams.get("purpose") || "").slice(0, 2000), createdAt: Date.now(), notification: "pending" };
+  const meta = { id, name, type, size: data.length, path: file, purpose: String(url.searchParams.get("purpose") || "").slice(0, 2000), createdAt: Date.now(), notification: "pending", notificationRevision: randomUUID() };
   const metadataDir = path.join(DATA, "attachments", t.id);
   fs.mkdirSync(metadataDir, { recursive: true, mode: 0o700 });
   writeJSON(path.join(metadataDir, `${id}.json`), meta);
@@ -407,7 +407,16 @@ function linkOriginal(source, target) {
   // 两边的父目录描述符固定住，目录被改名也不会跟到别处。
   protectedDir(path.dirname(source), from => {
     safeOriginal(source);
-    protectedDir(path.dirname(target), to => fs.linkSync(path.join(from,path.basename(source)),path.join(to,path.basename(target))));
+    protectedDir(path.dirname(target), to => {
+      const original = path.join(from,path.basename(source)), destination = path.join(to,path.basename(target));
+      try { fs.linkSync(original,destination); }
+      catch (e) {
+        if (e.code !== "EEXIST") throw e;
+        // 链接已完成而元数据落盘失败时可以重试；不同文件和符号链接绝不覆盖。
+        const a = fs.lstatSync(original), b = fs.lstatSync(destination);
+        if (!a.isFile() || !b.isFile() || a.dev !== b.dev || a.ino !== b.ino) throw new Error("目标已存在且不是同一原件");
+      }
+    });
   }, false);
 }
 function listAttachments(t) {
@@ -431,14 +440,25 @@ function materialMeta(project, id) {
 function saveMaterial(project, a, taskId) {
   const dir = materialDir(project);
   const existing = readJSON(path.join(dir, a.id + ".json"), null);
-  if (existing) return existing;
+  if (existing) {
+    safeOriginal(existing.path);
+    if (taskId) {
+      existing.tasks = [...new Set([...(existing.tasks || []),taskId])];
+      if (a.notification === "delivered") {
+        existing.usedTasks = [...new Set([...(existing.usedTasks || []),taskId])];
+        if (existing.status !== "archived") existing.status = "used";
+      }
+      writeJSON(path.join(dir, a.id + ".json"),existing);
+    }
+    return existing;
+  }
   safeOriginal(a.path);
   // 链接原件，不移动它；任务与收件箱始终能读到同一份字节。
   const dest = path.join(WORK, ".qisuo-attachments", "projects", project, "inbox", a.id);
   protectedDir(dest);
   const file = path.join(dest, path.basename(a.path));
   linkOriginal(a.path, file);
-  const meta = { ...a, path: file, projectPath: path.relative(path.join(WORK,project), file), originalPath: a.path, originalName: a.name, project, status: taskId && a.notification === "delivered" ? "used" : "pending", tasks: taskId ? [taskId] : [], sourceTask: taskId || null };
+  const meta = { ...a, path: file, projectPath: path.relative(path.join(WORK,project), file), originalPath: a.path, originalName: a.name, project, status: taskId && a.notification === "delivered" ? "used" : "pending", tasks: taskId ? [taskId] : [], usedTasks: taskId && a.notification === "delivered" ? [taskId] : [], sourceTask: taskId || null };
   writeJSON(path.join(dir, a.id + ".json"), meta);
   return meta;
 }
@@ -452,13 +472,14 @@ async function materialRoute(req, res, url, project, id, action) {
     await attachmentRoute(req, { writeHead() {}, end(value) { uploaded = JSON.parse(value); } }, url, [null, slot.id], slot);
     return json(res, 200, saveMaterial(project, uploaded));
   }
+  // 先读完请求体，再读取当前元数据，避免慢请求覆盖期间发生的归档/使用记录。
+  const b = req.method === "POST" ? await body(req) : {};
   const a = materialMeta(project, id);
   if (req.method === "GET" && !action) {
     res.writeHead(200, { "Content-Type": a.type, "Content-Length": a.size, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": `${!url.searchParams.has("download") && /^image\//.test(a.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(a.name)}` });
     return fs.createReadStream(null, { fd:openOriginal(a.path), autoClose:true }).on("error", () => res.destroy()).pipe(res);
   }
   if (req.method !== "POST") throw new Error("请求方法不支持");
-  const b = await body(req);
   if (action === "rename") {
     const name = String(b.name || "").normalize("NFC");
     if (!name || name.length > 120 || /[\/\\\x00-\x1f\x7f]/.test(name) || name.startsWith(".") || path.extname(name).toLowerCase() !== path.extname(a.originalName).toLowerCase()) throw new Error("名称不合法，需保留原扩展名");
@@ -478,8 +499,11 @@ async function materialRoute(req, res, url, project, id, action) {
     fs.mkdirSync(metadataDir, { recursive:true, mode:0o700 });
     const attached = { ...a, purpose: String(b.purpose || a.purpose || "").slice(0,2000), materialId: a.id, notification:"pending" };
     const old = readJSON(path.join(metadataDir, a.id + ".json"), null);
-    const linked = { ...(old || attached), purpose: attached.purpose, materialId:a.id, notification:"pending" };
+    const linked = { ...(old || attached), purpose: attached.purpose, materialId:a.id, notification:"pending", notificationRevision:randomUUID() };
     writeJSON(path.join(metadataDir, a.id + ".json"), linked);
+    // 先登记挂接关系，通知失败也必须纳入清理时的引用检查；不冒充已使用。
+    a.tasks = [...new Set([...(a.tasks || []),t.id])];
+    writeJSON(path.join(dir, a.id + ".json"),a);
     return json(res, 200, linked);
   } else throw new Error("不支持这个素材操作");
   writeJSON(path.join(dir, id + ".json"), a);
@@ -492,16 +516,21 @@ function attachmentsDelivered(t, attachments, text = "") {
     const m = readJSON(path.join(dir,name), null);
     if (m && [m.path,m.libraryPath,m.projectPath,m.libraryProjectPath].filter(Boolean).some(p => text.includes(p))) {
       m.tasks = [...new Set([...(m.tasks || []),t.id])];
+      m.usedTasks = [...new Set([...(m.usedTasks || []),t.id])];
       if (m.status !== "archived") m.status = "used";
       writeJSON(path.join(dir,name),m);
     }
   }
   for (const a of attachments) {
+    const current = fileMeta(t,a.id);
     a.notification = "delivered";
-    writeJSON(path.join(DATA, "attachments", t.id, a.id + ".json"), a);
+    // 旧 RPC 晚返回时不能覆盖另一设备新挂接的用途/待通知状态。
+    if (current.notificationRevision === a.notificationRevision) {
+      writeJSON(path.join(DATA, "attachments", t.id, a.id + ".json"), { ...current, notification:"delivered" });
+    }
     const f = path.join(DATA, "materials", t.project, (a.materialId || a.id) + ".json");
     const m = readJSON(f, null);
-    if (m) { m.tasks = [...new Set([...(m.tasks || []), t.id])]; if (m.status !== "archived") m.status = "used"; writeJSON(f,m); }
+    if (m) { m.tasks = [...new Set([...(m.tasks || []), t.id])]; m.usedTasks = [...new Set([...(m.usedTasks || []),t.id])]; if (m.status !== "archived") m.status = "used"; writeJSON(f,m); }
   }
 }
 

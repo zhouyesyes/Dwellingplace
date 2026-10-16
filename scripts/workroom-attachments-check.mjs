@@ -23,6 +23,8 @@ assert.equal(ok.code, 200); assert(!ok.value.name.includes('/')); assert(fs.exis
 assert.equal(context.lookup(context.threads.test, ok.value.id).size, 5);
 await assert.rejects(upload('假.png', 'image/png', Buffer.from('bad')), /内容/);
 await assert.rejects(upload('图.png', 'text/plain', Buffer.from('bad')), /MIME/);
+await assert.rejects(upload('危险.exe', 'application/octet-stream', Buffer.from('MZbad')), /类型/);
+await assert.rejects(upload('危险.sh', 'text/plain', Buffer.from('#!/bin/sh')), /类型/);
 await assert.rejects(upload('危险.constructor', 'application/octet-stream', Buffer.from('bad')), /类型/);
 await assert.rejects(upload('危险.__proto__', 'application/octet-stream', Buffer.from('bad')), /类型/);
 await assert.rejects(upload('危险.html', 'text/html', Buffer.from('bad')), /类型/);
@@ -109,6 +111,8 @@ for (const endpoint of [`/threads/test/attachments/${attached.value.id}`,`/proje
     await done;
     assert.deepEqual(Buffer.concat(chunks),png);
     assert.equal(headers['X-Content-Type-Options'],'nosniff');
+    assert.equal(headers['Content-Type'],'image/png'); assert.equal(headers['Content-Length'],png.length);
+    if(endpoint.includes('/projects/')) assert(headers['Content-Disposition'].includes(encodeURIComponent('统一调色.png')));
     assert(headers['Content-Disposition'].startsWith(download?'attachment':'inline'));
   }
 }
@@ -118,3 +122,147 @@ fs.renameSync(sourceFile,renamed); fs.symlinkSync(renamed,sourceFile);
 assert.throws(()=>context.lookup(context.threads.test,attached.value.id),/不安全/);
 fs.unlinkSync(sourceFile); fs.renameSync(renamed,sourceFile);
 console.log('通过：PNG 原件读取、用途/路径/localImage、运行中 steer 及确认、失败保留待通知、同名隔离、收件箱上传/引用、路径派单标记使用、重命名/归档硬链接、跨项目拒绝、预览/下载字节一致、符号链接拒绝');
+
+// 最终验收：复制出来的相对路径由当前 Codex uid 的独立进程从项目 cwd 读取。
+const { spawnSync } = await import('node:child_process');
+for (const relative of [inbox.value.projectPath, archived.value.libraryProjectPath]) {
+  const reader = spawnSync(process.execPath, ['-e','process.stdout.write(require("node:fs").readFileSync(process.argv[1]))',relative], { cwd:path.join(root,'测试') });
+  assert.equal(reader.status,0); assert.deepEqual(reader.stdout,png);
+}
+console.log(`通过：实际 uid ${process.getuid()} 从项目 cwd 读取收件箱/素材库相对路径（未模拟文件读取权限；仅 bridge 的 root 所有权查询为替身）`);
+
+// 慢请求先等待 body，与归档/任务使用交错，不能覆盖新状态和引用。
+let releaseBody;
+const gate = new Promise(resolve => releaseBody=resolve);
+const slowRename = context.route({method:'POST',async *[Symbol.asyncIterator]() { await gate; yield Buffer.from(JSON.stringify({name:'并发重命名.png'})); }},{},new URL(`http://local/projects/测试/materials/${saved.value.id}/rename`));
+await Promise.resolve();
+const during = await request('POST',`/projects/测试/materials/${saved.value.id}/archive`,{});
+context.call = async () => ({turnId:'active',turn:{id:'active'}});
+await request('POST','/threads/test/send',{text:`读取 ${saved.value.projectPath}`,attachments:[]});
+releaseBody(); await slowRename;
+const getMaterial = async id => (await request('GET','/projects/测试/materials')).value.materials.find(a=>a.id===id);
+let current = await getMaterial(saved.value.id);
+assert.equal(current.status,'archived'); assert.equal(current.libraryPath,during.value.libraryPath);
+assert(current.usedTasks.includes('test'));
+
+// 仅挂接、通知失败也登记引用；失败后重试同一附件，字节与 inode 保持不变。
+context.threads.reference = {id:'reference',project:'测试',turnId:'reference-turn'};
+const reference = await request('POST',`/projects/测试/materials/${saved.value.id}/attach`,{taskId:'reference',purpose:'失败重试验收'});
+current = await getMaterial(saved.value.id);
+assert(current.tasks.includes('reference')); assert(!current.usedTasks.includes('reference'));
+const beforeRetry = fs.statSync(reference.value.path);
+const eventsBefore = context.sent;
+context.call = async () => {throw Error('明确的通知拒绝');};
+await assert.rejects(request('POST','/threads/reference/send',{text:'追加',attachments:[reference.value.id]}),/通知拒绝/);
+assert.equal(context.lookup(context.threads.reference,reference.value.id).notification,'pending');
+assert.equal(context.sent,eventsBefore);
+context.call = async (method,params) => { rpc={method,params}; return {turnId:'reference-turn',turn:{id:'reference-turn'}}; };
+await request('POST','/threads/reference/send',{text:'重试追加',attachments:[reference.value.id]});
+assert.equal(rpc.method,'turn/steer');
+assert.equal(context.lookup(context.threads.reference,reference.value.id).notification,'delivered');
+assert.equal(fs.statSync(reference.value.path).ino,beforeRetry.ino);
+assert((await getMaterial(saved.value.id)).usedTasks.includes('reference'));
+assert(rpc.params.input[0].text.includes(reference.value.name));
+assert(rpc.params.input[0].text.includes(reference.value.type));
+assert(rpc.params.input[0].text.includes(`${reference.value.size} 字节`));
+assert(rpc.params.input[0].text.includes('失败重试验收'));
+
+// 挂接状态不能误报使用；任务结束/归档不删除路径或元数据，重新读取仍可恢复。
+const pending = await request('POST','/projects/测试/materials?name=未通知.png',png,'image/png');
+await request('POST',`/projects/测试/materials/${pending.value.id}/attach`,{taskId:'reference'});
+assert.equal((await getMaterial(pending.value.id)).status,'pending');
+assert((await getMaterial(pending.value.id)).tasks.includes('reference'));
+await request('POST','/threads/reference/archive',{});
+for (const a of (await request('GET','/threads/reference/attachments')).value.attachments) assert.deepEqual(fs.readFileSync(a.path),png);
+assert.deepEqual(fs.readFileSync(current.path),png);
+assert.deepEqual(fs.readFileSync(during.value.libraryPath),png);
+
+// 文件系统链接成功而元数据写入失败，重试不覆盖、不丢原件且可恢复。
+const write = context.writeJSON;
+const recovery = await request('POST','/threads/test/attachments?name=恢复.png',png,'image/png');
+let failMetadata = true;
+context.writeJSON = (file,value) => { if(failMetadata && file.includes('/materials/')) { failMetadata=false; throw Error('模拟元数据写入失败'); } return write(file,value); };
+await assert.rejects(request('POST',`/threads/test/attachments/${recovery.value.id}/material`,{}),/元数据写入失败/);
+const recovered = await request('POST',`/threads/test/attachments/${recovery.value.id}/material`,{});
+assert.equal(fs.statSync(recovered.value.path).ino,fs.statSync(recovery.value.path).ino);
+failMetadata = true;
+await assert.rejects(request('POST',`/projects/测试/materials/${recovery.value.id}/archive`,{}),/元数据写入失败/);
+const recoveredArchive = await request('POST',`/projects/测试/materials/${recovery.value.id}/archive`,{});
+context.writeJSON = write;
+assert.equal(fs.statSync(recoveredArchive.value.libraryPath).ino,fs.statSync(recovery.value.path).ino);
+// 不同的目标文件不能作为成功链接吞掉。
+const wrongTarget = path.join(path.dirname(recovered.value.path),'不同原件.png');
+fs.writeFileSync(wrongTarget,Buffer.from('无敏感信息的冲突文件'));
+assert.throws(()=>context.linkOriginal(recovery.value.path,wrongTarget),/不是同一原件/);
+assert.equal(fs.readFileSync(wrongTarget,'utf8'),'无敏感信息的冲突文件');
+
+// 路径穿越/跨归属被 API 拒绝；目录符号链接不能借另一任务/项目或外部文件越权。
+await assert.rejects(request('GET','/projects/%2e%2e%2f其他项目/materials'),/没有这个项目/);
+assert.equal((await request('GET','/threads/%2e%2e%2fother/attachments')).code,405);
+assert.throws(()=>context.openOriginal(path.join(root,'outside.png')),/不安全/);
+const parent = path.dirname(recovery.value.path), moved = parent+'.held';
+const otherTask = path.dirname(attached.value.path);
+const outside = path.join(root,'外部测试目录'); fs.mkdirSync(outside);
+fs.writeFileSync(path.join(outside,path.basename(recovery.value.path)),Buffer.from('外部假数据，不是用户素材'));
+for (const target of [otherTask,path.dirname(inbox.value.path),outside]) {
+  fs.renameSync(parent,moved); fs.symlinkSync(target,parent);
+  try { assert.throws(()=>context.lookup(context.threads.test,recovery.value.id),/不安全/); }
+  finally { fs.unlinkSync(parent); fs.renameSync(moved,parent); }
+}
+// 目录在打开后被替换时，真正读取使用固定 fd，不能跟随新目录。
+const originalOpen = fixtureFs.openSync;
+let swapped = false;
+context.fs = new Proxy(fixtureFs,{get(target,key) {
+  if(key==='openSync') return (file,flags,...args) => {
+    const fd = originalOpen(file,flags,...args);
+    if (!swapped && String(file).endsWith('/'+recovery.value.id) && (flags & fs.constants.O_DIRECTORY)) {
+      swapped=true; fs.renameSync(parent,moved); fs.symlinkSync(outside,parent);
+    }
+    return fd;
+  };
+  return target[key];
+}});
+let fixed;
+try {
+  fixed=context.openOriginal(recovery.value.path);
+  assert(swapped); assert.deepEqual(fs.readFileSync(fixed),png);
+  assert.throws(()=>context.openOriginal(recovery.value.path),/不安全/);
+} finally { if(fixed!==undefined) fs.closeSync(fixed); context.fs=fixtureFs; if(swapped){fs.unlinkSync(parent);fs.renameSync(moved,parent);} }
+
+// 只在隔离副本模拟未来清理：保留其他硬链接能保住字节，但删除仍被元数据引用的路径会悬空。
+const cleanRoom = path.join(root,'清理演示'); fs.mkdirSync(cleanRoom);
+const originalCopy = path.join(cleanRoom,'原件.png'), retained = path.join(cleanRoom,'仍被引用.png');
+fs.copyFileSync(recovery.value.path,originalCopy); fs.linkSync(originalCopy,retained);
+fs.unlinkSync(originalCopy); assert.deepEqual(fs.readFileSync(retained),png);
+assert(!fs.existsSync(originalCopy)); // 硬链接不是路径重定向，文档必须禁止删除仍登记的任何路径。
+console.log('通过：并发归档/重命名保留引用、挂接未通知引用、明确拒绝与重试/状态、任务归档保留、链接中断恢复、不覆盖冲突、相对路径、穿越/目录符号链接/打开后目录替换、隔离清理语义');
+
+// 精确大小边界和生产所有权/权限拒绝分支；仍只操作本脚本的临时目录。
+const atLimit = await request('POST','/threads/test/attachments?name=边界.txt',Buffer.alloc(20*1024*1024,120),'text/plain');
+assert.equal(atLimit.value.size,20*1024*1024);
+context.fs=fs;
+try { assert.throws(()=>context.openOriginal(recovery.value.path),/不安全/); } finally { context.fs=fixtureFs; }
+fs.chmodSync(parent,0o777);
+try { assert.throws(()=>context.openOriginal(recovery.value.path),/不安全/); } finally { fs.chmodSync(parent,0o755); }
+console.log('通过：恰好 20 MiB 接受、超过限制拒绝、可执行扩展名拒绝、非 root/可组写目录拒绝');
+
+// 已在途的旧通知不能覆盖后来挂接的新用途；新通知失败仍保持新版本待通知。
+let releaseNotice;
+const noticeGate = new Promise(resolve => releaseNotice=resolve);
+context.call = async () => { await noticeGate; return {turnId:'active',turn:{id:'active'}}; };
+await request('POST',`/projects/测试/materials/${saved.value.id}/attach`,{taskId:'test',purpose:'旧用途'});
+const oldNotice = request('POST','/threads/test/send',{text:'旧通知',attachments:[saved.value.id]});
+for(let i=0;i<10;i++) await Promise.resolve();
+await request('POST',`/projects/测试/materials/${saved.value.id}/attach`,{taskId:'test',purpose:'新用途未通知'});
+releaseNotice(); await oldNotice;
+let latest=context.lookup(context.threads.test,saved.value.id);
+assert.equal(latest.notification,'pending'); assert.equal(latest.purpose,'新用途未通知');
+context.call = async () => {throw Error('新通知被拒绝');};
+await assert.rejects(request('POST','/threads/test/send',{text:'新通知',attachments:[saved.value.id]}),/新通知被拒绝/);
+latest=context.lookup(context.threads.test,saved.value.id);
+assert.equal(latest.notification,'pending'); assert.equal(latest.purpose,'新用途未通知');
+context.call = async () => ({turnId:'active',turn:{id:'active'}});
+await request('POST','/threads/test/send',{text:'重试新通知',attachments:[saved.value.id]});
+assert.equal(context.lookup(context.threads.test,saved.value.id).notification,'delivered');
+assert.equal(context.lookup(context.threads.test,saved.value.id).purpose,'新用途未通知');
+console.log('通过：旧通知晚返回不能覆盖新用途/待通知状态，新版本失败后可准确重试');
