@@ -13,6 +13,14 @@
 
 ## 日志
 
+### 2026-10-16 · Codex · 独立收尾审查 c903984，最小修复手动编码被误禁用
+- 检查完整提交 diff、BOM/UTF-8/GB18030/UTF-16 判断顺序、异常规则及选文件→预览→切换→确认调用路径。发现并复现一项明确缺陷：字节 `81 89` 的正确 GB18030 正文是「亯」，自动评分却选 UTF-16LE「要」；原提交手动选回 GB18030 仍返回 suspicious=true，正确正文无法导入。以 `git show c903984:src/lib/txtEncoding.js` 的原始模块和修复模块分别运行，前者误禁用、后者允许。
+- 最小修复仅在 `txtEncoding.js` 抽出原有 BOM/零字节特征判断，保留全部自动识别顺序及分数；无可靠字节特征、仅凭常见汉字评分时，不再据此硬拦截手动选择。BOM/零字节特征/有效 UTF-8 下的明显劣化检查及替换符、NUL 等全文异常检查仍保留。未修改 BooksView/books 分章、EPUB、覆盖或共读实现。
+- 补充编码逻辑回归：普通中文、英文、组合 emoji/肤色/ZWJ、扩展区生僻字（带/不带 UTF-8 BOM），UTF-16BE BOM、空文本，以及 GB 歧义样例手动纠正、短 UTF-16 手动选择。全部保留原先 GBK/GB18030 四字节、大小端、错误编码及末尾异常测试。
+- 扩展既有 txt fixture：英文、emoji/生僻字、UTF-16BE BOM、误识别后手动切回 GB18030 均实际确认导入；通过 IndexedDB 逐项核对保存的正文，并断言原两章标题和段落不变，不仅检查页面跳转。已目视手机浅色异常拦截、平板深色预览，复核截图以 review- 前缀复制到本轮 outputs。
+- 最终命令全部退出 0：`node scripts/txt-encoding-check.mjs`；`node scripts/ui-preview.cjs --task 01a145c3-1b01-7ab1-affc-cbf947d2b5ea --route /books --fixture txt-encoding --views phone,tablet --themes light,dark`；同任务 `--route /books --fixture book-reimport --views phone --themes light,dark`（含全部并发/覆盖回归）；同任务 `--route /read/preview-book --fixture reader-image-only --views phone --themes light,dark`（EPUB 图片导入及两个共读入口，本地模拟请求）；`npx vite build`；`git diff --check`。日志在 /tmp/txt-review-{ui,epub,reading,build}.log。构建仅既有动态导入警告。
+- **结论/残余风险**：原提交有上述 P2 缺陷，修复后本轮审查通过。无 BOM 的短文本/纯生僻字可同时合法解码，自动识别仍可能错选，需核对预览并手动纠正；合法可读字符构成的乱码不能保证检测。当前异常规则较保守，字面替换符/异常控制字符仍会拦截。未做 Safari 真机、真实 GPT 或真实用户小说验收；只用虚构数据、无生产凭据、新依赖、推送或部署。任务 01a145c3-1b01-7ab1-affc-cbf947d2b5ea。
+
 ### 2026-10-16 · Codex · 仅补齐 TXT 导入编码识别与确认预览
 - 新增 `src/lib/txtEncoding.js`，使用浏览器原生 TextDecoder，无新依赖。BOM 优先；无 BOM 结合奇偶零字节识别 UTF-16 大小端，优先有效 UTF-8，否则比较 GB18030 与 UTF-16 的常见汉字/异常字符比例。GB18030 兼容 GBK；识别是启发式，短文本及均可合法解码的字节不能保证唯一判断。
 - `BooksView.vue`：TXT 选取后先显示文件名、自动识别编码、当前编码和 700 字预览，原生选择框提供 UTF-8 / GB18030 / UTF-16LE / UTF-16BE，切换立即重解码。替换符、NUL/异常控制字符、私用字符异常比例或明显劣于自动结果时，提示「编码可能不正确」并禁用确认；检查全文而非仅预览。`books.js` 确认时再次检查，不允许绕过界面直接静默导入异常正文。

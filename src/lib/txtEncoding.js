@@ -13,7 +13,7 @@ function read(bytes, encoding) {
   const text = new TextDecoder(encoding).decode(bytes);
   return { encoding, text, ...inspect(text) };
 }
-export function detectTxtEncoding(bytes) {
+function signatureEncoding(bytes) {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return 'utf-8';
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le';
   if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be';
@@ -27,6 +27,11 @@ export function detectTxtEncoding(bytes) {
     if (odd > bytes.length * .15 && even < odd * .2) return 'utf-16le';
     if (even > bytes.length * .15 && odd < even * .2) return 'utf-16be';
   }
+  return null;
+}
+export function detectTxtEncoding(bytes) {
+  const signature = signatureEncoding(bytes);
+  if (signature) return signature;
   const candidates = TXT_ENCODINGS.map(e => read(bytes, e));
   const utf8 = candidates[0];
   if (!utf8.bad) return 'utf-8';
@@ -39,7 +44,9 @@ export function decodeTxt(bytes, encoding = detectTxtEncoding(bytes)) {
   const result = read(bytes, encoding);
   const detected = detectTxtEncoding(bytes);
   const best = read(bytes, detected);
-  // 误选 GB18030 等编码时，未必出现替换符；与可靠的自动结果比较补充拦截。
-  result.suspicious ||= encoding !== detected && !best.suspicious && best.score > result.score + .06;
+  // 常见汉字评分只能辅助识别，不能据此否决手动选择的生僻字正文。
+  // 仅在有 BOM、零字节特征或有效 UTF-8 的依据时，补充检查明显劣化的结果。
+  const reliable = signatureEncoding(bytes) === detected || (detected === 'utf-8' && !best.bad);
+  result.suspicious ||= reliable && encoding !== detected && !best.suspicious && best.score > result.score + .06;
   return result;
 }
