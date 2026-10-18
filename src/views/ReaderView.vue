@@ -1,7 +1,8 @@
 <script setup>
 // 读书：一章一章读。点一下 → 选中那一句（长按可以自己拖着选），下面出来一张小卡片：复制、划线、写想法、问问他。
-// 写了话的划线，话写在便利贴上，贴在那句话后面（你的黄、他的蓝）；同一句贴了三张以上就叠起来，点开再看。
-// 一屏一页时，便利贴和它那句话总在同一页（贴在页尾放不下，就连那句一起挪到下一页）。只划了线的，点划线看。
+// 写了话的划线，句子照常连着读，只在那句下面划线；便利贴贴在这一段的末尾（你的黄、他的蓝）。
+// 一段里有几句都贴了：线尾标个小角标 1 2 3，便利贴上也标同一个数。同一句贴了三张以上就叠起来，点开再看。
+// 一屏一页时，便利贴和它那几句总在同一页（放不下，就从那句开始连着便利贴一起挪到下一页）。只划了线的，点划线看。
 // 右下角「一起读」旁边一张小蓝便利贴：他贴的、你还没看到的，点开是列表，长按一条「跳转 / 忽略」。
 // 右下角「一起读」→ 从你现在这一页往后读十页（你还没读到的，他先读），他挑几句划线、写批注；读到哪就在哪做个淡淡的记号。
 // 给他看的只有这一句 / 这几页，而且是单独问的一次，不进聊天记录。读到哪记在书上（他在聊天里也知道你读到哪了）
@@ -200,7 +201,7 @@ function markSeen() {
 onBeforeUnmount(() => clearTimeout(seenTimer));
 
 // ---------- 便利贴 ----------
-// 一段里写了话的划线：重叠的并成一组，便利贴贴在这组句子后面
+// 一段里写了话的划线：重叠的并成一组；一段里有好几组时，按先后编号（线尾和便利贴上的小角标）
 const groupsByP = computed(() => {
   const out = {};
   for (const [p, ms] of Object.entries(marksByP.value)) {
@@ -210,28 +211,22 @@ const groupsByP = computed(() => {
       if (g && m.s < g.e) { g.e = Math.max(g.e, m.e); g.list.push(m); }
       else gs.push({ s: m.s, e: m.e, list: [m] });
     }
-    for (const g of gs) { g.key = `${ch.value}:${p}:${g.s}`; g.list.sort((x, y) => x.n.ts - y.n.ts); }
+    gs.forEach((g, k) => { g.key = `${ch.value}:${p}:${g.s}`; g.num = gs.length > 1 ? k + 1 : 0; g.list.sort((x, y) => x.n.ts - y.n.ts); });
     if (gs.length) out[p] = gs;
   }
   return out;
 });
-// 贴在页尾放不下的那几组：那句话另起一行，和便利贴绑在一起挪到下一页
-const keeps = reactive(new Set());
+// 便利贴和那几句不在同一页的段落：记着从第几个字（那句开头）起另起一行，连着便利贴挪到下一页 { "章:段": 字 }
+const keeps = reactive(new Map());
 // 同一句三张以上叠起来；点开的记在这里
 const opened = reactive(new Set());
-// 一段拆成几截：[{ a, z, g, keep, last }]，有便利贴的那截后面跟着便利贴
+// 一段拆成几截：[{ a, z, gs（这一截后面贴的便利贴，按组）, keep, last }]。平时就一截，便利贴跟在段尾
 function piecesOf(i) {
   const t = paras.value[i] || "";
-  const out = [];
-  let a = 0;
-  for (const g of groupsByP.value[i] || []) {
-    const e = Math.max(a, Math.min(t.length, g.e));
-    if (keeps.has(g.key) && g.s > a) { out.push({ a, z: g.s }); a = g.s; }
-    out.push({ a, z: e, g, keep: keeps.has(g.key) });
-    a = e;
-  }
-  if (a < t.length || !out.length) out.push({ a, z: t.length });
-  out.at(-1).last = true;
+  const gs = groupsByP.value[i] || [];
+  const cut = keeps.get(`${ch.value}:${i}`);
+  const out = cut > 0 && cut < t.length ? [{ a: 0, z: cut }, { a: cut, z: t.length, keep: true }] : [{ a: 0, z: t.length }];
+  Object.assign(out.at(-1), { last: true, gs: gs.length ? gs : null });
   return out;
 }
 // 一屏一页：便利贴和它那句话不在同一页（那句在页尾，便利贴被挤到下一页），就把那句和便利贴绑在一起
@@ -242,13 +237,17 @@ async function fixStickies() {
     measure();
     let more = false;
     for (const nb of el.querySelectorAll(".notes[data-g]")) {
-      const key = nb.dataset.g;
+      const key = nb.dataset.g, p = Number(key.split(":")[1]);
       if (keeps.has(key)) continue;
-      const at = el.querySelector(`[data-at="${CSS.escape(key)}"]`)?.getClientRects()[0];
       const rs = [...nb.getClientRects()];
-      if (!at || !rs.length) continue;
-      const pg = pageOf(at.left);
-      if (rs.some(r => pageOf(r.left) !== pg || pageOf(r.right - 4) !== pg)) { keeps.add(key); more = true; }
+      if (!rs.length) continue;
+      const pg = pageOf(rs[0].left);
+      const split = rs.some(r => pageOf(r.left) !== pg || pageOf(r.right - 4) !== pg);
+      // 哪一组的那句不在便利贴这一页：从那句开头起挪（便利贴自己跨页了，就从最后一组挪）
+      const gs = groupsByP.value[p] || [];
+      const off = gs.find(g => { const at = el.querySelector(`[data-at="${CSS.escape(g.key)}"]`)?.getClientRects()[0]; return at && pageOf(at.left) !== pg; });
+      const from = off || (split ? gs.at(-1) : null);
+      if (from) { keeps.set(key, from.s); more = true; }
     }
     if (!more) return;
     await nextTick();
@@ -314,13 +313,14 @@ function segsOf(i, a0 = 0, z0 = (paras.value[i] || "").length) {
   const all = [...ms, ...temp];
   if (!all.length) return [{ text: t.slice(a0, z0), a: a0 }];
   const starts = Object.fromEntries((groupsByP.value[i] || []).map(g => [g.s, g.key]));
+  const ends = Object.fromEntries((groupsByP.value[i] || []).filter(g => g.num).map(g => [g.e, g.num]));
   const xs = [...new Set([a0, z0, ...all.flatMap(m => [m.s, m.e])])].filter(x => x >= a0 && x <= z0).sort((x, y) => x - y);
   const out = [];
   for (let k = 0; k < xs.length - 1; k++) {
     const a = xs[k], z = xs[k + 1];
     if (a === z) continue;
     const cover = all.filter(m => m.s <= a && m.e >= z);
-    out.push({ text: t.slice(a, z), a, me: cover.some(m => m.n?.from === "me"), his: cover.some(m => m.n?.from === "ai"), temp: cover.some(m => m.temp), at: starts[a] });
+    out.push({ text: t.slice(a, z), a, me: cover.some(m => m.n?.from === "me"), his: cover.some(m => m.n?.from === "ai"), temp: cover.some(m => m.temp), at: starts[a], n: ends[z] });
   }
   return out;
 }
@@ -628,22 +628,22 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
         <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="viewImage(m)" />
         <div v-for="pc in piecesOf(i)" :key="pc.a" class="pc" :class="{ keep: pc.keep }">
-          <p class="para" :class="{ cont: pc.a > 0, cut: !pc.last && !pc.g, 'his-end': pc.last && b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-p="i" :data-a="pc.a || null" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i, pc.a, pc.z)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-at="g.at || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
-          <div v-if="pc.g" class="notes" :class="{ stack: pc.g.list.length >= 3 && !opened.has(pc.g.key) }" :data-g="pc.g.key">
-            <template v-if="pc.g.list.length >= 3 && !opened.has(pc.g.key)">
-              <div class="note" :class="pc.g.list.at(-1).n.from === 'me' ? 'mine' : 'his'" :data-id="pc.g.list.at(-1).n.id" @click="toggleStack(pc.g)">
-                <i class="tape" /><p>{{ pc.g.list.at(-1).n.text }}</p>
-                <span class="more">这句上一共 {{ pc.g.list.length }} 张 · 点开</span>
+          <p class="para" :class="{ cont: pc.a > 0, cut: !pc.last, 'his-end': pc.last && b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-p="i" :data-a="pc.a || null" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i, pc.a, pc.z)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-at="g.at || null" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
+          <div v-if="pc.gs" class="notes" :data-g="`${ch}:${i}`">
+            <template v-for="g in pc.gs" :key="g.key">
+              <div v-if="g.list.length >= 3 && !opened.has(g.key)" class="note stacked" :class="g.list.at(-1).n.from === 'me' ? 'mine' : 'his'" :data-id="g.list.at(-1).n.id" @click="toggleStack(g)">
+                <i class="tape" /><b v-if="g.num" class="num">{{ g.num }}</b><p>{{ g.list.at(-1).n.text }}</p>
+                <span class="more">这句上一共 {{ g.list.length }} 张 · 点开</span>
               </div>
-            </template>
-            <template v-else>
-              <div v-for="m in pc.g.list" :key="m.n.id" class="note" :class="m.n.from === 'me' ? 'mine' : 'his'" :data-id="m.n.id" @click="openGroup(i, pc.g)">
-                <i class="tape" />
-                <small v-if="replyOf(m.n)" class="re">回{{ replyOf(m.n).from === "me" ? "我" : role?.name || "他" }}：{{ replyOf(m.n).text.slice(0, 18) }}{{ replyOf(m.n).text.length > 18 ? "…" : "" }}</small>
-                <p>{{ m.n.text }}</p>
-                <span>— {{ who(m.n) }} · {{ when(m.n.ts) }}</span>
-              </div>
-              <button v-if="pc.g.list.length >= 3" class="fold" @click="toggleStack(pc.g)">叠起来</button>
+              <template v-else>
+                <div v-for="m in g.list" :key="m.n.id" class="note" :class="m.n.from === 'me' ? 'mine' : 'his'" :data-id="m.n.id" @click="openGroup(i, g)">
+                  <i class="tape" /><b v-if="g.num" class="num">{{ g.num }}</b>
+                  <small v-if="replyOf(m.n)" class="re">回{{ replyOf(m.n).from === "me" ? "我" : role?.name || "他" }}：{{ replyOf(m.n).text.slice(0, 18) }}{{ replyOf(m.n).text.length > 18 ? "…" : "" }}</small>
+                  <p>{{ m.n.text }}</p>
+                  <span>— {{ who(m.n) }} · {{ when(m.n.ts) }}</span>
+                </div>
+                <button v-if="g.list.length >= 3" class="fold" @click="toggleStack(g)">叠起来</button>
+              </template>
             </template>
           </div>
         </div>
@@ -834,9 +834,15 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .note .re { display: block; margin-bottom: 4px; font-size: .68rem; color: rgba(60, 45, 30, .55); }
 .tape { position: absolute; top: -8px; left: 50%; width: 46px; height: 16px; transform: translateX(-50%) rotate(-3deg); background: rgba(255, 255, 255, .55); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
 /* 叠起来的：最上面一张，后面露出两张的边 */
-.notes.stack .note { box-shadow: 0 6px 14px rgba(60, 45, 30, .14), 5px 5px 0 -1px #f3e6a0, 10px 10px 0 -2px #e9ddb0; }
-.notes.stack .note.his { box-shadow: 0 6px 14px rgba(60, 45, 30, .14), -5px 5px 0 -1px #cddff4, -10px 10px 0 -2px #c3d3e6; }
-.notes.stack .note p { -webkit-line-clamp: 3; }
+.note.stacked { box-shadow: 0 6px 14px rgba(60, 45, 30, .14), 5px 5px 0 -1px #f3e6a0, 10px 10px 0 -2px #e9ddb0; }
+.note.stacked.his { box-shadow: 0 6px 14px rgba(60, 45, 30, .14), -5px 5px 0 -1px #cddff4, -10px 10px 0 -2px #c3d3e6; }
+.note.stacked p { -webkit-line-clamp: 3; }
+/* 一段里好几句都贴了：线尾一个小角标，便利贴左上角同一个数 */
+.mk[data-n]::after { content: attr(data-n); display: inline-block; margin-left: 2px; min-width: 1.1em; padding: 0 3px; line-height: 1.25; border-radius: 7px; font-size: 10px; text-align: center; text-indent: 0; vertical-align: super; background: rgba(214, 160, 60, .85); color: #fff; font-weight: 600; font-family: var(--font); text-decoration: none; }
+.mk.his[data-n]::after { background: rgba(92, 142, 205, .9); }
+.note .num { position: absolute; top: 6px; left: 8px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 10px; line-height: 16px; text-align: center; color: #fff; background: rgba(214, 160, 60, .9); font-family: var(--font); }
+.note.his .num { background: rgba(92, 142, 205, .95); }
+.note:has(.num) p, .note:has(.num) .re { padding-left: 14px; }
 .note .more { color: #9a7b3f; }
 .note.his .more { color: #4d79ad; }
 .fold { align-self: center; border: 0; background: none; font-size: .72rem; color: var(--text-3); padding: 2px 10px; }
