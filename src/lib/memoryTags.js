@@ -17,7 +17,6 @@ export const MEM_TAG_RE = /\[(记忆|改记忆|过时记忆|归档记忆|常驻�
 // source：{ type: chat / read / write / letter / manual / helper, by: ai / helper / me, id, range, label }
 export const PIN_MAX = 20;
 export const ACCESS = { pinned: "常驻", normal: "普通", archived: "归档" };
-export const STATUS = { valid: "当前有效", pending: "待确认", obsolete: "已过时", deleted: "回收站" };
 export const SRC = { chat: "聊天", read: "共读", write: "共写", letter: "信件", manual: "你手动写的", helper: "整理时挑出来的", calendar: "日历", review: "他整理时改的", work: "工作间" };
 export const BY = { ai: "他自己记的", helper: "整理模型建议的", me: "你写的" };
 export const isLive = m => (m.status || "valid") === "valid";

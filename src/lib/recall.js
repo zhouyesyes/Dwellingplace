@@ -35,11 +35,6 @@ export async function searchChats(roleId, q, { limit = 50 } = {}) {
   return out.sort((a, b) => b.m.ts - a.m.ts).slice(0, limit);
 }
 
-// 搜记忆卡片：当前有效的都找（常驻、普通、归档）；已过时的也找出来但标好是历史；待确认、回收站里的不找
-export function searchCards(roleId, q) {
-  const ts = terms(q);
-  return ts.length ? memoriesOf(roleId).filter(m => ["valid", "obsolete", undefined].includes(m.status) && hit(`${m.title} ${m.content} ${m.date} ${(m.tags || []).join(" ")}`, ts)) : [];
-}
 
 // ---------- 他翻记忆 ----------
 // [翻记忆:关键词] 或 [翻记忆:关键词|范围|时间]：范围是 聊天 / 共读 / 共写 / 信 / 卡片 / 摘要，时间像「最近一周」「上个月」「2026-10」「10月3日」。

@@ -24,7 +24,7 @@ function defaults() {
     version: 10,
     // name 是主页的名字；userName 是 AI 们怎么称呼你
     profile: { name: "栖所", userName: "", color: PALETTE[0], avatar: null, cover: null, bioSelf: "", bios: {} },
-    settings: { fontSize: "standard", historyLimit: 80, privacy: "" }, // privacy：对外保密，所有 AI 通用
+    settings: { fontSize: "standard", privacy: "" }, // privacy：对外保密，所有 AI 通用
     widgets: defaultWidgets(),
     chick: { state: "idle" },
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
@@ -280,7 +280,7 @@ function migrate() {
   store.archive ??= emptyArchive();
   store.widgets = (store.widgets || []).filter(w => w.type !== "chick" && w.type !== "work"); // 主页不再放小鸡；工作间拆掉了
   store.settings ??= { fontSize: "standard" };
-  store.settings.historyLimit ??= 80;
+  delete store.settings.historyLimit; // 早就改成按 token 算了（historyTokens）
   for (const k of ["groupHistoryLimit", "groupPrivateLimit", "privateGroupLimit", "surfacedLimit"]) delete store.settings[k]; // 群聊、浮现的记忆都去掉了
   delete store.settings.workroom; // 工作间拆掉了
   store.settings.wakeHistoryTokens ??= 4000; // TA 醒来时带多少聊天（token，小背包）
@@ -355,7 +355,6 @@ function migrate() {
 
 // ---------- 查询 ----------
 export const roleById = id => store.roles.find(r => r.id === id);
-export const mainRoleNow = () => roleById(MAIN) || store.roles[0];
 // 旧居里的 AI（只用来显示名字、颜色，不参与聊天）
 export const archivedRole = id => store.archive?.roles.find(r => r.id === id);
 // 日历等处的「作者」：me 或某个角色

@@ -324,7 +324,6 @@ async function beginSync() {
 // ---------- 设置页 ----------
 const localData = async () => (await idbKeys()).map(String).filter(k => !isLocalKey(k));
 // 这台设备上有没有自己的东西（全新的设备只有一份默认的 meta）
-export const hasOwnData = () => store.apis.length > 0 || store.threads.length > 0;
 
 // 连上服务器看看：那边有没有东西
 export async function probe(url) {

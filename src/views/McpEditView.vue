@@ -93,7 +93,7 @@ function remove() {
     <p class="hint">也可以在下面手动填。每个 AI 的账号不一样的话，就给每个 AI 各添加一个。</p>
 
     <div class="card body">
-      <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：花园·心晴" /></label>
+      <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：日历、邮箱、搜索" /></label>
       <label class="field"><span>地址（url）</span><input v-model.trim="form.url" class="input" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://…" /></label>
 
       <div class="field">
