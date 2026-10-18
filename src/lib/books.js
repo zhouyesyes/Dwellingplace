@@ -1,9 +1,12 @@
 import { decodeTxt } from "./txtEncoding.js";
+import { splitLines } from "./chapterSplit.js";
 // 共读：书架上的书。一本书一个项目。
 //   store.books      [{ id, title, author, cover, chapters: [{ title, n }], pos: { ch, p }, hisPos, addedAt, readAt, readSecs, mine, his }]
 //                    cover：封面图（images 里的 id），没有就画一个纯色的；n：这一章有几段
 //                    pos / hisPos：你 / 他读到哪；readSecs：你读了多久；mine / his：读完的评分和读后感 { stars, text, at }
-//   book:<id>        正文 { chapters: [{ title, paras: [段落…], media?: [{ p, resource }] }], resources?: { 路径: 图片数据 } }（单独存并同步）
+//   book:<id>        正文 { chapters: [{ id, title, paras: [段落…], media?: [{ p, resource }] }], resources?: { 路径: 图片数据 }, removed?: [移除的章节] }（单独存并同步）
+//                    id：章节的稳定编号（改名、挪位置都不变；EPUB 用书里自带的编号）；书架上 chapters 也带着同一个 id
+//                    heading：TXT 里章名原本是哪几行（换规则重新分章时用）
 //   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen, replyTo }]
 //                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你在书页上看没看到过）；replyTo：回应的是哪一张
 import { resolveEpubPath, epubImageType, imageData } from "./epubImages.js";
@@ -23,11 +26,11 @@ export const bookById = id => (store.books || []).find(b => b.id === id);
 export const notesOf = (bookId, ch) => (store.bookNotes || []).filter(n => n.bookId === bookId && (ch == null || n.ch === ch));
 
 // ---------- 导入 ----------
-export async function importBook(file, { encoding } = {}) {
+export async function importBook(file, { encoding, rule } = {}) {
   const name = file.name.replace(/\.[^.]+$/, "");
   const buf = new Uint8Array(await file.arrayBuffer());
   const isEpub = /\.epub$/i.test(file.name) || (buf[0] === 0x50 && buf[1] === 0x4b);
-  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name, encoding);
+  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name, encoding, rule);
   const chapters = parsed.chapters.filter(c => c.paras.length || c.media?.length);
   if (!chapters.length) throw new Error("这本书里没读出文字");
   const id = uid();
@@ -40,7 +43,7 @@ export async function importBook(file, { encoding } = {}) {
     title: (parsed.title || name).slice(0, 80),
     author: (parsed.author || "").slice(0, 40),
     cover: parsed.cover ? await saveImage(parsed.cover, { maxSize: 600, quality: 0.85 }) : null,
-    chapters: chapters.map(c => ({ title: c.title, n: c.paras.length })),
+    chapters: shelfChapters(chapters),
     pos: { ch: 0, p: 0 },
     addedAt: Date.now(),
     readAt: 0,
@@ -56,30 +59,20 @@ export async function removeBook(b) {
   await del(key(b.id));
 }
 
-// TXT 解码通过后仍沿用原来的分章规则。
-const CH_RE = /^\s*(第[零〇一二两三四五六七八九十百千万0-9０-９]+[章回节卷集部篇幕].{0,30}|序章.{0,20}|楔子.{0,20}|引子.{0,20}|尾声.{0,20}|番外.{0,30}|后记.{0,20}|Chapter\s*\d+.{0,40}|CHAPTER\s*\d+.{0,40})\s*$/;
-function parseTxt(buf, name, encoding) {
+export const shelfChapters = chapters => chapters.map(c => ({ id: c.id, title: c.title, n: c.paras.length }));
+
+// TXT：解码通过后一行一段，分章见 chapterSplit.js（导入前预览可以换规则）
+export const txtLines = text => text.replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
+// 章名是原文里的哪几行（「第一卷」「第一章」）：换规则重新分章时放回正文里重新认；改名、手动切开起的名字不算原文
+export const headingOf = (c, lines) => { const hs = c.heads || (c.head >= 0 ? [c.head] : []); return hs.length ? { heading: hs.map(i => lines[i]) } : {}; };
+export function txtChapters(text, rule = "auto") {
+  const lines = txtLines(text);
+  return splitLines(lines, rule).map(c => ({ id: uid(), title: c.title.slice(0, 60), ...headingOf(c, lines), paras: c.lines.map(i => lines[i]) }));
+}
+function parseTxt(buf, name, encoding, rule) {
   const decoded = decodeTxt(buf, encoding);
   if (!decoded.usable) throw new Error("正文为空或损坏字符过多，请重新选择编码导入");
-  const lines = decoded.text.replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
-  const chapters = [];
-  let cur = { title: "开头", paras: [] };
-  for (const l of lines) {
-    if (CH_RE.test(l) && l.length <= 40) {
-      if (cur.paras.length || chapters.length) chapters.push(cur);
-      cur = { title: l, paras: [] };
-    } else cur.paras.push(l);
-  }
-  chapters.push(cur);
-  // 第一章前面只有书名、作者这一两行：不算一章
-  if (chapters.length > 1 && chapters[0].title === "开头" && chapters[0].paras.join("").length < 60) chapters.shift();
-  // 没有章节标题的 txt：每 60 段切一节，免得一章太长
-  if (chapters.length === 1 && cur.paras.length > 120) {
-    const all = cur.paras, out = [];
-    for (let i = 0; i < all.length; i += 60) out.push({ title: `第 ${out.length + 1} 节`, paras: all.slice(i, i + 60) });
-    return { title: name, chapters: out };
-  }
-  return { title: name, chapters };
+  return { title: name, chapters: txtChapters(decoded.text, rule) };
 }
 
 // EPUB：其实是个 zip。按 spine（阅读顺序）一篇篇拿出正文；目录里有名字就用目录的名字
@@ -102,20 +95,42 @@ export async function parseEpub(buf) {
   }
   const meta = tag => opf.getElementsByTagNameNS("*", tag)[0]?.textContent?.trim() || "";
 
-  // 目录里的章节名：EPUB3 的 nav 或 EPUB2 的 toc.ncx
-  const labels = {};
+  // 封面：properties="cover-image"，或者 <meta name="cover" content="图片的 id">
+  let coverItem = Object.values(items).find(i => /cover-image/.test(i.props));
+  if (!coverItem) { const cid = opf.querySelector('meta[name="cover"]')?.getAttribute("content"); if (cid) coverItem = items[cid]; }
+
+  // 书自带的目录：EPUB3 的 nav（优先），没有就用 EPUB2 的 toc.ncx。按顺序排好：[{ file, frag, label }]
+  const toc = [];
+  const tocRef = (from, href = "") => { const i = href.indexOf("#"); return [join(from, href), i >= 0 ? decodeURIComponent(href.slice(i + 1)) : ""]; };
   const navItem = Object.values(items).find(i => /\bnav\b/.test(i.props));
   if (navItem) {
     const nav = new DOMParser().parseFromString(text(navItem.href), "text/html");
-    for (const a of nav.querySelectorAll("nav a[href]")) labels[join(dir(navItem.href), a.getAttribute("href"))] ??= a.textContent.trim();
+    const tocNav = [...nav.querySelectorAll("nav")].find(n => /toc/.test(n.getAttribute("epub:type") || "")) || nav.querySelector("nav");
+    for (const a of tocNav?.querySelectorAll("a[href]") || []) {
+      const [f, frag] = tocRef(dir(navItem.href), a.getAttribute("href"));
+      toc.push({ file: f, frag, label: a.textContent.replace(/\s+/g, " ").trim() });
+    }
   }
   const ncxItem = Object.values(items).find(i => /ncx/.test(i.type));
-  if (ncxItem) {
+  if (!toc.length && ncxItem) {
     const ncx = xml(text(ncxItem.href));
     for (const np of ncx.getElementsByTagNameNS("*", "navPoint")) {
       const src = np.getElementsByTagNameNS("*", "content")[0]?.getAttribute("src");
-      const lab = np.getElementsByTagNameNS("*", "text")[0]?.textContent?.trim();
-      if (src && lab) labels[join(dir(ncxItem.href), src)] ??= lab;
+      const lab = np.getElementsByTagNameNS("*", "text")[0]?.textContent?.replace(/\s+/g, " ").trim();
+      if (!src) continue;
+      const [f, frag] = tocRef(dir(ncxItem.href), src);
+      toc.push({ file: f, frag, label: lab || "" });
+    }
+  }
+  // 书里标出来的封面、扉页、版权页、目录页（opf 的 guide、nav 的 landmarks）
+  const front = new Set();
+  for (const r of opf.querySelectorAll("guide > reference")) {
+    if (/^(cover|title-page|copyright-page|toc)$/i.test(r.getAttribute("type") || "")) front.add(join(base, r.getAttribute("href") || "").split("#")[0]);
+  }
+  if (navItem) {
+    const nav = new DOMParser().parseFromString(text(navItem.href), "text/html");
+    for (const a of nav.querySelectorAll('nav[epub\\:type~="landmarks"] a[href], nav[*|type~="landmarks"] a[href]')) {
+      if (/(cover|titlepage|title-page|copyright|toc)/i.test(a.getAttribute("epub:type") || "")) front.add(join(dir(navItem.href), a.getAttribute("href")).split("#")[0]);
     }
   }
 
@@ -123,7 +138,8 @@ export async function parseEpub(buf) {
   for (const item of Object.values(items)) {
     if (epubImageType(item.type) && Object.hasOwn(files, item.href)) resources[item.href] = imageData(files[item.href], item.type);
   }
-  const chapters = [];
+  // 一篇篇读出来：段落、图片（挂在第几段前面）、带 id 的元素在第几段（目录指到篇中间时用）
+  const docs = [];
   for (const ref of opf.querySelectorAll("spine > itemref")) {
     const it = items[ref.getAttribute("idref")];
     if (!it) invalid('阅读顺序引用了不存在的章节');
@@ -136,7 +152,8 @@ export async function parseEpub(buf) {
     // 图片单独挂在原有文字段落旁，不改变文字编号和划线偏移。
     const media = [];
     const textBlocks = blocks.filter(e => e.textContent.replace(/\s+/g, " ").trim());
-    for (const node of doc.body.querySelectorAll('img, svg')) {
+    const before = node => textBlocks.filter(e => !e.contains(node) && (e.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).length;
+    for (const node of doc.body?.querySelectorAll('img, svg') || []) {
       if (node.parentElement?.closest('svg')) continue;
       let resource = '';
       if (node.localName === 'svg') {
@@ -166,19 +183,94 @@ export async function parseEpub(buf) {
           resource = join(dir(it.href), source?.getAttribute('srcset')?.split(',')[0].trim().split(/\s+/)[0]);
         }
       }
-      const p = textBlocks.filter(e => !e.contains(node) && (e.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).length;
-      media.push({ p: Math.min(p, paras.length), resource: resources[resource] ? resource : '',
+      const href = node.localName === 'svg' ? node.querySelector('image')?.getAttribute('href') || node.querySelector('image')?.getAttribute('xlink:href') : null;
+      media.push({ p: Math.min(before(node), paras.length), resource: resources[resource] ? resource : '',
         alt: (node.getAttribute('alt') || node.querySelector('title')?.textContent || '').trim().slice(0, 1000),
-        caption: (node.closest('figure')?.querySelector('figcaption')?.textContent || '').trim().slice(0, 1000) });
+        caption: (node.closest('figure')?.querySelector('figcaption')?.textContent || '').trim().slice(0, 1000),
+        ...(href ? { src: join(dir(it.href), href) } : {}) });
     }
-    if (paras.join("").length < 20 && !media.length) continue; // 封面、版权页这种几乎没字的跳过
-    const h = doc.querySelector("h1, h2, h3")?.textContent.trim();
-    chapters.push({ sourceId: ref.getAttribute("idref"), sourcePath: it.href, title: (labels[it.href] || h || doc.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras, ...(media.length ? { media } : {}) });
+    // 带 id 的元素从第几段开始（在某一段里面的，就算那一段）
+    const anchors = {};
+    const idx = new Map(textBlocks.map((e, i) => [e, i]));
+    let n = 0, inBlock = null;
+    for (const e of doc.body?.querySelectorAll("*") || []) {
+      if (idx.has(e)) { inBlock = e; n = idx.get(e); if (e.id) anchors[e.id] ??= n; n++; continue; }
+      if (e.id) anchors[e.id] ??= inBlock?.contains(e) ? idx.get(inBlock) : n;
+    }
+    docs.push({ idref: ref.getAttribute("idref"), href: it.href, props: it.props, paras, media, anchors, h: doc.querySelector("h1, h2, h3")?.textContent.replace(/\s+/g, " ").trim(), title: doc.title?.trim() });
   }
 
-  // 封面：properties="cover-image"，或者 <meta name="cover" content="图片的 id">
-  let coverItem = Object.values(items).find(i => /cover-image/.test(i.props));
-  if (!coverItem) { const cid = opf.querySelector('meta[name="cover"]')?.getAttribute("content"); if (cid) coverItem = items[cid]; }
+  // 不进正文的页：封面、空白页、扉页、版权页、书里的目录页（只看页本身，不按「第几篇」删，序言不会被误删）
+  const tocLabels = new Set(toc.map(t => t.label).filter(Boolean));
+  const titleN = meta("title").replace(/\s+/g, "");
+  const isFront = d => {
+    const all = d.paras.join("");
+    const n = all.length;
+    const inToc = toc.some(t => t.file === d.href);
+    if (n < 20 && !d.media.length && !inToc) return true; // 空白页（目录里有的，比如「第一部」，留着并进下一章的名字）
+    if (/\bnav\b/.test(d.props)) return true; // 目录文件本身
+    if (front.has(d.href) && n < 1500) return true;
+    // 封面：只有封面那张图，几乎没字
+    if (n < 20 && d.media.length === 1 && coverItem && (d.media[0].resource === coverItem.href || d.media[0].src === coverItem.href)) return true;
+    if (n < 20 && /cover/i.test(d.href) && !inToc) return true;
+    // 版权页：短，而且有好几处版权信息
+    const marks = (all.match(/版权|ISBN|Copyright|©|出版社|出版发行|印刷|印张|定价|All rights reserved|CIP|责任编辑|字数/gi) || []).length;
+    if (n < 1500 && marks >= 2) return true;
+    // 扉页：只有书名、作者这几行，目录里也没有它
+    if (!inToc && n < 120 && !d.media.length && titleN && all.replace(/\s+/g, "").includes(titleN)) return true;
+    // 书里的目录页：大部分行都是目录里的章节名
+    if (tocLabels.size >= 3 && d.paras.length >= 3 && d.paras.filter(p => tocLabels.has(p)).length / d.paras.length >= .6) return true;
+    if (/(^|\/)(toc|contents)[^/]*$/i.test(d.href) && n < 3000 && !inToc) return true;
+    return false;
+  };
+  const kept = docs.filter(d => !isFront(d));
+
+  // 切成章：有目录就按目录（目录指到哪一篇、篇里哪个位置，就从哪里开始新的一章；没进目录的篇接在上一章后面）；没有目录就一篇一章
+  const marks = toc.filter(t => kept.some(d => d.href === t.file));
+  const starts = new Map(); // `${篇}:${段}` → 目录项
+  for (const t of marks) {
+    const di = kept.findIndex(d => d.href === t.file);
+    const p = t.frag && kept[di].anchors[t.frag] != null ? kept[di].anchors[t.frag] : 0;
+    const k = `${di}:${p}`;
+    if (!starts.has(k)) starts.set(k, t);
+  }
+  const useToc = starts.size >= 2;
+  const chapters = [];
+  let cur = null;
+  const open = (d, p, t) => {
+    const frag = t?.frag && p > 0 ? `#${t.frag}` : "";
+    cur = { id: `${d.idref}${frag}`, sourceId: d.idref, sourcePath: d.href, title: (t?.label || d.h || d.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras: [], media: [] };
+    chapters.push(cur);
+  };
+  kept.forEach((d, di) => {
+    const cuts = useToc ? [...starts.keys()].filter(k => k.startsWith(`${di}:`)).map(k => Number(k.split(":")[1])) : [];
+    const bounds = [...new Set([0, ...cuts])].sort((x, y) => x - y);
+    bounds.forEach((from, k) => {
+      const to = k + 1 < bounds.length ? bounds[k + 1] : d.paras.length;
+      const t = starts.get(`${di}:${from}`);
+      if (t) open(d, from, t);
+      else if (!useToc || !cur) open(d, from, null); // 没有目录：一篇一章；第一个目录项之前自己有内容的（比如没进目录的序言）：单独一章
+      const off = cur.paras.length, last = k + 1 === bounds.length;
+      cur.paras.push(...d.paras.slice(from, to));
+      for (const m of d.media) if (m.p >= from && (m.p < to || (last && m.p === to))) cur.media.push({ ...m, p: m.p - from + off });
+    });
+  });
+  // 整理：几乎空的一章（「第一部」这种分部标题页）把名字并进下一章；去掉没用的字段
+  for (let k = chapters.length - 2; k >= 0; k--) {
+    const c = chapters[k];
+    if (c.paras.join("").length < 20 && !c.media.length) {
+      chapters[k + 1].title = `${c.title} · ${chapters[k + 1].title}`.slice(0, 60);
+      chapters.splice(k, 1);
+    }
+  }
+  const seen = new Set();
+  for (const c of chapters) {
+    while (seen.has(c.id)) c.id += "+";
+    seen.add(c.id);
+    for (const m of c.media) delete m.src;
+    if (!c.media.length) delete c.media;
+  }
+
   const cover = coverItem && /^image\//.test(coverItem.type) && files[coverItem.href] ? new Blob([files[coverItem.href]], { type: coverItem.type }) : null;
   return { title: meta("title"), author: meta("creator"), cover, chapters, resources };
 }

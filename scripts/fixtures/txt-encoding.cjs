@@ -25,11 +25,11 @@ exports.verify = async (page, fixture, { output, view, theme }) => {
     ['UTF16BE-BOM', Buffer.concat([Buffer.from([254,255]), encoded('UTF-16BE')]), 'utf-16be'],
     ['UTF16-BOM', Buffer.concat([Buffer.from([255,254]), encoded('UTF-16LE')]), 'utf-16le'],
   ]) {
-    // 自动导入期间不应挂载确认弹窗（包括短暂闪现）。
+    // 编码可信时不应出现编码选择（包括短暂闪现）；只确认分章预览。
     await page.evaluate(() => {
       window.__txtDialogs = 0;
       window.__txtObserver = new MutationObserver(() => {
-        if (document.querySelector('.txt-dialog')) window.__txtDialogs++;
+        if (document.querySelector('.txt-encoding')) window.__txtDialogs++;
       });
       window.__txtObserver.observe(document.body, {childList:true, subtree:true});
     });
@@ -40,6 +40,9 @@ exports.verify = async (page, fixture, { output, view, theme }) => {
       await page.getByLabel('TXT 编码').selectOption(manual);
       assert.equal(await page.locator('.txt-preview').textContent(), expected);
       assert.equal(await page.getByRole('button', {name:'确认导入',exact:true}).isEnabled(), true);
+      await page.getByRole('button', {name:'确认导入',exact:true}).click();
+    } else {
+      await page.getByRole('dialog').waitFor();
       await page.getByRole('button', {name:'确认导入',exact:true}).click();
     }
     await page.waitForURL(/#\/read\//);

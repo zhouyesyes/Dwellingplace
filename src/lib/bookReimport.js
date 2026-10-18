@@ -1,7 +1,8 @@
 // 覆盖导入只处理选中的书；正文和笔记在事务成功前都保持原样。
 import { store, prepareBookPersistence, commitBookTransaction } from '../store/index.js';
 import { get } from './kv.js';
-import { parseEpub, replaceBookCache } from './books.js';
+import { parseEpub, replaceBookCache, shelfChapters } from './books.js';
+import { saveImage } from './images.js';
 const copy = x => JSON.parse(JSON.stringify(x));
 const norm = s => (s || '').normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
 const backupKey = id => `sync:book-reimport:${id}`;
@@ -69,10 +70,10 @@ export function migrateReading(book, notes, oldBody, body) {
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v)]));
   };
   const nextBook = walk(copy(book));
-  nextBook.chapters = cs.map(c => ({ title: c.title, n: c.paras.length }));
+  nextBook.chapters = shelfChapters(cs);
   let moved = 0;
   const nextNotes = notes.map(n => {
-    if (n.unlocated) return copy(n);
+    if (n.unlocated || n.removedCh) return copy(n); // 移除章节上的笔记跟着那一章收着
     const old = oldBody.chapters[n.ch];
     const selection = n.start != null ? old?.paras[n.p]?.slice(n.start, n.end) : '';
     const quote = selection && (!n.quote || selection.startsWith(n.quote)) ? selection : n.quote || '';
@@ -102,6 +103,18 @@ export async function previewReimport(id, file) {
     return { id, title: book.title, newTitle: '文件异常', author: '无法读取', oldChapters: oldBody.chapters.length, newChapters: '无法读取', oldImages: imageCount(oldBody), newImages: '无法读取', moved: 0, unresolved: 0, approximate: 0, pending: [], allowed: false, reason: e.message };
   }
   const body = { chapters: parsed.chapters, resources: parsed.resources || {} };
+  // 以前手动移除的章节：新文件里同一章（同一个编号，或者内容大半一样）还是收在「已移除」里，不会又冒出来
+  if (oldBody.removed?.length) {
+    const removed = oldBody.removed.map(r => ({ ...r }));
+    body.chapters = body.chapters.filter(c => {
+      const texts = new Set(c.paras.map(norm));
+      const k = removed.findIndex(r => r.id === c.id || (r.paras.length && r.paras.filter(p => norm(p).length >= 8 && texts.has(norm(p))).length / r.paras.length >= .6));
+      if (k < 0) return true;
+      removed[k] = { ...c, id: removed[k].id, at: removed[k].at, removedAt: removed[k].removedAt };
+      return false;
+    });
+    body.removed = removed;
+  }
   if (!body.chapters.length) throw Error('文件中没有可用章节，旧书未改动');
   if (body.chapters.some(c => c.media?.some(m => !m.resource || !body.resources[m.resource]))) throw Error('文件有缺失的插图资源，请换用完整 EPUB，旧书未改动');
   const referenced = new Set(body.chapters.flatMap(c => (c.media || []).map(m => m.resource)));
@@ -123,7 +136,7 @@ export async function previewReimport(id, file) {
   const authorOK = !book.author || !parsed.author || norm(book.author) === norm(parsed.author);
   const allowed = titleOK && authorOK && overlap >= .45;
   const preview = { id, title: book.title, newTitle: parsed.title || '未提供书名', author: parsed.author || '未提供作者', oldChapters: oldBody.chapters.length, newChapters: body.chapters.length, oldImages: imageCount(oldBody), newImages: imageCount(body), moved: migration.moved, unresolved: migration.unresolved, approximate: migration.approximate, allowed, reason: allowed ? '书名与正文核对通过；已核对文件提供的作者信息' : '书名或作者不同，或正文相似度不足；为保护旧书，不能覆盖。', pending: migration.notes.filter(n => n.unlocated) };
-  plans.set(preview, { before, oldBody, body, migration });
+  plans.set(preview, { before, oldBody, body, migration, cover: book.cover ? null : parsed.cover });
   return preview;
 }
 
@@ -137,8 +150,10 @@ export async function confirmReimport(preview) {
   const coverImage = current.cover ? await get(`img:${current.cover}`) : null;
   if (stateOf(id) !== plan.before) throw Error('阅读数据发生变化，请重新预览');
   const snapshot = { at: Date.now(), book: copy(latestMeta.books.find(b => b.id === id)), notes: copy((latestMeta.bookNotes || []).filter(n => n.bookId === id)), body: plan.oldBody, coverImage };
+  // 旧书没封面、新文件有：补上
+  const cover = plan.cover ? await saveImage(plan.cover, { maxSize: 600, quality: 0.85 }).catch(() => null) : null;
   const next = copy(store);
-  next.books[next.books.findIndex(b => b.id === id)] = { ...plan.migration.book, readSecs: current.readSecs, reimport: { at: snapshot.at, moved: preview.moved, unresolved: preview.unresolved, approximate: preview.approximate } };
+  next.books[next.books.findIndex(b => b.id === id)] = { ...plan.migration.book, ...(cover ? { cover } : {}), readSecs: current.readSecs, reimport: { at: snapshot.at, moved: preview.moved, unresolved: preview.unresolved, approximate: preview.approximate } };
   const migrated = new Map(plan.migration.notes.map(n => [n.id, n]));
   next.bookNotes = (next.bookNotes || []).map(n => migrated.get(n.id) || n);
   await commitBookTransaction([[backupKey(id), snapshot], [`book:${id}`, plan.body]], next, [[`book:${id}`, plan.oldBody]]);
