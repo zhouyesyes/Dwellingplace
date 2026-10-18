@@ -231,15 +231,21 @@ function piecesOf(i) {
   const t = paras.value[i] || "";
   const gs = groupsByP.value[i] || [];
   const cut = keeps.get(`${ch.value}:${i}`);
-  const out = cut > 0 && cut < t.length ? [{ a: 0, z: cut }, { a: cut, z: t.length, keep: true }] : [{ a: 0, z: t.length }];
+  const out = cut > 0 && cut < t.length ? [{ a: 0, z: cut }, { a: cut, z: t.length, keep: true }] : [{ a: 0, z: t.length, keep: cut === 0 }];
   Object.assign(out.at(-1), { last: true, gs: gs.length ? gs : null });
   return out;
+}
+// 从哪个字起另起一行：退到这句真正的开头（前面的引号、括号一起带走）；前面只剩标点、空格，就整段一起挪（0）
+function cutAt(t, s) {
+  let k = s;
+  while (k > 0 && /[“"「『（(《‘\s]/.test(t[k - 1])) k--;
+  return /[^\s“”"「」『』（）()《》‘’…—，。！？、；：]/.test(t.slice(0, k)) ? k : 0;
 }
 // 一屏一页：便利贴和它那句话不在同一页（那句在页尾，便利贴被挤到下一页），就把那句和便利贴绑在一起
 async function fixStickies() {
   const el = scroller.value;
   if (!paged.value || !el) return;
-  for (let round = 0; round < 5; round++) {
+  for (let round = 0; round < 40; round++) {
     measure();
     let more = false;
     for (const nb of el.querySelectorAll(".notes[data-g]")) {
@@ -253,7 +259,7 @@ async function fixStickies() {
       const gs = groupsByP.value[p] || [];
       const off = gs.find(g => { const at = el.querySelector(`[data-at="${CSS.escape(g.key)}"]`)?.getClientRects()[0]; return at && pageOf(at.left) !== pg; });
       const from = off || (split ? gs.at(-1) : null);
-      if (from) { keeps.set(key, from.s); more = true; }
+      if (from) { keeps.set(key, cutAt(paras.value[p] || "", from.s)); more = true; break; } // 前面挪了后面就跟着变：一次只挪一处，重新量
     }
     if (!more) return;
     await nextTick();
@@ -505,6 +511,17 @@ const hisSide = computed(() => {
   if (h.ch === ch.value && v.includes(h.p)) return null;
   return posBefore(h, { ch: ch.value, p: Math.min(...v) }) ? "left" : "right";
 });
+// 小头像挡字了：上下拖开，放哪记哪（屏幕高度的百分比）
+let hisDrag = null;
+const hisDragged = ref(false);
+function hisDown(e) { hisDrag = { y: e.clientY, moved: false }; e.currentTarget.setPointerCapture?.(e.pointerId); }
+function hisMove(e) {
+  if (!hisDrag) return;
+  if (!hisDrag.moved && Math.abs(e.clientY - hisDrag.y) < 6) return;
+  hisDrag.moved = true;
+  store.readerPrefs.hisY = Math.round(Math.min(88, Math.max(10, e.clientY / window.innerHeight * 100)) * 10) / 10;
+}
+function hisUp() { if (hisDrag?.moved) hisDragged.value = true; hisDrag = null; }
 async function jumpHis() {
   const h = hisPt.value;
   if (!h || !confirm(`跳到${role.value?.name || "他"}读到的地方？\n「${content.value.chapters[h.ch]?.title || ""}」`)) return;
@@ -693,7 +710,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <div v-if="paged" class="tail" aria-hidden="true" />
     </main>
 
-    <button v-if="hisSide && sel == null" class="his-arrow" :class="hisSide" :aria-label="`跳到${role?.name || '他'}读到的地方`" @click="jumpHis">
+    <button v-if="hisSide && sel == null" class="his-arrow" :class="hisSide" :style="{ top: (prefs.hisY ?? 50) + '%' }" :aria-label="`跳到${role?.name || '他'}读到的地方`"
+      @pointerdown="hisDown" @pointermove="hisMove" @pointerup="hisUp" @pointercancel="hisUp" @click="hisDragged ? (hisDragged = false) : jumpHis()">
       <span class="ar">{{ hisSide === "left" ? "‹" : "›" }}</span><Avatar :img="role?.avatar" :name="role?.name || '他'" :color="role?.color" :size="26" />
     </button>
     <span v-if="paged && pageCount > 1" class="pgno">{{ pageNo + 1 }} / {{ pageCount }}</span>
@@ -904,7 +922,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .pet-read { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px + 42px); width: 180px; height: 0; z-index: 3; pointer-events: none; }
 /* 他一起读读到的地方：段落末尾一个淡淡的小记号 */
 .his-end::after { content: " · " attr(data-his) "读到这里"; font-size: .62em; letter-spacing: .05em; color: rgba(92, 142, 205, .75); white-space: nowrap; }
-.his-arrow { position: fixed; top: 50%; z-index: 3; display: flex; align-items: center; gap: 1px; border: 0; padding: 4px 5px; background: color-mix(in srgb, var(--rbg) 70%, transparent); border-radius: 999px; box-shadow: 0 4px 12px rgba(30, 40, 60, .14); opacity: .85; }
+.his-arrow { position: fixed; top: 50%; transform: translateY(-50%); touch-action: none; z-index: 3; display: flex; align-items: center; gap: 1px; border: 0; padding: 4px 5px; background: color-mix(in srgb, var(--rbg) 70%, transparent); border-radius: 999px; box-shadow: 0 4px 12px rgba(30, 40, 60, .14); opacity: .85; }
 .his-arrow.left { left: 2px; }
 .his-arrow.right { right: 2px; flex-direction: row-reverse; }
 .his-arrow .ar { font-size: 1.1rem; line-height: 1; color: rgba(92, 142, 205, .95); padding: 0 2px; }
