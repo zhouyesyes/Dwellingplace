@@ -1,0 +1,18 @@
+{
+  "id": "octopus",
+  "title": "Little Octopus at Home",
+  "cover": "title.png",
+  "stickers": [
+    { "id": "title", "file": "title.png", "name": "标题" },
+    { "id": "peek-side", "file": "peek-side.png", "name": "侧着探头" },
+    { "id": "peek", "file": "peek.png", "name": "趴着探头" },
+    { "id": "letter", "file": "letter.png", "name": "送信" },
+    { "id": "reading", "file": "reading.png", "name": "看书" },
+    { "id": "wave", "file": "wave.png", "name": "打招呼" },
+    { "id": "sleepy", "file": "sleepy.png", "name": "困了" },
+    { "id": "happy", "file": "happy.png", "name": "开心" },
+    { "id": "heart", "file": "heart.png", "name": "比心" },
+    { "id": "star", "file": "star.png", "name": "举星星" }
+  ],
+  "deco": ["star", "star-small", "sparkle", "dot-blue", "dot-pink", "dot-yellow", "bubble", "raindrop", "cloud", "heart", "heart-small", "moon"]
+}
