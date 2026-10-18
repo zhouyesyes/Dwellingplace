@@ -194,8 +194,9 @@ export async function parseEpub(buf) {
     const idx = new Map(textBlocks.map((e, i) => [e, i]));
     let n = 0, inBlock = null;
     for (const e of doc.body?.querySelectorAll("*") || []) {
-      if (idx.has(e)) { inBlock = e; n = idx.get(e); if (e.id) anchors[e.id] ??= n; n++; continue; }
-      if (e.id) anchors[e.id] ??= inBlock?.contains(e) ? idx.get(inBlock) : n;
+      const key = e.id || (e.localName === "a" && e.getAttribute("name")); // 老书用 <a name> 做锚点
+      if (idx.has(e)) { inBlock = e; n = idx.get(e); if (key) anchors[key] ??= n; n++; continue; }
+      if (key) anchors[key] ??= inBlock?.contains(e) ? idx.get(inBlock) : n;
     }
     docs.push({ idref: ref.getAttribute("idref"), href: it.href, props: it.props, paras, media, anchors, h: doc.querySelector("h1, h2, h3")?.textContent.replace(/\s+/g, " ").trim(), title: doc.title?.trim() });
   }
@@ -235,11 +236,22 @@ export async function parseEpub(buf) {
     if (!starts.has(k)) starts.set(k, t);
   }
   const useToc = starts.size >= 2;
+  // 没进目录的篇，什么时候自己算一章：自己有标题的；或者连着好几篇都没进目录（目录太粗，只列了几个大部分，比如书信集）
+  const inToc = kept.map((d, di) => [...starts.keys()].some(k => k.startsWith(`${di}:`)));
+  const alone = kept.map(d => !!d.h);
+  for (let i = 0; i < kept.length;) {
+    if (inToc[i]) { i++; continue; }
+    let j = i;
+    while (j < kept.length && !inToc[j]) j++;
+    if (j - i >= 3) for (let k = i; k < j; k++) alone[k] = true;
+    i = j;
+  }
+  const bookTitle = meta("title");
   const chapters = [];
   let cur = null;
   const open = (d, p, t) => {
     const frag = t?.frag && p > 0 ? `#${t.frag}` : "";
-    cur = { id: `${d.idref}${frag}`, sourceId: d.idref, sourcePath: d.href, title: (t?.label || d.h || d.title || `第 ${chapters.length + 1} 节`).slice(0, 60), paras: [], media: [] };
+    cur = { id: `${d.idref}${frag}`, sourceId: d.idref, sourcePath: d.href, title: (t?.label || d.h || (d.title && d.title !== bookTitle ? d.title : "") || (d.paras[p] || "").slice(0, 20) || `第 ${chapters.length + 1} 节`).slice(0, 60), paras: [], media: [] };
     chapters.push(cur);
   };
   kept.forEach((d, di) => {
@@ -249,7 +261,7 @@ export async function parseEpub(buf) {
       const to = k + 1 < bounds.length ? bounds[k + 1] : d.paras.length;
       const t = starts.get(`${di}:${from}`);
       if (t) open(d, from, t);
-      else if (!useToc || !cur) open(d, from, null); // 没有目录：一篇一章；第一个目录项之前自己有内容的（比如没进目录的序言）：单独一章
+      else if (!useToc || !cur || (from === 0 && alone[di])) open(d, from, null); // 没有目录：一篇一章；第一个目录项之前自己有内容的（比如没进目录的序言）、自己算一章的：单独一章
       const off = cur.paras.length, last = k + 1 === bounds.length;
       cur.paras.push(...d.paras.slice(from, to));
       for (const m of d.media) if (m.p >= from && (m.p < to || (last && m.p === to))) cur.media.push({ ...m, p: m.p - from + off });
