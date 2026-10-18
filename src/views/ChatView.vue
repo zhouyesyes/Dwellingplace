@@ -149,8 +149,10 @@ const src = m => m._src || m;
 // 往上滑到顶附近再多画一段（画面停在原处不跳）
 const PAGE = 40;
 const showCount = ref(PAGE);
-const hiddenCount = computed(() => Math.max(0, items.value.length - showCount.value));
-const shownItems = computed(() => (hiddenCount.value ? items.value.slice(hiddenCount.value) : items.value));
+// 跳到很早的一条（搜索、点引用）：只画那一条前后的一段（win = { start, end }），往上往下滑再接着画；滑到底就回到平常
+const win = ref(null);
+const hiddenCount = computed(() => (win.value ? win.value.start : Math.max(0, items.value.length - showCount.value)));
+const shownItems = computed(() => (win.value ? items.value.slice(win.value.start, win.value.end) : hiddenCount.value ? items.value.slice(hiddenCount.value) : items.value));
 let growing = false;
 function showMore() {
   const el = scroller.value;
@@ -158,10 +160,29 @@ function showMore() {
   growing = true;
   settleStop?.(); // 她在往上翻：别再把她拽回底下
   const fromBottom = el.scrollHeight - el.scrollTop;
-  showCount.value += PAGE;
+  if (win.value) win.value = { ...win.value, start: Math.max(0, win.value.start - PAGE) };
+  else showCount.value += PAGE;
   nextTick(() => { el.scrollTop = el.scrollHeight - fromBottom; growing = false; });
 }
-const onScroll = () => { if (scroller.value?.scrollTop < 400) showMore(); };
+// 看着很早的那一段、往下滑到底：接着往下画一段；画到最新的了就回到平常
+function showLater() {
+  if (!win.value || growing) return;
+  const end = win.value.end + PAGE;
+  if (end >= items.value.length) { showCount.value = items.value.length - win.value.start; win.value = null; }
+  else win.value = { ...win.value, end };
+}
+const onScroll = () => {
+  const el = scroller.value;
+  if (!el) return;
+  if (el.scrollTop < 400) showMore();
+  else if (win.value && el.scrollHeight - el.scrollTop - el.clientHeight < 400) showLater();
+};
+// 「回到最新」
+function backToLatest() {
+  win.value = null;
+  showCount.value = PAGE;
+  nextTick(() => scrollToBottom(true));
+}
 
 // ---------- 滚动 ----------
 const scroller = ref(null);
@@ -184,6 +205,7 @@ function nearBottom() {
   return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 140;
 }
 function scrollToBottom(force = false) {
+  if (force && win.value) { win.value = null; showCount.value = PAGE; } // 正看着很早的那一段：回到最新
   const el = scroller.value;
   if (el && (force || nearBottom())) el.scrollTop = el.scrollHeight;
 }
@@ -497,7 +519,17 @@ function quoteMsg() {
 }
 // 点引用块：跳到原来那条
 async function jumpTo(id) {
-  if (id && !document.querySelector(`[data-mid="${id}"]`) && hiddenCount.value) { showCount.value = items.value.length; await nextTick(); }
+  if (id && !document.querySelector(`[data-mid="${id}"]`)) {
+    // 不在画着的这一段里：只画它前后各 20 组，不把到最新为止的全画出来（聊得久了会很卡）
+    const i = items.value.findIndex(it => it.m?.id === id || it.msgs?.some(m => m.id === id || m._src?.id === id));
+    if (i >= 0) {
+      settleStop?.();
+      const len = items.value.length;
+      if (i >= len - showCount.value) win.value = null;
+      else win.value = { start: Math.max(0, i - 20), end: Math.min(len, i + 21) };
+      await nextTick();
+    }
+  }
   const el = id && document.querySelector(`[data-mid="${id}"]`);
   if (!el) return toast("那条消息不在这里了");
   el.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -740,6 +772,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-if="wakeBusy" class="event wake-busy"><span>{{ role.name }} 刚被叫醒，正在行动（{{ wakeBusy.text.length > 40 ? wakeBusy.text.slice(0, 40) + "…" : wakeBusy.text }}）…做完会出现在这里</span></div>
       </div>
     </main>
+    <button v-if="win" class="latest-btn" @click="backToLatest">回到最新 ↓</button>
 
     <footer ref="dock" class="composer">
       <!-- 桌宠：他（主角色）的小章鱼，站在输入框上面 -->
@@ -956,6 +989,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .inner { max-width: 760px; margin: 0 auto; padding: 12px 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
 
+.latest-btn { position: absolute; right: 16px; bottom: calc(var(--dock, 120px) + var(--dock-bottom) + 10px); z-index: 4; border: 0; border-radius: 999px; padding: 8px 14px; background: rgba(var(--glass-rgb), .95); color: var(--text); font-size: .8rem; box-shadow: var(--shadow); }
 .more-hint { display: block; margin: 4px auto 8px; border: 0; background: none; font-size: .72rem; color: var(--text-3); }
 .hello { text-align: center; color: var(--text-2); margin-top: 18vh; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .hello p { margin: 8px 0 0; }
