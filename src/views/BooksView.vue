@@ -137,9 +137,8 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
           <b>{{ b.title }}</b>
           <span>{{ b.mine ? "读完了 " + "★".repeat(b.mine.stars) : progressOf(b) > 0.01 ? `已读 ${Math.round(progressOf(b) * 100)}%` : "还没开始" }}</span>
         </div>
-        <button class="item add" :disabled="busy" @click="add(false)"><span class="cv ph"><Icon name="plus" :size="22" /></span><b>{{ busy ? "在放…" : "放一本书" }}</b><span>txt / epub</span></button>
       </div>
-      <p class="hint">点封面去读，长按看这本书的进度、评分和读后感。</p>
+      <p class="hint">{{ books.length ? "点封面去读，长按看这本书的进度、评分和读后感。" : "书架还空着：点右上角 ＋ 放一本书（txt / epub）。" }}</p>
       <button class="hint link" :disabled="busy" @click="add(true)">重新选择编码导入</button>
     </template>
 
@@ -263,7 +262,6 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .item { display: flex; flex-direction: column; gap: 4px; min-width: 0; border: 0; background: none; padding: 0; text-align: left; }
 .cv { border: 0; padding: 0; background: none; position: relative; -webkit-touch-callout: none; user-select: none; }
 .cv :deep(.cover) { box-shadow: 0 8px 16px rgba(40, 40, 60, .12); }
-.cv.ph { aspect-ratio: 2 / 3; border-radius: 4px; border: 1.5px dashed var(--line); display: grid; place-items: center; color: var(--text-3); background: var(--card-2); }
 .item b { margin-top: 6px; font-size: .85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item span { font-size: .72rem; color: var(--text-3); }
 .new { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #9fbfe0; box-shadow: 0 0 0 2px var(--bg); }
