@@ -251,8 +251,6 @@ async function snapshotRole(role) {
     rooms: role.wake?.freeTimes?.length || events.length ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
     servers: serverPack(serversFor(role.id)),
-    // 工作间（醒来时也能把活交过去）：服务器地址和有哪些项目
-    workroom: store.settings.workroom?.base && store.settings.workroom.projects?.length ? { base: store.settings.workroom.base, projects: store.settings.workroom.projects } : null,
   };
 }
 
@@ -399,7 +397,6 @@ async function ingest(item) {
   const thread = store.threads.find(t => t.id === item.threadId && t.roleId === role.id) || threadFor(role) || createThread(role.id);
   const all = await loadMessages(thread.id);
   if (all.some(m => m.wakeId === item.id || m.notes?.some(n => n.wakeId === item.id))) return; // 已经取过了
-  if (item.work?.length) await import("./workDispatch.js").then(m => m.adoptWork(item.work, item.ts)).catch(() => {});
   logWake(role, item);
   thread.sel ??= {};
   const path = pathOf(thread, all);

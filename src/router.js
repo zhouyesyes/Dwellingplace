@@ -46,7 +46,6 @@ export const router = createRouter({
     { path: "/settings/billing", redirect: "/settings/apis" },
     { path: "/settings/apis", component: () => import("./views/BillingView.vue") },
     { path: "/settings/tools", component: ToolsView },
-    { path: "/work", component: () => import("./views/WorkroomView.vue") }, // 工作间（服务器上的 Codex）
     { path: "/settings/mcp/:id", component: McpEditView },
     { path: "/settings/wake", component: WakeView },
     { path: "/settings/wake/:id", component: WakeRoleView },

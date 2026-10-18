@@ -6,12 +6,23 @@
 ## 现在的样子（大方向变了就更新这里）
 
 - 只住一个 AI（固定 id `main`，她叫他「他」）；以前的角色在「旧居」（`store.archive`）只读保留
-- 主力模型：ChatGPT 会员额度（`deploy/qisuo-server/chatgpt.mjs`）；聊天和工作间的 Codex 共用一份额度
-- 她的服务器（`deploy/qisuo-server/`）：网页、API 转发、同步、他的浏览器、工作间（Codex）都在这里；改了要她重新跑一次安装
+- 主力模型：ChatGPT 会员额度（`deploy/qisuo-server/chatgpt.mjs`）
+- 她的服务器（`deploy/qisuo-server/`）：网页、API 转发、同步、他的浏览器都在这里；改了要她重新跑一次安装
 - 中转（`relay/worker.js`，Cloudflare，合并后自动部署）：唤醒、闹钟、自由时间、事件唤醒、陪伴
-- 工作间：Codex 在容器里干活，出门只经过门卫（OpenAI、GitHub、npm）；项目「栖所」就是这个仓库
+- 工作间（10/18 拆了）、心潮·念的服务器安装（10/18 拆了）都没有了；旧居里心潮的页面还留着
 
 ## 日志
+
+### 2026-10-18 · cc · 待办第 1 批：删东西、简单清理
+- **工作间整个拆掉**：页面 / 路由 / 主页小组件 / 聊天和醒来时「交给工作间」的提示和标签 / 中转里醒来交活（中转 v29）/ API 页里工作间查到的额度 / 服务器转发 `codex` / 安装脚本里问装不装、建容器那一段都拿掉了。浏览器里存的 `settings.workroom`、主页上的工作间小组件下次打开自动清掉。安装脚本重跑时会自动删掉 `qisuo-codex`、`qisuo-codex-gate` 容器、镜像和 `codex-int` 网络，并把 settings.env 里 CODEX 那几行去掉
+- **心潮·念**：她说不用备份直接删。仓库里的安装脚本 `deploy/xinchao/`、`docs/xinchao.md` 去掉，栖所服务器安装时不再去改心潮的配置；前端（旧居、记忆页、小屋里心潮的部分）原样留着，只在接了心潮 MCP 时才出现
+- **设定**：代表色去掉，写死她粉色（PALETTE[0]）、他蓝色（PALETTE[2]），旧居里以前的角色不动；「每天能整理几次日历」去掉；「他的气泡颜色」去掉（聊天 → 小世界 → 对话 里本来就有），那里新加「我的气泡颜色」（`store.profile.bubbleColor`，没选就是原来的卡片色，有「恢复默认」）
+- **设置**：字号和白天黑夜合成一行「外观」
+- **选图**：去掉盖满屏的「请在相册或文件中选择」那页，只在处理图片时提示。为了 iOS 关相册不发 cancel 时不卡住：再点一次选图会把没回音的那次当取消，照常打开（`scripts/image-picker-check.cjs` 跟着改了，通过）
+- **共读**：右上角「重新选择编码导入」去掉（`add(true)` 留着，第 3 批要在书籍菜单里放低频入口；`scripts/fixtures/txt-encoding.cjs` 还在点那个按钮，第 3 批一起改）
+- 验证：`npx vite build` 通过；`image-picker-check`、`widget-layout-check`（工作间换成共写）通过；手机尺寸浅深色截了设置、他的设定、共读、聊天和「对话」面板
+- **还剩**：工作间、心潮相关的旧文件（`WorkroomView.vue`、`workroom.js` 等、`deploy/qisuo-server/codex/`、`deploy/codex-lab/`、`deploy/xinchao/`、对应脚本和文档）删除这一步被权限拦了，等她点头再删；它们已经没人引用，不影响构建
+- **注意**：AGENTS.md 里「他」「Codex」那两条还写着在工作间里干活，工作间没了以后 Codex 怎么来施工，要问她再改；`docs/ui-preview.md`、`docs/sync-checks.md` 里关于工作间的记录是历史，没动
 
 ### 2026-10-18 · cc
 - 她交了一大份待办，存成 `docs/todo.md`，分 5 批 + 最后清理。**下一个窗口先读它**，一批一个窗口，做完先给她验收

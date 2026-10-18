@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, newRole, roleById, deleteRole, PALETTE, BUBBLE_COLORS } from "../store/index.js";
+import { store, newRole, roleById, deleteRole, PALETTE } from "../store/index.js";
 import { deleteImage, pickAndCrop } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
 import { POKE_DEFAULTS, cleanPoke, pokeText } from "../lib/poke.js";
@@ -10,7 +10,6 @@ import { goBack } from "../lib/nav.js";
 import SubHeader from "../components/SubHeader.vue";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
-import ColorSwatches from "../components/ColorSwatches.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -180,17 +179,6 @@ async function remove() {
 
       <label class="field"><span>名字</span><input v-model="form.name" class="input" placeholder="例如：小机" /></label>
 
-      <div class="field">
-        <span>代表色<small>（日历小圆点、头像底色）</small></span>
-        <ColorSwatches v-model="form.color" :colors="PALETTE" />
-      </div>
-
-      <div class="field">
-        <span>他的气泡颜色</span>
-        <ColorSwatches v-model="form.bubbleColor" :colors="BUBBLE_COLORS" />
-        <div class="bubble-preview" :style="{ background: form.bubbleColor }">聊天时他的消息是这个颜色</div>
-      </div>
-
       <label class="field">
         <span>使用的 API</span>
         <select v-model="apiPick" class="input">
@@ -223,10 +211,6 @@ async function remove() {
           <input v-model.trim="form.me.name" class="input" placeholder="例如：存在" />
         </label>
       </div>
-      <div class="field">
-        <span>我的代表色<small>（我的头像底色、纪念日）</small></span>
-        <ColorSwatches v-model="store.profile.color" :colors="PALETTE" />
-      </div>
     </div>
 
     <div class="section-label">我是谁 · 说话的样子</div>
@@ -251,10 +235,6 @@ async function remove() {
       <label class="field">
         <span>最快多久能改一次（小时）</span>
         <input v-model.number="form.sigCooldownHours" class="input" type="number" min="0" step="1" />
-      </label>
-      <label class="field">
-        <span>他每天能整理几次日历<small>（记、改、删都算；一次最多 5 条；每天早上 5 点重置）</small></span>
-        <input v-model.number="form.calPerDay" class="input" type="number" min="0" max="20" step="1" inputmode="numeric" />
       </label>
       <label class="switch-row">
         <span>锁定签名，不让他改</span>
@@ -286,7 +266,6 @@ async function remove() {
 .av small { font-size: 0.72rem; color: var(--text-2); max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .av.add span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; border: 2px dashed var(--line); color: var(--text-3); }
 .ava-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0; background: none; font-size: 0.867rem; color: var(--text-2); }
-.bubble-preview { align-self: flex-start; margin: 6px 4px 0; padding: 8px 14px; border-radius: 8px 18px 18px 18px; font-size: 0.93rem; color: var(--text); box-shadow: 0 0 0 1px var(--line); }
 .me-row { display: flex; gap: 14px; align-items: flex-start; }
 .me-row .grow { flex: 1; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; padding: 4px; font-size: 0.933rem; }

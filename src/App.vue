@@ -31,10 +31,9 @@ watchEffect(() => {
   <TabBar v-if="tab" :active="tab" />
   <Cropper />
   <FullEditor />
-  <div v-if="fileActivity.selecting || fileActivity.processing" class="file-progress" role="status" aria-live="polite">
-    <div>{{ fileActivity.processing ? "正在处理图片…" : "请在相册或文件中选择" }}
-      <button v-if="fileActivity.selecting" class="btn soft" @click="fileActivity.cancel?.()">取消选择</button>
-    </div>
+  <!-- 选图时不再盖一层「请在相册中选择」，只在处理图片的那一会儿提示一下 -->
+  <div v-if="fileActivity.processing" class="file-progress" role="status" aria-live="polite">
+    <div>正在处理图片…</div>
   </div>
   <Transition name="fade"><div v-if="toastText" class="toast">{{ toastText }}</div></Transition>
 </template>
@@ -42,5 +41,4 @@ watchEffect(() => {
 <style scoped>
 .file-progress { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: var(--bg); color: var(--text); }
 .file-progress > div { padding: 24px; background: var(--card); border-radius: 16px; }
-.file-progress button { display: block; margin: 16px auto 0; }
 </style>

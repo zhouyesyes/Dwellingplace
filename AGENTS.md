@@ -22,12 +22,12 @@
 
 ## 目录
 
-- `src/views/`：一个页面一个文件（`ChatView.vue` 聊天、`WorkroomView.vue` 工作间……），路由在 `src/router.js`
+- `src/views/`：一个页面一个文件（`ChatView.vue` 聊天、`ReaderView.vue` 读书……），路由在 `src/router.js`
 - `src/components/`：组件；主界面的小插件在 `src/components/widgets/`（在 `WidgetDesk` 里登记）
-- `src/lib/`：逻辑（`chat.js` 聊天和系统提示、`wake.js` 唤醒、`memoryTags.js` 记忆、`workroom.js` 工作间……）
+- `src/lib/`：逻辑（`chat.js` 聊天和系统提示、`wake.js` 唤醒、`memoryTags.js` 记忆、`books.js` 共读……）
 - `src/store/index.js`：全局状态（存在浏览器里）；`src/styles/base.css`：颜色变量（浅色 / 深色两套）
 - `relay/worker.js`：Cloudflare 上的中转（唤醒、提醒），推到 main 后自动部署
-- `deploy/qisuo-server/`：她服务器上的那一套（服务器、工作间）；改了要她在服务器上重新跑一次安装才生效
+- `deploy/qisuo-server/`：她服务器上的那一套（网页、API 转发、同步、他的浏览器）；改了要她在服务器上重新跑一次安装才生效
 - `docs/`：说明文档；`docs/worklog.md` 是一起施工的日志
 
 ## 怎么确认改对了

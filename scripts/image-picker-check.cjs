@@ -26,8 +26,9 @@ const assert = require('node:assert/strict');
      input.dispatchEvent(new Event('input')); input.dispatchEvent(new Event('change'));
     }
     for (let i = 0; i < 2; i++) {
-     const pending = pickFile();
-     check((await pickFile()).length === 0, '重复选择应被阻止');
+     const stale = pickFile();
+     const pending = pickFile(); // 上一次没回音（iOS 关相册不发 cancel）：当作取消，这次照常打开
+     check((await stale).length === 0 && document.querySelectorAll('input[type=file]').length === 1, '再点一次换掉没回音的那次');
      window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange'));
      check(fileActivity.selecting, '恢复焦点不能提前取消');
      select(); check((await pending)[0] === file, '同一张图每次都应接收一次');
@@ -87,16 +88,6 @@ const assert = require('node:assert/strict');
     scope2.run(() => { displayed = useImage(() => id.value); });
     id.value = null; await nextTick(); await new Promise(r => setTimeout(r, 50));
     check(displayed.value === null, '旧结果不能覆盖新状态'); scope2.stop();
-    const {seeFiles} = await import('/src/lib/seeFiles.js');
-    const bitmapForFailure = window.createImageBitmap;
-    const context = HTMLCanvasElement.prototype.getContext;
-    let closed = 0;
-    window.createImageBitmap = async () => ({width: 20, height: 30, close() { closed++; }});
-    HTMLCanvasElement.prototype.getContext = () => null;
-    try {
-     const result = await seeFiles([file]);
-     check(closed === 1 && result.parts.length === 0 && result.seen[0].includes('没读出来'), '工作间转码失败释放 bitmap');
-    } finally { window.createImageBitmap = bitmapForFailure; HTMLCanvasElement.prototype.getContext = context; }
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function () { throw new Error('模拟存储空间不足'); };
     try { let failed = false; try { await saveImage(file); } catch { failed = true; } check(failed && !fileActivity.processing, '存储失败必须上报并解锁'); }

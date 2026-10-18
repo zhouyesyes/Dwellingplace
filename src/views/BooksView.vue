@@ -111,8 +111,6 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
       </div>
     </header>
 
-    <button class="txt-retry" :disabled="busy" @click="add(true)">重新选择编码导入</button>
-
     <!-- 标题：大大的「共读」，右边一行竖着的小字；下面是一道细线和这间屋子的一句话 -->
     <div class="title">
       <h1>共读</h1>
@@ -205,7 +203,6 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 </template>
 
 <style scoped>
-.txt-retry { display: block; margin: 8px 0 16px auto; border: 0; background: none; color: var(--text-2); font-size: 12px; text-decoration: underline; }
 .txt-shade { position: fixed; inset: 0; z-index: 100; background: #0006; display: flex; align-items: center; justify-content: center; padding: max(16px, var(--safe-top)) 16px max(16px, var(--safe-bottom)); }
 .txt-dialog { width: 100%; max-width: 440px; max-height: 100%; overflow-y: auto; padding: 20px; border-radius: 20px; background: var(--card); color: var(--text); box-sizing: border-box; }
 .txt-dialog h2 { margin: 0 0 10px; font-size: 1.15rem; }
