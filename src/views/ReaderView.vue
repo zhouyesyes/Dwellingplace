@@ -4,7 +4,8 @@
 // 一段里有几句都贴了：线尾标个小角标 1 2 3，便利贴上也标同一个数。同一句贴了三张以上就叠起来，点开再看。
 // 一屏一页时，便利贴和它那几句总在同一页（放不下，就从那句开始连着便利贴一起挪到下一页）。只划了线的，点划线看。
 // 右下角「一起读」旁边一张小蓝便利贴：他贴的、你还没看到的，点开是列表，长按一条「跳转 / 忽略」。
-// 右下角「一起读」→ 从你现在这一页往后读十页（你还没读到的，他先读），他挑几句划线、写批注；读到哪就在哪做个淡淡的记号。
+// 右下角「一起读」→ 他按自己的进度读：先看目录，挑从哪读、读多少（1000～8000 token），一路划线、写批注；读到哪就在哪做个淡淡的记号。
+// 他读到的地方不在你这一页：书页边上有他的小头像（他慢在左、快在右），点一下确认就跳过去
 // 给他看的只有这一句 / 这几页，而且是单独问的一次，不进聊天记录。读到哪记在书上（他在聊天里也知道你读到哪了）
 // 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）、翻页还是上下滚；读的时候计时（每天读了多久）
 // 翻页：一屏一页（左右划，或者点屏幕左右两边）
@@ -14,7 +15,7 @@ import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
 import { captureReadingPage } from "../lib/readingImages.js";
 import { safeBookImage } from "../lib/epubImages.js";
-import { askHim, readAlong, alongSlice, placeAlong } from "../lib/reading.js";
+import { askHim, readAlong, alongSlice, placeAlong, readOnHisOwn, hisAt } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookImage from "../components/books/BookImage.vue";
@@ -26,6 +27,7 @@ import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import { isDark } from "../lib/theme.js";
 import PetDock from "../components/pet/PetDock.vue";
+import Avatar from "../components/Avatar.vue";
 import { petOn, petOnce, petActive } from "../lib/pet.js";
 
 const route = useRoute();
@@ -132,6 +134,7 @@ onMounted(async () => {
   await settleImages();
   await fixStickies();
   jumpTo(b.value.pos?.p || 0);
+  pagePs.value = visibleParas();
   markSeen();
 });
 onBeforeUnmount(() => ro?.disconnect());
@@ -167,6 +170,7 @@ async function goChapter(i, toEnd = false) {
   if (toEnd && paged.value) { measure(); toPage(pageCount.value - 1, false); }
   else { scroller.value.scrollLeft = 0; jumpTo(0); }
   measure();
+  pagePs.value = visibleParas();
   markSeen();
 }
 // 读到哪：屏幕上第一段（停下来半秒再记）
@@ -177,6 +181,7 @@ function onScroll() {
     if (!scroller.value || !b.value) return;
     measure();
     const seen = visibleParas();
+    pagePs.value = seen;
     savePos(b.value, ch.value, seen.length ? Math.min(...seen) : 0);
     markSeen();
   }, 500);
@@ -461,43 +466,24 @@ async function ask() {
 const along = ref(false);
 const petErr = ref(false); // 桌宠：没读成时着急几秒
 const posBefore = (x, y) => x.ch < y.ch || (x.ch === y.ch && x.p < y.p);
-// 一起读：从你现在这一页开始，往后读十页（你还没读到的，他先读），一路划线写批注；读到哪，就在哪轻轻做个记号
-const PAGES = 10;
+// 一起读：按他自己的进度读——他先看目录，挑从哪开始（接着读、跳到某一章、看结尾）、读多少（1000～8000 token），再读那一段，一路划线写批注。
+// 停在一页纯插图上点：就是请他看这一页的图（单独问一次）
 async function readThisPage() {
   const r = role.value, el = scroller.value;
   if (!r || !el || along.value) return;
-  const page = captureReadingPage(el, content.value, ch.value);
-  const seen = visibleParas();
-  if (!seen.length && page.images.length) seen.push(Math.max(0, Math.min(page.images[0].p, paras.value.length - 1)));
-  if (!seen.length) return toast("这一页没有字");
-  const from = { ch: ch.value, p: Math.min(...seen) };
-  // 一页大概多少字：就按这一页算；往后数够十页
-  const perPage = Math.max(300, seen.reduce((a, i) => a + (paras.value[i]?.length || 0), 0));
-  const book = content.value;
-  let to = { ...from }, n = 0;
-  for (let c = from.ch; c < book.chapters.length && n < perPage * PAGES; c++) {
-    const ps = book.chapters[c].paras || [];
-    for (let p = c === from.ch ? from.p : 0; p < ps.length && n < perPage * PAGES; p++) { n += ps[p].length; to = { ch: c, p }; }
-  }
-  // 往后这十来页里的插图也给他看（连当前页一共最多 4 张，当前页的在前）
-  for (let c = from.ch; c <= to.ch && page.images.length < 4; c++) {
-    const chap = book.chapters[c];
-    (chap.media || []).forEach((m, index) => {
-      const id = `图${c + 1}-${index + 1}`;
-      if (page.images.length >= 4 || (c === from.ch && m.p < from.p) || (c === to.ch && m.p > to.p + 1) || page.images.some(x => x.id === id)) return;
-      page.images.push({ id, ch: c, ahead: true, p: m.p, alt: m.alt || "", caption: m.caption || "", before: chap.paras[m.p - 1] || "", after: chap.paras[m.p] || "", source: book.resources?.[m.resource] || "" });
-    });
-  }
-  const maxChars = Infinity;
   along.value = true;
   store.settings.readTip = true;
   try {
-    const res = await readAlong(r, b.value, { from, to, maxChars, page });
-    if (res.imageOnly) { imageReply.value = res.text; petOnce("success"); return; }
-    b.value.alongTo = res.upTo;
+    const page = captureReadingPage(el, content.value, ch.value);
+    if (!visibleParas().length && page.images.length) {
+      const res = await readAlong(r, b.value, { from: { ch: ch.value, p: Math.max(0, Math.min(page.images[0].p, paras.value.length - 1)) }, to: { ch: ch.value, p: 0 }, maxChars: Infinity, page });
+      if (res.imageOnly) { imageReply.value = res.text; petOnce("success"); return; }
+    }
+    const res = await readOnHisOwn(r, b.value);
     await placeAlong(b.value, res.notes, -1);
-    const endTitle = content.value.chapters[res.upTo.ch]?.title || `第 ${res.upTo.ch + 1} 章`;
-    toast(res.memNotes[0] || `${r.name} 往后读了十来页，划了 ${res.notes.length} 处，读到「${endTitle}」那里做了个记号`, 3200);
+    const title = i => content.value.chapters[i]?.title || `第 ${i + 1} 章`;
+    const where = res.choice.how === "end" ? "直接去读了结尾" : res.choice.how === "chapter" ? `跳到「${title(res.from.ch)}」读了` : "接着往下读了";
+    toast(res.memNotes[0] || `${r.name}${where}约 ${res.choice.tokens} token，划了 ${res.notes.length} 处，读到「${title(res.upTo.ch)}」`, 3600);
     petOnce("success");
   } catch (e) {
     toast(`没读成：${describeError(e)}`, 4000);
@@ -506,6 +492,27 @@ async function readThisPage() {
   } finally {
     along.value = false;
   }
+}
+
+// ---------- 他读到哪：你书页边上他的小头像 ----------
+// 他读到的地方不在这一页：他比你慢，小头像在左边；比你快，在右边。点一下确认，再跳过去
+const pagePs = ref([]); // 这一页看得到哪几段
+const hisPt = computed(() => (b.value ? hisAt(b.value) : null));
+const hisSide = computed(() => {
+  const h = hisPt.value, v = pagePs.value;
+  if (!h || !v.length || !content.value) return null;
+  if (h.ch === ch.value && v.includes(h.p)) return null;
+  return posBefore(h, { ch: ch.value, p: Math.min(...v) }) ? "left" : "right";
+});
+async function jumpHis() {
+  const h = hisPt.value;
+  if (!h || !confirm(`跳到${role.value?.name || "他"}读到的地方？\n「${content.value.chapters[h.ch]?.title || ""}」`)) return;
+  if (h.ch !== ch.value) await goChapter(h.ch);
+  jumpTo(h.p);
+  await nextTick();
+  measure();
+  savePos(b.value, ch.value, h.p);
+  pagePs.value = visibleParas();
 }
 
 // ---------- 读了多久：页面开着、最近两分钟里动过，每 15 秒记一笔 ----------
@@ -659,11 +666,14 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <div v-if="paged" class="tail" aria-hidden="true" />
     </main>
 
+    <button v-if="hisSide && sel == null" class="his-arrow" :class="hisSide" :aria-label="`跳到${role?.name || '他'}读到的地方`" @click="jumpHis">
+      <span class="ar">{{ hisSide === "left" ? "‹" : "›" }}</span><Avatar :img="role?.avatar" :name="role?.name || '他'" :color="role?.color" :size="26" />
+    </button>
     <span v-if="paged && pageCount > 1" class="pgno">{{ pageNo + 1 }} / {{ pageCount }}</span>
 
     <!-- 第一次来：告诉她怎么和他一起读 -->
     <div v-if="!store.settings.readTip && sel == null" class="tip" @click="store.settings.readTip = true">
-      点一下选中一句（长按可以自己拖着选）：划线、写想法，或者问问{{ role?.name || "他" }}。点划线看批注。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}从这一页往后先读十页，一路划线、写批注，你接着往后读就会看到；他读到的地方有个淡淡的记号。<b>知道了</b>
+      点一下选中一句（长按可以自己拖着选）：划线、写想法，或者问问{{ role?.name || "他" }}。点划线看批注。<br />{{ paged ? "左右划、或者点屏幕两边翻页。" : "" }}右下角「一起读」：{{ role?.name || "他" }}按自己的进度读一段（他自己挑读哪、读多少），一路划线、写批注；他读到的地方有个淡淡的记号，不在这一页时书页边上有他的小头像，点一下能跳过去。<b>知道了</b>
     </div>
     <!-- 桌宠：站在「一起读」上面；平时在读书，他在想的时候托着脑袋 -->
     <div v-if="sel == null && petOn()" class="pet-read" @pointerdown="petActive()"><PetDock :work="petErr ? 'error' : asking ? 'think' : null" base="read" :roam="false" /></div>
@@ -853,6 +863,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .pet-read { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px + 42px); width: 180px; height: 0; z-index: 3; pointer-events: none; }
 /* 他一起读读到的地方：段落末尾一个淡淡的小记号 */
 .his-end::after { content: " · " attr(data-his) "读到这里"; font-size: .62em; letter-spacing: .05em; color: rgba(92, 142, 205, .75); white-space: nowrap; }
+.his-arrow { position: fixed; top: 50%; z-index: 3; display: flex; align-items: center; gap: 1px; border: 0; padding: 4px 5px; background: color-mix(in srgb, var(--rbg) 70%, transparent); border-radius: 999px; box-shadow: 0 4px 12px rgba(30, 40, 60, .14); opacity: .85; }
+.his-arrow.left { left: 2px; }
+.his-arrow.right { right: 2px; flex-direction: row-reverse; }
+.his-arrow .ar { font-size: 1.1rem; line-height: 1; color: rgba(92, 142, 205, .95); padding: 0 2px; }
 .dockr { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 12px; }
 /* 「一起读」旁边的小蓝便利贴：数字是他贴的、你还没看到的 */
 .track { position: relative; width: 38px; height: 38px; border: 0; border-radius: 2px; padding: 0; background: #dcebfc; color: #2f5d93; transform: rotate(4deg); box-shadow: 0 6px 14px rgba(30, 40, 60, .18); display: grid; place-items: center; }

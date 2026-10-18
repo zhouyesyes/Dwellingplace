@@ -195,14 +195,17 @@ async function roomsOf(role, thread, path, extra = []) {
     rooms.push({ key: "mail", kind: "thread", label: "信箱", status: "看看邮件、回信（能用邮箱的工具）", threadId: mt.id,
       system: buildSystem(role, mpath, { wake: true, mail: true }), history: historyOf(mt, mpath), servers: serverPack(mailServers) });
   }
-  // 一起读：最近在读、还没读完的那本，从他读到的地方往后
-  const { forwardSlice, alongPrompt } = await import("./reading.js");
-  const { progressOf } = await import("./books.js");
+  // 自己读书：最近在读、还没读完的那本，按他自己的进度往后（他上次说了下次从哪，就从那），最多 8000 token；
+  // 读到哪停、下次从哪开始，他自己在回复里说（醒来时拿不到别处的原文，所以跳章下一次才生效）
+  const { forwardSlice, alongPrompt, hisNextFrom, READ_MAX } = await import("./reading.js");
+  const { progressOf, loadBook } = await import("./books.js");
+  const { estTokens } = await import("./budget.js");
   const reading = (store.books || []).filter(b => !b.his && !b.mine && b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
   if (reading) {
-    const from = reading.hisPos ? { ch: reading.hisPos.ch, p: reading.hisPos.p + 1 } : reading.pos || { ch: 0, p: 0 };
-    const items = await forwardSlice(reading, from, 12000);
-    if (items.length) rooms.push({ key: `read:${reading.id}`, kind: "read", label: `接着读《${reading.title}》`, bookId: reading.id, from, maxChars: 12000,
+    const from = hisNextFrom(reading, await loadBook(reading.id));
+    const items = await forwardSlice(reading, from, READ_MAX, estTokens);
+    // maxChars 记成这一段的字数：取回来时按字数重新切，切出来是同一段
+    if (items.length) rooms.push({ key: `read:${reading.id}`, kind: "read", label: `接着读《${reading.title}》`, bookId: reading.id, from: { ch: items[0].ch, p: items[0].p }, maxChars: items.reduce((a, it) => a + it.t.length, 0),
       status: `${me}读到 ${Math.round(progressOf(reading) * 100)}%；你往后还有一段没读`, prompt: await alongPrompt(role, reading, items, from, { alone: true }) });
   }
   // 书的讨论室：最近读的那本；还有共读的大讨论室
@@ -346,6 +349,7 @@ async function ingestRoom(role, item) {
         await R.placeAlong(b, p.notes);
         markHisPos(b, p.upTo.ch, p.upTo.p);
         b.alongTo = p.upTo;
+        if (p.next) b.hisNext = p.next; else delete b.hisNext; // 他说下次从哪开始
         R.maybeGist(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
         R.maybeImpression(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
         what = `，读了一段，划了 ${p.notes.length} 处${p.memNotes.length ? "，记了读书笔记" : ""}`;

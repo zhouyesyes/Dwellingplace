@@ -8,6 +8,7 @@ import { readingPageParts } from "./readingImages.js";
 import { store, uid, apiFor, modelFor } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
+import { estTokens } from "./budget.js";
 import { globalMemoryForScene, takeSuggestions, newMemory } from "./memoryTags.js";
 
 export const NOTE_RE = /\[便利贴[:：]([^\]]{2,1200})\]/g;
@@ -160,7 +161,7 @@ export async function readingPreview(role, b) {
     ...readingSceneParts(b, me).map(x => ({ label: `场景记忆 · ${x.label}`, text: x.text })),
     { label: "全局记忆（排在场景后面，含主聊天最近的消息）", text: (await globalMemoryForScene(role, me, { skip: "read" })) || "（没有）" },
     { label: "上次整理前情之后读过的原文（他都看得见）", text: (await sinceGist(b, b.pos || { ch: 0, p: 0 })) || "（刚整理过，或者还没读）" },
-    { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：从你现在这一页往后的十来页（你还没读到的，他先读）。" },
+    { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：他先看目录，自己挑从哪读、读多少（1000～8000 token），再给他那一段。" },
   ];
 }
 export function readingSceneParts(b, me) {
@@ -301,7 +302,8 @@ export async function alongSlice(b, from, to, maxChars = Infinity) {
   return out;
 }
 // 从 from 往后的段落（不含空段），最多 maxChars 字：[{ ch, p, t }]（自由时间他自己往后读）
-export async function forwardSlice(b, from, maxChars = 12000) {
+// size：怎么量一段（默认按字数；他自己读按 token 粗估）
+export async function forwardSlice(b, from, maxChars = 12000, size = t => t.length) {
   const book = await loadBook(b.id);
   const out = [];
   let n = 0;
@@ -310,15 +312,92 @@ export async function forwardSlice(b, from, maxChars = 12000) {
     for (let i = c === from.ch ? from.p : 0; i < ps.length; i++) {
       const t = ps[i].trim();
       if (!t) continue;
-      if (n + t.length > maxChars && out.length) return out;
+      if (n + size(t) > maxChars && out.length) return out;
       out.push({ ch: c, p: i, t });
-      n += t.length;
+      n += size(t);
     }
   }
   return out;
 }
+
+// ---------- 他自己读：按他自己的进度，他自己挑读哪、读多少 ----------
+//   b.alongTo：他上一次读到哪（书页上「他读到这里」、你书页边上他的小头像都按这个）；b.hisNext：他说下次从哪开始（自由时间里说的）
+//   读多少：1000～8000 token（中文大约一个字一个 token），他自己定
+export const READ_MIN = 1000, READ_MAX = 8000;
+export const hisAt = b => b.alongTo || b.hisPos || null;
+const START0 = { ch: 0, p: 0 };
+// 他接着读的话从哪开始：他说过下次从哪就从那；不然从上次读到的下一段；还没读过就从她读到的地方
+export function hisNextFrom(b, book) {
+  if (b.hisNext?.end) return tailStart(book, b.hisNext.tokens || 4000);
+  if (b.hisNext) return { ch: b.hisNext.ch, p: b.hisNext.p || 0 };
+  const at = hisAt(b);
+  return at ? { ch: at.ch, p: at.p + 1 } : b.pos || START0;
+}
+// 倒着数够 tokens，结尾那一段从哪开始
+function tailStart(book, tokens) {
+  let n = 0;
+  for (let c = book.chapters.length - 1; c >= 0; c--) {
+    const ps = book.chapters[c].paras || [];
+    for (let i = ps.length - 1; i >= 0; i--) { n += estTokens(ps[i]); if (n >= tokens) return { ch: c, p: i }; }
+  }
+  return START0;
+}
+// 目录：每章多少 token，标上你们读到哪
+function tocText(b, book, me) {
+  const mine = b.pos, his = hisAt(b);
+  return book.chapters.map((c, i) => {
+    const tok = c.paras.reduce((a, t) => a + estTokens(t), 0);
+    const marks = [his && his.ch === i ? "← 你上次读到这一章" : "", mine && mine.ch === i ? `← ${me}读到这一章` : ""].filter(Boolean).join(" ");
+    return `${i + 1}. ${c.title || `第 ${i + 1} 章`}（约 ${tok} token）${marks ? " " + marks : ""}`;
+  }).join("\n");
+}
+const CHOICE_RE = /\[读[:：]\s*(接着|末尾|结尾|\d+)\s*(?:[|｜]\s*(\d+))?\s*\]/;
+const NEXT_RE = /\[下次从[:：]\s*(接着|末尾|结尾|\d+)\s*\]/;
+const READ_TO_RE = /\[读到[:：]\s*(\d+)\s*[.．]\s*(\d+)\s*\]/;
+// 第一步：给他看目录和你们读到哪，他挑从哪开始、读多少
+export async function chooseReading(role, b) {
+  const { oneShot, meName } = await import("./chat.js");
+  const me = meName(role);
+  const book = await loadBook(b.id);
+  const im = latestImpr(b);
+  const next = hisNextFrom(b, book);
+  const prompt = [
+    role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
+    `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。这次你自己挑读哪里、读多少。`,
+    `目录：\n${tocText(b, book, me)}`,
+    hisAt(b) ? `你上次读到「${book.chapters[hisAt(b).ch]?.title || ""}」；接着读的话从「${book.chapters[next.ch]?.title || ""}」那里开始。` : `你还没读过这本，接着读的话从${me}读到的地方开始。`,
+    b.gist?.text ? `前面的梗概：\n${b.gist.text.length > 2000 ? "……" + b.gist.text.slice(-2000) : b.gist.text}` : "",
+    im ? `你最新的中途印象：${im.text}` : "",
+    `大多数时候接着往下读就好；想跳到某一章、或者直接去看结尾，也可以。读多少你自己定：${READ_MIN}～${READ_MAX} token（中文大约一个字一个 token）。`,
+    `只回一行：[读:接着|token数]，或者 [读:章号|token数]（从那一章开头读），或者 [读:末尾|token数]。`,
+  ].filter(Boolean).join("\n\n");
+  const raw = await oneShot(role, prompt, { raw: true });
+  return parseChoice(raw, b, book);
+}
+export function parseChoice(raw, b, book) {
+  const m = String(raw || "").match(CHOICE_RE);
+  const tokens = Math.max(READ_MIN, Math.min(READ_MAX, Number(m?.[2]) || 4000));
+  const where = m?.[1] || "接着";
+  if (/末尾|结尾/.test(where)) return { how: "end", tokens, from: tailStart(book, tokens) };
+  if (/^\d+$/.test(where)) {
+    const ch = Math.max(0, Math.min(book.chapters.length - 1, Number(where) - 1));
+    return { how: "chapter", tokens, from: { ch, p: 0 } };
+  }
+  return { how: "next", tokens, from: hisNextFrom(b, book) };
+}
+// 自由时间读完写的：[读到:章.段]（读到哪停的）、[下次从:章号 / 末尾]（下次想从哪开始）
+export function readMarks(raw, items) {
+  const t = String(raw || "");
+  const to = t.match(READ_TO_RE);
+  const upTo = to && items.some(it => it.ch === to[1] - 1 && it.p === +to[2]) ? { ch: to[1] - 1, p: +to[2] } : null;
+  const nx = t.match(NEXT_RE);
+  const next = !nx || nx[1] === "接着" ? null : /末尾|结尾/.test(nx[1]) ? { end: true } : { ch: Math.max(0, Number(nx[1]) - 1), p: 0 };
+  return { upTo, next };
+}
+
 // 一起读给他看的全部（原文按「章.段」编号）
-export async function alongPrompt(role, b, items, from, { alone = false } = {}) {
+// alone：自由时间自己读（带目录，他说读到哪停、下次从哪开始）；self：书页上他自己挑的这一段 { how, tokens }
+export async function alongPrompt(role, b, items, from, { alone = false, self = null } = {}) {
   const { meName } = await import("./chat.js");
   const me = meName(role);
   const book = await loadBook(b.id);
@@ -337,12 +416,16 @@ export async function alongPrompt(role, b, items, from, { alone = false } = {}) 
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
     await bookContext(b, me, role),
     earlier ? `\n（上次整理前情之后、你们已经读过的原文，接着前情看：）\n${earlier.length > 8000 ? "……" + earlier.slice(-8000) : earlier}` : "",
+    alone ? `\n目录（章号. 章名）：\n${book.chapters.map((c, i) => `${i + 1}. ${c.title || `第 ${i + 1} 章`}`).join("\n")}` : "",
     alone
-      ? `\n这是你的自由时间，你自己想读书了，接着往后读。下面是接下来的这一段（${me}现在不在，你一路留批注，${me}读到时会看到）。每段前面方括号里是「章.段」号：`
-      : `\n下面是从${me}现在读到的这一页开始、往后的十来页（${me}还没读到，你先读，一路留批注，${me}往后读时会看到）。每段前面方括号里是「章.段」号：`,
+      ? `\n这是你的自由时间，你自己想读书了，按你自己的进度往后读。下面是接下来的这一段（最多 ${READ_MAX} token；${me}现在不在，你一路留批注，${me}读到时会看到）。每段前面方括号里是「章.段」号：`
+      : self
+        ? `\n下面是你自己挑的这一段（${self.how === "end" ? "结尾" : self.how === "chapter" ? `从「${book.chapters[from.ch]?.title || ""}」开头` : "接着你上次读到的地方"}，约 ${self.tokens} token），你一路留批注，${me}读到时会看到。每段前面方括号里是「章.段」号：`
+        : `\n下面是从${me}现在读到的这一页开始、往后的十来页（${me}还没读到，你先读，一路留批注，${me}往后读时会看到）。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
     `你读一读这一段。挑三五处真让你有感觉的句子，分散在前后不同的地方（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
     `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
+    alone ? `读多少你自己定：想停就停，另起一行写 [读到:章.段]（停在哪一段；不写就是读完了这一段）。下次想换个地方读（跳到某一章、去看结尾），再写一行 [下次从:章号] 或 [下次从:末尾]；接着往下读就不用写。` : "",
     hers ? `段落下面括号里的是已经贴着的便利贴。${me}贴的你都看得见；想回应哪张，就贴在同一句上（照抄她划的那句原文），算在这三五处里。` : "",
     `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");
@@ -368,7 +451,11 @@ export async function parseAlong(role, items, raw) {
     if (text && !/^\[不说话\]$/.test(text)) out.push({ ch: it.ch, p: it.p, quote: "", text: text.slice(0, 300) });
   }
   const end = items[items.length - 1];
-  return { notes: out.slice(0, 6), memNotes: notes, upTo: { ch: end.ch, p: end.p } };
+  const marks = readMarks(raw, items);
+  // 停在哪之后的批注不算（他说读到那儿就停了）
+  const stop = marks.upTo || { ch: end.ch, p: end.p };
+  const kept = out.filter(n => n.ch < stop.ch || (n.ch === stop.ch && n.p <= stop.p));
+  return { notes: (kept.length ? kept : out).slice(0, 6), memNotes: notes, upTo: stop, next: marks.next };
 }
 // 批注贴进书里（照抄的句子找得到就划那一句，找不到就整段）
 export async function placeAlong(b, notes, seenCh = -1) {
@@ -396,6 +483,35 @@ export async function readAlong(role, b, { from, to, maxChars = 24000, page }) {
   maybeGist(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
   maybeImpression(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
   return { ...r, count: items.length };
+}
+
+// 书页上「一起读」：他先挑读哪、读多少，再读那一段（这一段里的插图也给他看，最多 4 张）
+export async function readOnHisOwn(role, b) {
+  const { oneShot } = await import("./chat.js");
+  const book = await loadBook(b.id);
+  const choice = await chooseReading(role, b);
+  const items = await forwardSlice(b, choice.from, choice.tokens, estTokens);
+  if (!items.length) throw new Error("他挑的那一段没有字");
+  const images = [];
+  const last = items[items.length - 1];
+  for (let c = items[0].ch; c <= last.ch && images.length < 4; c++) {
+    const chap = book.chapters[c];
+    (chap.media || []).forEach((m, index) => {
+      if (images.length >= 4 || (c === items[0].ch && m.p < items[0].p) || (c === last.ch && m.p > last.p + 1)) return;
+      images.push({ id: `图${c + 1}-${index + 1}`, ch: c, ahead: true, p: m.p, alt: m.alt || "", caption: m.caption || "", before: chap.paras[m.p - 1] || "", after: chap.paras[m.p] || "", source: book.resources?.[m.resource] || "" });
+    });
+  }
+  const page = images.length ? { ch: items[0].ch, text: "", images } : null;
+  const raw = await oneShot(role, await alongPrompt(role, b, items, choice.from, { self: choice }), { raw: true, parts: await readingPageParts(page) });
+  const r = await parseAlong(role, items, raw);
+  if (!r.notes.length) throw new Error("他没有写什么");
+  for (const x of Object.values(notesBeside(b, items, "")).flat()) if (x.n.from === "me") x.n.seen = true;
+  markHisPos(b, r.upTo.ch, r.upTo.p);
+  b.alongTo = r.upTo;
+  delete b.hisNext;
+  maybeGist(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
+  maybeImpression(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
+  return { ...r, choice, from: items[0] };
 }
 
 // 他的读后感：前情、他的中途印象、便利贴、读书笔记、你的读后感（重读的还有以前几遍的）都给他，打几颗星、写一篇（最多 3000 字）。
