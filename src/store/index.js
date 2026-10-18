@@ -68,7 +68,6 @@ function defaultWidgets() {
     { id: uid(), type: "books", size: "large" },
     { id: uid(), type: "desk", size: "large" },
     { id: uid(), type: "anniv", size: "small" },
-    { id: uid(), type: "calendar", size: "large" },
   ];
 }
 
@@ -278,7 +277,8 @@ function migrate() {
     store.version = 10;
   }
   store.archive ??= emptyArchive();
-  store.widgets = (store.widgets || []).filter(w => w.type !== "chick" && w.type !== "work"); // 主页不再放小鸡；工作间拆掉了
+  store.widgets = (store.widgets || []).filter(w => !["chick", "work", "calendar"].includes(w.type)); // 主页不再放小鸡；工作间拆掉了；日历搬进「记录」
+  store.diary ??= []; // 日记本（见 lib/diary.js）
   store.settings ??= { fontSize: "standard" };
   delete store.settings.historyLimit; // 早就改成按 token 算了（historyTokens）
   for (const k of ["groupHistoryLimit", "groupPrivateLimit", "privateGroupLimit", "surfacedLimit"]) delete store.settings[k]; // 群聊、浮现的记忆都去掉了
