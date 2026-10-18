@@ -21,6 +21,7 @@ import { pickFile } from "../lib/images.js";
 import BookImage from "../components/books/BookImage.vue";
 import BookInfo from "../components/books/BookInfo.vue";
 import ChapterEditor from "../components/books/ChapterEditor.vue";
+import { editParagraph, mergeWithNext, restoreParagraph, restoreGroup } from "../lib/chapters.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
@@ -600,6 +601,32 @@ function viewImage(m) {
 }
 const onViewLoad = e => { if (viewing.value) viewing.value.long = e.target.naturalHeight > e.target.naturalWidth * 2.2; };
 
+// ---------- 改正文：选中一句 →「改正文」，改这一整段（改字、标点；中间换行就拆成两段）；原文留着，能恢复 ----------
+const editing = ref(null); // { p, text, orig（能恢复成的原文）}
+function openEdit() {
+  const p = sel.value.p;
+  const g = restoreGroup(content.value.chapters[ch.value], p);
+  editing.value = { p, text: paras.value[p], orig: g ? g.news.join("\n") : "" };
+  clearSel();
+}
+async function runEdit(fn, done) {
+  const e = editing.value;
+  if (!e || e.busy) return;
+  e.busy = true;
+  try {
+    await fn(e);
+    editing.value = null;
+    await chaptersChanged();
+    toast(done);
+  } catch (err) {
+    toast(err.message || "没改成", 3500);
+    if (editing.value) editing.value.busy = false;
+  }
+}
+const saveEdit = () => runEdit(e => (e.text.trim() === paras.value[e.p] ? Promise.resolve() : editParagraph(b.value.id, ch.value, e.p, e.text)), "改好了");
+const mergeEdit = () => runEdit(e => mergeWithNext(b.value.id, ch.value, e.p), "和下一段并在一起了");
+const restoreEdit = () => runEdit(e => restoreParagraph(b.value.id, ch.value, e.p), "恢复成原文了");
+
 const tocOpen = ref(false);
 const tocEdit = ref(false);
 // 目录里改了章节（改名、移除、合并、切开、重新分）：正文换成新的，回到刚才读的地方（位置已经跟着挪过了）
@@ -695,6 +722,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
           <button @click="lineSel"><span class="ul">A</span>划线</button>
           <button @click="openSheet('note')"><Icon name="edit" :size="19" />写想法</button>
           <button @click="openSheet('ask')"><Icon name="chat" :size="19" />问问{{ role?.name || "他" }}</button>
+          <button @click="openEdit"><Icon name="file" :size="19" />改正文</button>
           <button class="x" aria-label="取消" @click="clearSel"><Icon name="close" :size="17" /></button>
         </div>
       </div>
@@ -710,6 +738,19 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
           <button class="btn" :disabled="asking" @click="saveReply(true)">贴上，让{{ role?.name || "他" }}回</button>
         </div>
         <button v-else class="btn" @click="sheet.mode === 'ask' ? ask() : saveNote()">{{ sheet.mode === "ask" ? "给他看" : "写上" }}</button>
+      </div>
+    </Sheet>
+
+    <Sheet :open="!!editing" title="改正文" @close="editing = null">
+      <div v-if="editing" class="compose">
+        <textarea v-model="editing.text" class="input edit-text" rows="8" aria-label="这一段的正文" />
+        <small class="edit-tip">改错字、标点都行；想拆成两段，就在中间换一行。原文一直留着，随时能恢复。</small>
+        <details v-if="editing.orig" class="edit-orig"><summary>原文</summary><p>{{ editing.orig }}</p></details>
+        <div class="row2">
+          <button v-if="editing.orig" class="btn soft" :disabled="editing.busy" @click="restoreEdit">恢复原文</button>
+          <button v-if="editing.p < paras.length - 1" class="btn soft" :disabled="editing.busy" @click="mergeEdit">和下一段合并</button>
+          <button class="btn" :disabled="editing.busy || !editing.text.trim()" @click="saveEdit">保存</button>
+        </div>
       </div>
     </Sheet>
 
@@ -911,6 +952,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .tacts button:first-child { background: var(--ink); color: var(--on-ink); }
 .row2 { display: flex; gap: 8px; margin-top: 4px; }
 .row2 .btn { flex: 1; }
+.edit-text { font-size: 16px; line-height: 1.8; background: var(--card); max-height: 46vh; }
+.edit-tip { color: var(--text-3); font-size: .74rem; line-height: 1.6; }
+.edit-orig summary { font-size: .8rem; color: var(--text-2); cursor: pointer; }
+.edit-orig p { margin: 6px 0 0; font-size: .84rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; }
 .pop-enter-active, .pop-leave-active { transition: opacity .2s, transform .2s; }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(12px); }
 .compose { display: flex; flex-direction: column; gap: 10px; }
