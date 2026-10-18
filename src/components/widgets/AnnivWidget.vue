@@ -36,6 +36,7 @@ function openManage() {
   if (!list.value.length) return startEdit(null);
   manageOpen.value = true;
 }
+defineExpose({ openManage }); // 主页「纪念日」入口直接打开管理
 function startEdit(a) {
   manageOpen.value = false;
   draft.value = a
