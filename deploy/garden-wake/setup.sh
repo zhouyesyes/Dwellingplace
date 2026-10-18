@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 给一个 AI 装上「花园唤醒桥」：游戏轮到 TA 时，花园马上通知 → 栖所的中转把 TA 叫醒。
+# 给他装上「花园唤醒桥」：游戏轮到他时，花园马上通知 → 栖所的中转把他叫醒。
 #
-# 用法（在装心潮的那台服务器的终端里粘贴这一行；每个 AI 运行一次）：
+# 用法（在装栖所的那台服务器的终端里粘贴这一行，运行一次）：
 #   bash <(curl -fsSL https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main/deploy/garden-wake/setup.sh)
 #
 # 唤醒桥是 WenXiaoWendy/galatea-garden-wake-bridge。它的规矩：连接断了就停，不自动重连、不自动重启。
@@ -19,14 +19,14 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少 $1，请先安装"; e
 need git; need curl; need docker
 SUDO=""; docker ps >/dev/null 2>&1 || SUDO="sudo"
 
-say "装花园唤醒桥（每个 AI 装一次）"
-ask NAME "1. 这一份的英文代号（只用小写字母，比如 xin / ji）" "xin"
+say "装花园唤醒桥"
+ask NAME "1. 这一份的英文代号（只用小写字母，直接回车就行）" "main"
 NAME=$(echo "$NAME" | tr -cd 'a-z0-9'); [ -n "$NAME" ] || { echo "代号不能为空"; exit 1; }
 echo "2. 花园的机器 token：gg_ 开头，在花园 MCP 连接页按 Generate token 生成（只显示一次）（输入时不显示）"
 secret GTOKEN "   机器令牌"
 ask RELAY "3. 栖所的中转地址（栖所 → 设置 → 工具 → 中转地址）" ""
 secret RTOKEN "4. 中转密码（输入时不显示）"
-ask ROLE "5. 这个 AI 在栖所里的编号（栖所 → 设置 → 唤醒 → 点这个 AI，最下面有「编号」）" ""
+ask ROLE "5. 他在栖所里的编号（现在栖所只住他一个，编号固定是 main，直接回车就行）" "main"
 [ -n "$GTOKEN" ] && [ -n "$RELAY" ] && [ -n "$RTOKEN" ] && [ -n "$ROLE" ] || { echo "有一项没填，重新运行一次吧"; exit 1; }
 
 say "下载唤醒桥、做成镜像（第一次要几分钟）"
@@ -78,5 +78,4 @@ cat <<DONE
   它停了（连接断了会停）：先看记录里写的原因，处理好以后再手动开一次：
                    bash $BASE/start-$NAME.sh
 注意：不要给它设自动重启——花园规定断了就停、由人来重新开，反复自动重连会被封。
-另一个 AI 再运行一次这个安装命令，用另一个代号。
 DONE
