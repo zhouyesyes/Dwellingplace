@@ -49,7 +49,10 @@ exports.verify = async page => {
   await page.locator('button.along').click();
   await page.getByRole('heading', { name: '这一页的共读' }).waitFor();
   await page.locator('.backdrop').filter({ has: page.getByRole('heading', { name: '这一页的共读', exact: true }) }).getByRole('button', { name: '关闭', exact: true }).click();
-  await page.locator('.book-image img').first().click();
+  // 按屏幕上的位置点（像手指点）：locator.click 会先把元素「滚进视野」，分栏书页会被横着挪开
+  await page.waitForFunction(() => !document.querySelector('.backdrop')); // 等上一张卡片收起来
+  const at = await page.locator('.book-image img').first().boundingBox();
+  await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
   await page.getByRole('button', { name: '给他看', exact: true }).click();
   await page.getByRole('heading', { name: '这一页的共读' }).waitFor();
   await page.locator('.backdrop').filter({ has: page.getByRole('heading', { name: '这一页的共读', exact: true }) }).getByRole('button', { name: '关闭', exact: true }).click();

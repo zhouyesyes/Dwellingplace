@@ -24,7 +24,7 @@ exports.prepare = async (page, origin, mode) => {
   if (mode === 'reader-image-only') await require('./reader-image-only.cjs').prepare(page);
   if (mode === 'reader-images') await require('./reader-images.cjs').prepare(page);
   await page.goto(origin + '/?reader-preview=1#/read/preview-book');
-  await page.waitForSelector('.page > p, .book-image');
+  await page.waitForSelector('.page .para, .book-image');
 };
 exports.verify = async (page, mode) => {
   if (mode === 'reader-image-only') return require('./reader-image-only.cjs').verify(page);
@@ -37,7 +37,8 @@ exports.verify = async (page, mode) => {
     el.scrollTo({ left: 0, behavior: 'instant' });
     const first = el.querySelector('p').getClientRects()[0];
     const box = el.getBoundingClientRect(), cs = getComputedStyle(el);
-    const width = el.clientWidth, count = Math.round(el.scrollWidth / width);
+    // 章末后面垫了一栏空白（翻不到），页数按章末那一行在第几页算
+    const width = el.clientWidth, count = Math.floor((el.querySelector('.ch-nav').getBoundingClientRect().left - box.left + 2) / width) + 1;
     el.scrollTo({ left: (count - 1) * width, behavior: 'instant' });
     await frame();
     const last = el.querySelector('.ch-nav').getBoundingClientRect();
@@ -45,7 +46,7 @@ exports.verify = async (page, mode) => {
       firstLeft: first.left - box.left, firstWidth: first.width,
       lastLeft: last.left - box.left, lastWidth: last.width,
       left: parseFloat(cs.paddingLeft), right: parseFloat(cs.paddingRight),
-      spacer: parseFloat(getComputedStyle(el.querySelector('.ch-nav'), '::after').width) };
+      room: el.scrollWidth - (count - 1) * width - width };
   });
   if (mode === 'reader-short') assert.equal(result.count, 1);
   else assert.ok(result.count > 1, '长章节必须跨页');
@@ -55,7 +56,7 @@ exports.verify = async (page, mode) => {
   near(result.lastLeft, result.left, '末页保留左留白');
   near(result.width - result.lastLeft - result.lastWidth, result.right, '末页保留右留白');
   near(result.scroll, (result.count - 1) * result.width, '末页完整滚动');
-  near(result.spacer, result.right, '显式补齐末栏右留白');
+  assert.ok(result.room >= 0, `末页后面要有垫的那一栏，最后一页才滚得到整页: ${result.room}`);
   // 回到首栏再翻到末栏，确保反复翻页仍对齐。
   await page.evaluate(() => { const el = document.querySelector('.page'); el.scrollLeft = 0; el.scrollLeft = el.scrollWidth; });
   await page.waitForTimeout(650);

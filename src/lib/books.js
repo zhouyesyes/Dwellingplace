@@ -4,8 +4,8 @@ import { decodeTxt } from "./txtEncoding.js";
 //                    cover：封面图（images 里的 id），没有就画一个纯色的；n：这一章有几段
 //                    pos / hisPos：你 / 他读到哪；readSecs：你读了多久；mine / his：读完的评分和读后感 { stars, text, at }
 //   book:<id>        正文 { chapters: [{ title, paras: [段落…], media?: [{ p, resource }] }], resources?: { 路径: 图片数据 } }（单独存并同步）
-//   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen }]
-//                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你看没看过）
+//   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen, replyTo }]
+//                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你在书页上看没看到过）；replyTo：回应的是哪一张
 import { resolveEpubPath, epubImageType, imageData } from "./epubImages.js";
 import { unzipSync, strFromU8 } from "fflate";
 import { store, uid } from "../store/index.js";
@@ -189,11 +189,12 @@ export function savePos(b, ch, p) {
   b.readAt = Date.now();
 }
 // 一条划线 / 批注：划在第 ch 章第 p 段的 [start, end) 这几个字上（旧的没有 start / end：按 quote 去段落里找，找不到就是整段）。
-// text 空着 = 只划了线
-export function addNote(b, { ch, p, quote, text, from, start, end }) {
+// text 空着 = 只划了线；replyTo：回应哪一张便利贴
+export function addNote(b, { ch, p, quote, text, from, start, end, replyTo }) {
   store.bookNotes ??= [];
   const n = { id: uid(), bookId: b.id, ch, p, quote: (quote || "").slice(0, 200), text: (text || "").trim().slice(0, 1000), from, ts: Date.now(), seen: false };
   if (start != null && end != null && end > start) Object.assign(n, { start, end });
+  if (replyTo) n.replyTo = replyTo;
   store.bookNotes.push(n);
   return n;
 }

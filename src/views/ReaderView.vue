@@ -1,11 +1,13 @@
 <script setup>
 // 读书：一章一章读。点一下 → 选中那一句（长按可以自己拖着选），下面出来一张小卡片：复制、划线、写想法、问问他。
-// 书页上只留划线（你的暖黄、他的淡蓝，写了想法的线尾有个小数字），点划线才看批注，段落不会被挤开。
+// 写了话的划线，话写在便利贴上，贴在那句话后面（你的黄、他的蓝）；同一句贴了三张以上就叠起来，点开再看。
+// 一屏一页时，便利贴和它那句话总在同一页（贴在页尾放不下，就连那句一起挪到下一页）。只划了线的，点划线看。
+// 右下角「一起读」旁边一张小蓝便利贴：他贴的、你还没看到的，点开是列表，长按一条「跳转 / 忽略」。
 // 右下角「一起读」→ 从你现在这一页往后读十页（你还没读到的，他先读），他挑几句划线、写批注；读到哪就在哪做个淡淡的记号。
 // 给他看的只有这一句 / 这几页，而且是单独问的一次，不进聊天记录。读到哪记在书上（他在聊天里也知道你读到哪了）
 // 右上角 Aa：背景、字号、字体（可以导入自己的字体文件）、翻页还是上下滚；读的时候计时（每天读了多久）
 // 翻页：一屏一页（左右划，或者点屏幕左右两边）
-import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
@@ -49,16 +51,33 @@ function measure() {
   pageW.value = el.clientWidth;
   const cs = getComputedStyle(el);
   padX.value = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-  pageCount.value = paged.value ? Math.max(1, Math.round(el.scrollWidth / el.clientWidth)) : 1;
+  el.style.setProperty("--colh", el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) + "px");
+  pageCount.value = paged.value ? Math.max(1, pageOf(el.querySelector(".ch-nav")?.getBoundingClientRect().left) + 1) : 1;
   pageNo.value = paged.value ? Math.round(el.scrollLeft / el.clientWidth) : 0;
+}
+// 屏幕上横坐标 x 在这一章的第几页
+function pageOf(x) {
+  const el = scroller.value;
+  if (!el || x == null) return 0;
+  return Math.floor((x - el.getBoundingClientRect().left + el.scrollLeft + 2) / el.clientWidth);
 }
 function toPage(n, smooth = true) {
   const el = scroller.value;
   if (!el) return;
   measure();
   n = Math.max(0, Math.min(n, pageCount.value - 1));
+  flipUntil = Date.now() + (smooth ? 800 : 80);
   el.scrollTo({ left: n * el.clientWidth, behavior: smooth ? "smooth" : "auto" });
   pageNo.value = n;
+}
+// 浏览器自己挪了书页（点图片时对焦、拖选文字时跟着滚）：停在半页上、或者挪进章末垫的那栏，就挪回整页
+let flipUntil = 0;
+function guardScroll() {
+  const el = scroller.value;
+  if (!paged.value || !el || Date.now() < flipUntil) return;
+  const w = el.clientWidth, at = el.scrollLeft / w;
+  const n = Math.abs(at - Math.round(at)) * w > 1 ? pageNo.value : Math.min(Math.round(at), pageCount.value - 1);
+  if (Math.abs(el.scrollLeft - n * w) > 1) el.scrollLeft = n * w;
 }
 // 往后 / 往前翻一页；翻过这一章的头尾就去上一章 / 下一章
 function flip(d) {
@@ -80,7 +99,7 @@ function onUp(e) {
 function onTapCapture(e) {
   if (!paged.value) return;
   if (swiped) { swiped = false; e.stopPropagation(); e.preventDefault(); return; }
-  if (sel.value != null || e.target.closest("button, .mk") || !getSelection()?.isCollapsed) return; // 点在划线上：看批注，不翻页
+  if (sel.value != null || e.target.closest("button, .mk, .notes") || !getSelection()?.isCollapsed) return; // 点在划线、便利贴上：看批注，不翻页
   const w = innerWidth;
   if (e.clientX < w * 0.18) { e.stopPropagation(); flip(-1); }
   else if (e.clientX > w * 0.82) { e.stopPropagation(); flip(1); }
@@ -105,9 +124,10 @@ onMounted(async () => {
   content.value = await loadBook(b.value.id);
   ch.value = Math.min(b.value.pos?.ch || 0, content.value.chapters.length - 1);
   await nextTick();
-  ro = new ResizeObserver(() => { const p = b.value?.pos?.p || 0; measure(); jumpTo(p); });
+  ro = new ResizeObserver(() => relayout());
   ro.observe(scroller.value);
   await settleImages();
+  await fixStickies();
   jumpTo(b.value.pos?.p || 0);
   markSeen();
 });
@@ -136,9 +156,11 @@ async function goChapter(i, toEnd = false) {
   ch.value = i;
   sel.value = null;
   tocOpen.value = false;
+  keeps.clear();
   savePos(b.value, i, 0);
   await nextTick();
   await settleImages();
+  await fixStickies();
   if (toEnd && paged.value) { measure(); toPage(pageCount.value - 1, false); }
   else { scroller.value.scrollLeft = 0; jumpTo(0); }
   measure();
@@ -153,19 +175,121 @@ function onScroll() {
     measure();
     const seen = visibleParas();
     savePos(b.value, ch.value, seen.length ? Math.min(...seen) : 0);
+    markSeen();
   }, 500);
 }
 onBeforeUnmount(() => clearTimeout(posTimer));
 
-// 他贴的便利贴：翻到这一章就算你看过了
+// 他贴的便利贴：在屏幕上停了一秒多，才算你看到了（叠起来没展开的，只算最上面那张）
+let seenTimer = 0;
 function markSeen() {
-  setTimeout(() => { for (const n of notesOf(b.value?.id, ch.value)) if (n.from === "ai") n.seen = true; }, 1200);
+  clearTimeout(seenTimer);
+  seenTimer = setTimeout(() => {
+    const el = scroller.value;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    for (const x of el.querySelectorAll(".note.his[data-id]")) {
+      if (![...x.getClientRects()].some(r => r.right > box.left + 10 && r.left < box.right - 10 && r.bottom > box.top + 10 && r.top < box.bottom - 10)) continue;
+      const n = store.bookNotes.find(n => n.id === x.dataset.id);
+      if (n) n.seen = true;
+    }
+  }, 1200);
 }
+onBeforeUnmount(() => clearTimeout(seenTimer));
+
+// ---------- 便利贴 ----------
+// 一段里写了话的划线：重叠的并成一组，便利贴贴在这组句子后面
+const groupsByP = computed(() => {
+  const out = {};
+  for (const [p, ms] of Object.entries(marksByP.value)) {
+    const gs = [];
+    for (const m of ms.filter(m => m.n.text).sort((x, y) => x.s - y.s)) {
+      const g = gs.at(-1);
+      if (g && m.s < g.e) { g.e = Math.max(g.e, m.e); g.list.push(m); }
+      else gs.push({ s: m.s, e: m.e, list: [m] });
+    }
+    for (const g of gs) { g.key = `${ch.value}:${p}:${g.s}`; g.list.sort((x, y) => x.n.ts - y.n.ts); }
+    if (gs.length) out[p] = gs;
+  }
+  return out;
+});
+// 贴在页尾放不下的那几组：那句话另起一行，和便利贴绑在一起挪到下一页
+const keeps = reactive(new Set());
+// 同一句三张以上叠起来；点开的记在这里
+const opened = reactive(new Set());
+// 一段拆成几截：[{ a, z, g, keep, last }]，有便利贴的那截后面跟着便利贴
+function piecesOf(i) {
+  const t = paras.value[i] || "";
+  const out = [];
+  let a = 0;
+  for (const g of groupsByP.value[i] || []) {
+    const e = Math.max(a, Math.min(t.length, g.e));
+    if (keeps.has(g.key) && g.s > a) { out.push({ a, z: g.s }); a = g.s; }
+    out.push({ a, z: e, g, keep: keeps.has(g.key) });
+    a = e;
+  }
+  if (a < t.length || !out.length) out.push({ a, z: t.length });
+  out.at(-1).last = true;
+  return out;
+}
+// 一屏一页：便利贴和它那句话不在同一页（那句在页尾，便利贴被挤到下一页），就把那句和便利贴绑在一起
+async function fixStickies() {
+  const el = scroller.value;
+  if (!paged.value || !el) return;
+  for (let round = 0; round < 5; round++) {
+    measure();
+    let more = false;
+    for (const nb of el.querySelectorAll(".notes[data-g]")) {
+      const key = nb.dataset.g;
+      if (keeps.has(key)) continue;
+      const at = el.querySelector(`[data-at="${CSS.escape(key)}"]`)?.getClientRects()[0];
+      const rs = [...nb.getClientRects()];
+      if (!at || !rs.length) continue;
+      const pg = pageOf(at.left);
+      if (rs.some(r => pageOf(r.left) !== pg || pageOf(r.right - 4) !== pg)) { keeps.add(key); more = true; }
+    }
+    if (!more) return;
+    await nextTick();
+  }
+}
+// 排版变了（屏幕尺寸、字号、字体、展开叠着的便利贴）：重新排，回到刚才读的那一段
+let relaying = false, again = false;
+async function relayout() {
+  if (relaying) return (again = true); // 正在排：排完再来一遍
+  relaying = true;
+  try {
+    do {
+      again = false;
+      const p = b.value?.pos?.p || 0;
+      keeps.clear();
+      await nextTick();
+      measure();
+      await fixStickies();
+      jumpTo(p);
+    } while (again);
+  } finally {
+    relaying = false;
+  }
+}
+function toggleStack(g) {
+  if (opened.has(g.key)) opened.delete(g.key); else opened.add(g.key);
+  nextTick(async () => { await fixStickies(); markSeen(); });
+}
+// 便利贴上回的是哪张：「回 他：……」
+const replyOf = n => n.replyTo && store.bookNotes.find(x => x.id === n.replyTo);
+// 点便利贴：打开这一组（看全文、删掉、回应他）
+function openGroup(i, g) {
+  clearSel();
+  marksSheet.value = { p: i, s: g.s, e: g.e, list: g.list };
+  for (const m of g.list) m.n.seen = true;
+}
+// 书里有了新便利贴、删了一张：重新看看哪组要挪页
+watch(() => notesOf(b.value?.id, ch.value).filter(n => n.text).length, () => nextTick(fixStickies));
 
 // ---------- 划线和批注 ----------
 // 一条划线在这段里是哪几个字
 function rangeOf(n, para) {
-  if (n.start != null && n.end != null && n.end <= para.length) return [n.start, n.end];
+  if (n.start >= 0 && n.end > n.start && n.end <= para.length) return [n.start, n.end];
   const q = (n.quote || "").replace(/…$/, "").trim();
   const i = q ? para.indexOf(q.slice(0, 40)) : -1;
   return i >= 0 ? [i, Math.min(para.length, i + q.length)] : [0, para.length];
@@ -180,30 +304,30 @@ const marksByP = computed(() => {
   }
   return m;
 });
-// 一段拆成几截：哪截有你的线、他的线、正选着；写了想法的线，在线尾标个数
-function segsOf(i) {
+// 一段（的 [a0, z0) 这一截）拆成几小截：哪截有你的线、他的线、正选着；贴了便利贴的那句，开头那截记下是哪一组
+function segsOf(i, a0 = 0, z0 = (paras.value[i] || "").length) {
   const t = paras.value[i] || "";
   const ms = marksByP.value[i] || [];
   const temp = sel.value && !sel.value.native && sel.value.p === i ? [{ s: sel.value.start, e: sel.value.end, temp: true }] : [];
   const all = [...ms, ...temp];
-  if (!all.length) return [{ text: t, a: 0 }];
-  const xs = [...new Set([0, t.length, ...all.flatMap(m => [m.s, m.e])])].filter(x => x >= 0 && x <= t.length).sort((x, y) => x - y);
+  if (!all.length) return [{ text: t.slice(a0, z0), a: a0 }];
+  const starts = Object.fromEntries((groupsByP.value[i] || []).map(g => [g.s, g.key]));
+  const xs = [...new Set([a0, z0, ...all.flatMap(m => [m.s, m.e])])].filter(x => x >= a0 && x <= z0).sort((x, y) => x - y);
   const out = [];
   for (let k = 0; k < xs.length - 1; k++) {
     const a = xs[k], z = xs[k + 1];
     if (a === z) continue;
     const cover = all.filter(m => m.s <= a && m.e >= z);
-    const ends = ms.filter(m => m.e === z && m.n.text).length;
-    out.push({ text: t.slice(a, z), a, me: cover.some(m => m.n?.from === "me"), his: cover.some(m => m.n?.from === "ai"), temp: cover.some(m => m.temp), n: ends });
+    out.push({ text: t.slice(a, z), a, me: cover.some(m => m.n?.from === "me"), his: cover.some(m => m.n?.from === "ai"), temp: cover.some(m => m.temp), at: starts[a] });
   }
   return out;
 }
-// 段落里第几个字（按看得见的文字数，线尾的小数字不算）
+// 段落里第几个字（按看得见的文字数）；一段拆成几截时，data-a 是这一截从第几个字开始
 function offsetIn(pEl, node, off) {
   const rg = document.createRange();
   rg.selectNodeContents(pEl);
   rg.setEnd(node, off);
-  return rg.toString().length;
+  return Number(pEl.dataset.a || 0) + rg.toString().length;
 }
 // 点到的那个字所在的一句：前后找句号、问号、叹号……
 function sentenceAt(t, i) {
@@ -267,8 +391,8 @@ function lineSel() {
   addNote(b.value, { ...here(), text: "", from: "me" });
   clearSel();
 }
-const sheet = ref(null); // { mode: "note" | "ask", text, at }
-function openSheet(mode, at = here()) { sheet.value = { mode, text: "", at }; }
+const sheet = ref(null); // { mode: "note" | "ask" | "reply", text, at, to }（to：回应他的哪张便利贴）
+function openSheet(mode, at = here(), to = null) { sheet.value = { mode, text: "", at, to }; }
 function saveNote() {
   const s = sheet.value;
   if (!s.text.trim()) return toast("还没写呢");
@@ -278,6 +402,27 @@ function saveNote() {
 }
 // 从批注里接着写 / 问他：还是这几个字
 const fromMarks = (mode) => { const m = marksSheet.value.list[0]; marksSheet.value = null; openSheet(mode, { ch: ch.value, p: m.n.p, start: m.s, end: m.e, quote: (paras.value[m.n.p] || "").slice(m.s, m.e) }); };
+// 回应他的一张便利贴：贴在同一句上
+const replyTo = (m) => { marksSheet.value = null; openSheet("reply", { ch: ch.value, p: m.n.p, start: m.s, end: m.e, quote: (paras.value[m.n.p] || "").slice(m.s, m.e) }, m.n); };
+// 只贴上（他下次读到这里会看到）；或者贴上，再让他回一句
+async function saveReply(askBack) {
+  const s = sheet.value;
+  if (!s.text.trim()) return toast("还没写呢");
+  const mine = addNote(b.value, { ...s.at, text: s.text, from: "me", replyTo: s.to.id });
+  sheet.value = null;
+  if (!askBack || !role.value) return;
+  asking.value = true;
+  try {
+    const { text, notes } = await askHim(role.value, b.value, { ch: s.at.ch, p: s.at.p, paras: paras.value, chapterTitle: chapterTitle.value, question: s.text.trim(), quote: s.at.quote, thread: s.to.text });
+    mine.seen = true;
+    addNote(b.value, { ...s.at, text, from: "ai", replyTo: mine.id }).seen = true;
+    toast(notes[0] || `${role.value.name} 回了你一张便利贴`, 2500);
+  } catch (e) {
+    toast(`没问到：${describeError(e)}`, 4000);
+  } finally {
+    asking.value = false;
+  }
+}
 function dropMark(n) {
   if (n.text && !confirm(`删掉这条批注？\n\n${n.text.slice(0, 60)}`)) return;
   removeNote(n);
@@ -340,7 +485,6 @@ async function readThisPage() {
     if (res.imageOnly) { imageReply.value = res.text; petOnce("success"); return; }
     b.value.alongTo = res.upTo;
     await placeAlong(b.value, res.notes, -1);
-    for (const n of store.bookNotes.slice(-res.notes.length)) n.seen = n.ch !== ch.value;
     const endTitle = content.value.chapters[res.upTo.ch]?.title || `第 ${res.upTo.ch + 1} 章`;
     toast(res.memNotes[0] || `${r.name} 往后读了十来页，划了 ${res.notes.length} 处，读到「${endTitle}」那里做了个记号`, 3200);
     petOnce("success");
@@ -378,9 +522,8 @@ const pageStyle = computed(() => {
 });
 // 换了字号、字体、翻页方式：排版变了，回到刚才读的那一段
 watch(() => [store.readerPrefs.size, store.readerPrefs.font, store.readerPrefs.mode, fontFamily.value], async () => {
-  const p = b.value?.pos?.p || 0;
   await nextTick();
-  setTimeout(() => { measure(); jumpTo(p); }, 60);
+  setTimeout(relayout, 60);
 });
 
 const prefsOpen = ref(false);
@@ -398,6 +541,38 @@ async function importFont() {
 const dropFont = f => { if (confirm(`删掉字体「${f.name}」？`)) removeFont(f); };
 const infoOpen = ref(false);
 const atEnd = computed(() => b.value && ch.value === b.value.chapters.length - 1);
+
+// ---------- 小蓝便利贴：他贴的、你还没看到的 ----------
+const unread = computed(() => (b.value ? notesOf(b.value.id) : []).filter(n => n.from === "ai" && n.text && !n.seen)
+  .sort((x, y) => x.ch - y.ch || x.p - y.p || (x.start || 0) - (y.start || 0)));
+const hisAny = computed(() => (b.value ? notesOf(b.value.id) : []).some(n => n.from === "ai" && n.text));
+const trackOpen = ref(false);
+const trackAct = ref(null); // 长按了哪一条：出来「跳转 / 忽略」
+const trackOpenOne = ref(null); // 点了哪一条：展开全文
+let pressT = 0, pressed = false;
+function pressStart(n) { pressed = false; clearTimeout(pressT); pressT = setTimeout(() => { pressed = true; trackAct.value = n; navigator.vibrate?.(10); }, 450); }
+const pressEnd = () => clearTimeout(pressT);
+function tapTrack(n) { if (pressed) return (pressed = false); trackOpenOne.value = trackOpenOne.value === n.id ? null : n.id; }
+const chTitle = i => b.value?.chapters[i]?.title || `第 ${i + 1} 章`;
+function ignore(n) { n.seen = true; trackAct.value = null; }
+// 跳过去：翻到那张便利贴所在的那一页，闪一下
+async function jumpNote(n) {
+  trackAct.value = null;
+  trackOpen.value = false;
+  if (n.ch !== ch.value) await goChapter(n.ch);
+  const g = (groupsByP.value[n.p] || []).find(g => g.list.some(m => m.n === n));
+  if (g && g.list.length >= 3 && !opened.has(g.key)) { opened.add(g.key); await nextTick(); await fixStickies(); }
+  await nextTick();
+  const x = scroller.value?.querySelector(`.note[data-id="${n.id}"]`);
+  if (!x) return toast("这张便利贴找不到原来的位置了");
+  if (paged.value) { measure(); toPage(pageOf(x.getClientRects()[0].left)); }
+  else scroller.value.scrollTop = Math.max(0, x.offsetTop - scroller.value.clientHeight / 3);
+  x.classList.remove("flash");
+  void x.offsetWidth;
+  x.classList.add("flash");
+  markSeen();
+}
+onBeforeUnmount(() => clearTimeout(pressT));
 
 const tocOpen = ref(false);
 const who = n => (n.from === "me" ? "我" : role.value?.name || "他");
@@ -418,19 +593,40 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     </header>
 
     <main ref="scroller" class="page" :class="{ paged }" :style="paged && pageW ? { '--colw': pageW - padX + 'px', '--colgap': padX + 'px' } : null"
-      @scroll.passive="onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
+      @scroll.passive="guardScroll(); onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
         <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" />
-        <p :data-p="i" :class="{ 'his-end': b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-n="g.n || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
+        <div v-for="pc in piecesOf(i)" :key="pc.a" class="pc" :class="{ keep: pc.keep }">
+          <p class="para" :class="{ cont: pc.a > 0, cut: !pc.last && !pc.g, 'his-end': pc.last && b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-p="i" :data-a="pc.a || null" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i, pc.a, pc.z)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-at="g.at || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
+          <div v-if="pc.g" class="notes" :class="{ stack: pc.g.list.length >= 3 && !opened.has(pc.g.key) }" :data-g="pc.g.key">
+            <template v-if="pc.g.list.length >= 3 && !opened.has(pc.g.key)">
+              <div class="note" :class="pc.g.list.at(-1).n.from === 'me' ? 'mine' : 'his'" :data-id="pc.g.list.at(-1).n.id" @click="toggleStack(pc.g)">
+                <i class="tape" /><p>{{ pc.g.list.at(-1).n.text }}</p>
+                <span class="more">这句上一共 {{ pc.g.list.length }} 张 · 点开</span>
+              </div>
+            </template>
+            <template v-else>
+              <div v-for="m in pc.g.list" :key="m.n.id" class="note" :class="m.n.from === 'me' ? 'mine' : 'his'" :data-id="m.n.id" @click="openGroup(i, pc.g)">
+                <i class="tape" />
+                <small v-if="replyOf(m.n)" class="re">回{{ replyOf(m.n).from === "me" ? "我" : role?.name || "他" }}：{{ replyOf(m.n).text.slice(0, 18) }}{{ replyOf(m.n).text.length > 18 ? "…" : "" }}</small>
+                <p>{{ m.n.text }}</p>
+                <span>— {{ who(m.n) }} · {{ when(m.n.ts) }}</span>
+              </div>
+              <button v-if="pc.g.list.length >= 3" class="fold" @click="toggleStack(pc.g)">叠起来</button>
+            </template>
+          </div>
+        </div>
       </template>
-      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" :role="!paras.length ? 'button' : null" :tabindex="!paras.length ? 0 : null" :aria-label="!paras.length ? '问问他：当前图片页' : null" @keydown.enter="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" />
+      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" :role="!paras.length ? 'button' : null" :tabindex="!paras.length ? 0 : null" :aria-label="!paras.length ? '问问他：当前图片页' : null" @mousedown="!paras.length && $event.preventDefault()" @keydown.enter="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" />
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>
         <button v-if="!atEnd" class="btn" @click="goChapter(ch + 1)">下一章 ›</button>
         <button v-else class="btn" @click="infoOpen = true">{{ b.mine ? "看读后感" : "读完了，打个分" }}</button>
       </nav>
+      <!-- 一屏一页：章末后面多垫一栏空白，最后一页才能完整翻过去（有的浏览器算不上右边的留白，末页会偏右） -->
+      <div v-if="paged" class="tail" aria-hidden="true" />
     </main>
 
     <span v-if="paged && pageCount > 1" class="pgno">{{ pageNo + 1 }} / {{ pageCount }}</span>
@@ -441,9 +637,14 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     </div>
     <!-- 桌宠：站在「一起读」上面；平时在读书，他在想的时候托着脑袋 -->
     <div v-if="sel == null && petOn()" class="pet-read" @pointerdown="petActive()"><PetDock :work="petErr ? 'error' : asking ? 'think' : null" base="read" :roam="false" /></div>
-    <button v-if="sel == null" class="along" :class="{ busy: along || asking }" :disabled="along || asking" @click="readThisPage">
-      <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : asking ? `${role?.name || "他"}在想…` : "一起读" }}
-    </button>
+    <div v-if="sel == null" class="dockr">
+      <button v-if="hisAny" class="track" :class="{ none: !unread.length }" :aria-label="`${role?.name || '他'}的便利贴，${unread.length} 张没看`" @click="trackOpen = true">
+        <i class="tape" /><b v-if="unread.length">{{ unread.length > 99 ? "99+" : unread.length }}</b>
+      </button>
+      <button class="along" :class="{ busy: along || asking }" :disabled="along || asking" @click="readThisPage">
+        <Icon name="chat" :size="17" />{{ along ? `${role?.name || "他"}在读…` : asking ? `${role?.name || "他"}在想…` : "一起读" }}
+      </button>
+    </div>
 
     <!-- 选中一句：下面一张小卡片 -->
     <Transition name="pop">
@@ -462,8 +663,13 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     <Sheet :open="!!sheet" :title="sheet?.mode === 'ask' ? `问问${role?.name || '他'}` : '写想法'" @close="sheet = null">
       <div v-if="sheet" class="compose">
         <blockquote>{{ sheet.at.quote.slice(0, 160) }}{{ sheet.at.quote.length > 160 ? "…" : "" }}</blockquote>
-        <textarea v-model="sheet.text" class="input" rows="4" :placeholder="sheet.mode === 'ask' ? '想问他什么（可以不写，他会自己说说读到这里的想法）' : '在这句旁边写点什么'" />
-        <button class="btn" @click="sheet.mode === 'ask' ? ask() : saveNote()">{{ sheet.mode === "ask" ? "给他看" : "写上" }}</button>
+        <div v-if="sheet.to" class="mnote his"><p>{{ sheet.to.text }}</p></div>
+        <textarea v-model="sheet.text" class="input" rows="4" :placeholder="sheet.mode === 'ask' ? '想问他什么（可以不写，他会自己说说读到这里的想法）' : sheet.mode === 'reply' ? `回${role?.name || '他'}一句` : '在这句旁边写点什么'" />
+        <div v-if="sheet.mode === 'reply'" class="row2">
+          <button class="btn soft" @click="saveReply(false)">贴上</button>
+          <button class="btn" :disabled="asking" @click="saveReply(true)">贴上，让{{ role?.name || "他" }}回</button>
+        </div>
+        <button v-else class="btn" @click="sheet.mode === 'ask' ? ask() : saveNote()">{{ sheet.mode === "ask" ? "给他看" : "写上" }}</button>
       </div>
     </Sheet>
 
@@ -472,19 +678,36 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     </Sheet>
 
     <!-- 点了划线：这句上的批注 -->
-    <Sheet :open="!!marksSheet" title="划线" @close="marksSheet = null">
+    <Sheet :open="!!marksSheet" :title="marksSheet?.s != null ? '便利贴' : '划线'" @close="marksSheet = null">
       <div v-if="marksSheet" class="compose">
-        <blockquote>{{ (paras[marksSheet.p] || "").slice(marksSheet.list[0].s, marksSheet.list[0].e).slice(0, 200) }}</blockquote>
+        <blockquote>{{ (paras[marksSheet.p] || "").slice(marksSheet.s ?? marksSheet.list[0].s, marksSheet.e ?? marksSheet.list[0].e).slice(0, 200) }}</blockquote>
         <div class="mlist">
           <div v-for="m in marksSheet.list" :key="m.n.id" class="mnote" :class="m.n.from === 'me' ? 'mine' : 'his'">
+            <small v-if="replyOf(m.n)" class="re">回{{ replyOf(m.n).from === "me" ? "我" : role?.name || "他" }}：{{ replyOf(m.n).text.slice(0, 40) }}{{ replyOf(m.n).text.length > 40 ? "…" : "" }}</small>
             <p v-if="m.n.text">{{ m.n.text }}</p>
             <p v-else class="only">{{ m.n.ask ? `问了问${role?.name || "他"}` : "只划了线" }}</p>
-            <div class="mf"><small>— {{ who(m.n) }} · {{ when(m.n.ts) }}</small><button @click="dropMark(m.n)">删掉</button></div>
+            <div class="mf"><small>— {{ who(m.n) }} · {{ when(m.n.ts) }}</small><button v-if="m.n.from === 'ai' && m.n.text" class="re-btn" @click="replyTo(m)">回应</button><button @click="dropMark(m.n)">删掉</button></div>
           </div>
         </div>
         <div class="row2">
           <button class="btn soft" @click="fromMarks('note')">写想法</button>
           <button class="btn" @click="fromMarks('ask')">问问{{ role?.name || "他" }}</button>
+        </div>
+      </div>
+    </Sheet>
+
+    <Sheet :open="trackOpen" :title="`${role?.name || '他'}的便利贴`" @close="trackOpen = false; trackAct = null">
+      <div class="track-list">
+        <p v-if="!unread.length" class="track-empty">{{ role?.name || "他" }}贴的都看过了</p>
+        <p v-else class="track-tip">还没看到的 {{ unread.length }} 张 · 长按一条：跳转 / 忽略</p>
+        <div v-for="n in unread" :key="n.id" class="titem" :class="{ held: trackAct === n }"
+          @pointerdown="pressStart(n)" @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd" @contextmenu.prevent @click="tapTrack(n)">
+          <small>{{ chTitle(n.ch) }}{{ n.quote ? ` ·「${n.quote.slice(0, 16)}${n.quote.length > 16 ? "…" : ""}」` : "" }}</small>
+          <p :class="{ full: trackOpenOne === n.id }">{{ n.text }}</p>
+          <div v-if="trackAct === n" class="tacts" @click.stop @pointerdown.stop>
+            <button @click="jumpNote(n)">跳转</button>
+            <button @click="ignore(n)">忽略</button>
+          </div>
         </div>
       </div>
     </Sheet>
@@ -544,24 +767,55 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .page.paged { min-height: 0; max-width: none; overflow: hidden; column-width: var(--colw, 300px); column-gap: var(--colgap, 48px); column-fill: auto; padding-bottom: calc(var(--safe-bottom) + 84px); touch-action: pan-y pinch-zoom; }
 @media (min-width: 768px) { .page.paged { padding-left: max(24px, calc((100% - 720px) / 2)); padding-right: max(24px, calc((100% - 720px) / 2)); } }
 .page.paged .ch-nav { break-inside: avoid; position: relative; }
-/* Safari 的多栏滚动末尾可能不计右 padding，末页会少滚一段留白。
-   用章末导航的定位溢出显式补足右留白，不参与排版，也不增加新的一栏。 */
-.page.paged .ch-nav::after { content: ""; position: absolute; top: 0; left: 100%; width: calc(var(--colgap, 48px) / 2); height: 1px; pointer-events: none; }
+/* 章末后面垫一整栏空白：Safari 的多栏滚动末尾不计右留白，最后一页会少滚一段、字偏右。
+   多垫一栏，最后一页总能滚到整页的位置；页数按章末那一行算，这一栏翻不到 */
+.page.paged .tail { break-before: column; height: var(--colh, 100%); }
 .pgno { position: fixed; left: 22px; bottom: calc(var(--safe-bottom) + 34px); z-index: 2; font-size: .72rem; color: var(--text-3); letter-spacing: .05em; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
-.page > p { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
+.page .para { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
 /* 划线：你的暖黄、他的淡蓝；两个人都划了就叠在一起。写了想法的线尾，有个小小的数字 */
 .mk { border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .mk.me { text-decoration: underline 2px rgba(214, 160, 60, .75); text-underline-offset: 5px; }
 .mk.his { text-decoration: underline 2px dotted rgba(92, 142, 205, .85); text-underline-offset: 5px; }
 .mk.me.his { text-decoration: underline 2px rgba(150, 140, 190, .85); }
 .mk.temp { background: rgba(217, 164, 65, .22); }
-.mk[data-n]::after { content: attr(data-n); display: inline; margin-left: 2px; padding: 0 4px; line-height: 1; border-radius: 7px; font-size: 9px; text-align: center; text-indent: 0; vertical-align: super; background: rgba(214, 160, 60, .85); color: #fff; font-weight: 600; font-family: var(--font); }
-.mk.his[data-n]::after { background: rgba(92, 142, 205, .9); }
+/* 一段拆成几截：平时就像一段（截和截之间不留空、不缩进）；要和便利贴绑在一起的那句，整块不跨页 */
+.pc { display: contents; }
+.pc.keep { display: block; break-inside: avoid; -webkit-column-break-inside: avoid; }
+.page .para.cont { text-indent: 0; }
+.page .para.cut { margin-bottom: 0; }
+/* 便利贴：贴在那句后面，你的黄、他的蓝（靠右），歪一点点，顶上一截胶带 */
+.notes { display: flex; flex-direction: column; gap: 12px; margin: 4px 0 18px; break-inside: avoid; -webkit-column-break-inside: avoid; }
+.note { position: relative; width: fit-content; max-width: 86%; padding: 14px 14px 9px; border-radius: 2px; box-shadow: 0 6px 14px rgba(60, 45, 30, .14); cursor: pointer; transform: rotate(-1.2deg); font-family: var(--font); text-indent: 0; }
+.note:nth-child(even) { transform: rotate(1deg); }
+.note.mine { background: #fff1a8; }
+.note.his { background: #dcebfc; align-self: flex-end; }
+.note p { margin: 0; font-size: .9rem; line-height: 1.7; white-space: pre-wrap; color: #3b3128; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.note span { display: block; margin-top: 6px; font-size: .68rem; color: rgba(60, 45, 30, .5); text-align: right; }
+.note .re { display: block; margin-bottom: 4px; font-size: .68rem; color: rgba(60, 45, 30, .55); }
+.tape { position: absolute; top: -8px; left: 50%; width: 46px; height: 16px; transform: translateX(-50%) rotate(-3deg); background: rgba(255, 255, 255, .55); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+/* 叠起来的：最上面一张，后面露出两张的边 */
+.notes.stack .note { box-shadow: 0 6px 14px rgba(60, 45, 30, .14), 5px 5px 0 -1px #f3e6a0, 10px 10px 0 -2px #e9ddb0; }
+.notes.stack .note.his { box-shadow: 0 6px 14px rgba(60, 45, 30, .14), -5px 5px 0 -1px #cddff4, -10px 10px 0 -2px #c3d3e6; }
+.notes.stack .note p { -webkit-line-clamp: 3; }
+.note .more { color: #9a7b3f; }
+.note.his .more { color: #4d79ad; }
+.fold { align-self: center; border: 0; background: none; font-size: .72rem; color: var(--text-3); padding: 2px 10px; }
+.note.flash { animation: flash 1.4s ease-out; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 4px rgba(92, 142, 205, .55), 0 6px 14px rgba(60, 45, 30, .14); } }
+/* 深色：纸暗下来一点，字还看得清 */
+:root[data-theme="dark"] .note, .night .note { filter: brightness(.78) saturate(.85); }
 .pet-read { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px + 42px); width: 180px; height: 0; z-index: 3; pointer-events: none; }
 /* 他一起读读到的地方：段落末尾一个淡淡的小记号 */
 .his-end::after { content: " · " attr(data-his) "读到这里"; font-size: .62em; letter-spacing: .05em; color: rgba(92, 142, 205, .75); white-space: nowrap; }
-.along { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: var(--on-ink); font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
+.dockr { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px); z-index: 3; display: flex; align-items: center; gap: 12px; }
+/* 「一起读」旁边的小蓝便利贴：数字是他贴的、你还没看到的 */
+.track { position: relative; width: 38px; height: 38px; border: 0; border-radius: 2px; padding: 0; background: #dcebfc; color: #2f5d93; transform: rotate(4deg); box-shadow: 0 6px 14px rgba(30, 40, 60, .18); display: grid; place-items: center; }
+.track .tape { width: 24px; height: 10px; top: -5px; }
+.track b { font-size: .8rem; font-weight: 700; font-family: var(--font); }
+.track.none { opacity: .75; }
+:root[data-theme="dark"] .track { filter: brightness(.82); }
+.along { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 11px 16px; background: var(--ink); color: var(--on-ink); font-weight: 600; font-size: .85rem; box-shadow: 0 10px 26px rgba(30, 30, 40, .22); }
 .along.busy { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .55; } }
 .tip { position: fixed; left: 18px; right: 18px; bottom: calc(var(--safe-bottom) + 80px); z-index: 3; max-width: 520px; margin: 0 auto; padding: 12px 14px; border-radius: 16px; background: rgba(var(--glass-rgb), .96); color: var(--text); font-size: .82rem; line-height: 1.7; box-shadow: 0 10px 30px rgba(30, 30, 40, .16); }
@@ -583,6 +837,19 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .mf { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .mf small { flex: 1; font-size: .7rem; color: rgba(60, 45, 30, .5); }
 .mf button { border: 0; background: rgba(var(--glass-rgb), .7); border-radius: 999px; padding: 3px 10px; font-size: .72rem; color: #8a5a50; }
+.mf .re-btn { color: #4d79ad; }
+.mnote .re { display: block; margin-bottom: 4px; font-size: .72rem; color: var(--text-3); }
+.track-list { display: flex; flex-direction: column; gap: 10px; max-height: 62vh; overflow-y: auto; padding: 4px 2px 6px; }
+.track-tip, .track-empty { margin: 0 4px 2px; font-size: .76rem; color: var(--text-3); }
+.track-empty { text-align: center; padding: 24px 0; }
+.titem { padding: 10px 14px; border-radius: 4px; background: color-mix(in srgb, #e3eefb var(--pastel), var(--card)); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: pointer; transition: transform .15s; }
+.titem.held { transform: scale(.98); }
+.titem small { display: block; font-size: .7rem; color: var(--text-3); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.titem p { margin: 0; font-size: .88rem; line-height: 1.65; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+.titem p.full { display: block; }
+.tacts { display: flex; gap: 8px; margin-top: 8px; }
+.tacts button { flex: 1; border: 0; border-radius: 999px; padding: 7px 0; font-size: .8rem; background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); }
+.tacts button:first-child { background: var(--ink); color: var(--on-ink); }
 .row2 { display: flex; gap: 8px; margin-top: 4px; }
 .row2 .btn { flex: 1; }
 .pop-enter-active, .pop-leave-active { transition: opacity .2s, transform .2s; }

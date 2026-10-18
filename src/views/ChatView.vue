@@ -1088,7 +1088,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 /* 输入面板 */
 /* 悬空的一张卡片（和共写一样）：聊天从它后面滑过去，不被切开 */
 .composer {
-  position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 5;
+  position: absolute; left: 0; right: 0; bottom: var(--dock-bottom); z-index: 5;
   width: calc(100% - 28px); max-width: 800px; margin: 0 auto; box-sizing: border-box;
   background: rgba(var(--glass-rgb), .97); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   border-radius: 28px; box-shadow: 0 8px 30px rgba(40, 40, 60, .12);
