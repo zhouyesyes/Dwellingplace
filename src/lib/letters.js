@@ -2,7 +2,7 @@
 //   你的信：自己挑信纸。可以上锁——上锁的他只知道有这封信，你开锁后他才读得到。
 //   他的信：他在回复里写 [写信:标题|正文] 或 [写信:标题|正文|信纸名]，没写信纸就用星夜（醒来时写的也算）
 // 他读信：没上锁、他还没读过的信，下一次聊天时附在【此刻】里给他看，看过就记下来（见 moment.js）
-import { store, uid, MAIN, roleById } from "../store/index.js";
+import { store, uid, MAIN } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 import { PAPERS, paperByName, DEFAULT_HIS } from "./stationery.js";
 
@@ -48,4 +48,3 @@ export function lettersForAI(role, who) {
   ].join("\n");
 }
 
-export const authorOf = l => (l.from === "me" ? "me" : roleById(l.roleId) || null);

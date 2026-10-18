@@ -47,14 +47,6 @@ export async function regenRoom(role, id, mid) {
   await cutAfter(id, mid, false);
   return roomTalk(role, id, "");
 }
-export async function editRoomAndResend(role, id, mid, text) {
-  const m = (await loadRoom(id)).find(x => x.id === mid);
-  if (!m) return;
-  m.text = text.trim();
-  m.edited = true;
-  await cutAfter(id, mid, true);
-  return roomTalk(role, id, "");
-}
 
 export const roomLimit = writeTokens; // 和共写的讨论用同一个上限（默认 3 万）
 export const roomAutoAt = () => Math.round(roomLimit() * AUTO);

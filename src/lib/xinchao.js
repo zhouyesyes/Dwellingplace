@@ -219,13 +219,6 @@ export async function testDash(role) {
   return snap?.identity?.agentName || "心潮";
 }
 
-// ---------- 显示用 ----------
-// 驱力的颜色：想念/亲近这类偏粉，责任/反思偏蓝，生气难过偏紫灰
-const DRIVE_TONE = {
-  possess: "#f2a7bd", monitor: "#f4b6c6", favored: "#f5a3b5", libido: "#f0a0b8", share: "#f7c59f",
-  curiosity: "#9fd8c4", boredom: "#c9d3a3", duty: "#a8c4ec", reflection: "#b6b3e6", anger: "#c4b0d9", grieve: "#b8c2d8",
-};
-export const driveColor = key => DRIVE_TONE[key] || "#e8b4c8";
 
 // 情绪的颜色：愉悦高偏暖，低偏冷
 export function moodColor(valence = 0.5) {

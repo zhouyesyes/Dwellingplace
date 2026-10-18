@@ -962,7 +962,6 @@ export { describeError };
 
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
-export const HUG_TEXT = "（抱了抱你）";
 export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null, poke = false } = {}) {
   // 他正在续发：她说话了就别接着自说自话，停下来（已经发出去的留着），先听她的
   if (following[thread.id]) {
