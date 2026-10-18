@@ -44,8 +44,6 @@ function setHelper(v) {
       </label>
     </div>
 
-    <div class="section-label">聊天</div>
-    <p class="hint moved">他每次带多少聊天原文，搬到聊天里了：私聊点输入框上面的 token 数字、群聊点「用量」，往左滑就能调；记忆库右上角 ⚙ 里也能调。</p>
 
     <div class="section-label">更多</div>
     <div class="list-card">
@@ -81,7 +79,6 @@ function setHelper(v) {
 </template>
 
 <style scoped>
-.moved { font-size: 0.82rem; color: var(--text-3); line-height: 1.7; margin: 0 6px 18px; }
 .num-input { width: 70px; border: 0; background: var(--bg); border-radius: 10px; padding: 6px 8px; text-align: center; outline: none; }
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
