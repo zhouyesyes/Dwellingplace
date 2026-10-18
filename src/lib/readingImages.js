@@ -48,7 +48,7 @@ async function raster(source) {
 export async function readingPageParts(page) {
   if (!page?.images?.length) return [];
   const ahead = page.images.some(m => m.ahead);
-  const parts = [{ type: 'text', text: `【点击时当前页】\n${page.text}\n${ahead ? '以下图片出现在当前页或这次往后读的范围里（每张标了在第几章、哪一段之前）；没列出的图片没有提供。' : '仅以下图片实际出现在当前页；后续预读文字不代表其图片已提供。'}按正文顺序最多提供前 4 张，最长边 1600px，单图编码 2 MiB、图片编码总计 6 MiB；动图仅首帧。占位项没有画面，不得声称看见，不能把 alt 或题注当成视觉证据。` }];
+  const parts = [{ type: 'text', text: `${page.text ? `【点击时当前页】\n${page.text}\n` : ""}${ahead ? '以下图片出现在当前页或这次往后读的范围里（每张标了在第几章、哪一段之前）；没列出的图片没有提供。' : '仅以下图片实际出现在当前页；后续预读文字不代表其图片已提供。'}按正文顺序最多提供前 4 张，最长边 1600px，单图编码 2 MiB、图片编码总计 6 MiB；动图仅首帧。占位项没有画面，不得声称看见，不能把 alt 或题注当成视觉证据。` }];
   let total = 0;
   for (let i = 0; i < Math.min(page.images.length, 20); i++) {
     const m = page.images[i];
