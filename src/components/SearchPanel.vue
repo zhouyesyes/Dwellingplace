@@ -53,7 +53,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { year: "numeric", month
                 <div class="meta"><span>{{ when(h.m.ts) }} · {{ h.m.from === "user" ? me : role.name }}</span>
                   <button class="star" :class="{ on: isFav(h.m) }" :aria-label="isFav(h.m) ? '取消收藏' : '收藏'" @click.stop="toggleFav(h.thread, h.m)"><Icon name="star" :size="17" /></button></div>
                 <p>{{ openHit[h.m.id] ? h.text : snippet(h.text, q) }}</p>
-                <button v-if="openHit[h.m.id]" class="btn soft small" @click.stop="emit('go', h.thread.id)">去这段对话</button>
+                <button v-if="openHit[h.m.id]" class="btn soft small" @click.stop="emit('go', h.thread.id, h.m.id)">去这段对话</button>
               </article>
             </div>
             <p v-if="searching" class="hint">在找……</p>
@@ -67,7 +67,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { year: "numeric", month
                 <div class="meta"><span>{{ when(f.ts) }} · {{ whoName(f, me) }}</span>
                   <button class="star on" aria-label="取消收藏" @click.stop="unfav(f)"><Icon name="star" :size="17" /></button></div>
                 <p :class="{ clamp: !openHit[f.id] }">{{ f.text }}</p>
-                <button v-if="openHit[f.id] && store.threads.some(t => t.id === f.threadId)" class="btn soft small" @click.stop="emit('go', f.threadId)">去这段对话</button>
+                <button v-if="openHit[f.id] && store.threads.some(t => t.id === f.threadId)" class="btn soft small" @click.stop="emit('go', f.threadId, f.msgId)">去这段对话</button>
               </article>
             </div>
             <p v-if="!favs.length" class="hint">还没有收藏。在聊天里长按一条消息点「收藏」，或者搜到以后点 ☆。</p>

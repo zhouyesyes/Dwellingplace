@@ -505,6 +505,15 @@ async function jumpTo(id) {
   setTimeout(() => el.classList.remove("flash"), 1600);
 }
 
+// 搜索里点「去这段对话」：换到那个对话（不在就打开），再滚到那一条、闪一下
+async function goFound(id, mid) {
+  searchOpen.value = false;
+  if (id !== threadId.value) { await openThread(id); router.replace(`/chat/${role.value.id}/${id}`); }
+  settleStop?.(); // 别再把画面拽回最底下
+  await nextTick();
+  setTimeout(() => mid && jumpTo(mid), 350); // 等搜索面板收起来
+}
+
 // 点哪条，就在手指旁边弹出一列小选项
 if (!window.__tapAt) { // 只挂一次
   window.__tapAt = { x: innerWidth / 2, y: innerHeight / 2 };
@@ -870,7 +879,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <SumVersions :owner="thread" @restored="sumEdit.text = thread.summary?.text || ''" />
       </template>
     </Sheet>
-    <SearchPanel :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="id => { searchOpen = false; router.push(`/chat/${role.id}/${id}`); }" />
+    <SearchPanel :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="goFound" />
 
     <!-- 消息操作：手指旁边一列小选项 -->
     <Teleport to="body">

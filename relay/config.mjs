@@ -23,11 +23,11 @@ const config = {
   compatibility_date: "2025-01-01",
   keep_vars: true,
   kv_namespaces: [{ binding: "KV", id: kv }],
-  triggers: { crons: ["*/5 * * * *"] },
+  triggers: { crons: ["* * * * *"] }, // 每分钟看一次：你定的时间、他定的闹钟到点就叫醒
   workers_dev: true, // 原来的 xxx.workers.dev 地址也留着
   ...(domain ? { routes: [{ pattern: domain, custom_domain: true }] } : {}),
   observability: { enabled: true },
   ...(region && region !== "auto" ? { placement: { region } } : {}),
 };
 writeFileSync(new URL("./wrangler.json", import.meta.url), JSON.stringify(config, null, 2));
-console.log(`wrangler.json 已生成：${name}（KV 已绑定，每 5 分钟运行一次${domain ? `，地址 https://${domain}` : ""}${region && region !== "auto" ? `，在 ${region} 附近运行` : ""}）`);
+console.log(`wrangler.json 已生成：${name}（KV 已绑定，每分钟运行一次${domain ? `，地址 https://${domain}` : ""}${region && region !== "auto" ? `，在 ${region} 附近运行` : ""}）`);
