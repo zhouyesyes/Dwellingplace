@@ -21,8 +21,8 @@
 - **选图**：去掉盖满屏的「请在相册或文件中选择」那页，只在处理图片时提示。为了 iOS 关相册不发 cancel 时不卡住：再点一次选图会把没回音的那次当取消，照常打开（`scripts/image-picker-check.cjs` 跟着改了，通过）
 - **共读**：右上角「重新选择编码导入」去掉（`add(true)` 留着，第 3 批要在书籍菜单里放低频入口；`scripts/fixtures/txt-encoding.cjs` 还在点那个按钮，第 3 批一起改）
 - 验证：`npx vite build` 通过；`image-picker-check`、`widget-layout-check`（工作间换成共写）通过；手机尺寸浅深色截了设置、他的设定、共读、聊天和「对话」面板
-- **还剩**：工作间、心潮相关的旧文件（`WorkroomView.vue`、`workroom.js` 等、`deploy/qisuo-server/codex/`、`deploy/codex-lab/`、`deploy/xinchao/`、对应脚本和文档）删除这一步被权限拦了，等她点头再删；它们已经没人引用，不影响构建
-- **注意**：AGENTS.md 里「他」「Codex」那两条还写着在工作间里干活，工作间没了以后 Codex 怎么来施工，要问她再改；`docs/ui-preview.md`、`docs/sync-checks.md` 里关于工作间的记录是历史，没动
+- 旧文件也删了（她点了头）：工作间的页面 / 组件 / 小组件 / 逻辑、`deploy/qisuo-server/codex/`、`deploy/codex-lab/`、`deploy/xinchao/`、`docs/xinchao.md`、`docs/workroom*.md`、工作间的检查脚本和 fixture；`settings-api-ui-check` 去掉工作间的模拟，通过。验过：浏览器里存着工作间小组件的，打开后自动拿掉，主页上不再有「工作间」
+- **注意**：她以后想让工作间直接接 cc 或官方云端的 Codex，还没想好，记进 todo 第 2 批先商量；AGENTS.md 里「他」「Codex」那两条等定了再改；`docs/ui-preview.md`、`docs/sync-checks.md` 里关于工作间的记录是历史，没动
 
 ### 2026-10-18 · cc
 - 她交了一大份待办，存成 `docs/todo.md`，分 5 批 + 最后清理。**下一个窗口先读它**，一批一个窗口，做完先给她验收

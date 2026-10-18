@@ -14,15 +14,12 @@ const assert = require('node:assert/strict');
       if (u.pathname === '/mock/openrouter/v1/credits') return route.fulfill({json:{data:{total_credits:20,total_usage:3}}});
       if (u.pathname === '/mock/openrouter/v1/key') return route.fulfill({json:{data:{usage:3,usage_daily:1,usage_weekly:2,usage_monthly:3}}});
       if (u.pathname === '/mock/chatgpt/status') return route.fulfill({json:{connected:true,limits:{events:{limit:JSON.stringify({primary:{used_percent:25,window_minutes:300}})}}}});
-      if (u.pathname === '/mock/codex/status') return route.fulfill({json:{projects:[],threads:[]}});
       if (u.hostname !== '127.0.0.1' || u.pathname.startsWith('/sync') || u.pathname.startsWith('/.well-known')) return route.abort();
       return route.continue();
     });
     await page.goto('http://127.0.0.1:5199/');
     await page.evaluate(async () => {
       const { store, today } = await import('/src/store/index.js');
-      const { wr } = await import('/src/lib/workroom.js');
-      wr.base = location.origin + '/mock';
       store.apis = [
         {id:'plan',name:'官G',type:'openai',baseUrl:location.origin+'/mock/chatgpt/v1',model:'gpt-test'},
         {id:'ds',name:'deepseek',type:'openai',baseUrl:'https://api.deepseek.com',model:'deepseek-test',key:'mock'},
