@@ -1,13 +1,15 @@
 <script setup>
 import { themePref, setTheme } from "../lib/theme.js";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { store } from "../store/index.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
 import SubHeader from "../components/SubHeader.vue";
+import Sheet from "../components/Sheet.vue";
 
 const router = useRouter();
+const lookOpen = ref(false);
 
 const helperGroups = computed(() => store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })).filter(g => g.models.length));
 const helperKey = computed(() => {
@@ -48,22 +50,7 @@ function setHelper(v) {
     <div class="section-label">更多</div>
     <div class="list-card">
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <div class="list-row look">
-        <Icon name="palette" :size="20" />
-        <div class="grow">
-          <span>外观</span>
-          <div class="look-line"><small>白天黑夜</small>
-            <div class="seg">
-              <button v-for="(l, k) in { light: '浅色', dark: '深色', system: '跟随系统' }" :key="k" :class="{ on: themePref === k }" @click="setTheme(k)">{{ l }}</button>
-            </div>
-          </div>
-          <div class="look-line"><small>字号</small>
-            <div class="seg">
-              <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <button class="list-row" @click="lookOpen = true"><Icon name="palette" :size="20" /><span class="grow">外观<span class="sub">{{ { light: "浅色", dark: "深色", system: "跟随系统" }[themePref] }} · 字号{{ { small: "小", standard: "标准", large: "大" }[store.settings.fontSize] || "标准" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <div class="list-row">
         <Icon name="heart" :size="20" /><span class="grow">桌宠小章鱼<span class="sub">站在输入框上面，他回复时敲键盘；共读时站在「一起读」上面</span></span>
         <div class="seg">
@@ -75,6 +62,21 @@ function setHelper(v) {
       <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')"><Icon name="home" :size="20" /><span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/backup')"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
     </div>
+    <!-- 外观：点进来再调白天黑夜和字号 -->
+    <Sheet :open="lookOpen" title="外观" @close="lookOpen = false">
+      <div class="look">
+        <div class="look-line"><span>白天黑夜</span>
+          <div class="seg">
+            <button v-for="(l, k) in { light: '浅色', dark: '深色', system: '跟随系统' }" :key="k" :class="{ on: themePref === k }" @click="setTheme(k)">{{ l }}</button>
+          </div>
+        </div>
+        <div class="look-line"><span>字号</span>
+          <div class="seg">
+            <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
+          </div>
+        </div>
+      </div>
+    </Sheet>
   </div>
 </template>
 
@@ -84,10 +86,9 @@ function setHelper(v) {
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 9px; padding: 4px 12px; font-size: 0.87rem; color: var(--text-2); }
-.look { align-items: flex-start; }
-.look > .grow { display: flex; flex-direction: column; gap: 8px; }
+.look { display: flex; flex-direction: column; gap: 16px; padding: 4px 2px 8px; }
 .look-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.look-line small { color: var(--text-2); font-size: .82rem; }
+.look-line span { color: var(--text); font-size: .92rem; }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
 .helper select { max-width: 42%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 6px 8px; font-size: .82rem; color: var(--text); }
 </style>
