@@ -12,11 +12,13 @@ import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
 import { captureReadingPage } from "../lib/readingImages.js";
+import { safeBookImage } from "../lib/epubImages.js";
 import { askHim, readAlong, alongSlice, placeAlong } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookImage from "../components/books/BookImage.vue";
 import BookInfo from "../components/books/BookInfo.vue";
+import ChapterEditor from "../components/books/ChapterEditor.vue";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
@@ -477,6 +479,15 @@ async function readThisPage() {
     const ps = book.chapters[c].paras || [];
     for (let p = c === from.ch ? from.p : 0; p < ps.length && n < perPage * PAGES; p++) { n += ps[p].length; to = { ch: c, p }; }
   }
+  // 往后这十来页里的插图也给他看（连当前页一共最多 4 张，当前页的在前）
+  for (let c = from.ch; c <= to.ch && page.images.length < 4; c++) {
+    const chap = book.chapters[c];
+    (chap.media || []).forEach((m, index) => {
+      const id = `图${c + 1}-${index + 1}`;
+      if (page.images.length >= 4 || (c === from.ch && m.p < from.p) || (c === to.ch && m.p > to.p + 1) || page.images.some(x => x.id === id)) return;
+      page.images.push({ id, ch: c, ahead: true, p: m.p, alt: m.alt || "", caption: m.caption || "", before: chap.paras[m.p - 1] || "", after: chap.paras[m.p] || "", source: book.resources?.[m.resource] || "" });
+    });
+  }
   const maxChars = Infinity;
   along.value = true;
   store.settings.readTip = true;
@@ -543,7 +554,7 @@ const infoOpen = ref(false);
 const atEnd = computed(() => b.value && ch.value === b.value.chapters.length - 1);
 
 // ---------- 小蓝便利贴：他贴的、你还没看到的 ----------
-const unread = computed(() => (b.value ? notesOf(b.value.id) : []).filter(n => n.from === "ai" && n.text && !n.seen)
+const unread = computed(() => (b.value ? notesOf(b.value.id) : []).filter(n => n.from === "ai" && n.text && !n.seen && n.ch >= 0)
   .sort((x, y) => x.ch - y.ch || x.p - y.p || (x.start || 0) - (y.start || 0)));
 const hisAny = computed(() => (b.value ? notesOf(b.value.id) : []).some(n => n.from === "ai" && n.text));
 const trackOpen = ref(false);
@@ -574,7 +585,26 @@ async function jumpNote(n) {
 }
 onBeforeUnmount(() => clearTimeout(pressT));
 
+// 点书里的图：全屏看（长图上下滑着看，两指可以放大）
+const viewing = ref(null); // { src, long }
+function viewImage(m) {
+  const src = safeBookImage(content.value.resources?.[m.resource]);
+  if (src) viewing.value = { src, long: false };
+}
+const onViewLoad = e => { if (viewing.value) viewing.value.long = e.target.naturalHeight > e.target.naturalWidth * 2.2; };
+
 const tocOpen = ref(false);
+const tocEdit = ref(false);
+// 目录里改了章节（改名、移除、合并、切开、重新分）：正文换成新的，回到刚才读的地方（位置已经跟着挪过了）
+async function chaptersChanged() {
+  content.value = await loadBook(b.value.id);
+  ch.value = Math.min(b.value.pos?.ch || 0, content.value.chapters.length - 1);
+  sel.value = null;
+  await nextTick();
+  await settleImages();
+  await relayout();
+  markSeen();
+}
 const who = n => (n.from === "me" ? "我" : role.value?.name || "他");
 const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 </script>
@@ -596,7 +626,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       @scroll.passive="guardScroll(); onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
-        <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" />
+        <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="viewImage(m)" />
         <div v-for="pc in piecesOf(i)" :key="pc.a" class="pc" :class="{ keep: pc.keep }">
           <p class="para" :class="{ cont: pc.a > 0, cut: !pc.last && !pc.g, 'his-end': pc.last && b.alongTo && b.alongTo.ch === ch && b.alongTo.p === i }" :data-p="i" :data-a="pc.a || null" :data-his="role?.name || '他'" @click="tapPara(i, $event)"><template v-for="(g, k) in segsOf(i, pc.a, pc.z)" :key="k"><span v-if="g.me || g.his || g.temp" class="mk" :class="{ me: g.me, his: g.his, temp: g.temp }" :data-at="g.at || null">{{ g.text }}</span><template v-else>{{ g.text }}</template></template></p>
           <div v-if="pc.g" class="notes" :class="{ stack: pc.g.list.length >= 3 && !opened.has(pc.g.key) }" :data-g="pc.g.key">
@@ -618,7 +648,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
           </div>
         </div>
       </template>
-      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" :role="!paras.length ? 'button' : null" :tabindex="!paras.length ? 0 : null" :aria-label="!paras.length ? '问问他：当前图片页' : null" @mousedown="!paras.length && $event.preventDefault()" @keydown.enter="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" />
+      <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="!paras.length ? openSheet('ask', { ch, p: 0, quote: '' }) : viewImage(m)" :role="!paras.length ? 'button' : null" :tabindex="!paras.length ? 0 : null" :aria-label="!paras.length ? '问问他：当前图片页' : null" @mousedown="!paras.length && $event.preventDefault()" @keydown.enter="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" />
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>
@@ -744,9 +774,18 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 
     <BookInfo :book="infoOpen ? b : null" @close="infoOpen = false" @read="infoOpen = false" />
 
-    <Sheet :open="tocOpen" title="目录" @close="tocOpen = false">
-      <div class="toc">
-        <button class="book-card" @click="tocOpen = false; infoOpen = true">这本书：进度、评分、读后感 ›</button>
+    <div v-if="viewing" class="imgview" :class="{ long: viewing.long }" role="dialog" aria-label="看图" @click="viewing = null">
+      <img :src="viewing.src" alt="书中插图" @load="onViewLoad" @click.stop />
+      <button class="icon-btn x" aria-label="关闭" @click.stop="viewing = null"><Icon name="close" /></button>
+    </div>
+
+    <Sheet :open="tocOpen" :title="tocEdit ? '编辑目录' : '目录'" @close="tocOpen = false; tocEdit = false">
+      <ChapterEditor v-if="tocEdit" :book="b" :body="content" :current="ch" @changed="chaptersChanged" @done="tocEdit = false" />
+      <div v-else class="toc">
+        <div class="toc-top">
+          <button class="book-card" @click="tocOpen = false; infoOpen = true">这本书：进度、评分、读后感 ›</button>
+          <button class="toc-edit" @click="tocEdit = true">编辑</button>
+        </div>
         <button v-for="(c, i) in b.chapters" :key="i" :class="{ on: i === ch }" @click="goChapter(i)">
           <span>{{ c.title }}</span><small v-if="notesOf(b.id, i).length">{{ notesOf(b.id, i).length }} 张便利贴</small>
         </button>
@@ -881,5 +920,13 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .fonts button.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
 .fonts .imp { border-style: dashed; color: var(--text-2); }
 .pr-row small { color: var(--text-3); font-size: .72rem; }
-.toc .book-card { color: var(--text-2); font-size: .82rem; }
+.toc .book-card { color: var(--text-2); font-size: .82rem; flex: 1; }
+.imgview { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .92); display: flex; align-items: center; justify-content: center; overflow: auto; touch-action: pan-x pan-y pinch-zoom; padding: calc(var(--safe-top) + 56px) 0 calc(var(--safe-bottom) + 20px); }
+.imgview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.imgview.long { align-items: flex-start; }
+.imgview.long img { width: 100%; max-height: none; }
+.imgview .x { position: fixed; top: calc(var(--safe-top) + 10px); right: 14px; }
+.toc-top { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.toc-top .book-card { border-bottom: 0; }
+.toc .toc-edit { flex: none; border: 0; border-radius: 999px; padding: 5px 14px; background: var(--bg); color: var(--text); font-size: .8rem; border-bottom: 0; }
 </style>

@@ -4,7 +4,8 @@
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
-import { importBook, progressOf, readingTotals, fmtDur } from "../lib/books.js";
+import { importBook, progressOf, readingTotals, fmtDur, txtChapters } from "../lib/books.js";
+import { SPLIT_RULES } from "../lib/chapterSplit.js";
 import { readingMemsOf } from "../lib/reading.js";
 import { pickFile } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
@@ -22,12 +23,15 @@ const tab = ref("books");
 const busy = ref(false);
 const info = ref(null);
 
-const txt = ref(null);
+// TXT 放上书架前先看一眼：分成了哪几章（可以换分章规则）；编码只在拿不准、或者自己要换时才展开
+const txt = ref(null); // { file, bytes, detected, pick（展开编码选择）}
 const encoding = ref('utf-8');
+const rule = ref('auto');
 const decoded = computed(() => txt.value ? decodeTxt(txt.value.bytes, encoding.value) : null);
+const preview = computed(() => decoded.value?.usable ? txtChapters(decoded.value.text, rule.value) : []);
 async function confirmTxt() {
   if (!txt.value || !decoded.value.usable || busy.value) return;
-  await place(txt.value.file, { encoding: encoding.value });
+  await place(txt.value.file, { encoding: encoding.value, rule: rule.value });
 }
 async function place(file, options) {
   busy.value = true;
@@ -53,8 +57,8 @@ async function add(forceEncoding = false) {
     } else {
       const analysis = analyzeTxt(bytes);
       encoding.value = analysis.encoding;
-      if (forceEncoding || analysis.needsPreview) txt.value = { file, bytes, detected: encoding.value };
-      else await place(file, { encoding: encoding.value });
+      rule.value = 'auto';
+      txt.value = { file, bytes, detected: encoding.value, pick: forceEncoding || analysis.needsPreview };
     }
   } catch (e) {
     toast(`没放上去：${e.message}`, 4000);
@@ -136,6 +140,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
         <button class="item add" :disabled="busy" @click="add(false)"><span class="cv ph"><Icon name="plus" :size="22" /></span><b>{{ busy ? "在放…" : "放一本书" }}</b><span>txt / epub</span></button>
       </div>
       <p class="hint">点封面去读，长按看这本书的进度、评分和读后感。</p>
+      <button class="hint link" :disabled="busy" @click="add(true)">重新选择编码导入</button>
     </template>
 
     <!-- 他的读书笔记 -->
@@ -180,17 +185,30 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 
     <div v-if="txt" class="txt-shade" @click.self="!busy && (txt = null)">
       <section class="txt-dialog" role="dialog" aria-modal="true" aria-labelledby="txt-title">
-        <h2 id="txt-title">确认 TXT 正文</h2>
+        <h2 id="txt-title">放上书架前看一眼</h2>
         <p class="txt-name">{{ txt.file.name }}</p>
-        <label class="txt-encoding">编码
-          <select v-model="encoding" :disabled="busy" aria-label="TXT 编码">
-            <option v-for="e in TXT_ENCODINGS" :key="e" :value="e">{{ encodingLabel(e) }}</option>
-          </select>
-        </label>
-        <small>自动识别：{{ encodingLabel(txt.detected) }}</small>
-        <pre class="txt-preview">{{ decoded.text.slice(0, 700).replace(/\u0000/g, '␀') || '（正文为空）' }}</pre>
-        <p v-if="decoded.suspicious" class="txt-warning" role="alert">正文可能有乱码，请核对预览或切换编码。</p>
-        <p v-if="!decoded.usable" class="txt-warning">正文为空或损坏字符过多，请选择其他编码。</p>
+        <template v-if="txt.pick">
+          <label class="txt-encoding">编码
+            <select v-model="encoding" :disabled="busy" aria-label="TXT 编码">
+              <option v-for="e in TXT_ENCODINGS" :key="e" :value="e">{{ encodingLabel(e) }}</option>
+            </select>
+          </label>
+          <small>自动识别：{{ encodingLabel(txt.detected) }}</small>
+          <pre class="txt-preview">{{ decoded.text.slice(0, 700).replace(/\u0000/g, '␀') || '（正文为空）' }}</pre>
+          <p v-if="decoded.suspicious" class="txt-warning" role="alert">正文可能有乱码，请核对预览或切换编码。</p>
+          <p v-if="!decoded.usable" class="txt-warning">正文为空或损坏字符过多，请选择其他编码。</p>
+        </template>
+        <p v-else class="txt-enc-line">编码 {{ encodingLabel(encoding) }}（自动认出来的）<button :disabled="busy" @click="txt.pick = true">有乱码？换编码</button></p>
+        <div v-if="decoded.usable" class="txt-chapters">
+          <div class="txt-rules" role="group" aria-label="分章规则">
+            <button v-for="(l, k) in SPLIT_RULES" :key="k" :class="{ on: rule === k }" :disabled="busy" @click="rule = k">{{ l }}</button>
+          </div>
+          <small>分成了 {{ preview.length }} 章{{ preview.length === 1 ? "（没认出章节标题，可以换个规则试试）" : "" }}</small>
+          <ol class="txt-toc">
+            <li v-for="c in preview.slice(0, 80)" :key="c.id"><span>{{ c.title }}</span><small>{{ c.paras.length }} 段</small></li>
+            <li v-if="preview.length > 80" class="more">……还有 {{ preview.length - 80 }} 章</li>
+          </ol>
+        </div>
         <div class="txt-actions">
           <button :disabled="busy" @click="txt = null">取消</button>
           <button :disabled="busy || !decoded.usable" @click="confirmTxt">{{ busy ? '在放…' : '确认导入' }}</button>
@@ -212,6 +230,18 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .txt-dialog small { display: block; margin-top: 8px; color: var(--text-2); }
 .txt-preview { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .9rem; line-height: 1.8; background: var(--bg); border-radius: 10px; padding: 12px; max-height: 32dvh; overflow-y: auto; }
 .txt-warning { color: var(--text); font-size: .85rem; }
+.txt-enc-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .82rem; color: var(--text-2); margin: 6px 0 4px; }
+.txt-enc-line button { flex: none; border: 0; background: none; color: var(--accent); font-size: .8rem; padding: 4px 0; }
+.txt-chapters { margin: 12px 0 14px; }
+.txt-rules { display: flex; flex-wrap: wrap; gap: 6px; }
+.txt-rules button { border: 1px solid var(--line); background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 5px 11px; font-size: .78rem; }
+.txt-rules button.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.txt-toc { list-style: none; margin: 8px 0 0; padding: 4px 12px; max-height: 30dvh; overflow-y: auto; background: var(--bg); border-radius: 10px; }
+.txt-toc li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .85rem; }
+.txt-toc li:last-child { border-bottom: 0; }
+.txt-toc li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.txt-toc li small { margin: 0; flex: none; font-size: .7rem; color: var(--text-3); }
+.txt-toc li.more { color: var(--text-3); justify-content: center; }
 .txt-actions { display: flex; gap: 12px; }
 .txt-actions button { flex: 1; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); }
 .txt-actions button:last-child { background: var(--ink); color: var(--on-ink); }
@@ -238,6 +268,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .item span { font-size: .72rem; color: var(--text-3); }
 .new { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #9fbfe0; box-shadow: 0 0 0 2px var(--bg); }
 .hint { text-align: center; color: var(--text-3); font-size: .78rem; line-height: 1.7; margin: 22px 10px; }
+.hint.link { display: block; margin: -14px auto 22px; border: 0; background: none; padding: 4px 10px; text-decoration: underline; text-underline-offset: 3px; }
 .mem { background: var(--card); border-radius: 18px; padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; }
 .mem small { color: var(--text-3); font-size: .72rem; }
 .mem b { font-weight: 600; font-size: .95rem; }
