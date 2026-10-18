@@ -52,20 +52,20 @@ const assert = require('node:assert/strict');
   await page.waitForSelector('.wdesk');
   await page.evaluate(async()=>{
     const {store}=await import('/src/store/index.js');
-    store.widgets=[{id:'cal',type:'calendar',size:'large'},{id:'books',type:'books',size:'large'},{id:'anniv',type:'anniv',size:'small'},{id:'desk',type:'desk',size:'small'}];
+    store.widgets=[{id:'books',type:'books',size:'large'},{id:'anniv',type:'anniv',size:'small'},{id:'desk',type:'desk',size:'small'}];
   });
   async function rects(){return page.locator('.wdesk > .widget').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {id:el.dataset.widgetId,x:r.x,y:r.y,w:r.width,h:r.height};}));}
   for(const width of [390,600,759,760,761,768,820,1024,1180,1366,1367,1440]) {
     await page.setViewportSize({width,height:1000});
     await page.waitForTimeout(250);
     const rs=await rects();
-    assert.equal(await page.locator('[data-widget-id="cal"]').evaluate(el=>!!el.style.gridRow), width>=760&&width<=1366,JSON.stringify({width,media:await page.evaluate(()=>({w:innerWidth,coarse:matchMedia("(any-pointer: coarse)").matches})),errors}));
+    assert.equal(await page.locator('[data-widget-id="books"]').evaluate(el=>!!el.style.gridRow), width>=760&&width<=1366,JSON.stringify({width,media:await page.evaluate(()=>({w:innerWidth,coarse:matchMedia("(any-pointer: coarse)").matches})),errors}));
     assert.equal(await page.locator('.wdesk').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),width<760?2:3);
     for(let i=0;i<rs.length;i++)for(let j=i+1;j<rs.length;j++){
       const a=rs[i],b=rs[j];
       assert(a.x+a.w<=b.x+1||b.x+b.w<=a.x+1||a.y+a.h<=b.y+1||b.y+b.h<=a.y+1,`重叠 ${width} ${a.id} ${b.id}`);
     }
-    if(width>=760&&width<=1366){assert.equal(rs[0].y,rs[2].y);assert(Math.abs(rs[0].w-(rs[2].w*2+14))<2);}
+    if(width>=760&&width<=1366){assert.equal(rs[0].y,rs[1].y);assert(Math.abs(rs[0].w-(rs[1].w*2+14))<2);}
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     // 当前 Chromium 的 fullPage 截图会把 maxTouchPoints 从 1 重置为 0；用视口截图保留真实媒体条件。
     if([390,820,1180].includes(width))for(const theme of ['light','dark']){
@@ -93,8 +93,8 @@ const assert = require('node:assert/strict');
   for(let i=0;i<4;i++)await page.mouse.move(b.x+b.width/2+1,b.y+31);
   assert.deepEqual(await page.evaluate(async()=>(await import('/src/store/index.js')).store.widgets.map(w=>w.id)),order);
   await page.mouse.up();
-  assert.notDeepEqual(order,['cal','books','anniv','desk']);
-  assert.deepEqual(order,['cal','anniv','books','desk']);
+  assert.notDeepEqual(order,['books','anniv','desk']);
+  assert.deepEqual(order,['anniv','books','desk']);
   assert.deepEqual(await page.locator('[data-widget-id]').evaluateAll(els=>els.map(el=>el.dataset.widgetId)),order);
   assert.equal(await page.locator('.dragging').count(),0);
   assert.equal(await page.locator('[data-widget-id="anniv"]').evaluate(el=>el.style.transform),'');
@@ -145,7 +145,7 @@ const assert = require('node:assert/strict');
   await page.getByRole('button').filter({hasText:'共写'}).last().click();
   await page.waitForTimeout(200);
   await noOverlap();
-  assert.deepEqual(await page.evaluate(async()=>(await import('/src/store/index.js')).store.widgets.map(w=>w.type)),['calendar','anniv','books','desk']);
+  assert.deepEqual(await page.evaluate(async()=>(await import('/src/store/index.js')).store.widgets.map(w=>w.type)),['anniv','books','desk']);
   // iPad 捏合缩放改变视觉视口，不应改变文档占位和保存顺序。
   await cdp.send('Emulation.setPageScaleFactor',{pageScaleFactor:1.25});
   await noOverlap();

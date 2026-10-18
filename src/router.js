@@ -3,6 +3,7 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import HomeView from "./views/HomeView.vue";
 import ChatView from "./views/ChatView.vue";
 import MemoryView from "./views/MemoryView.vue";
+import RecordView from "./views/RecordView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import RoleEditView from "./views/RoleEditView.vue";
 import ApiEditView from "./views/ApiEditView.vue";
@@ -24,6 +25,7 @@ export const router = createRouter({
     { path: "/chats", redirect: "/chat/main" }, // 只有一个 AI：通讯直接就是和 TA 的对话
     { path: "/chat/:roleId/:threadId?", component: ChatView },
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
+    { path: "/record", component: RecordView, meta: { tab: "record" } },
     { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
     { path: "/mail/:roleId", component: () => import("./views/MailView.vue") },
     { path: "/settings", component: SettingsView }, // 从主页右上的齿轮进来，不在底栏

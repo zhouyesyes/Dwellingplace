@@ -68,7 +68,6 @@ function defaultWidgets() {
     { id: uid(), type: "books", size: "large" },
     { id: uid(), type: "desk", size: "large" },
     { id: uid(), type: "anniv", size: "small" },
-    { id: uid(), type: "calendar", size: "large" },
   ];
 }
 

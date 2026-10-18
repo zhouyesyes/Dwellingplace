@@ -4,7 +4,6 @@ import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch } from "vue"
 import { packWidgets } from "../../lib/widgetLayout.js";
 import { store, uid } from "../../store/index.js";
 import AnnivWidget from "../widgets/AnnivWidget.vue";
-import CalendarWidget from "../widgets/CalendarWidget.vue";
 import BookshelfWidget from "../widgets/BookshelfWidget.vue";
 import DeskWidget from "../widgets/DeskWidget.vue";
 import Sheet from "../Sheet.vue";
@@ -13,7 +12,6 @@ import Icon from "../Icon.vue";
 const TYPES = {
   // 小鸡（暖暖）收起来了：组件还在 widgets/ChickWidget.vue，数据也没删
   anniv: { label: "纪念日", desc: "在一起第几天，下一个纪念日还有多久", comp: AnnivWidget, sizes: ["small", "large"] },
-  calendar: { label: "日历", desc: "和他一起记录的小事", comp: CalendarWidget, sizes: ["large"] },
   desk: { label: "共写", desc: "在写的书，和他一起琢磨卡片和资料", comp: DeskWidget, sizes: ["large", "small"] },
   books: { label: "书架（共读）", desc: "放几本书，和他一起读，书里能贴便利贴", comp: BookshelfWidget, sizes: ["large"] },
 };
@@ -41,8 +39,7 @@ function layout() {
   const column = (desk.value.clientWidth - 28) / 3;
   const items = widgets.value.map(w => ({
     ...w,
-    height: w.type === 'calendar' ? els[w.id]?.querySelector('.inner').scrollHeight || 1
-      : w.size === 'small' ? column : (column * 2 + 14) / 2,
+    height: w.size === 'small' ? column : (column * 2 + 14) / 2,
   }));
   if (editing.value) items.push({ id: '__add', size: 'small', height: column });
   const packed = packWidgets(items);
@@ -265,7 +262,7 @@ function add(type) {
 .widget.small { aspect-ratio: 1; }
 .widget.large { grid-column: span 2; }
 /* 大的统一 2:1、小的 1:1（日历要放一整个月，单独高一些） */
-.widget.large:not(.calendar) { aspect-ratio: 2 / 1; }
+.widget.large { aspect-ratio: 2 / 1; }
 /* 平板：一行三格，小组件不再被撑得很大 */
 @media (min-width: 760px) {
   .wdesk { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -274,7 +271,6 @@ function add(type) {
 @media (min-width: 760px) and (max-width: 1366px) and (any-pointer: coarse) {
   .wdesk { grid-auto-rows: 1px; row-gap: 0; grid-auto-flow: row; align-items: start; }
   .widget { height: 100%; aspect-ratio: auto !important; }
-  .widget.calendar .inner { height: auto; }
   .hint { grid-column: 1 / -1; margin-top: 18px; }
   .wdesk.editing { margin-bottom: 150px; }
 }
