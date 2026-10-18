@@ -19,6 +19,7 @@ import { planLow, logTurn } from "./quota.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
+import { DIARY_RE, applyDiaryTags, diaryForAI } from "./diary.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
@@ -74,6 +75,7 @@ export function visibleText(text) {
     .replace(DRAW_RE, "")
     .replace(LETTER_RE, "")
     .replace(NOTE_RE, "")
+    .replace(DIARY_RE, "")
     .replace(POKE_EDIT_RE, "")
     .replace(READ_MEM_RE, "")
     .replace(CAL_TAG_RE, "")
@@ -173,6 +175,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     stickersForAI(),
     lettersForAI(role, who),
     readingForAI(role, who),
+    mail ? "" : diaryForAI(role, who),
     writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
@@ -875,8 +878,9 @@ export function applyReplyTags(role, msg) {
   const rmem = applyReadMemTags(role, stick.text);
   const mom = applyMomentTags(role, rmem.text);
   const brd = applyBoardTags(role, mom.text);
-  msg.text = applyPokeTags(role, brd.text).text;
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes];
+  const dia = applyDiaryTags(role, brd.text);
+  msg.text = applyPokeTags(role, dia.text).text;
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();
