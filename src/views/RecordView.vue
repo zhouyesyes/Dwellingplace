@@ -13,6 +13,7 @@ const start = ref(-1);
 function open(i = -1) { start.value = i; book.value = true; }
 const who = e => e.from === "me" ? authorInfo("me").name : (store.roles[0]?.name || "他");
 const md = d => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
+const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能写成 /stickers/…：栖所挂在带口令的路径下
 </script>
 
 <template>
@@ -22,7 +23,7 @@ const md = d => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
     <section class="card cal"><CalendarWidget /></section>
 
     <button class="cover" @click="open()">
-      <img src="/stickers/octopus/title.png" alt="" />
+      <img :src="TITLE" alt="" />
       <div class="cover-text">
         <b>日记本</b>
         <span>{{ pages.length ? `一起写了 ${pages.length} 页` : "翻开第一页" }}</span>

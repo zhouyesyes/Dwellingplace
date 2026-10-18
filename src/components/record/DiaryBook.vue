@@ -55,6 +55,7 @@ function del() {
   removeDiary(cur.value);
   i.value = Math.min(i.value, Math.max(0, pages.value.length - 1));
 }
+const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能写成 /stickers/…：栖所挂在带口令的路径下
 </script>
 
 <template>
@@ -77,7 +78,7 @@ function del() {
               <div class="sign" :style="{ '--c': who(cur).color }">— {{ who(cur).name }}</div>
             </article>
             <article v-else key="empty" class="paper empty">
-              <img src="/stickers/octopus/title.png" alt="" class="cover-img" />
+              <img :src="TITLE" alt="" class="cover-img" />
               <p>日记本还是空的。<br />他想写的时候会写一页，你也可以先写。</p>
               <button class="btn" @click="write">写第一页</button>
             </article>
