@@ -222,9 +222,28 @@ export function applyReadMemTags(role, text) {
   return { text: clean.replace(/\n{3,}/g, "\n\n").trim(), notes };
 }
 
+// 这几段旁边已经贴着的便利贴（她贴的、他自己以前贴的、她回他的）：读到这里，他看得见
+export function notesBeside(b, at, me) {
+  const ok = new Set(at.map(x => `${x.ch}.${x.p}`));
+  const all = store.bookNotes || [];
+  const byId = id => all.find(n => n.id === id);
+  const out = {};
+  for (const n of all) {
+    if (n.bookId !== b.id || !n.text || !ok.has(`${n.ch}.${n.p}`)) continue;
+    const to = n.replyTo && byId(n.replyTo);
+    const where = n.quote ? `在「${n.quote.slice(0, 30)}」旁` : "在这段旁";
+    const line = n.from === "me"
+      ? `${me}${where}贴了：${n.text.slice(0, 300)}${to ? `（回你的「${to.text.slice(0, 40)}」）` : ""}`
+      : `你以前${where}贴过：${n.text.slice(0, 160)}`;
+    (out[`${n.ch}.${n.p}`] ??= []).push({ n, line });
+  }
+  return out;
+}
+
 // ---------- 读书页里直接问他 ----------
 // 「问问他」：给他看这一段（和前后各一段），他回一张便利贴；想记的读书笔记也一起记下
-export async function askHim(role, b, { ch, p, paras, chapterTitle, question, quote, page }) {
+// thread：她在回他的哪张便利贴（他之前写的那句话）
+export async function askHim(role, b, { ch, p, paras, chapterTitle, question, quote, page, thread }) {
   const { oneShot, meName } = await import("./chat.js");
   const me = meName(role);
   const para = paras[p] || "";
@@ -232,6 +251,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   if (imageOnly && !page?.images?.length && !page?.text?.trim()) throw new Error("这几页没有字");
   const around = [paras[p - 1], paras[p + 1]].filter(Boolean).map(x => x.slice(0, 300));
   const part = quote && quote.trim() !== para.trim();
+  const beside = imageOnly ? [] : (notesBeside(b, [{ ch, p }], me)[`${ch}.${p}`] || []).filter(x => !thread || x.n.text !== question);
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
@@ -240,8 +260,9 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
     imageOnly ? `${me}指着当前图片页给你看。没有可批注的文字段落，不要编造段落或原文。` : part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
     imageOnly && page?.text ? `当前页可见文字：\n${page.text}` : "",
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
-    question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
-    imageOnly ? `直接回应当前页的图片或图片失败占位，几句话就好（不超过 120 字）。未提供画面时明确说明看不到。` : `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
+    beside.length ? `这段旁边已经贴着的便利贴：\n${beside.map(x => `- ${x.line}`).join("\n")}` : "",
+    thread ? `你之前在这句旁边贴过一张便利贴：「${thread}」\n${me}回你：${question}` : question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
+    imageOnly ? `直接回应当前页的图片或图片失败占位，几句话就好（不超过 120 字）。未提供画面时明确说明看不到。` : thread ? `再写一张便利贴回${me}，贴在同一句旁边：用你自己的口吻，几句话就好（不超过 120 字）。` : `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
     `如果让你自己有收获、想记住，可以在最后另起一行写 [读书笔记:${b.title}|标题|内容]，会记进你的记忆库（不是每次都要）。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt, { raw: true, parts: await readingPageParts(page) });
@@ -250,6 +271,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   const text = visibleText(t1).trim();
   if (!text) throw new Error("他没有写什么");
   if (imageOnly) return { text, notes, imageOnly: true };
+  for (const x of beside) if (x.n.from === "me") x.n.seen = true;
   markHisPos(b, ch, p);
   maybeGist(role, b, { ch, p }).catch(() => {});
   maybeImpression(role, b, { ch, p: p + 1 }).catch(() => {});
@@ -300,12 +322,15 @@ export async function alongPrompt(role, b, items, from, { alone = false } = {}) 
   const { meName } = await import("./chat.js");
   const me = meName(role);
   const book = await loadBook(b.id);
+  const beside = notesBeside(b, items, me);
   const lines = [];
   let last = -1;
   for (const it of items) {
     if (it.ch !== last) { lines.push(`【${book.chapters[it.ch]?.title || `第 ${it.ch + 1} 章`}】`); last = it.ch; }
     lines.push(`[${it.ch + 1}.${it.p}] ${it.t}`);
+    for (const x of beside[`${it.ch}.${it.p}`] || []) lines.push(`    （便利贴：${x.line}）`);
   }
+  const hers = Object.values(beside).flat().some(x => x.n.from === "me");
   const earlier = await sinceGist(b, from);
   return [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
@@ -318,6 +343,7 @@ export async function alongPrompt(role, b, items, from, { alone = false } = {}) 
     lines.join("\n"),
     `你读一读这一段。挑三五处真让你有感觉的句子，分散在前后不同的地方（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
     `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
+    hers ? `段落下面括号里的是已经贴着的便利贴。${me}贴的你都看得见；想回应哪张，就贴在同一句上（照抄她划的那句原文），算在这三五处里。` : "",
     `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");
 }
@@ -365,6 +391,7 @@ export async function readAlong(role, b, { from, to, maxChars = 24000, page }) {
   const raw = await oneShot(role, await alongPrompt(role, b, items, from), { raw: true, parts: await readingPageParts(page) });
   const r = await parseAlong(role, items, raw);
   if (!r.notes.length) throw new Error("他没有写什么");
+  for (const x of Object.values(notesBeside(b, items, "")).flat()) if (x.n.from === "me") x.n.seen = true; // 她贴的，他读到了
   markHisPos(b, r.upTo.ch, r.upTo.p);
   maybeGist(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
   maybeImpression(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});

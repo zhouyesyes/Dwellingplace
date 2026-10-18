@@ -22,6 +22,8 @@
   --shadow-soft: 0 4px 16px rgba(40, 40, 60, .06);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* 输入框离屏幕底边多远：贴着 iPhone 底下那条横线上面一点（没有横线的设备留 8px） */
+  --dock-bottom: max(calc(var(--safe-bottom) - 4px), 8px);
   --tabbar-h: 62px;
   /* 全局字体：英文数字用 Jost（细长的几何体），中文用系统的苹方；正文细、标题粗 */
   --font: "Jost Variable", Jost, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;

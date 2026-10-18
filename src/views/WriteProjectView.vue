@@ -464,7 +464,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .has-bg .act, .has-bg .edited { background: rgba(var(--glass-rgb), .75); border-radius: 999px; padding: 1px 8px; }
 .typing { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: .5; } }
-.dock { position: absolute; left: 0; right: 0; bottom: calc(var(--safe-bottom) + 12px); z-index: 3; display: flex; flex-direction: column; align-items: center; padding: 0 18px; pointer-events: none; }
+.dock { position: absolute; left: 0; right: 0; bottom: var(--dock-bottom); z-index: 3; display: flex; flex-direction: column; align-items: center; padding: 0 18px; pointer-events: none; }
 .dock > * { pointer-events: auto; width: 100%; max-width: 724px; box-sizing: border-box; }
 .draft-atts { margin-bottom: 8px; }
 .composer { position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 8px; background: rgba(var(--glass-rgb), .92); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-radius: 24px; box-shadow: 0 6px 24px rgba(40, 40, 60, .1); }
