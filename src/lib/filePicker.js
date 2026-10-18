@@ -5,7 +5,9 @@ import { toast } from "./toast.js";
 export const fileActivity = reactive({ selecting: false, processing: 0, cropping: false, cancel: null });
 let active = false;
 export function pickFile(accept = "image/*", multiple = false) {
-  if (active || fileActivity.processing || fileActivity.cropping) { toast("正在处理，请稍等"); return Promise.resolve([]); }
+  if (fileActivity.processing || fileActivity.cropping) { toast("正在处理，请稍等"); return Promise.resolve([]); }
+  // 上一次选图没有回音（iOS 关掉相册有时不发 cancel）：当作取消了，这次照常打开
+  if (active) fileActivity.cancel?.();
   return new Promise(resolve => {
     const input = document.createElement("input");
     input.type = "file";

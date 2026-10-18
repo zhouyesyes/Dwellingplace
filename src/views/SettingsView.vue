@@ -48,16 +48,20 @@ function setHelper(v) {
     <div class="section-label">更多</div>
     <div class="list-card">
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <div class="list-row">
-        <Icon name="palette" :size="20" /><span class="grow">字号</span>
-        <div class="seg">
-          <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
-        </div>
-      </div>
-      <div class="list-row">
-        <Icon name="palette" :size="20" /><span class="grow">外观<span class="sub">深色、浅色，或者跟着手机走</span></span>
-        <div class="seg">
-          <button v-for="(l, k) in { light: '浅色', dark: '深色', system: '跟随系统' }" :key="k" :class="{ on: themePref === k }" @click="setTheme(k)">{{ l }}</button>
+      <div class="list-row look">
+        <Icon name="palette" :size="20" />
+        <div class="grow">
+          <span>外观</span>
+          <div class="look-line"><small>白天黑夜</small>
+            <div class="seg">
+              <button v-for="(l, k) in { light: '浅色', dark: '深色', system: '跟随系统' }" :key="k" :class="{ on: themePref === k }" @click="setTheme(k)">{{ l }}</button>
+            </div>
+          </div>
+          <div class="look-line"><small>字号</small>
+            <div class="seg">
+              <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="list-row">
@@ -80,6 +84,10 @@ function setHelper(v) {
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 9px; padding: 4px 12px; font-size: 0.87rem; color: var(--text-2); }
+.look { align-items: flex-start; }
+.look > .grow { display: flex; flex-direction: column; gap: 8px; }
+.look-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.look-line small { color: var(--text-2); font-size: .82rem; }
 .seg button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
 .helper select { max-width: 42%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 6px 8px; font-size: .82rem; color: var(--text); }
 </style>

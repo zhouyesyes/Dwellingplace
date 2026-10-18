@@ -29,9 +29,6 @@ const TARGETS = {
 // 他的浏览器（chrome-mcp-bridge，在 docker 内部网络里，自己没有口令，只能经过这里的口令转发）
 if (process.env.CHROME_URL) TARGETS.chrome = process.env.CHROME_URL;
 if (process.env.CHROME_CTL_URL) TARGETS.chromectl = process.env.CHROME_CTL_URL; // 遥控：你登录网站用
-// 工作间（Codex，在单独的内部网络里）：带上它的钥匙转过去
-const CODEX_URL = process.env.CODEX_URL || "";
-const CODEX_KEY = process.env.CODEX_KEY || "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -153,10 +150,6 @@ http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ ok: true }));
       }
       if (m[2] === "chatgpt") return await handleChatGPT(req, res, m[3] || "", CORS); // ChatGPT 会员额度（登录信息只存在服务器上）
-      if (m[2] === "codex") {
-        if (!CODEX_URL) { res.writeHead(404, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: "服务器没装工作间" } })); }
-        return await proxy(req, res, CODEX_URL, m[3] || "/status", url.search, { "x-bridge-key": CODEX_KEY });
-      }
       const target = TARGETS[m[2]];
       if (!target) { res.writeHead(404, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: `不认识「${m[2]}」，只能转发：${Object.keys(TARGETS).join("、")}` } })); }
       return await proxy(req, res, target, m[3] || "", url.search);

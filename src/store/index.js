@@ -10,7 +10,7 @@ import { defaultMedia } from "../lib/media.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-// 代表色（日历小圆点、头像底色等）
+// 代表色（日历小圆点、头像底色等）：她用第一个（粉色），他用第三个（蓝色）
 export const PALETTE = ["#f5a3b5", "#86d1b0", "#8cc1f2", "#f5d36e", "#b9a2ef", "#f7b386", "#7fd0d6"];
 // 对方气泡颜色的预设（很淡）
 export const BUBBLE_COLORS = ["#eeeff3", "#fde7ec", "#e3f5ec", "#e3effd", "#fdf5d6", "#efe8fd", "#fdeadf", "#ffffff"];
@@ -278,10 +278,11 @@ function migrate() {
     store.version = 10;
   }
   store.archive ??= emptyArchive();
-  store.widgets = (store.widgets || []).filter(w => w.type !== "chick"); // 主页不再放小鸡
+  store.widgets = (store.widgets || []).filter(w => w.type !== "chick" && w.type !== "work"); // 主页不再放小鸡；工作间拆掉了
   store.settings ??= { fontSize: "standard" };
   store.settings.historyLimit ??= 80;
   for (const k of ["groupHistoryLimit", "groupPrivateLimit", "privateGroupLimit", "surfacedLimit"]) delete store.settings[k]; // 群聊、浮现的记忆都去掉了
+  delete store.settings.workroom; // 工作间拆掉了
   store.settings.wakeHistoryTokens ??= 4000; // TA 醒来时带多少聊天（token，小背包）
   store.settings.privacy ??= "";
   store.profile.userName ??= "";
@@ -329,8 +330,12 @@ function migrate() {
   store.wake ??= { enabled: false, synced: false };
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
   for (const s of store.mcpServers || []) s.disabledTools ??= [];
+  // 代表色写死：她粉色、他蓝色（旧居里以前的角色还是原来的颜色）
+  store.profile.color = PALETTE[0];
+  store.profile.bubbleColor ??= null; // 她自己的气泡颜色（在聊天的「对话」里换；没选就是卡片色）
   for (const r of store.roles) {
     r.bubbleColor ??= DEFAULT_BUBBLE;
+    if (r.id === MAIN) r.color = PALETTE[2];
     r.calPerDay ??= 3;
     r.wake = { ...newWake(), ...(r.wake || {}) };
     r.wakeAlarms ??= [];

@@ -10,7 +10,6 @@ import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 
 import { syncState, startSync, resumeSync } from "../lib/sync.js";
 import { useHomePullRefresh } from "../lib/homePullRefresh.js";
-import { wr, refresh as refreshWorkroom } from "../lib/workroom.js";
 
 const refreshing = ref(false);
 const refreshError = ref("");
@@ -31,10 +30,6 @@ async function refreshHome() {
   try {
     await startSync();
     if (syncState.error) throw new Error(syncState.error);
-    if (store.widgets.some(w => w.type === "work")) {
-      await refreshWorkroom();
-      if (wr.error) throw new Error(wr.error);
-    }
     feedback.value = syncState.deferred || syncState.pending ? "仍有内容待同步" : !syncState.on ? "尚未连接同步" : "已是最新";
   } catch (e) {
     refreshError.value = e.message || String(e);
@@ -49,7 +44,6 @@ function foreground() {
   if (document.visibilityState !== "visible" || Date.now() - foregroundAt < 1000) return;
   foregroundAt = Date.now();
   resumeSync();
-  if (store.widgets.some(w => w.type === "work")) refreshWorkroom();
 }
 onMounted(() => {
   foreground();

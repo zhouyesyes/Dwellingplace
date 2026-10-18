@@ -7,8 +7,8 @@ const model = defineModel({ type: String });
 <template>
   <div class="swatches">
     <button v-for="c in colors" :key="c" type="button" class="sw" :class="{ on: model === c }" :style="{ background: c }" @click="model = c" />
-    <label class="sw custom" :class="{ on: !colors.includes(model) }">
-      <span :style="{ background: colors.includes(model) ? 'transparent' : model }" />
+    <label class="sw custom" :class="{ on: model && !colors.includes(model) }">
+      <span :style="{ background: !model || colors.includes(model) ? 'transparent' : model }" />
       <input v-model="model" type="color" />
     </label>
   </div>

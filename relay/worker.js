@@ -1006,11 +1006,6 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     }
   }
 
-  // TA 醒着的时候把活交给工作间（她服务器上的 Codex）
-  const works = [...text.matchAll(WORK_RE)];
-  text = text.replace(WORK_RE, "");
-  const work = works.length ? await dispatchWork(env, role, works, notes, now) : [];
-
   const silent = SILENT_RE.test(text) || !visible(text);
   // 心潮递来的话：TA 回应过了，告诉心潮一声（不然心潮不知道你们聊过）
   const fromBridge = reasons.filter(r => r.kind === "bridge");
@@ -1036,7 +1031,6 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     apiId: role.api?.id || null,
     model: role.api?.model || "",
     alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, Date.now())),
-    ...(work.length ? { work } : {}),
   };
   await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
   await env.KV.put("boxlatest", String(item.ts));
@@ -1047,70 +1041,6 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     item.push = await pushAll(env, { title: role.name, body: first.length > 40 ? first.slice(0, 40) + "…" : first, url, tag: "wake-" + role.id });
   }
   return item;
-}
-
-// ---------- 交给工作间 ----------
-// 回复里写 <交给工作间 项目="栖所">要做什么</交给工作间>：在她服务器的工作间里开个任务，交给 Codex。
-// 醒来时交的一天最多 WORK_DAY_MAX 次；推上线照样要她点
-const WORK_RE = /<交给工作间([^>]*)>([\s\S]*?)<\/交给工作间>/g;
-// 标签上的设置：项目="…" 素材="素材库里的文件夹或文件名，逗号隔开"（醒来时只能带素材库里的）
-const workAttr = (s, k) => (String(s || "").match(new RegExp(`${k}\\s*=\\s*["“「]?([^"”」]+?)["”」]?(?=\\s+[^\\s=]+\\s*=|\\s*$)`)) || [])[1]?.trim() || "";
-const WORK_DAY_MAX = 3;
-async function dispatchWork(env, role, found, notes, now) {
-  const out = [];
-  const wr = role.workroom;
-  const day = new Date(now + 8 * 3600_000).toISOString().slice(0, 10); // 按北京时间算一天
-  const key = `workday:${role.id}`;
-  const d = (await env.KV.get(key, "json")) || {};
-  let n = d.day === day ? d.n || 0 : 0;
-  for (const [, attrs, body] of found) {
-    const task = body.trim();
-    const proj = workAttr(attrs, "项目"), wantMat = workAttr(attrs, "素材");
-    if (!task) continue;
-    if (!wr?.base) { notes.push({ text: `${role.name} 想交给工作间，但工作间没连上`, detail: task }); continue; }
-    if (n >= WORK_DAY_MAX) { notes.push({ text: `${role.name} 还想交给工作间，但醒来时今天已经交了 ${WORK_DAY_MAX} 次，先没交`, detail: task }); continue; }
-    const want = (proj || "").trim();
-    const projects = wr.projects || [];
-    const project = projects.find(p => p === want) || projects.find(p => p.toLowerCase() === want.toLowerCase()) || (!want && projects.length === 1 ? projects[0] : "");
-    if (!project) { notes.push({ text: `${role.name} 想交给工作间的「${want || "？"}」，可是没有这个项目`, detail: task }); continue; }
-    const title = task.split("\n")[0].replace(/[#*`]/g, "").slice(0, 24);
-    try {
-      const post = async (path, body) => {
-        const r = await fetch(`${wr.base}/codex${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error?.message || `工作间返回 ${r.status}`);
-        return j;
-      };
-      const { thread } = await post("/threads", { project, title });
-      // 带上素材库里的：按文件夹名 / 文件名找，挂到这个任务上
-      const files = [];
-      if (wantMat) {
-        try {
-          const get = async path => { const r = await fetch(`${wr.base}/codex${path}`, { signal: AbortSignal.timeout(30_000) }); if (!r.ok) throw new Error(`工作间返回 ${r.status}`); return r.json(); };
-          const base = `/projects/${encodeURIComponent(project)}`;
-          const [{ materials = [] }, { groups = [] }] = await Promise.all([get(`${base}/materials`), get(`${base}/material-groups`)]);
-          const ids = new Set();
-          for (const n of wantMat.split(/[,，、]/).map(x => x.trim()).filter(Boolean)) {
-            const g = groups.find(g => g.name === n);
-            if (g) g.files.forEach(id => ids.add(id));
-            else materials.filter(m => m.name === n || m.name.replace(/\.[^.]+$/, "") === n).forEach(m => ids.add(m.id));
-          }
-          for (const id of [...ids].slice(0, 30)) files.push((await post(`${base}/materials/${id}/attach`, { taskId: thread.id })).id);
-          if (files.length) notes.push({ text: `一起带上了素材库里的 ${files.length} 个` });
-        } catch (e) { notes.push({ text: `素材没带上：${e.message}` }); }
-      }
-      // 一条最多带 4 个附件：多的分几条接着发
-      await post(`/threads/${thread.id}/send`, { text: task, attachments: files.slice(0, 4) });
-      for (let i = 4; i < files.length; i += 4) await post(`/threads/${thread.id}/send`, { text: `（接上一条，还有素材 ${i + 1}–${Math.min(i + 4, files.length)}）`, attachments: files.slice(i, i + 4) });
-      n++;
-      out.push({ threadId: thread.id, project, title, task });
-      notes.push({ text: `${role.name} 去工作间「${project}」开了个任务：${title}`, href: `/work?t=${thread.id}`, detail: task });
-    } catch (e) {
-      notes.push({ text: `${role.name} 想交给工作间，但没交成：${e.message}`, detail: task });
-    }
-  }
-  await env.KV.put(key, JSON.stringify({ day, n }), { expirationTtl: 3 * 86400 });
-  return out;
 }
 
 // ---------- 自由时间：门厅 → 屋子 ----------
@@ -1569,7 +1499,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 28, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 29, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

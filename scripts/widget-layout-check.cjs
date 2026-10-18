@@ -52,7 +52,7 @@ const assert = require('node:assert/strict');
   await page.waitForSelector('.wdesk');
   await page.evaluate(async()=>{
     const {store}=await import('/src/store/index.js');
-    store.widgets=[{id:'cal',type:'calendar',size:'large'},{id:'books',type:'books',size:'large'},{id:'anniv',type:'anniv',size:'small'},{id:'desk',type:'desk',size:'small'},{id:'work',type:'work',size:'large'}];
+    store.widgets=[{id:'cal',type:'calendar',size:'large'},{id:'books',type:'books',size:'large'},{id:'anniv',type:'anniv',size:'small'},{id:'desk',type:'desk',size:'small'}];
   });
   async function rects(){return page.locator('.wdesk > .widget').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {id:el.dataset.widgetId,x:r.x,y:r.y,w:r.width,h:r.height};}));}
   for(const width of [390,600,759,760,761,768,820,1024,1180,1366,1367,1440]) {
@@ -93,8 +93,8 @@ const assert = require('node:assert/strict');
   for(let i=0;i<4;i++)await page.mouse.move(b.x+b.width/2+1,b.y+31);
   assert.deepEqual(await page.evaluate(async()=>(await import('/src/store/index.js')).store.widgets.map(w=>w.id)),order);
   await page.mouse.up();
-  assert.notDeepEqual(order,['cal','books','anniv','desk','work']);
-  assert.deepEqual(order,['cal','anniv','books','desk','work']);
+  assert.notDeepEqual(order,['cal','books','anniv','desk']);
+  assert.deepEqual(order,['cal','anniv','books','desk']);
   assert.deepEqual(await page.locator('[data-widget-id]').evaluateAll(els=>els.map(el=>el.dataset.widgetId)),order);
   assert.equal(await page.locator('.dragging').count(),0);
   assert.equal(await page.locator('[data-widget-id="anniv"]').evaluate(el=>el.style.transform),'');
@@ -140,12 +140,12 @@ const assert = require('node:assert/strict');
   await page.waitForTimeout(150);
   assert(await page.locator('[data-widget-id="anniv"]').evaluate(el=>el.classList.contains('large')));
   await page.locator('[data-widget-id="anniv"] .size').click();
-  await page.locator('[data-widget-id="work"] .del').click();
+  await page.locator('[data-widget-id="desk"] .del').click();
   await page.locator('.add-tile').click();
-  await page.getByRole('button').filter({hasText:'工作间'}).last().click();
+  await page.getByRole('button').filter({hasText:'共写'}).last().click();
   await page.waitForTimeout(200);
   await noOverlap();
-  assert.deepEqual(await page.evaluate(async()=>(await import('/src/store/index.js')).store.widgets.map(w=>w.type)),['calendar','anniv','books','desk','work']);
+  assert.deepEqual(await page.evaluate(async()=>(await import('/src/store/index.js')).store.widgets.map(w=>w.type)),['calendar','anniv','books','desk']);
   // iPad 捏合缩放改变视觉视口，不应改变文档占位和保存顺序。
   await cdp.send('Emulation.setPageScaleFactor',{pageScaleFactor:1.25});
   await noOverlap();

@@ -432,15 +432,19 @@ function pickModel(api, model) {
 }
 const isPicked = (api, m) => currentApi.value?.id === api.id && currentModel.value === m;
 
-// 对方气泡：颜色深的话文字用白色
-const theirBubble = computed(() => {
-  const c = role.value?.bubbleColor || BUBBLE_COLORS[0];
+// 气泡颜色：颜色深的话文字用白色
+function bubbleVars(c, k) {
   const hex = c.replace("#", "");
   const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   // 浅色的气泡在深色模式下混进卡片色（只留一点颜色），字跟着主题；深色的气泡照旧，配白字
-  return lum < 0.55 ? { "--their": c, "--their-text": "#ffffff" } : { "--their": `color-mix(in srgb, ${c} var(--pastel), var(--card))`, "--their-text": "var(--text)" };
-});
+  return lum < 0.55 ? { [`--${k}`]: c, [`--${k}-text`]: "#ffffff" } : { [`--${k}`]: `color-mix(in srgb, ${c} var(--pastel), var(--card))`, [`--${k}-text`]: "var(--text)" };
+}
+// 他的气泡 + 你自己的（没选过就是卡片色）
+const bubbleColors = computed(() => ({
+  ...bubbleVars(role.value?.bubbleColor || BUBBLE_COLORS[0], "their"),
+  ...(store.profile.bubbleColor ? bubbleVars(store.profile.bubbleColor, "mine") : {}),
+}));
 
 const openSources = reactive({});
 const openThink = reactive({});
@@ -633,7 +637,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 </script>
 
 <template>
-  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="{ ...theirBubble, '--dock': dockH + 'px' }">
+  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="{ ...bubbleColors, '--dock': dockH + 'px' }">
     <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
 
     <header class="top">
@@ -817,6 +821,11 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <div class="section-label">{{ role.name }} 的气泡颜色</div>
       <div class="list-card flat bubble-pick">
         <ColorSwatches v-model="role.bubbleColor" :colors="BUBBLE_COLORS" />
+      </div>
+      <div class="section-label">我的气泡颜色</div>
+      <div class="list-card flat bubble-pick">
+        <ColorSwatches v-model="store.profile.bubbleColor" :colors="BUBBLE_COLORS" />
+        <button v-if="store.profile.bubbleColor" class="btn soft small mine-reset" @click="store.profile.bubbleColor = null">恢复默认</button>
       </div>
     </Sheet>
 
@@ -1018,7 +1027,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
   user-select: text;
 }
 .theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 3px; }
-.mine .bubble { background: var(--card); border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
+.mine .bubble { background: var(--mine, var(--card)); color: var(--mine-text, inherit); border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }
 /* 小尖角：贴着气泡底边往外伸出一个尖，内侧一道弧（颜色跟着气泡走） */
 .bubble { position: relative; }
 /* 他回复里的标题、表格、列表、引用（Markdown） */
@@ -1156,6 +1165,7 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .list-row.cur { background: var(--card-2); font-weight: 600; }
 .list-row.cur .sub, .t-time { font-weight: 400; }
 .bubble-pick { padding: 12px; }
+.mine-reset { margin: 10px 4px 0; }
 .tip { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 14px 0 0; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .sum-meta { margin: 0 0 10px; font-size: .78rem; color: var(--text-3); }

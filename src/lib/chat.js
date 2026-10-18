@@ -23,7 +23,6 @@ import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
-import { WORK_RE, workroomForAI, applyWorkTags } from "./workDispatch.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
 
 // threadId -> AbortController（正在生成中）
@@ -82,8 +81,6 @@ export function visibleText(text) {
     .replace(MOMENT_RE, "")
     .replace(BOARD_RE, "")
     .replace(ALARM_RE, "")
-    .replace(WORK_RE, "")
-    .replace(/<交给工作间[^]*$/, "") // 还在写的（流式时）
     .replace(new RegExp(PAUSE_RE.source, "g"), "\n\n")
     .replace(new RegExp(FOLLOW_RE.source, "g"), "")
     .replace(/\[不发消息\]/g, "")
@@ -176,7 +173,6 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     lettersForAI(role, who),
     readingForAI(role, who),
     writingForAI(who),
-    mail ? "" : workroomForAI(who, { wake }),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who, { wake }),
@@ -709,14 +705,12 @@ export async function generate(thread, parentId) {
     msg.text = xm.text;
     const alarm = await applyAlarmTags(role, msg.text);
     msg.text = alarm.text;
-    const work = await applyWorkTags(role, msg.text, history).catch(e => ({ text: msg.text.replace(WORK_RE, ""), notes: [{ text: `${role.name} 想交给工作间，但没交成：${e.message}` }] }));
-    msg.text = work.text;
     if (!ctrl.signal.aborted && findCmd(msg.text, POKE_RE)) {
       msg.notes.push({ text: pokeText(role, "ai"), poke: "ai", ts: Date.now() });
     }
     msg.text = stripCmd(msg.text, POKE_RE).trim();
     pickQuote(msg, history);
-    msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })), ...work.notes);
+    msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
     // 他想画画：先把文字发出来，图在后台画，画好了放进这条消息里
     const draws = imageReady() ? [...msg.text.matchAll(DRAW_RE)] : [];
     if (draws.length) {
@@ -944,7 +938,7 @@ export async function draftStyle(role) {
   ].filter(Boolean).join("\n"));
 }
 
-// raw：原样给回去（标签还在，调用的地方自己处理）；attachments：一起给他看的图片、文件；parts：已经备好的内容（工作间的附件）
+// raw：原样给回去（标签还在，调用的地方自己处理）；attachments：一起给他看的图片、文件；parts：已经备好的内容（比如共读那一页的图）
 // helper：整理类的活（聊天摘要、共读的前情、共写的总结）——设置里选了「整理用的模型」就用它（可以是更便宜的，比如 DeepSeek），没选就和他一样
 export function helperApi(role) {
   const h = store.settings?.helper;
