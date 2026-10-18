@@ -35,7 +35,7 @@ async function checkRelay() {
     const r = await relayPing();
     if ((r.version || 1) < 4) relay.value = { ok: false, text: "中转是旧版本：请按说明把 Worker 的代码换成最新的" };
     else if (!r.kv) relay.value = { ok: false, text: "中转还没有绑定 KV：请按说明添加（变量名 KV）" };
-    else if (!r.tick) relay.value = { ok: false, text: "还没检测到定时任务：请按说明添加 Cron 触发器（*/5 * * * *）。刚添加的话，过 5 分钟再来看" };
+    else if (!r.tick) relay.value = { ok: false, text: "还没检测到定时任务：请按说明添加 Cron 触发器（* * * * *）。刚添加的话，过几分钟再来看" };
     else if (Date.now() - r.tick > 2 * 3600_000) relay.value = { ok: false, text: `定时任务好像停了：最后一次是 ${stamp(r.tick)}` };
     else relay.value = { ok: true, text: `中转和定时任务都正常（定时任务 ${stamp(r.tick)} 检查过）` };
   } catch (e) {

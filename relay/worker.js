@@ -183,14 +183,15 @@ async function readPage(target, maxLength) {
 // 唤醒
 //
 // 栖所把需要的东西（设定、记忆、最近的聊天、API、MCP）同步到 KV 里，
-// 定时任务每 5 分钟看一次：哪个 AI 该醒了，就替 TA 调用一次模型。
+// 定时任务每分钟看一次：哪个 AI 该醒了，就替 TA 调用一次模型（你定的时间、他定的闹钟，到点就醒，不看你们刚聊没聊过）。
 // TA 可以发消息、用工具，也可以什么都不做；发的消息先放在「收件箱」里，
 // 同时推送通知到手机，等栖所打开时取走。
 //
 // KV 里的东西：
 //   cfg                     栖所同步上来的设置
 //   sched:<角色>            下次定时醒来的时间、今天哪些固定时间已经醒过
-//   alarm:<角色>:<编号>     TA 自己定的闹钟（内容在 metadata 里）
+//   alarms                 TA 自己定的闹钟，一份列表 [{ roleId, id, at, note, say }]（定时任务每分钟看一次，用一个 key 省得每次 list）
+//   alarm:<角色>:<编号>     旧版一个闹钟一个 key（v30 起第一次读时搬进 alarms，之后不再用）
 //   box:<时间>:<编号>       还没被栖所取走的消息
 //   boxlatest               收件箱最后一次有新东西的时间
 //   sub:<编号>              手机的推送订阅
@@ -291,18 +292,40 @@ function parseWhen(raw, now = Date.now()) {
 }
 
 // ---------- 闹钟 ----------
+// 全部闹钟存在一个 key（alarms）里：定时任务每分钟都要看，KV 的 list 免费额度一天只有 1000 次，get 有十万次
+async function readAlarms(env) {
+  let all = await env.KV.get("alarms", "json");
+  if (!Array.isArray(all)) {
+    // 旧版一个闹钟一个 key：搬进来一次
+    all = [];
+    let cursor;
+    do {
+      const r = await env.KV.list({ prefix: "alarm:", cursor });
+      for (const k of r.keys) {
+        const [, role, id] = k.name.split(":");
+        all.push({ roleId: role, id, at: k.metadata?.at || 0, note: k.metadata?.note || "", say: k.metadata?.say || "" });
+      }
+      cursor = r.list_complete ? null : r.cursor;
+    } while (cursor);
+    await env.KV.put("alarms", JSON.stringify(all));
+    for (const a of all) await env.KV.delete(`alarm:${a.roleId}:${a.id}`);
+  }
+  return all;
+}
 async function listAlarms(env, roleId) {
-  const out = [];
-  let cursor;
-  do {
-    const r = await env.KV.list({ prefix: roleId ? `alarm:${roleId}:` : "alarm:", cursor });
-    for (const k of r.keys) {
-      const [, role, id] = k.name.split(":");
-      out.push({ key: k.name, roleId: role, id, at: k.metadata?.at || 0, note: k.metadata?.note || "", say: k.metadata?.say || "" });
-    }
-    cursor = r.list_complete ? null : r.cursor;
-  } while (cursor);
-  return out.sort((a, b) => a.at - b.at);
+  const now = Date.now();
+  return (await readAlarms(env))
+    .filter(a => (!roleId || a.roleId === roleId) && a.at > now - 7 * DAY) // 响过一周还没处理的就算了
+    .map(a => ({ ...a, key: `alarm:${a.roleId}:${a.id}` }))
+    .sort((a, b) => a.at - b.at);
+}
+// 去掉几个闹钟（响过了、取消了）：key 是 alarm:<角色>:<编号>
+async function dropAlarms(env, keys) {
+  if (!keys.length) return;
+  const gone = new Set(keys);
+  const all = await readAlarms(env);
+  const left = all.filter(a => !gone.has(`alarm:${a.roleId}:${a.id}`));
+  if (left.length !== all.length) await env.KV.put("alarms", JSON.stringify(left));
 }
 
 const alarmView = (a, now) => ({ id: a.id, at: a.at, note: a.note, say: a.say || "", label: whenLabel(a.at, now) });
@@ -319,7 +342,9 @@ async function addAlarm(env, roleId, when, note, quiet, now = Date.now(), say = 
   const id = rid();
   note = cut(note, 100);
   say = cut(String(say || "").trim(), 150);
-  await env.KV.put(`alarm:${roleId}:${id}`, "1", { metadata: { at, note, ...(say ? { say } : {}) }, expiration: Math.floor(at / 1000) + 7 * 86400 });
+  const all = await readAlarms(env);
+  all.push({ roleId, id, at, note, ...(say ? { say } : {}) });
+  await env.KV.put("alarms", JSON.stringify(all));
   const alarm = alarmView({ id, at, note, say }, now);
   return { ok: true, alarm, alarms: [...list.map(a => alarmView(a, now)), alarm].sort((a, b) => a.at - b.at) };
 }
@@ -329,7 +354,7 @@ async function cancelAlarm(env, roleId, id) {
   const list = await listAlarms(env, roleId);
   const a = list.find(x => x.id === id);
   if (!a) return { error: `没有编号是 #${id} 的闹钟` };
-  await env.KV.delete(a.key);
+  await dropAlarms(env, [a.key]);
   return { ok: true, alarm: alarmView(a, Date.now()), alarms: list.filter(x => x !== a).map(x => alarmView(x, Date.now())) };
 }
 
@@ -1248,7 +1273,7 @@ async function tick(env, now = Date.now()) {
     // TA 自己定的闹钟
     const mine = alarms.filter(a => a.roleId === role.id && a.at <= now);
     for (const a of mine) {
-      if (a.say) { says.push({ say: a.say, why: `他定的闹钟（${a.note || "提醒"}）` }); await env.KV.delete(a.key); }
+      if (a.say) { says.push({ say: a.say, why: `他定的闹钟（${a.note || "提醒"}）` }); await dropAlarms(env, [a.key]); }
       else reasons.push({ kind: "alarm", text: `你给自己定的闹钟响了（${a.note || "没写要做什么"}）`, key: a.key });
     }
     if (says.length) {
@@ -1301,11 +1326,11 @@ async function tick(env, now = Date.now()) {
   }
   if (!due.length) return null;
 
-  // 免费版每次最多 50 个外部请求：一次只叫醒一个，其他的下一轮（5 分钟后）再醒
+  // 免费版每次最多 50 个外部请求：一次只叫醒一个，其他的下一轮（1 分钟后）再醒
   due.sort((a, b) => a.overdue - b.overdue);
   const { role, sched, key, reasons } = due[0];
   sched.lastWakeAt = now;
-  for (const r of reasons) if (r.key) await env.KV.delete(r.key);
+  await dropAlarms(env, reasons.filter(r => r.key).map(r => r.key));
   const bridgeIds = reasons.filter(r => r.deliveryId).map(r => r.deliveryId);
   try {
     // 只有自由时间：去门厅；和别的一起响了（闹钟、提醒……）：先照平时醒来，自由时间这次就算了
@@ -1499,7 +1524,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 29, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 30, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
