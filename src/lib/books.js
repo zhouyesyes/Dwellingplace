@@ -208,7 +208,7 @@ export async function parseEpub(buf) {
     const all = d.paras.join("");
     const n = all.length;
     const inToc = toc.some(t => t.file === d.href);
-    if (n < 20 && !d.media.length && !inToc) return true; // 空白页（目录里有的，比如「第一部」，留着并进下一章的名字）
+    if (!n && !d.media.length) return true; // 空白页（短短一行的，比如献词「纪念某某」、「第一部」，留着）
     if (/\bnav\b/.test(d.props)) return true; // 目录文件本身
     if (front.has(d.href) && n < 1500) return true;
     // 封面：只有封面那张图，几乎没字
@@ -217,8 +217,8 @@ export async function parseEpub(buf) {
     // 版权页：短，而且有好几处版权信息
     const marks = (all.match(/版权|ISBN|Copyright|©|出版社|出版发行|印刷|印张|定价|All rights reserved|CIP|责任编辑|字数/gi) || []).length;
     if (n < 1500 && marks >= 2) return true;
-    // 扉页：只有书名、作者这几行，目录里也没有它
-    if (!inToc && n < 120 && !d.media.length && titleN && all.replace(/\s+/g, "").includes(titleN)) return true;
+    // 扉页：只有书名、作者这几行（短短几行、没有逗号句号），目录里也没有它；带书名的题记不算
+    if (!inToc && n < 80 && !d.media.length && titleN && all.replace(/\s+/g, "").includes(titleN) && !/[，。！？；…]/.test(all)) return true;
     // 书里的目录页：大部分行都是目录里的章节名
     if (tocLabels.size >= 3 && d.paras.length >= 3 && d.paras.filter(p => tocLabels.has(p)).length / d.paras.length >= .6) return true;
     if (/(^|\/)(toc|contents)[^/]*$/i.test(d.href) && n < 3000 && !inToc) return true;
@@ -233,25 +233,20 @@ export async function parseEpub(buf) {
     const di = kept.findIndex(d => d.href === t.file);
     const p = t.frag && kept[di].anchors[t.frag] != null ? kept[di].anchors[t.frag] : 0;
     const k = `${di}:${p}`;
-    if (!starts.has(k)) starts.set(k, t);
+    // 上下两级指到同一个地方（「查令十字街84号」下面的「正文」）：名字连起来
+    if (!starts.has(k)) starts.set(k, { ...t });
+    else if (t.label && !starts.get(k).label.includes(t.label)) starts.get(k).label = `${starts.get(k).label} · ${t.label}`;
   }
   const useToc = starts.size >= 2;
-  // 没进目录的篇，什么时候自己算一章：自己有标题的；或者连着好几篇都没进目录（目录太粗，只列了几个大部分，比如书信集）
-  const inToc = kept.map((d, di) => [...starts.keys()].some(k => k.startsWith(`${di}:`)));
+  // 有目录就照着书的目录分：没进目录的篇接在上一章后面（书信集里一封封信，书的目录只有「正文」一项，就是一章），
+  // 除非它自己有标题（h1–h3），那是书里看得见的新一节
   const alone = kept.map(d => !!d.h);
-  for (let i = 0; i < kept.length;) {
-    if (inToc[i]) { i++; continue; }
-    let j = i;
-    while (j < kept.length && !inToc[j]) j++;
-    if (j - i >= 3) for (let k = i; k < j; k++) alone[k] = true;
-    i = j;
-  }
   const bookTitle = meta("title");
   const chapters = [];
   let cur = null;
   const open = (d, p, t) => {
     const frag = t?.frag && p > 0 ? `#${t.frag}` : "";
-    cur = { id: `${d.idref}${frag}`, sourceId: d.idref, sourcePath: d.href, title: (t?.label || d.h || (d.title && d.title !== bookTitle ? d.title : "") || (d.paras[p] || "").slice(0, 20) || `第 ${chapters.length + 1} 节`).slice(0, 60), paras: [], media: [] };
+    cur = { id: `${d.idref}${frag}`, sourceId: d.idref, sourcePath: d.href, title: (t?.label || (useToc && !chapters.length ? "开头" : "") || d.h || (d.title && d.title !== bookTitle ? d.title : "") || (d.paras[p] || "").slice(0, 20) || `第 ${chapters.length + 1} 节`).slice(0, 60), paras: [], media: [] };
     chapters.push(cur);
   };
   kept.forEach((d, di) => {
@@ -267,13 +262,17 @@ export async function parseEpub(buf) {
       for (const m of d.media) if (m.p >= from && (m.p < to || (last && m.p === to))) cur.media.push({ ...m, p: m.p - from + off });
     });
   });
-  // 整理：几乎空的一章（「第一部」这种分部标题页）把名字并进下一章；去掉没用的字段
+  // 整理：几乎空的一章——只有个标题的（「第一部」分部页）把名字并进下一章；有几个字的（献词）字挪到下一章开头，不丢
+  const bare = s => s.replace(/[\s\p{P}\p{S}]/gu, "");
   for (let k = chapters.length - 2; k >= 0; k--) {
-    const c = chapters[k];
-    if (c.paras.join("").length < 20 && !c.media.length) {
-      chapters[k + 1].title = `${c.title} · ${chapters[k + 1].title}`.slice(0, 60);
-      chapters.splice(k, 1);
+    const c = chapters[k], next = chapters[k + 1];
+    if (c.paras.join("").length >= 20 || c.media.length) continue;
+    if (c.paras.every(p => bare(c.title).includes(bare(p)))) next.title = `${c.title} · ${next.title}`.slice(0, 60);
+    else {
+      next.media = next.media.map(m => ({ ...m, p: m.p + c.paras.length }));
+      next.paras = [...c.paras, ...next.paras];
     }
+    chapters.splice(k, 1);
   }
   const seen = new Set();
   for (const c of chapters) {
