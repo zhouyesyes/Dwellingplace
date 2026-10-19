@@ -14,6 +14,9 @@
 
 ## 日志
 
+### 2026-10-19 cc：对话本挑错聊天的修正
+- 她装好以后，私人仓库里只有记忆卡片、没有聊天：栖所挑了一条空的聊天当对话本。`bookThread` 改成：记住的那条要是空的，就换成她最近在聊（`lastThreadId`）、真有内容的那条；换了以后从头写一遍（按 id 去重）
+
 ### 2026-10-19 cc：小螃蟹大工程第二步——对话本和私人仓库 qisuo-memory 连上
 - 对话本就是栖所里小螃蟹那条聊天（`role.bookThreadId`，没有就用最近一条）：太长了照平时整理成摘要
 - 服务器 `claude.mjs`：`/claude/book/push`（栖所新消息按 id 去重追加进 `book/log.jsonl`，再写 `summary.md`、`memories.md`）、`/book/pull?since=`（拿回 where 不是 qisuo 的）、`/book/status`。私人仓库克隆在 `data/crab-memory`，钥匙 `CRAB_MEMORY_TOKEN` 每次放在命令里带，不写进 git 设置；一次只做一件；`.gitattributes` 让 jsonl 两边同时加行时合在一起；推不上先 `pull --rebase` 再推。测试时可以用 `CRAB_MEMORY_URL` 换成本地仓库（本地 bare 仓库跑过：写入、去重、拿回别处写的）
