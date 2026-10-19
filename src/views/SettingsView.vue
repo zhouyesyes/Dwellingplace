@@ -3,6 +3,7 @@ import { themePref, setTheme } from "../lib/theme.js";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { store } from "../store/index.js";
+import { pickAndCrop, deleteImage } from "../lib/images.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
 import SubHeader from "../components/SubHeader.vue";
@@ -10,6 +11,17 @@ import Sheet from "../components/Sheet.vue";
 
 const router = useRouter();
 const lookOpen = ref(false);
+// 主页背景（主页上长按背景也能换）
+async function homeCover() {
+  const id = await pickAndCrop({ aspect: innerWidth / innerHeight, title: "调整主页背景", maxSize: 1800 });
+  if (!id) return;
+  deleteImage(store.profile.cover);
+  store.profile.cover = id;
+}
+function plainCover() {
+  deleteImage(store.profile.cover);
+  store.profile.cover = null;
+}
 
 const helperGroups = computed(() => store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })).filter(g => g.models.length));
 const helperKey = computed(() => {
@@ -73,12 +85,20 @@ function setHelper(v) {
             <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
           </div>
         </div>
+        <div class="look-line"><span>主页背景</span>
+          <div class="seg">
+            <button @click="homeCover">换图</button>
+            <button :class="{ on: !store.profile.cover }" @click="plainCover">灰色</button>
+          </div>
+        </div>
+        <p class="look-tip">在主页长按背景也能换</p>
       </div>
     </Sheet>
   </div>
 </template>
 
 <style scoped>
+.look-tip { margin: 4px 2px 0; font-size: .75rem; color: var(--text-3); }
 .num-input { width: 70px; border: 0; background: var(--bg); border-radius: 10px; padding: 6px 8px; text-align: center; outline: none; }
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }
 .seg { display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px; }
