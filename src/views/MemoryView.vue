@@ -1,8 +1,9 @@
 <script setup>
-// 记忆库：每个角色一个抽屉。分两页——
-//   全局记忆：记忆卡片、聊天摘要、从共读共写整理来的（在哪都带着）
-//   场景记忆：共读、共写里才带的（每本书他能看见什么、多少字）
-// 每一处都能「看看发给他的」，右上角旁边有说明书
+// 记忆库：每个角色一个抽屉。分三页——
+//   Timeline：记忆卡片排成时间轴，上面一排按钮自己筛；每个点是一只小章鱼，样子看这条记忆从哪来
+//   Drawers：其他的资料（聊天摘要、此刻、板块记忆、来往的信、共读共写）叠成一叠文件夹，平时合着
+//   Scenes：场景记忆，共读、共写里才带的
+// 「看看发给他的」、记忆体检、整理建议、设置、说明书都收在右边的 ⋯ 里
 import { chatPreview, summarizeThread, describeError, meName } from "../lib/chat.js";
 import { toast } from "../lib/toast.js";
 import { momentParts, momentsOf, removeMoment, ago, MOMENT_MAX } from "../lib/moment.js";
@@ -50,7 +51,8 @@ const switchOpen = ref(false);
 // 接了心潮的角色：记忆都在心潮里
 const xinchao = computed(() => hasXinchao(role.value));
 
-const view = ref("global"); // global：全局记忆；scene：场景记忆
+const view = ref("timeline"); // timeline：记忆卡片；drawers：其他资料；scene：场景记忆
+const menuOpen = ref(false);
 const guideOpen = ref(false);
 const setOpen = ref(false);
 const letterLines = computed(() => (role.value ? lettersLog(role.value, meName(role.value)) : ""));
@@ -58,6 +60,7 @@ const letterLines = computed(() => (role.value ? lettersLog(role.value, meName(r
 // ---------- 记忆卡片：常驻 / 普通 / 归档 / 待确认 / 已过时（+ 回收站）----------
 const all = computed(() => (tab.value ? memoriesOf(tab.value) : []));
 const BUCKETS = {
+  all: { label: "全部", test: m => isLive(m) && memKind(m) === "card", tip: "" },
   pinned: { label: "常驻", test: m => isLive(m) && accessOf(m) === "pinned", tip: `每次、每个房间都带着，最多 ${PIN_MAX} 张` },
   normal: { label: "普通", test: m => isLive(m) && accessOf(m) === "normal" && memKind(m) === "card", tip: "平时不全带：按你说的话，每次自动想起最相关的几张" },
   archived: { label: "归档", test: m => isLive(m) && accessOf(m) === "archived", tip: "还成立，但不常用了：不自动想起，只在搜索时出现" },
@@ -65,7 +68,7 @@ const BUCKETS = {
   obsolete: { label: "已过时", test: m => m.status === "obsolete", tip: "以前成立、现在不是了：留作历史，不当成现在的事" },
   deleted: { label: "回收站", test: m => m.status === "deleted", tip: "不再给他；可以恢复，也可以彻底删掉" },
 };
-const bucket = ref("normal");
+const bucket = ref("all");
 const countOf = k => all.value.filter(BUCKETS[k].test).length;
 const query = ref("");
 const withArchived = ref(true);
@@ -78,6 +81,46 @@ const cards = computed(() => {
 });
 // 从共读、共写整理过来的（也在全局记忆里，排在常驻卡片后面）
 const derived = computed(() => all.value.filter(m => memKind(m) !== "card" && isLive(m) && accessOf(m) !== "archived" && hit(m)));
+// 时间轴：新的在上，按月份分段
+const MONTHS = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+const timeline = computed(() => {
+  const groups = [];
+  const thisYear = String(new Date().getFullYear());
+  for (const m of [...cards.value].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.ts || 0) - (a.ts || 0))) {
+    const key = (m.date || "").slice(0, 7);
+    if (groups.at(-1)?.key !== key) groups.push({ key, label: `${MONTHS[Number(key.slice(5, 7)) - 1] || ""}${key.slice(0, 4) !== thisYear ? ` ${key.slice(0, 4)}` : ""}`, items: [] });
+    groups.at(-1).items.push(m);
+  }
+  return groups;
+});
+// 小章鱼的样子：常驻的开心、聊天里的冒「…」、共读看书、共写拿笔、信抱着信、你自己写的抱着小本子
+const OCT = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/oct-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/oct-(\w+)\.png/)[1], v]));
+const LEGEND = [{ k: "pin", label: "常驻" }, { k: "chat", label: "聊天" }, { k: "read", label: "共读" }, { k: "write", label: "共写" }, { k: "letter", label: "信" }, { k: "diary", label: "你写的" }];
+function octOf(m) {
+  if (isLive(m) && accessOf(m) === "pinned") return "pin";
+  const t = m.source?.type;
+  if (t === "read" || m.bookId) return "read";
+  if (t === "write" || m.writingId) return "write";
+  if (t === "letter") return "letter";
+  if (t === "manual" || m.author === "me") return "diary";
+  return "chat";
+}
+// 抽屉
+const DRAWERS = [
+  { key: "sum", en: "SUMMARY", title: "聊天摘要", sub: "每个对话一份" },
+  { key: "now", en: "NOW", title: "此刻", sub: "最近 24 小时" },
+  { key: "board", en: "BOARD", title: "板块记忆", sub: "长期的进展" },
+  { key: "letters", en: "LETTERS", title: "来往的信", sub: "他记得最近 5 封" },
+  { key: "rw", en: "READ · WRITE", title: "共读和共写", sub: "整理来的笔记和总结" },
+];
+const openDrawer = ref(null);
+function drawerCount(k) {
+  if (k === "sum") return `${sums.value.length} 份`;
+  if (k === "now") return `${moment.value.filter(x => x.text).length} 条`;
+  if (k === "board") return `${boardWrite.value.length + boardRead.value.length + boardPals.value.length} 项`;
+  if (k === "letters") return `${letterLines.value ? letterLines.value.split("\n").length : 0} 封`;
+  return `${derived.value.length} 条`;
+}
 const badge = m => (m.status === "pending" ? "待确认" : m.status === "obsolete" ? "已过时" : m.status === "deleted" ? "回收站" : ACCESS[accessOf(m)]);
 const srcLine = m => [SRC[m.source?.type] || "", m.source?.label || "", BY[m.source?.by] || (m.author === "me" ? "你写的" : "他自己记的")].filter(Boolean).join(" · ");
 const fmt = ts => (ts ? new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
@@ -238,10 +281,19 @@ function remove() {
     </div>
 
     <div v-if="role" class="views">
-      <button :class="{ on: view === 'global' }" @click="view = 'global'">全局记忆</button>
-      <button :class="{ on: view === 'scene' }" @click="view = 'scene'">场景记忆</button>
-      <button class="guide-btn" aria-label="记忆设置" @click="setOpen = true">⚙</button>
-      <button class="guide-btn" aria-label="说明书" @click="guideOpen = true">?</button>
+      <button :class="{ on: view === 'timeline' }" @click="view = 'timeline'">Timeline</button>
+      <button :class="{ on: view === 'drawers' }" @click="view = 'drawers'">Drawers</button>
+      <button :class="{ on: view === 'scene' }" @click="view = 'scene'">Scenes</button>
+      <button class="more" :class="{ due: reviewWaiting }" aria-label="更多" @click="menuOpen = !menuOpen">⋯</button>
+      <!-- 以前那一列小链接、设置和说明书都收在这里 -->
+      <div v-if="menuOpen" class="more-menu" @click="menuOpen = false">
+        <button @click="showChat">看看聊天时发给{{ role.name }}的全部</button>
+        <button @click="tryOpen = true">试试{{ role.name }}翻记忆会翻到什么</button>
+        <button @click="healthOpen = true">记忆体检</button>
+        <button :class="{ due: reviewWaiting }" @click="reviewOpen = true">{{ role.name }}的整理建议{{ reviewWaiting ? `（${reviewWaiting} 条等你看）` : "" }}</button>
+        <button @click="setOpen = true">记忆设置</button>
+        <button @click="guideOpen = true">说明书</button>
+      </div>
     </div>
     <MemorySettings :open="setOpen" :him="role?.name || '他'" @close="setOpen = false" />
     <MemoryGuide :open="guideOpen" :him="role?.name || '他'" @close="guideOpen = false" />
@@ -252,65 +304,69 @@ function remove() {
 
     <SceneMemory v-if="role && view === 'scene'" :role="role" />
 
-    <template v-if="view === 'global'">
-    <button v-if="role" class="peek" @click="showChat">看看聊天时发给{{ role.name }}的全部 ›</button>
-    <button v-if="role" class="peek" @click="tryOpen = true">试试{{ role.name }}翻记忆会翻到什么 ›</button>
-    <button v-if="role" class="peek" @click="healthOpen = true">记忆体检 ›</button>
-    <button v-if="role" class="peek" :class="{ due: reviewWaiting }" @click="reviewOpen = true">{{ reviewWaiting ? `${role.name}的整理建议：${reviewWaiting} 条等你看 ›` : `${role.name}的整理建议 ›` }}</button>
-
-
+    <!-- 时间轴：记忆卡片按日期排成一条线，每个点是一只小章鱼（样子看这条记忆从哪来） -->
+    <template v-if="view === 'timeline'">
     <XinchaoDrawer v-if="xinchao" :key="role.id" :role="role" :open-id="openId" @opened="openId = null" />
-
-
-    <template v-else>
-    <p class="sec">记忆卡片</p>
+    <template v-else-if="role">
     <div class="buckets">
       <button v-for="(b, k) in BUCKETS" :key="k" :class="{ on: bucket === k && !query.trim(), warn: k === 'pending' && countOf(k) }" @click="bucket = k; query = ''">
         {{ b.label }}<small>{{ k === "pinned" ? `${countOf(k)}/${PIN_MAX}` : countOf(k) }}</small>
       </button>
     </div>
-    <p v-if="!query.trim()" class="btip">{{ BUCKETS[bucket].tip }}{{ bucket === "normal" ? `（现在每次最多 ${recallCount()} 张，⚙ 里调）` : "" }}</p>
     <div class="search">
-      <Icon name="search" :size="17" />
+      <Icon name="search" :size="16" />
       <input v-model="query" placeholder="搜索标题、内容、标签、日期" />
     </div>
     <div v-if="query.trim()" class="stoggles">
       <label><input v-model="withArchived" type="checkbox" /> 包含归档</label>
       <label><input v-model="withHistory" type="checkbox" /> 包含已过时</label>
     </div>
+    <p v-else-if="bucket !== 'all'" class="btip">{{ BUCKETS[bucket].tip }}{{ bucket === "normal" ? `（现在每次最多 ${recallCount()} 张，⋯ → 记忆设置 里调）` : "" }}</p>
+    <div class="legend"><span v-for="x in LEGEND" :key="x.k"><img :src="OCT[x.k]" alt="" />{{ x.label }}</span></div>
 
-    <div class="cards">
-      <article v-for="m in cards" :key="m.id" class="mcard" :class="{ off: !isLive(m) || accessOf(m) === 'archived' }" :style="{ background: tint(role.color) }" @click="viewing = m">
-        <div class="meta"><span>{{ md(m.date) }} · {{ srcLine(m) }}</span><span class="bdg" :class="m.status || 'valid'">{{ badge(m) }}</span></div>
-        <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
-        <h3>{{ m.title }}</h3>
-        <p>{{ m.content }}</p>
-        <div class="by">
-          <Avatar v-if="m.author === 'me'" :img="store.profile.avatar" :name="authorInfo('me').name" :color="store.profile.color" :size="22" />
-          <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="22" />
-          <span>{{ m.source?.by === "helper" ? "整理模型建议的" : m.author === "me" ? "我写的" : `${role.name} 写的` }}</span>
-          <Icon name="right" :size="15" class="chev" />
-        </div>
-      </article>
+    <div class="tl">
+      <template v-for="g in timeline" :key="g.key">
+        <div class="mon">{{ g.label }}</div>
+        <article v-for="m in g.items" :key="m.id" class="it" :class="{ off: !isLive(m) || accessOf(m) === 'archived' }" @click="viewing = m">
+          <img class="oct" :src="OCT[octOf(m)]" alt="" />
+          <div class="d">{{ md(m.date) }}</div>
+          <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
+          <b>{{ m.title }}</b>
+          <p>{{ m.content }}</p>
+          <div class="tg">
+            <span v-if="badge(m) !== '普通'" class="bdg" :class="[m.status || 'valid', accessOf(m)]">{{ badge(m) }}</span>
+            <span>{{ SRC[m.source?.type] || (m.author === "me" ? "你写的" : "聊天") }}</span>
+          </div>
+        </article>
+      </template>
     </div>
 
-    <p v-if="!store.roles.length" class="empty-hint">还没有角色，先去「设置」里添加一个吧</p>
-    <p v-else-if="!cards.length" class="empty-hint">
-      {{ query ? "没有找到相关的记忆（可以勾上「包含归档」「包含已过时」再找找）" : bucket === "normal" ? `还没有普通记忆。聊天时${role?.name}会自己写下记忆，你也可以点右下角 ＋ 自己写。` : `「${BUCKETS[bucket].label}」里还没有卡片。` }}
+    <p v-if="!cards.length" class="empty-hint">
+      {{ query ? "没有找到相关的记忆（可以勾上「包含归档」「包含已过时」再找找）" : bucket === "all" || bucket === "normal" ? `还没有记忆。聊天时${role.name}会自己写下记忆，你也可以点右下角 ＋ 自己写。` : `「${BUCKETS[bucket].label}」里还没有卡片。` }}
     </p>
 
-    <button v-if="role" class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="26" /></button>
+    <button class="fab" aria-label="写一张记忆卡片" @click="newCard"><Icon name="plus" :size="24" /></button>
     </template>
+    </template>
+    <p v-if="!store.roles.length" class="empty-hint">还没有角色，先去「设置」里添加一个吧</p>
 
-    <template v-if="role">
-      <p class="sec">聊天摘要<small>聊久了整理成的，每个对话一份；换新对话会带过去</small></p>
+    <!-- 抽屉：其他的资料，一叠文件夹，平时合着，点一个拉开 -->
+    <div v-if="role && view === 'drawers'" class="drawers">
+      <section v-for="(d, i) in DRAWERS" :key="d.key" class="drw" :class="['k-' + d.key, { open: openDrawer === d.key }]" :style="{ zIndex: i + 1 }">
+        <span class="lab" :style="{ marginLeft: 12 + i * 15 + '%' }">{{ d.en }}</span>
+        <button class="drw-head" @click="openDrawer = openDrawer === d.key ? null : d.key">
+          <b>{{ d.title }}</b><span>{{ d.sub }}</span><i>{{ openDrawer === d.key ? "收起 ▴" : drawerCount(d.key) }}</i>
+        </button>
+        <div v-if="openDrawer === d.key" class="drw-body">
+          <template v-if="d.key === 'sum'">
       <article v-for="t in sums" :key="t.id" class="sum" @click="sumEdit = { t, text: t.summary.text }">
         <div class="meta"><span>「{{ t.title }}」 · {{ t.summary.count || 0 }} 条整理成{{ t.summary.from ? `（从「${t.summary.from}」带来）` : "" }}</span><span>{{ t.summary.at ? new Date(t.summary.at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : "" }}</span></div>
         <p>{{ t.summary.text }}</p>
       </article>
       <p v-if="!sums.length" class="empty-hint small">还没有聊天摘要。聊久了会自己整理，也可以在聊天的小世界里点「摘要记忆 → 现在整理」。</p>
 
-      <p class="sec">此刻 · 最近 24 小时<small>附在新消息前面的【此刻】里，有的时候才有</small></p>
+          </template>
+          <template v-else-if="d.key === 'now'">
       <article v-for="x in moment" :key="x.key" class="sum tmp">
         <div class="meta"><span>{{ x.label }}</span><span :class="x.text ? 'on' : ''">{{ x.text ? "现在带着" : "现在没有" }}</span></div>
         <ul v-if="x.key === 'self' && selfMoments.length" class="moms">
@@ -321,7 +377,8 @@ function remove() {
         <small class="rule">{{ x.rule }}</small>
       </article>
 
-      <p class="sec">板块记忆<small>长期的进展，一直放在全局记忆里；点一行能改</small></p>
+          </template>
+          <template v-else-if="d.key === 'board'">
       <article class="sum tmp board">
         <div class="meta"><span>共写：在写的书</span><span>归档了就不再记</span></div>
         <button v-for="x in boardWrite" :key="x.id" class="brow" @click="editProgress(x)"><b>《{{ x.title }}》</b><span>{{ x.board?.progress || x.board?.next ? `现在：${x.board.progress || "—"}；下一步：${x.board.next || "—"}` : "还没记进度" }}</span></button>
@@ -338,21 +395,21 @@ function remove() {
         <p v-if="!boardPals.length" class="none">还没记笔友。{{ role.name }}在邮箱里会自己记，邮箱页点开笔友也能写。</p>
       </article>
 
-      <template v-if="letterLines">
-        <p class="sec">来往的信<small>他记得的：标题和开头一句（最近 5 封）</small></p>
-        <article class="sum tmp"><p class="pre">{{ letterLines }}</p></article>
-      </template>
-
-      <template v-if="derived.length">
-        <p class="sec">从共读、共写整理来的<small>在全局记忆里排在卡片后面</small></p>
+          </template>
+          <template v-else-if="d.key === 'letters'">
+            <article class="sum tmp"><p class="pre">{{ letterLines || "还没有来往的信。" }}</p></article>
+          </template>
+          <template v-else>
         <article v-for="m in derived" :key="m.id" class="sum" @click="viewing = m">
           <div class="meta"><span>{{ m.bookId ? "共读 · 读书笔记" : "共写 · 写书的总结" }}</span><span>{{ md(m.date) }}</span></div>
           <h3>{{ m.title }}</h3>
           <p>{{ m.content }}</p>
         </article>
-      </template>
-    </template>
-    </template>
+            <p v-if="!derived.length" class="empty-hint small">还没有从共读、共写整理来的。</p>
+          </template>
+        </div>
+      </section>
+    </div>
 
     <Sheet :open="!!sumEdit" title="聊天摘要" @close="sumEdit = null">
       <template v-if="sumEdit">
@@ -468,8 +525,57 @@ function remove() {
 }
 .search input { flex: 1; border: 0; outline: none; background: none; font-size: 0.93rem; color: var(--text); }
 
-.views { display: flex; background: var(--bg-deep); border-radius: 14px; padding: 4px; gap: 4px; margin-bottom: 14px; }
-.views .guide-btn { flex: none; width: 38px; font-weight: 700; color: var(--text-2); }
+/* 三个标签：细字，下面一道线 */
+.views { position: relative; display: flex; border-bottom: 1px solid var(--line); margin: 0 6px 12px; font-family: "Poppins", var(--font); }
+.views .more { flex: none; width: 40px; color: var(--text-2); font-size: 1.1rem; letter-spacing: 1px; }
+.views .more.due { color: #c9304c; }
+.more-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 25; width: 230px; background: var(--card); border-radius: 16px; box-shadow: 0 10px 30px rgba(40, 40, 60, .16); padding: 4px 0; font-family: var(--font); }
+.more-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 10px 16px; font-size: .86rem; color: var(--text); border-radius: 0; }
+.more-menu button + button { border-top: 1px solid var(--line); }
+.more-menu button.due { color: #c9304c; font-weight: 600; }
+
+/* 时间轴 */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 2px 4px 6px; font-size: .7rem; color: var(--text-3); }
+.legend span { display: flex; align-items: center; gap: 2px; }
+.legend img { width: 30px; height: auto; image-rendering: pixelated; }
+.tl { position: relative; padding: 6px 4px 0 58px; }
+.tl::before { content: ""; position: absolute; left: 28px; top: 14px; bottom: 6px; width: 1px; background: var(--line); }
+.mon { margin: 10px 0 8px -40px; font-family: "Poppins", var(--font); font-size: .68rem; letter-spacing: 2px; color: var(--text-3); }
+.it { position: relative; margin-bottom: 14px; cursor: pointer; }
+.it .oct { position: absolute; left: -54px; top: -5px; width: 48px; height: auto; image-rendering: pixelated; background: var(--bg); padding: 1px 0; }
+.it .d { font-family: "Poppins", var(--font); font-size: .7rem; color: var(--text-3); }
+.it b { display: block; font-size: .95rem; font-weight: 600; margin: 1px 0 2px; }
+.it p { margin: 0; font-size: .84rem; line-height: 1.55; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.it .pic { display: block; width: 120px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; margin: 4px 0; }
+.it .tg { display: flex; gap: 5px; margin-top: 5px; }
+.it .tg span { font-size: .66rem; padding: 1px 8px; border-radius: 999px; background: var(--card); color: var(--text-2); box-shadow: 0 0 0 1px var(--line); }
+.it .tg .bdg.pinned { background: #f8e6e6; color: #c26f7c; box-shadow: none; }
+:root[data-theme="dark"] .it .tg .bdg.pinned { background: #3d2f33; color: #f0a7b4; }
+.it.off { opacity: .55; }
+
+/* 抽屉：一叠文件夹，颜色照她的课表（奶咖、雾粉、灰豆沙、灰绿、鼠尾草绿） */
+.drawers { padding: 18px 0 0; }
+.drw { --c: #f1eadc; position: relative; margin-top: -16px; background: var(--c); border-radius: 6px 6px 0 0; box-shadow: 0 -2px 6px rgba(60, 50, 40, .05); }
+.drw:first-child { margin-top: 0; }
+.drw.k-now { --c: #eed5d6; }
+.drw.k-board { --c: #e6d4cf; }
+.drw.k-letters { --c: #dce0d4; }
+.drw.k-rw { --c: #ced9d1; }
+.drw:last-child, .drw.open { border-radius: 6px; padding-bottom: 6px; }
+.drw.open { margin-bottom: 22px; }
+:root[data-theme="dark"] .drw { --c: #3a362f; }
+:root[data-theme="dark"] .drw.k-now { --c: #3d2f33; }
+:root[data-theme="dark"] .drw.k-board { --c: #3b3230; }
+:root[data-theme="dark"] .drw.k-letters { --c: #33362f; }
+:root[data-theme="dark"] .drw.k-rw { --c: #2e3632; }
+.lab { position: absolute; top: -13px; height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: "Poppins", var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 16px; color: var(--text-2); }
+.drw-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 16px 16px 38px; text-align: left; color: var(--text); border-radius: 0; }
+.drw.open .drw-head, .drw:last-child .drw-head { padding-bottom: 12px; }
+.drw-head b { font-size: .95rem; font-weight: 500; }
+.drw-head span { font-size: .74rem; color: var(--text-2); }
+.drw-head i { margin-left: auto; font-style: normal; font-size: .74rem; color: var(--text-3); }
+.drw-body { padding: 0 10px 6px; }
+.drw-body .sum { border-radius: 6px; box-shadow: 0 1px 2px rgba(60, 50, 40, .06); }
 .peek { display: block; margin: -4px 0 14px auto; border: 0; background: none; color: var(--text-2); font-size: .8rem; }
 .peek + .peek { margin-top: -8px; }
 .peek.due { color: #c9304c; font-weight: 600; }
@@ -486,7 +592,7 @@ function remove() {
 .mcard.off { opacity: .6; }
 .buckets { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 8px; }
 .buckets::-webkit-scrollbar { display: none; }
-.buckets button { flex: none; border: 0; background: var(--card); padding: 6px 12px; border-radius: 999px; font-size: .82rem; color: var(--text-2); box-shadow: var(--shadow-soft); }
+.buckets button { flex: none; border: 0; background: none; padding: 5px 12px; border-radius: 999px; font-size: .8rem; color: var(--text-2); box-shadow: inset 0 0 0 1px var(--line); }
 .buckets button small { margin-left: 4px; font-size: .7rem; color: var(--text-3); }
 .buckets button.on { background: var(--ink); color: var(--on-ink); font-weight: 600; }
 .buckets button.on small { color: rgba(var(--glass-rgb), .7); }
@@ -520,8 +626,8 @@ function remove() {
 .fold-btn { border: 0; background: none; padding: 2px 0; font-size: .74rem; color: var(--text-3); }
 .tmp .rule { display: block; margin-top: 6px; font-size: .7rem; line-height: 1.6; color: var(--text-3); }
 .tip { font-size: .74rem; color: var(--text-3); line-height: 1.7; margin: 8px 2px 0; }
-.views button { flex: 1; border: 0; background: none; border-radius: 10px; padding: 8px 6px; color: var(--text-2); font-size: 0.9rem; }
-.views button.on { background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); font-weight: 600; }
+.views > button { flex: 1; border: 0; background: none; border-radius: 0; padding: 10px 4px; color: var(--text-3); font-size: .88rem; font-weight: 400; }
+.views > button.on { color: var(--text); font-weight: 500; box-shadow: inset 0 -1.5px 0 var(--text); }
 .hits { display: flex; flex-direction: column; gap: 10px; }
 .hit { background: var(--card); border-radius: 18px; padding: 12px 14px; box-shadow: var(--shadow-soft); cursor: pointer; border-left: 4px solid var(--blue); }
 .hit.mine { border-left-color: var(--pink); }
