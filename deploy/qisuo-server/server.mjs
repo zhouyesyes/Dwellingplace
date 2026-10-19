@@ -10,6 +10,7 @@ import { createReadStream, statSync, writeFileSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { handleChatGPT } from "./chatgpt.mjs";
+import { handleClaude } from "./claude.mjs";
 import { handleSync } from "./sync.mjs";
 import { createDeviceSync } from "./devices.mjs";
 import { handlePreview } from "./preview.mjs";
@@ -150,6 +151,7 @@ http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ ok: true }));
       }
       if (m[2] === "chatgpt") return await handleChatGPT(req, res, m[3] || "", CORS); // ChatGPT 会员额度（登录信息只存在服务器上）
+      if (m[2] === "claude") return await handleClaude(req, res, m[3] || "", CORS); // 小螃蟹：服务器上的 Claude Code，用 Claude 订阅（登录信息只存在服务器上）
       const target = TARGETS[m[2]];
       if (!target) { res.writeHead(404, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: `不认识「${m[2]}」，只能转发：${Object.keys(TARGETS).join("、")}` } })); }
       return await proxy(req, res, target, m[3] || "", url.search);

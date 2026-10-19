@@ -3,7 +3,7 @@
 // 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条只有一个英文粗标题（共读、共写、信、纪念日）。英文用 Poppins
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
-import { store, roleById, threadsOf, MAIN } from "../store/index.js";
+import { store, roleById, threadsOf, MAIN, CRAB } from "../store/index.js";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 import { anniversaryInfo } from "../lib/dates.js";
 import { projects, freshNotes } from "../lib/writing.js";
@@ -75,6 +75,9 @@ const myName = computed(() => him.value?.me?.name || store.profile.userName || "
 
 // ---------- 下面那一列 ----------
 const thread = computed(() => threadsOf(MAIN)[0]);
+// 小螃蟹住进来了的话：他下面再一条
+const crab = computed(() => roleById(CRAB));
+const crabThread = computed(() => threadsOf(CRAB)[0]);
 const when = ts => {
   if (!ts) return "";
   const d = new Date(ts), now = new Date();
@@ -126,6 +129,11 @@ const rows = computed(() => [
         <Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="36" class="flat" />
         <span class="txt"><b>{{ him.name }}</b><small>{{ thread?.preview || "和他说说话" }}</small></span>
         <span class="time">{{ when(thread?.updatedAt) }}</span>
+      </button>
+      <button v-if="crab" class="row chat crab" @click="router.push(`/chat/${CRAB}`)">
+        <Avatar :img="crab.avatar" :name="crab.name" :color="crab.color" :size="36" class="flat" />
+        <span class="txt"><b>{{ crab.name }}</b><small>{{ crabThread?.preview || "来小螃蟹的房间坐坐" }}</small></span>
+        <span class="time">{{ when(crabThread?.updatedAt) }}</span>
       </button>
       <button v-for="r in rows" :key="r.key" class="row plain" @click="r.go()">
         <b class="en">{{ r.title }}</b>
@@ -188,6 +196,10 @@ const rows = computed(() => [
 .row + .row::before { content: ""; position: absolute; top: 0; left: 24px; right: 0; height: 1px; background: var(--home-line); }
 .row.chat { background: var(--home-chat); padding: 10px 24px; gap: 12px; }
 .row.chat :deep(.avatar.flat) { box-shadow: none; }
+/* 小螃蟹那条：淡淡的珊瑚橘，和他那条一样细；两条之间一道细线 */
+.row.chat.crab { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
+:root[data-theme="dark"] .row.chat.crab { background: #3a3029; }
+.row.chat + .row.chat.crab::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
 .meta { font-size: .8rem; color: var(--text-3); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

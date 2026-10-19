@@ -14,6 +14,14 @@
 
 ## 日志
 
+### 2026-10-19 · cc · 小螃蟹住进栖所（第一步：聊天线）
+- 她想把 cc 也接进栖所，用自己的 Claude 订阅（API 太贵）。商量定的：一个「小螃蟹房间」，背后两条线——聊天线（轻：工具全关、栖所给人设和记忆）和工作台线（重：完整 Claude Code 施工，以后再做），施工完写纸条回聊天线的记忆
+- 服务器 `deploy/qisuo-server/claude.mjs`：`/p/<口令>/claude/v1/chat/completions` 按 OpenAI 格式收，转给 `claude -p --input-format stream-json --output-format stream-json --system-prompt-file … --tools "" --strict-mcp-config --no-session-persistence --model sonnet`，一个字一个字流回去。每次都是新的一次：前面聊过的由栖所自己带（放进系统提示末尾）。去掉 `ANTHROPIC_API_KEY`（有它就会按量计费）；`CLAUDE_CODE_MAX_RETRIES=2`（登录失效时别干等几分钟）；`<synthetic>` 的 assistant 是出错时它自己编的一句，不当回复
+- `setup.sh`：镜像里装 `@anthropic-ai/claude-code`；第一次问「要让小螃蟹住进栖所吗」（`CLAUDE=y/n`）；没登录的话在服务器终端里跑 `claude setup-token`，她把 token 粘回终端，存在 `~/qisuo-server/claude.env`（600），启动时 `--env-file` 给容器
+- 前端：`store` 加 `CRAB = "crab"`、`crabRole()`（默认人设写着她叫 cc 小螃蟹、栖所是一起盖的、小章鱼是 ChatGPT）；「设置 → 小螃蟹 → 请小螃蟹住进来」：照已有的 `/p/口令/` 地址猜 `…/claude/v1`，先查 `/status`（装了没、登录了没），再建一个 API（OpenAI 格式，key 随便填 plan）和角色，跳到角色设定；主页他那条下面多一条小螃蟹（淡珊瑚橘）
+- 测过：服务器模块用假 token 跑通了出错路径（3 秒报「还没登录」）；前端用假服务器跑通了请进来 → 主页 → 聊天 → 流式回复；系统提示约 2.6k 字。**没用真的订阅跑过**（会花她的额度），等她装好试第一句
+- **还剩**：工作台线（施工、diff、审批）；施工纸条回记忆；小螃蟹的小屋
+
 ### 2026-10-19 · cc · 记忆卡片加「类别」：时间轴的小章鱼按讲的是什么分；旧卡片在 ⋯ 里让整理模型过一遍
 - 她说大多数卡片是整理模型从聊天里挑的，「在哪记的」分不出东西，要按讲的是什么分。卡片多一个字段 `cat`：喜好 / 约定 / 心事 / 时刻 / 读写 / 日常（`memoryTags.js` 的 `CATS`、`CAT_HINT`）
 - 新卡片：他写 `[记忆:类别|标题|内容]`、整理模型写 `[候选记忆:类别|标题|内容]`（聊天摘要、共读讨论室、共写讨论三处的提示都改了）；类别可以不写，以前的格式照样认
