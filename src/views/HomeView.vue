@@ -63,7 +63,7 @@ onBeforeUnmount(() => {
 const him = computed(() => roleById(MAIN));
 const cover = useImage(() => store.profile.cover);
 const bioOpen = ref(false);
-const bio = computed(() => store.profile.bioSelf || store.profile.bios[MAIN]?.text || "");
+const hisBio = computed(() => store.profile.bios[MAIN]?.text?.replace(/\n\s*\n/g, "\n") || "");
 async function changeCover() {
   const id = await pickAndCrop({ aspect: Math.min(innerWidth, 680) / 230, title: "调整封面", maxSize: 1800 });
   if (!id) return;
@@ -102,7 +102,7 @@ const rows = computed(() => [
   <div ref="home" class="home">
     <div class="pull" :class="{ on: pullLabel }" role="status" aria-live="polite">{{ pullLabel }}</div>
 
-    <h2 class="brand">Dwelling place</h2>
+    <h1 class="tab-title">Dwelling place</h1>
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover" />
 
     <div class="head">
@@ -113,7 +113,11 @@ const rows = computed(() => [
         <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)"><Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="68" /></button>
         <span v-if="him" class="tag his"><b>{{ him.name }}</b><small>{{ dayInfo && !dayInfo.future ? `day ${dayInfo.day}` : "ai" }}</small></span>
       </div>
-      <p class="bio" :class="{ ph: !bio }" @click="bioOpen = true">{{ bio || "点这里写一句简介，或者让他帮你写" }}</p>
+      <div class="bios" @click="bioOpen = true">
+        <p v-if="store.profile.bioSelf" class="bio">{{ store.profile.bioSelf }}</p>
+        <p v-if="hisBio" class="bio his">{{ hisBio }}<span class="by"> — {{ him.name }}</span></p>
+        <p v-if="!store.profile.bioSelf && !hisBio" class="bio ph">点这里写一句简介，或者让他帮你写</p>
+      </div>
     </div>
 
     <!-- 一列紧挨着的条：第一条是聊天 -->
@@ -142,8 +146,7 @@ const rows = computed(() => [
   /* 聊天那条用底栏海星的淡粉，和底栏统一 */
   --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #f8e6e6; --home-line: var(--line);
   font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
-  min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 14px) 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
-.brand { margin: 8px 24px 18px; text-align: center; font-size: 1.5rem; font-weight: 600; letter-spacing: -.3px; }
+  min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: 0 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
 :root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #3d2f33; }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
@@ -173,7 +176,10 @@ const rows = computed(() => [
 .tag small { font-size: .6rem; letter-spacing: 1px; color: var(--text-3); text-transform: uppercase; }
 .ava { position: relative; z-index: 1; }
 .ava :deep(.avatar) { box-shadow: 0 0 0 2.5px var(--home-bg), 0 6px 16px rgba(40, 40, 60, .1); }
-.bio { margin: 12px auto 0; max-width: 300px; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.bios { margin: 12px auto 0; max-width: 320px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.bio.his { color: var(--text-2); }
+.by { color: var(--text-3); white-space: nowrap; }
+.bio { margin: 0; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .bio.ph { color: var(--text-3); }
 
 /* 一列条：挨在一起，中间一道细线，整列是一张圆角的卡 */

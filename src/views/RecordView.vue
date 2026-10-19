@@ -18,7 +18,7 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
 
 <template>
   <div class="page record">
-    <h1 class="studio">Record</h1>
+    <h1 class="tab-title">Record</h1>
 
     <section class="card cal"><CalendarWidget /></section>
 
@@ -43,7 +43,6 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
 </template>
 
 <style scoped>
-.studio { text-align: center; font-size: 1.75rem; font-weight: 600; margin: 10px 0 16px; letter-spacing: .3px; }
 .card { border-radius: 24px; background: var(--card); box-shadow: var(--shadow); }
 .cal { margin-bottom: 16px; }
 
