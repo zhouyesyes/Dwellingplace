@@ -17,6 +17,12 @@ async function homeCover() {
   deleteImage(store.profile.cover);
   store.profile.cover = id;
 }
+async function myAvatar() {
+  const id = await pickAndCrop({ aspect: 1, round: true, title: "调整头像", maxSize: 500 });
+  if (!id) return;
+  deleteImage(store.profile.avatar);
+  store.profile.avatar = id;
+}
 function plainCover() {
   deleteImage(store.profile.cover);
   store.profile.cover = null;
@@ -36,7 +42,7 @@ function setHelper(v) {
 
 <template>
   <div class="page">
-    <h1 class="page-title">设置</h1>
+    <h1 class="page-title center">Settings</h1>
 
     <div class="section-label">API</div>
     <div class="list-card">
@@ -91,12 +97,21 @@ function setHelper(v) {
           </div>
         </div>
         <p class="look-tip">在主页点封面也能换</p>
+        <div class="look-line"><span>我的头像</span>
+          <div class="seg"><button @click="myAvatar">换图</button></div>
+        </div>
+        <div class="look-line"><span>飘落的东西</span>
+          <div class="seg">
+            <button v-for="(l, k) in { petals: '花瓣', none: '关' }" :key="k" :class="{ on: (store.settings.foreground ?? 'petals') === k }" @click="store.settings.foreground = k">{{ l }}</button>
+          </div>
+        </div>
       </div>
     </Sheet>
   </div>
 </template>
 
 <style scoped>
+.page-title.center { text-align: center; font-family: "Poppins", var(--font); }
 .look-tip { margin: 4px 2px 0; font-size: .75rem; color: var(--text-3); }
 .num-input { width: 70px; border: 0; background: var(--bg); border-radius: 10px; padding: 6px 8px; text-align: center; outline: none; }
 .inline-input { border: 0; background: var(--bg); border-radius: 10px; padding: 6px 10px; width: 42%; text-align: right; outline: none; }

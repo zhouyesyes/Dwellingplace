@@ -70,20 +70,8 @@ async function changeCover() {
   deleteImage(store.profile.cover);
   store.profile.cover = id;
 }
-async function changeAvatar() {
-  const id = await pickAndCrop({ aspect: 1, round: true, title: "调整头像", maxSize: 500 });
-  if (!id) return;
-  deleteImage(store.profile.avatar);
-  store.profile.avatar = id;
-}
 // 我的名字：用设定里写的（他角色设定里的「我」的称呼 > 用户名），不用主页标题「栖所」
 const myName = computed(() => him.value?.me?.name || store.profile.userName || "我");
-function rename() {
-  const name = prompt("你的名字", myName.value);
-  if (!name?.trim()) return;
-  if (him.value?.me?.name) him.value.me.name = name.trim().slice(0, 20);
-  else store.profile.userName = name.trim().slice(0, 20);
-}
 
 // ---------- 下面那一列 ----------
 const thread = computed(() => threadsOf(MAIN)[0]);
@@ -118,10 +106,10 @@ const rows = computed(() => [
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover" />
 
     <div class="head">
-      <!-- 两个头像挨在中间，左右各夹一个磨砂的小气泡写名字 -->
+      <!-- 两个头像挨在中间，左右各夹一个磨砂的小气泡写名字（只是放着，不能点）；点他的头像进聊天，我的头像在「设置 → 外观」里换 -->
       <div class="duo">
-        <button class="tag mine" @click="rename"><b>{{ myName }}</b><small>human</small></button>
-        <button class="ava" aria-label="换头像" @click="changeAvatar"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></button>
+        <span class="tag mine"><b>{{ myName }}</b><small>human</small></span>
+        <span class="ava"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></span>
         <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)"><Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="68" /></button>
         <span v-if="him" class="tag his"><b>{{ him.name }}</b><small>{{ dayInfo && !dayInfo.future ? `day ${dayInfo.day}` : "ai" }}</small></span>
       </div>
@@ -155,7 +143,7 @@ const rows = computed(() => [
   --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #f8e6e6; --home-line: var(--line);
   font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
   min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 14px) 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
-.brand { margin: 8px 24px 18px; font-size: 1.5rem; font-weight: 600; letter-spacing: -.3px; }
+.brand { margin: 8px 24px 18px; text-align: center; font-size: 1.5rem; font-weight: 600; letter-spacing: -.3px; }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
 :root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #3d2f33; }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
@@ -177,7 +165,7 @@ const rows = computed(() => [
 .tag {
   display: flex; flex-direction: column; align-items: center; gap: 0; padding: 6px 14px 5px; border: 0; margin-top: 30px;
   border-radius: 999px; background: rgba(var(--glass-rgb), .55); backdrop-filter: blur(12px) saturate(1.2); -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5) inset, 0 4px 14px rgba(40, 40, 60, .07); color: var(--text); max-width: 34%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5) inset, 0 4px 14px rgba(40, 40, 60, .07); color: var(--text); width: 88px; flex: none;
 }
 .tag.mine { margin-right: -6px; z-index: 0; }
 .tag.his { margin-left: -6px; z-index: 0; }
