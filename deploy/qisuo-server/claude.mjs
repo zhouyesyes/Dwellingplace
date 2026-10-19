@@ -99,7 +99,7 @@ async function memPull(force = false) {
     await git([...auth(), "clone", "-q", MEM_URL, MEM_DIR], dirname(MEM_DIR));
     await mgit(["config", "user.name", "qisuo"]);
     await mgit(["config", "user.email", "qisuo@localhost"]);
-  } else if (force || Date.now() - memPulledAt > 60_000) {
+  } else if (force || Date.now() - memPulledAt > 10_000) { // 栖所开着聊天时 15 秒问一次，这里最多 10 秒拉一次
     await mgit(["pull", "--rebase", "-q"]);
   }
   memPulledAt = Date.now();

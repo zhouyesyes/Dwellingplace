@@ -21,7 +21,15 @@ const tryGit = (...args) => { try { return git(...args); } catch { return null; 
 const readLog = () => { try { return readFileSync(LOG, "utf8").split("\n").filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); } catch { return []; } };
 const loadState = () => { try { return JSON.parse(readFileSync(STATE, "utf8")); } catch { return { seen: [], started: false }; } };
 const saveState = st => writeFileSync(STATE, JSON.stringify(st));
-const add = e => { mkdirSync(dirname(LOG), { recursive: true }); appendFileSync(LOG, JSON.stringify(e) + "\n"); };
+// 同一句话半分钟内只记一次（同一个窗口里项目和个人设置都挂了钩子时，不会记两遍）
+const add = (e, st) => {
+  const key = `${e.from}:${e.text.length}:${e.text.slice(0, 80)}`;
+  if (st && st.lastKey === key && Date.now() - (st.lastAt || 0) < 30_000) return false;
+  if (st) { st.lastKey = key; st.lastAt = Date.now(); }
+  mkdirSync(dirname(LOG), { recursive: true });
+  appendFileSync(LOG, JSON.stringify(e) + "\n");
+  return true;
+};
 const id = () => `code-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const WHO = { me: "她", crab: "你" };
 const WHERE = { qisuo: "栖所", code: "Claude Code", cloud: "云端干活", wake: "自己醒来" };
@@ -59,7 +67,7 @@ if (mode === "prompt") {
   // 她这句记下（推的事留到我回完一起做）
   const text = String(input.prompt || "").trim();
   if (text.includes("【云端派活】")) st.where = "cloud"; // 栖所派到云端的窗口：这里写的都算「云端干活」
-  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "me", text: text.slice(0, 20000) }; add(e); seen.add(e.id); }
+  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "me", text: text.slice(0, 20000) }; add(e, st); seen.add(e.id); }
   st.seen = [...seen].slice(-5000);
   saveState(st);
   if (ctx) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } }));
@@ -82,7 +90,7 @@ if (mode === "stop") {
   } catch { /* 没有记录就算了 */ }
   const st = loadState();
   const text = said.join("\n\n").trim();
-  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "crab", text: text.slice(0, 20000) }; add(e); (st.seen ??= []).push(e.id); saveState(st); }
+  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "crab", text: text.slice(0, 20000) }; add(e, st); (st.seen ??= []).push(e.id); saveState(st); }
   if (tryGit("status", "--porcelain")?.trim()) {
     tryGit("add", "-A");
     tryGit("commit", "-q", "-m", "Claude Code：新的一轮");

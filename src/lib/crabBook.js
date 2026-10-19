@@ -74,9 +74,16 @@ export async function syncBook() {
   finally { busy = false; }
 }
 
-// 开着栖所的时候：一进来同步一次，之后每两分钟、每次切回来再同步
+// 开着栖所的时候：一进来同步一次；正开着小螃蟹的聊天就每 15 秒一次，别的页面两分钟一次；切回来马上同步
+let lastSync = 0;
+const tick = () => {
+  if (document.hidden) return;
+  const inCrab = location.hash.startsWith(`#/chat/${CRAB}`);
+  if (inCrab || Date.now() - lastSync > 120_000) { lastSync = Date.now(); syncBook(); }
+};
 export function startCrabBook() {
   setTimeout(syncBook, 3000);
-  setInterval(syncBook, 120_000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncBook(); });
+  setInterval(tick, 15_000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { lastSync = Date.now(); syncBook(); } });
+  addEventListener("hashchange", () => { if (location.hash.startsWith(`#/chat/${CRAB}`)) { lastSync = Date.now(); syncBook(); } });
 }
