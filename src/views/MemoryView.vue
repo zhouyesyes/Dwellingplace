@@ -221,7 +221,7 @@ function remove() {
 
 <template>
   <div class="page memory">
-    <h1 class="studio">Memory Studio</h1>
+    <h1 class="tab-title">Memory Studio</h1>
 
     <!-- 换角色：右上角展开 -->
     <p v-if="role" class="drawer-name">{{ role.name }} 的抽屉</p>
@@ -436,19 +436,12 @@ function remove() {
 <style scoped>
 .memory { position: relative; }
 .drawer-name { text-align: center; margin: -6px 0 14px; font-size: 0.87rem; color: var(--text-2); }
-.who-switch { position: absolute; top: calc(var(--safe-top, 0px) + 18px); right: 16px; z-index: 20; }
+.who-switch { position: absolute; top: calc(var(--safe-top, 0px) + 26px); right: 16px; z-index: 20; }
 .who-btn { display: flex; align-items: center; gap: 4px; border: 0; background: var(--card); border-radius: 999px; padding: 4px 8px 4px 4px; box-shadow: var(--shadow-soft); font-size: 0.85rem; }
 .caret { font-style: normal; color: var(--text-3); font-size: 0.7rem; }
 .who-menu { position: absolute; right: 0; top: calc(100% + 6px); background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 6px; min-width: 170px; }
 .who-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px; border-radius: 12px; font-size: 0.9rem; text-align: left; }
 .who-menu button.on { background: var(--bg); font-weight: 600; }
-.studio {
-  text-align: center;
-  font-size: 1.75rem;
-  font-weight: 600;
-  margin: 10px 0 12px;
-  letter-spacing: .3px;
-}
 .tabs { display: flex; justify-content: center; gap: 18px; overflow-x: auto; scrollbar-width: none; margin-bottom: 14px; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button {

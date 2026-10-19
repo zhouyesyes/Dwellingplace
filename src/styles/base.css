@@ -124,6 +124,26 @@ html { font-size: 0.933rem; }
   .page { padding-bottom: calc(var(--safe-bottom) + 40px); }
 }
 
+/* 底栏那四个页面（主页、记录、记忆、设置）的大标题：位置、字体、字号完全一样 */
+.tab-title {
+  position: relative;
+  margin: 0;
+  padding: calc(var(--safe-top) + 26px) 60px 0;
+  height: calc(var(--safe-top) + 26px + 40px);
+  margin-bottom: 18px;
+  box-sizing: border-box;
+  text-align: center;
+  font-family: "Poppins", var(--font);
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 40px;
+  letter-spacing: -.2px;
+  color: var(--text);
+  white-space: nowrap;
+}
+/* 用了 .tab-title 的页面，顶上的留白交给标题自己 */
+.page:has(> .tab-title:first-child) { padding-top: 0; }
+
 .page-title {
   font-size: 1.73rem;
   font-weight: 600;
