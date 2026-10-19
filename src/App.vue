@@ -13,12 +13,29 @@ import { fileActivity } from "./lib/filePicker.js";
 const route = useRoute();
 const tab = computed(() => route.meta.tab);
 
-// iPhone：聊天页是整屏固定的，键盘收起后页面有时停在被顶上去的位置，回到列表时底部导航就高出一截。
-// 在聊天页里输入框失去焦点时，把页面滚回原位
-document.addEventListener("focusout", () => {
-  if (!/^\/(chat|group)\//.test(route.path)) return;
-  setTimeout(() => { if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0); }, 60);
-});
+// iPhone：聊天页是整屏固定的，键盘弹出时 iOS 会把整页（window / visualViewport）顶上去，
+// 键盘收起后有时不复原：顶栏下面多出一截空白、触摸位置和画面对不上，输入框点不动。
+// 键盘收起（失焦、视口变化）时把滚动和偏移复位；多补几次，等键盘收起动画走完
+const inChat = () => /^\/(chat|group)\//.test(route.path);
+const editing = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
+function resetViewport() {
+  if (!inChat() || editing()) return;
+  const vv = window.visualViewport;
+  if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || (vv && (vv.offsetTop || vv.pageTop))) {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+}
+function resetSoon() { [0, 60, 250, 500, 900].forEach(ms => setTimeout(resetViewport, ms)); }
+document.addEventListener("focusout", resetSoon);
+window.visualViewport?.addEventListener("resize", resetSoon);
+window.visualViewport?.addEventListener("scroll", resetViewport);
+window.addEventListener("scroll", resetViewport, { passive: true });
+// 点输入框以外的地方（键盘随之收起）
+document.addEventListener("touchend", e => { if (inChat() && !e.target.closest?.("textarea,input")) resetSoon(); }, { passive: true });
+// 切回 App 时也复位一次
+document.addEventListener("visibilitychange", () => { if (!document.hidden) resetSoon(); });
 
 // 字号：小 / 标准 / 大
 const FONT = { small: "13px", standard: "14px", large: "15.5px" };
