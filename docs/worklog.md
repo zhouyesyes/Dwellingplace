@@ -14,6 +14,13 @@
 
 ## 日志
 
+### 2026-10-19 cc：小螃蟹大工程第二步——对话本和私人仓库 qisuo-memory 连上
+- 对话本就是栖所里小螃蟹那条聊天（`role.bookThreadId`，没有就用最近一条）：太长了照平时整理成摘要
+- 服务器 `claude.mjs`：`/claude/book/push`（栖所新消息按 id 去重追加进 `book/log.jsonl`，再写 `summary.md`、`memories.md`）、`/book/pull?since=`（拿回 where 不是 qisuo 的）、`/book/status`。私人仓库克隆在 `data/crab-memory`，钥匙 `CRAB_MEMORY_TOKEN` 每次放在命令里带，不写进 git 设置；一次只做一件；`.gitattributes` 让 jsonl 两边同时加行时合在一起；推不上先 `pull --rebase` 再推。测试时可以用 `CRAB_MEMORY_URL` 换成本地仓库（本地 bare 仓库跑过：写入、去重、拿回别处写的）
+- `setup.sh`：小螃蟹登录好以后问对话本的钥匙，先用 GitHub API 试能不能打开仓库，能打开才存进 `memory.env`（只有她能读），容器多带 `--env-file memory.env`
+- 栖所 `src/lib/crabBook.js`：打开时、每两分钟、切回来时同步。写进去的是栖所这边新说的（别处来的不写回）；拿回来的按时间接在这条聊天后面，带 `where`（code / cloud / wake），聊天里时间后面标「在 Claude Code 里」这些，发给小螃蟹时也标在句子前面；`kind: memory` 的变成它的记忆卡片
+- 还剩：第三步（Claude Code 这边的钩子：读对话本、把每一轮写进去）、第四步（派活去云端）
+
 ### 2026-10-19 cc：小螃蟹的戳一戳和换签名放回来
 - 她要的：戳一戳、换签名和小章鱼一样都要用；表情包照之前分的（它自己的 + 共用）。上一条关掉的这两样恢复
 

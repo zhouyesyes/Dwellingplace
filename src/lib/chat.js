@@ -3,6 +3,7 @@ import { POKE_RE, POKE_EDIT_RE, pokeText, applyPokeTags } from "./poke.js";
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
+import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
@@ -358,6 +359,8 @@ async function buildMessages(list) {
       if (m.quote) parts.unshift({ type: "text", text: `（这句是引用着${m.quote.from === "ai" ? "你" : "自己之前"}说的「${m.quote.text}」回的）` });
     }
     if (m.poke) parts = [{ type: "text", text: `【戳一戳互动】对方戳了戳你。显示文案（仅作记录）：${JSON.stringify(m.text)}` }];
+    // 小螃蟹的对话本里从别处来的（Claude Code、云端、醒来）：标出来，TA 才知道这句是在哪说的
+    if (m.where && WHERE[m.where] && parts[0]?.type === "text") parts[0] = { ...parts[0], text: `（${WHERE[m.where]}）${parts[0].text}` };
     if (!parts.length) continue;
     const prev = out[out.length - 1];
     if (prev && prev.role === role) prev.parts.push(...parts);
