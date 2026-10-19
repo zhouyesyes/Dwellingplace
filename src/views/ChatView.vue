@@ -684,8 +684,10 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <header class="top">
       <button class="icon-btn" aria-label="返回" @click="back"><Icon name="back" /></button>
       <div class="who">
-        <div class="name">{{ role.name }}<span v-if="moodFace" class="mood" :title="moodFace.word"><PixelArt :grid="moodFace.grid" :size="20" /></span></div>
-        <div v-if="role.signature" class="sig">{{ role.signature }}</div>
+        <div v-if="thread?.studio" class="name">Studio</div>
+        <div v-if="thread?.studio" class="sig">{{ role.name }} 的工作室 · 连着栖所的仓库</div>
+        <div v-if="!thread?.studio" class="name">{{ role.name }}<span v-if="moodFace" class="mood" :title="moodFace.word"><PixelArt :grid="moodFace.grid" :size="20" /></span></div>
+        <div v-if="role.signature && !thread?.studio" class="sig">{{ role.signature }}</div>
       </div>
       <button class="icon-btn" aria-label="小世界" @click="smallWorld"><Icon name="house" /></button>
     </header>
@@ -694,7 +696,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <div class="inner">
         <div v-if="!messages.length" class="hello">
           <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="64" class="poke-target" :class="{ poked: pokeAnimation === 'ai' }" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
-          <p>和 {{ role.name }} 说点什么吧</p>
+          <p>{{ thread?.studio ? `这里是工作室：可以让 ${role.name} 去翻栖所的施工日志和提交记录，把值得记住的写进它的记忆` : `和 ${role.name} 说点什么吧` }}</p>
           <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
         </div>
 

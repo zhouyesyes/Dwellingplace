@@ -150,10 +150,10 @@ const rows = computed(() => [
         <span class="txt"><b>{{ crab.name }}</b><small>{{ crabThread?.preview || "来小螃蟹的房间坐坐" }}</small></span>
         <span class="time">{{ when(crabThread?.updatedAt) }}</span>
       </button>
-      <button v-if="crab" class="row chat crab studio" @click="openStudio">
-        <span class="desk">🦀</span>
-        <span class="txt"><b>小螃蟹的工作室</b><small>{{ studioThread?.preview || "让它自己翻栖所的施工日志，写进它的记忆" }}</small></span>
-        <span class="time">{{ when(studioThread?.updatedAt) }}</span>
+      <button v-if="crab" class="row plain studio" @click="openStudio">
+        <b class="en">Studio</b>
+        <span class="meta">{{ when(studioThread?.updatedAt) }}</span>
+        <Icon name="right" :size="15" class="chev" />
       </button>
       <button v-for="r in rows" :key="r.key" class="row plain" @click="r.go()">
         <b class="en">{{ r.title }}</b>
@@ -208,9 +208,8 @@ const rows = computed(() => [
 .row.chat { background: var(--home-chat); padding: 10px 24px; gap: 12px; }
 .row.chat :deep(.avatar.flat) { box-shadow: none; }
 /* 小螃蟹那条：淡淡的珊瑚橘，和他那条一样细；两条之间一道细线 */
-.row.chat.crab { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
-:root[data-theme="dark"] .row.chat.crab { background: #3a3029; }
-.desk { width: 36px; height: 36px; flex: none; display: grid; place-items: center; font-size: 1.15rem; border-radius: 50%; background: rgba(var(--glass-rgb), .6); }
+.row.chat.crab, .row.studio { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
+:root[data-theme="dark"] .row.chat.crab, :root[data-theme="dark"] .row.studio { background: #3a3029; }
 .row.chat + .row.chat.crab::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
