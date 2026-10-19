@@ -144,6 +144,22 @@ const bookPull = since => serial(async () => {
   return { entries: readLog().filter(e => e.where !== "qisuo" && (Number(e.ts) || 0) > since) };
 });
 
+// ---------- 派活去云端：Claude Code 的例行任务（routines）开一个 API 触发，这里转一句话过去 ----------
+// 地址和钥匙只在服务器上（CRAB_ROUTINE_URL、CRAB_ROUTINE_TOKEN，安装时粘的），栖所只说「要做什么」。
+const ROUTINE_URL = process.env.CRAB_ROUTINE_URL || "";
+const ROUTINE_TOKEN = process.env.CRAB_ROUTINE_TOKEN || "";
+async function cloudFire(text) {
+  if (!ROUTINE_URL || !ROUTINE_TOKEN) throw Object.assign(new Error("服务器上还没放派活的地址和钥匙：再运行一次安装那一行"), { status: 409 });
+  const r = await fetch(ROUTINE_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${ROUTINE_TOKEN}`, "anthropic-beta": "experimental-cc-routine-2026-04-01", "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+    body: JSON.stringify({ text: String(text || "").slice(0, 8000) }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(`派活没派出去：${j.error?.message || `返回 ${r.status}`}`), { status: 502 });
+  return { session: j.claude_code_session_id || "", url: j.claude_code_session_url || "" };
+}
+
 // ---------- 额度：每次回复 Claude Code 都会带上「5 小时」「每周」用了多少，记下最近一次 ----------
 const LIMITS_FILE = join(process.env.DATA_DIR || tmpdir(), "claude-limits.json");
 let limits = null;
@@ -285,6 +301,8 @@ export async function handleClaude(req, res, rest, CORS) {
     if (rest === "/status" && req.method === "GET") return send(200, await status());
     if (rest === "/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS);
+    if (rest === "/cloud/status" && req.method === "GET") return send(200, { ready: !!(ROUTINE_URL && ROUTINE_TOKEN) });
+    if (rest === "/cloud/fire" && req.method === "POST") return send(200, await cloudFire((await body()).text));
     if (rest === "/book/status" && req.method === "GET") return send(200, { token: !!MEM_TOKEN, repo: MEM_REPO, ...(MEM_TOKEN ? await serial(async () => { await memPull(); return { count: readLog().length }; }).catch(e => ({ error: e.message })) : {}) });
     if (rest === "/book/push" && req.method === "POST") return send(200, await bookPush(await body()));
     if (rest.startsWith("/book/pull") && req.method === "GET") return send(200, await bookPull(Number(new URL(req.url, "http://x").searchParams.get("since")) || 0));

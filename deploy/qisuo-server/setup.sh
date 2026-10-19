@@ -160,6 +160,30 @@ if [ "$CLAUDE" = "y" ]; then
     fi
   fi
   [ -n "$CLAUDE_ENV" ] && [ -s memory.env ] && CLAUDE_ENV="$CLAUDE_ENV --env-file $DIR/memory.env"
+
+  # 派活去云端：Claude Code 例行任务的「API 触发」地址和钥匙（在 claude.ai/code/routines 里生成的）。存在 routine.env（只有你能读）
+  if [ -n "$CLAUDE_ENV" ] && [ ! -s routine.env ]; then
+    say "小螃蟹派活去云端（Claude Code 例行任务的 API 触发）"
+    echo "  在例行任务的 API 触发里，复制那个地址（https://api.anthropic.com/v1/claude_code/routines/…/fire）粘在这里。"
+    read -r -p "  地址（不想现在弄就直接回车）: " R_URL </dev/tty
+    R_URL=$(printf '%s' "$R_URL" | tr -d '[:space:]')
+    case "$R_URL" in
+      "") echo "  先跳过了：以后想接，再运行一次安装那一行。" ;;
+      https://*) ;;
+      *) R_URL="https://api.anthropic.com/v1/claude_code/routines/$R_URL/fire" ;; # 只粘了 id 也行
+    esac
+    if [ -n "$R_URL" ]; then
+      read -r -s -p "  再粘生成的钥匙（不会显示）: " R_TOKEN </dev/tty; echo
+      R_TOKEN=$(printf '%s' "$R_TOKEN" | tr -d '[:space:]')
+      if [ -n "$R_TOKEN" ]; then
+        ( umask 077; printf 'CRAB_ROUTINE_URL=%s\nCRAB_ROUTINE_TOKEN=%s\n' "$R_URL" "$R_TOKEN" > routine.env )
+        echo "  记好了 ✓（不在这里试派一次，免得白开一个云端窗口；在栖所里让小螃蟹派第一件活就知道通没通）"
+      else
+        echo "  没粘钥匙，先跳过了。"
+      fi
+    fi
+  fi
+  [ -n "$CLAUDE_ENV" ] && [ -s routine.env ] && CLAUDE_ENV="$CLAUDE_ENV --env-file $DIR/routine.env"
 fi
 
 say "启动…"

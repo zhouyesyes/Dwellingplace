@@ -58,7 +58,8 @@ if (mode === "prompt") {
   for (const e of all) seen.add(e.id);
   // 她这句记下（推的事留到我回完一起做）
   const text = String(input.prompt || "").trim();
-  if (text) { const e = { id: id(), ts: Date.now(), where: "code", from: "me", text: text.slice(0, 20000) }; add(e); seen.add(e.id); }
+  if (text.includes("【云端派活】")) st.where = "cloud"; // 栖所派到云端的窗口：这里写的都算「云端干活」
+  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "me", text: text.slice(0, 20000) }; add(e); seen.add(e.id); }
   st.seen = [...seen].slice(-5000);
   saveState(st);
   if (ctx) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } }));
@@ -73,12 +74,15 @@ if (mode === "stop") {
     for (const j of lines) {
       const c = j.message?.content;
       if (j.type === "user" && (typeof c === "string" || (Array.isArray(c) && c.some(x => x.type === "text")))) said = [];
-      if (j.type === "assistant" && Array.isArray(c)) for (const x of c) if (x.type === "text" && x.text?.trim()) said.push(x.text.trim());
+      if (j.type === "assistant" && Array.isArray(c)) for (const x of c) {
+        if (x.type === "tool_use") said = []; // 干活时随口说的进度话不算，只要最后说给她的那段
+        else if (x.type === "text" && x.text?.trim()) said.push(x.text.trim());
+      }
     }
   } catch { /* 没有记录就算了 */ }
   const st = loadState();
   const text = said.join("\n\n").trim();
-  if (text) { const e = { id: id(), ts: Date.now(), where: "code", from: "crab", text: text.slice(0, 20000) }; add(e); (st.seen ??= []).push(e.id); saveState(st); }
+  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "crab", text: text.slice(0, 20000) }; add(e); (st.seen ??= []).push(e.id); saveState(st); }
   if (tryGit("status", "--porcelain")?.trim()) {
     tryGit("add", "-A");
     tryGit("commit", "-q", "-m", "Claude Code：新的一轮");

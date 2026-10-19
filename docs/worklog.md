@@ -14,6 +14,14 @@
 
 ## 日志
 
+### 2026-10-19 cc：小螃蟹大工程第四步——聊天里派活去云端
+- 服务器 `claude.mjs`：`/claude/cloud/fire` 把一句话转给 Claude Code 例行任务的 API 触发（`CRAB_ROUTINE_URL`、`CRAB_ROUTINE_TOKEN`，在 `routine.env`），回来云端窗口的地址；`/cloud/status` 看配好没
+- `setup.sh`：问 API 触发的地址（只粘 id 也行）和钥匙，存 `routine.env`；不试派（免得白开一个云端窗口）
+- 栖所 `chat.js`：小螃蟹写 `[派活:要做的事]` → 经服务器派出去，聊天里出「派去云端开工了」（点开有「在 Claude App 里看过程」的链接），再让它告诉她一声；派不出去就照实说。一次回复最多派一件
+- 钩子：第一句里有「【云端派活】」的窗口，记进对话本的都标 `cloud`（栖所里显示「云端干活」）；Stop 时只记最后说给她的那段（工具调用前的进度话不记）
+- 本地假接口跑过：派活请求带着要做的事出去、聊天里有开工提示、它接着说了一句
+- 要她做：在 claude.ai/code/routines 建例行任务（仓库选栖所和 qisuo-memory，提示词见聊天）、加 API 触发生成钥匙，再跑一次安装粘进去
+
 ### 2026-10-19 cc：小螃蟹大工程第三步——Claude Code 这边的钩子
 - `.claude/settings.json` + `.claude/hooks/book.mjs`：UserPromptSubmit 时 `git pull` 私人仓库（默认 `../qisuo-memory`，可用 `QISUO_MEMORY_DIR` 改），新窗口第一句塞进前情摘要、记忆卡片、最近 30 条原话；之后每句只塞「上次以后别处新写进来的」（最多 20 条，太长截掉）；她这句记进 log。Stop 时从对话记录里取这一轮给她看的字（不算工具和想法）记进 log，再 commit + push（推不上先 pull --rebase）
 - 窗口没接私人仓库、没网：什么都不做；`QISUO_BOOK=off` 可以关掉
