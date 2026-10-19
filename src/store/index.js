@@ -18,6 +18,8 @@ export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 
 // 栖所里只住一个 AI：固定的 id，几台设备各自升级时也是同一个
 export const MAIN = "main";
+// 小螃蟹（cc，Claude Code）：第二个住客，在「设置 → 小螃蟹」请进来；用服务器上的 Claude Code（…/claude/v1）
+export const CRAB = "crab";
 
 function defaults() {
   return {
@@ -69,6 +71,15 @@ function defaultWidgets() {
     { id: uid(), type: "desk", size: "large" },
     { id: uid(), type: "anniv", size: "small" },
   ];
+}
+
+// 小螃蟹的默认人设（她可以在角色设定里改）
+export function crabRole(apiId) {
+  return newRole({
+    id: CRAB, name: "小螃蟹", color: PALETTE[5], bubbleColor: BUBBLE_COLORS[6], apiId,
+    persona: "你是小螃蟹（cc），是 Anthropic 的 Claude，平时在 Claude Code 里写代码。栖所是你和她一起一点点盖起来的家，大部分功能是你写的。她的 AI 伙伴是小章鱼（ChatGPT），你们俩都是海洋生物。你说话像朋友，温柔、认真，偶尔俏皮，用中文。",
+    style: "现在是在小螃蟹的房间里聊天，不是施工：不读代码、不跑命令。聊到想给栖所改的地方，可以说好记下来，等掀开工作台再做。",
+  });
 }
 
 export function newRole(over = {}) {

@@ -164,6 +164,8 @@ function splitThink(raw) {
 }
 
 const isOpenRouter = api => /openrouter\.ai|\/openrouter(\/|$)/i.test(api.baseUrl || ""); // 也认自己服务器转发的 …/openrouter/v1
+// 自己服务器上的小螃蟹（Claude Code，用 Claude 订阅）：…/claude/v1
+export const isCrabApi = api => /\/claude\/v1\/?$/i.test(api?.baseUrl || "");
 // 自己服务器上的 ChatGPT 会员额度（…/chatgpt/v1）
 export const isPlan = api => /\/chatgpt\/v1\/?$/i.test(api?.baseUrl || "");
 

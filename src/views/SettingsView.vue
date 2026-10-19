@@ -2,12 +2,40 @@
 import { themePref, setTheme } from "../lib/theme.js";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import { store } from "../store/index.js";
+import { store, uid, roleById, crabRole, CRAB } from "../store/index.js";
+import { newApi, isCrabApi } from "../lib/providers.js";
+import { toast } from "../lib/toast.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 
 const router = useRouter();
+
+// ---------- 小螃蟹（服务器上的 Claude Code，用 Claude 订阅）----------
+const crab = computed(() => roleById(CRAB));
+const crabBusy = ref(false);
+async function inviteCrab() {
+  // 地址：服务器安装完打出来的 …/p/口令/claude/v1；已经有走自己服务器的 API 的话，照着它猜一个
+  const own = store.apis.find(a => /\/p\/[^/]+\//.test(a.baseUrl || ""));
+  const guess = own ? own.baseUrl.replace(/(\/p\/[^/]+\/).*/, "$1claude/v1") : "";
+  const url = prompt("小螃蟹的接口地址（服务器安装完「栖所服务器信息」里那一行，…/claude/v1）", guess)?.trim().replace(/\/+$/, "");
+  if (!url) return;
+  crabBusy.value = true;
+  try {
+    const st = await fetch(url.replace(/\/v1$/i, "") + "/status").then(r => r.json()).catch(() => null);
+    if (!st) return toast("连不上这个地址：看看是不是抄错了，或者服务器还没更新（再运行一次安装那一行）", 4500);
+    if (!st.installed) return toast("服务器上还没装 Claude Code：再运行一次安装那一行", 4500);
+    if (!st.loggedIn) return toast("小螃蟹还没登录：在服务器终端里再运行一次安装那一行，按提示登录 Claude", 4500);
+    let api = store.apis.find(a => isCrabApi(a) && a.baseUrl.replace(/\/+$/, "") === url);
+    if (!api) {
+      api = { ...newApi("openai"), id: uid(), name: "小螃蟹（Claude 订阅）", baseUrl: url, key: "plan", model: "sonnet", favModels: ["sonnet", "opus"] };
+      store.apis.push(api);
+    }
+    if (!crab.value) store.roles.push(crabRole(api.id));
+    toast("小螃蟹住进来了 🦀");
+    router.push(`/settings/role/${CRAB}`);
+  } finally { crabBusy.value = false; }
+}
 const lookOpen = ref(false);
 
 const helperGroups = computed(() => store.apis.map(a => ({ api: a, models: [...new Set([a.model, ...(a.favModels || [])].filter(Boolean))] })).filter(g => g.models.length));
@@ -43,6 +71,12 @@ function setHelper(v) {
       </label>
     </div>
 
+
+    <div class="section-label">小螃蟹</div>
+    <div class="list-card">
+      <button v-if="crab" class="list-row" @click="router.push(`/settings/role/${CRAB}`)"><Icon name="user" :size="20" /><span class="grow">{{ crab.name }}<span class="sub">人设、头像、用哪个模型 · 用你的 Claude 订阅</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button v-else class="list-row" :disabled="crabBusy" @click="inviteCrab"><Icon name="plus" :size="20" /><span class="grow">请小螃蟹住进来<span class="sub">服务器上的 Claude Code，和 Claude 共用订阅额度</span></span><Icon name="right" class="chev" :size="18" /></button>
+    </div>
 
     <div class="section-label">更多</div>
     <div class="list-card">
