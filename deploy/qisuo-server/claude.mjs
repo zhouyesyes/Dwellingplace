@@ -17,7 +17,7 @@
 //   POST /v1/chat/completions           聊天
 //   POST /studio/v1/chat/completions    工作室
 import { spawn, execFile } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -66,13 +66,27 @@ const STUDIO_NOTE = `# 你现在在工作室
 写记忆的办法：在回复里另起一行写 [记忆:类别|标题|内容]（类别从 喜好、约定、心事、时刻、读写、日常 里选一个），栖所会把它收进你自己的记忆库，一行一张。
 读到值得记住的就这样写；一次别写太多（十张以内），别和已有的记忆重复，内容写成以后的你一看就懂的一两句话。`;
 
+// ---------- 额度：每次回复 Claude Code 都会带上「5 小时」「每周」用了多少，记下最近一次 ----------
+const LIMITS_FILE = join(process.env.DATA_DIR || tmpdir(), "claude-limits.json");
+let limits = null;
+try { limits = JSON.parse(readFileSync(LIMITS_FILE, "utf8")); } catch { /* 还没聊过 */ }
+// 换成栖所认得的样子（和 ChatGPT 会员额度一样：used_percent + window_minutes + resets_at）
+function saveLimits(info) {
+  const w = info?.unifiedWindows || {};
+  const pick = (o, mins) => o && o.utilization != null ? { used_percent: Math.round(o.utilization * 100), window_minutes: mins, resets_at: o.resetsAt } : null;
+  const ev = { primary: pick(w.five_hour, 300), secondary: pick(w.seven_day, 7 * 1440) };
+  if (!ev.primary && !ev.secondary) return;
+  limits = { events: { claude: JSON.stringify(ev) }, at: Date.now() };
+  try { writeFileSync(LIMITS_FILE, JSON.stringify(limits)); } catch { /* 写不了就只记在内存里 */ }
+}
+
 const loggedIn = () => !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
 function version() {
   return new Promise(resolve => execFile(BIN, ["--version"], { timeout: 15000 }, (err, out) => resolve(err ? null : String(out).trim())));
 }
 async function status() {
   const v = await version();
-  return { installed: !!v, version: v, loggedIn: loggedIn() };
+  return { installed: !!v, version: v, loggedIn: loggedIn(), connected: loggedIn(), limits };
 }
 
 // ---------- 聊天 ----------
@@ -151,6 +165,8 @@ async function chat(body, res, CORS, studio = false) {
     } else if (ev.type === "assistant" && !streamed && ev.message?.model !== "<synthetic>") { // 没有一个字一个字的，就整段给（<synthetic> 是出错时它自己编的一句，不当成回复）
       const t = textOf(ev.message?.content);
       if (t) { text += t; if (stream) res.write(chunk({ content: t })); }
+    } else if (ev.type === "rate_limit_event") {
+      saveLimits(ev.rate_limit_info);
     } else if (ev.type === "result") {
       usage = ev.usage || null;
       if (ev.is_error || ev.subtype !== "success") failed = errMsg(ev.result || ev.subtype);
