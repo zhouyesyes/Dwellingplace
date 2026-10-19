@@ -1,15 +1,11 @@
 <script setup>
 // 记录：日历（从主页搬过来的）+ 日记本
 import { ref, computed } from "vue";
-import { useRouter } from "vue-router";
-import { goBack } from "../lib/nav.js";
-import Icon from "../components/Icon.vue";
 import { store, authorInfo } from "../store/index.js";
 import { diaryList } from "../lib/diary.js";
 import CalendarWidget from "../components/widgets/CalendarWidget.vue";
 import DiaryBook from "../components/record/DiaryBook.vue";
 
-const router = useRouter();
 const pages = computed(diaryList);
 const recent = computed(() => pages.value.map((e, i) => ({ e, i })).slice(-4).reverse());
 const book = ref(false);
@@ -22,8 +18,6 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
 
 <template>
   <div class="page record">
-    <!-- 底栏拿掉了：左上角回主页 -->
-    <button class="icon-btn home-back" aria-label="回主页" @click="goBack(router, '/')"><Icon name="back" /></button>
     <h1 class="studio">Record</h1>
 
     <section class="card cal"><CalendarWidget /></section>
@@ -49,8 +43,6 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
 </template>
 
 <style scoped>
-.record { position: relative; }
-.home-back { position: absolute; top: calc(var(--safe-top) + 12px); left: 12px; z-index: 2; }
 .studio { text-align: center; font-size: 1.75rem; font-weight: 600; margin: 10px 0 16px; letter-spacing: .3px; }
 .card { border-radius: 24px; background: var(--card); box-shadow: var(--shadow); }
 .cal { margin-bottom: 16px; }

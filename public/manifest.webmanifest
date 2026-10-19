@@ -4,6 +4,7 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
   "background_color": "#f6f6f8",
   "theme_color": "#f6f6f8",
   "icons": [

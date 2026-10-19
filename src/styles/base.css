@@ -82,6 +82,7 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
 html, body {
   margin: 0;
   height: 100%;
+  min-height: 100lvh; /* iPhone 主屏幕打开时页面会短一截：画布按最大的视口高度铺，底下不露白 */
   background: var(--bg);
   color: var(--text);
   font: 300 1rem/1.6 var(--font);
