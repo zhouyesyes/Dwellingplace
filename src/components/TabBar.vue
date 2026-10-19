@@ -30,18 +30,22 @@ const tabs = [
   bottom: calc(var(--safe-bottom) + 10px);
   transform: translateX(-50%);
   width: min(380px, calc(100vw - 32px));
-  height: 44px; /* 底下这条压矮：图标从上沿冒出去一点 */
+  height: 58px;
   display: flex;
   justify-content: space-around;
   align-items: flex-end;
-  padding-bottom: 5px;
-  background: rgba(var(--glass-rgb), .97);
-  border-radius: 18px;
-  box-shadow: 0 6px 22px rgba(40, 40, 60, .08), 0 0 0 1px var(--line);
+  padding-bottom: 4px;
   z-index: 20;
   font-family: "Poppins", var(--font);
 }
-.tab { display: flex; flex-direction: column; align-items: center; gap: 0; width: 72px; margin-top: -22px; color: var(--text-2); text-decoration: none; }
+/* 不要底框：页面最下面一截渐渐变成底色，内容滑到图标后面慢慢淡掉（主页的底色见 HomeView 的 --fade-bg） */
+.tabbar::before {
+  /* 底栏自己有 transform，fixed 会跟着它走：用 absolute 撑满整个屏幕宽、一直到屏幕最底 */
+  content: ""; position: absolute; left: calc(50% - 50vw); width: 100vw; bottom: calc(-1 * (var(--safe-bottom) + 10px)); z-index: -1; pointer-events: none;
+  height: calc(var(--safe-bottom) + 112px);
+  background: linear-gradient(to bottom, transparent, var(--fade-bg, var(--bg)) 58%);
+}
+.tab { display: flex; flex-direction: column; align-items: center; gap: 0; width: 72px; color: var(--text-2); text-decoration: none; }
 /* 不分深浅：选中的只是大一点点 */
 .tab img { width: 36px; height: 36px; filter: drop-shadow(0 2px 3px rgba(60, 50, 40, .08)); transform: rotate(var(--tilt, 0deg)); transition: transform .2s; -webkit-user-select: none; user-select: none; }
 .tab span { font-size: .66rem; font-weight: 600; letter-spacing: .2px; }
@@ -62,7 +66,9 @@ const tabs = [
     gap: 14px;
     padding: 14px 0;
     border-radius: 28px;
+    background: rgba(var(--glass-rgb), .97);
+    box-shadow: 0 6px 22px rgba(40, 40, 60, .08), 0 0 0 1px var(--line);
   }
-  .tab { margin-top: 0; }
+  .tabbar::before { display: none; }
 }
 </style>
