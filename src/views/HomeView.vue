@@ -151,13 +151,13 @@ const rows = computed(() => [
 
 <style scoped>
 .home {
-  /* 聊天那条用底栏扇贝的奶黄，和底栏统一 */
-  --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #f6efd8; --home-line: var(--line);
+  /* 聊天那条用底栏海星的淡粉，和底栏统一 */
+  --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #f8e6e6; --home-line: var(--line);
   font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
   min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 14px) 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
 .brand { margin: 8px 24px 18px; font-size: 1.5rem; font-weight: 600; letter-spacing: -.3px; }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
-:root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #3a3529; }
+:root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #3d2f33; }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
 .pull.on { opacity: 1; transform: translate(-50%, 0); }
 
