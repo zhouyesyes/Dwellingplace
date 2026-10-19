@@ -56,6 +56,17 @@ async function refreshRepo() {
     if (!existsSync(REPO)) throw Object.assign(new Error(`工作室拿不到栖所的仓库：${e.message}（服务器上要重新跑一次安装那一行）`), { status: 502 });
   }
 }
+// 工作室连上仓库没：最新一条提交、什么时候拉的
+async function studioStatus() {
+  try {
+    await refreshRepo();
+    const head = (await git(["log", "-1", "--date=short", "--format=%h %ad %s"], REPO)).trim();
+    const count = Number((await git(["rev-list", "--count", "HEAD"], REPO)).trim()) || 0;
+    return { repo: true, head, count, pulledAt };
+  } catch (e) {
+    return { repo: false, error: e.message };
+  }
+}
 const STUDIO_NOTE = `# 你现在在工作室
 当前文件夹是栖所仓库的一份拷贝（只读）。你可以用 Read / Glob / Grep 自己翻：
 - docs/worklog.md：大家一起施工的日志（最上面是最新的），你以前在别的窗口做过的事大多记在这里
@@ -122,7 +133,8 @@ const ERRS = [
   [/usage limit|rate limit|429|limit reached/i, "Claude 订阅这阵子的额度用完了（和 Claude 网页、Claude Code 共用），过一会儿再试"],
 ];
 const LOOK = { Read: "在读", Glob: "在找文件", Grep: "在搜" };
-const errMsg = t => (ERRS.find(([re]) => re.test(t || ""))?.[1]) || t || "出错了";
+// 认得的换成人话，后面带上原话（不认得的时候好查）
+const errMsg = t => { const nice = ERRS.find(([re]) => re.test(t || ""))?.[1]; return nice ? `${nice}（原话：${String(t).slice(0, 160)}）` : t || "出错了"; };
 
 async function chat(body, res, CORS, studio = false) {
   const { system, content } = split(body.messages);
@@ -206,6 +218,7 @@ export async function handleClaude(req, res, rest, CORS) {
     if (rest === "/status" && req.method === "GET") return send(200, await status());
     if (rest === "/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS);
+    if (rest === "/studio/status" && req.method === "GET") return send(200, await studioStatus());
     if (rest === "/studio/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/studio/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS, true);
     return send(404, { error: { message: "没有这个地址" } });

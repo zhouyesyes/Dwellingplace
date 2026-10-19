@@ -3,7 +3,7 @@
 // 上面是他（点卡片进他的设定）；下面是对话和背景、唤醒、语音和画画、信箱（平时收在右边，点一下整个抽出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { store, threadsOf, today } from "../store/index.js";
+import { store, threadsOf, today, apiById } from "../store/index.js";
 import { lettersOf } from "../lib/letters.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
 import Avatar from "./Avatar.vue";
@@ -26,6 +26,18 @@ const summaryLine = computed(() => {
   return `${t.summary.count || 0} 条聊天整理成的一份${t.summary.from ? `（从「${t.summary.from}」带过来）` : ""}`;
 });
 const go = path => { emit("close"); router.push(path); };
+
+// 小螃蟹的工作室：小世界里只放仓库连没连上、对话（背景气泡）、摘要和记忆
+const studio = computed(() => !!props.thread?.studio);
+const repo = ref(null); // null：正在看；{ repo, head, count, pulledAt } 或 { error }
+watch(() => props.open && studio.value, async on => {
+  if (!on) return;
+  repo.value = null;
+  const base = String(apiById(props.thread.apiId)?.baseUrl || "").replace(/\/+$/, "").replace(/\/v1$/i, "");
+  try { repo.value = await fetch(base + "/status", { cache: "no-store" }).then(r => r.json()); }
+  catch { repo.value = { error: "连不上服务器" }; }
+}, { immediate: true });
+const pulledText = t => { if (!t) return "刚拉过"; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "刚刚拉的最新" : m < 60 ? `${m} 分钟前拉的最新` : `${Math.round(m / 60)} 小时前拉的最新`; };
 const rackOut = ref(false);
 watch(() => props.open, o => { if (!o) rackOut.value = false; });
 function tapRack() {
@@ -39,6 +51,31 @@ function tapRack() {
     <Transition name="world">
       <div v-if="open && role" class="world-mask" @click="emit('close')">
         <aside class="world" @click.stop>
+          <template v-if="studio">
+          <h2 class="script">Studio</h2>
+          <div class="row repo">
+            <Icon name="book" :size="20" />
+            <span class="grow">
+              栖所的仓库
+              <small v-if="!repo">正在看连上没有…</small>
+              <small v-else-if="repo.repo">已连上 ✓ · 一共 {{ repo.count }} 个提交 · {{ pulledText(repo.pulledAt) }}</small>
+              <small v-else class="bad">没连上：{{ repo.error?.message || repo.error || "服务器还没更新，要重新跑一次安装" }}</small>
+              <small v-if="repo?.head" class="head">最新：{{ repo.head }}</small>
+            </span>
+          </div>
+          <p class="sec">still at home</p>
+          <button class="row" @click="emit('threads')">
+            <Icon name="chat" :size="20" /><span class="grow">背景和气泡<small>换背景、换气泡颜色</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
+          <button class="row" @click="emit('summary')">
+            <Icon name="memory" :size="20" /><span class="grow">摘要记忆<small>{{ summaryLine }}</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
+          <button class="row" @click="go('/memory?role=' + role.id)">
+            <Icon name="memory" :size="20" /><span class="grow">记忆<small>{{ role.name }} 在这里写下的卡片</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
+          </template>
+
+          <template v-else>
           <h2 class="script">Little World</h2>
 
           <div class="top">
@@ -93,6 +130,7 @@ function tapRack() {
           <button class="row" @click="go('/memory')">
             <Icon name="memory" :size="20" /><span class="grow">记忆<small>他记住的一张张卡片</small></span><Icon name="right" :size="16" class="chev" />
           </button>
+          </template>
         </aside>
       </div>
     </Transition>
@@ -117,6 +155,9 @@ function tapRack() {
 .tiny { font-size: 0.72rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini { width: 72px; border-radius: 18px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; font-size: 0.75rem; color: var(--text-2); }
 .mini span + span { border-top: 1px solid var(--line); padding-top: 10px; }
+.repo { cursor: default; }
+.repo small.head { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo small.bad { color: var(--danger); }
 .sec { margin: 18px 6px 8px; font-size: 0.85rem; font-weight: 600; color: var(--text); }
 .sec em, .sec:first-of-type { font-style: normal; font-weight: 300; letter-spacing: .06em; color: var(--text-3); }
 .row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 16px; margin-bottom: 8px; text-align: left; color: var(--text); font-size: 0.95rem; }

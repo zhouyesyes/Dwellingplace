@@ -104,15 +104,37 @@ $SUDO docker rmi qisuo-codex qisuo-codex-gate >/dev/null 2>&1 || true
 # 小螃蟹登录：只在服务器终端里做一次。token 存在 claude.env（只有你能读），不经过浏览器、不用发给任何人
 CLAUDE_ENV=""
 if [ "$CLAUDE" = "y" ]; then
+  # 已经登录过：先试一句，不通就问要不要重新登录
+  if [ -s claude.env ]; then
+    if CLAUDE_TRY=$($SUDO docker run --rm --env-file claude.env -w /tmp qisuo-server claude -p "只回复 ok" --tools "" --model haiku 2>&1); then
+      echo "  小螃蟹登录还好着 ✓"
+    else
+      echo "  小螃蟹的登录不通：$(printf '%s' "$CLAUDE_TRY" | tail -n 1 | cut -c1-200)"
+      ask RELOGIN "重新给小螃蟹登录？(y/n)" "y"
+      [ "$RELOGIN" = "y" ] && rm -f claude.env
+    fi
+  fi
   if [ ! -s claude.env ]; then
     say "给小螃蟹登录 Claude（用你的订阅，只要一次）"
     echo "  下面会显示一个链接：在手机上打开、登录 Claude、点同意，把页面上给的那串码粘回这里回车。"
     echo "  最后会打出一长串以 sk-ant-oat 开头的 token。"
     $SUDO docker run --rm -it qisuo-server claude setup-token </dev/tty || true
     read -r -s -p "把上面那串 sk-ant-oat… 的 token 粘贴在这里，回车（不会显示出来；不想现在弄就直接回车）: " CLAUDE_TOKEN </dev/tty; echo
+    # 终端里一长串可能被折成几行：没粘完就接着读，空格换行都去掉
+    while [ -n "$CLAUDE_TOKEN" ] && [ "${#CLAUDE_TOKEN}" -lt 100 ]; do
+      read -r -s -p "  好像只粘到一半（${#CLAUDE_TOKEN} 个字）：把剩下的也粘过来回车；已经完整了就直接回车: " MORE </dev/tty; echo
+      [ -z "$MORE" ] && break
+      CLAUDE_TOKEN="$CLAUDE_TOKEN$MORE"
+    done
+    CLAUDE_TOKEN=$(printf '%s' "$CLAUDE_TOKEN" | tr -d '[:space:]')
     if [ -n "$CLAUDE_TOKEN" ]; then
       ( umask 077; printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$CLAUDE_TOKEN" > claude.env )
-      echo "  记好了 ✓"
+      if CLAUDE_TRY=$($SUDO docker run --rm --env-file claude.env -w /tmp qisuo-server claude -p "只回复 ok" --tools "" --model haiku 2>&1); then
+        echo "  记好了，试了一句也通了 ✓"
+      else
+        echo "  记下了，但试了一句没通：$(printf '%s' "$CLAUDE_TRY" | tail -n 1 | cut -c1-200)"
+        echo "  多半是 token 没粘完整。再运行一次安装那一行，选重新登录就好。"
+      fi
     else
       echo "  先跳过了：以后想登录，再运行一次安装那一行。"
     fi

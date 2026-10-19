@@ -258,7 +258,7 @@ const showTurns = ref(false);
 .bar-row { margin: 10px 0; }
 .bar-label { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px; }
 .bar-label span:last-child { color: var(--text-2); font-variant-numeric: tabular-nums; }
-.bar { height: 10px; border-radius: 999px; background: var(--bg-deep); overflow: hidden; }
+.bar { height: 5px; border-radius: 999px; background: var(--bg-deep); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s; }
 .bar i.low { background: var(--danger); }
 .plan-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-size: 0.82rem; color: var(--text-2); }
