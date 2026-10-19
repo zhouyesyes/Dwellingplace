@@ -1,5 +1,5 @@
 <script setup>
-// 主页：上面一张封面（点了换图），我和他的头像挨在一起、两个人的名字、一句简介；
+// 主页：最上面「Dwelling place」，一张封面（点了换图；设置在底栏），我和他的头像挨在一起、两个人的名字、一句简介；
 // 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条只有一个英文粗标题（共读、共写、信、纪念日）。英文用 Poppins
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
@@ -111,9 +111,7 @@ const rows = computed(() => [
     <div class="pull" :class="{ on: pullLabel }" role="status" aria-live="polite">{{ pullLabel }}</div>
 
     <h2 class="brand">Dwelling place</h2>
-    <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover">
-      <button class="gear" aria-label="设置" @click.stop="router.push('/settings')"><Icon name="settings" :size="18" /></button>
-    </div>
+    <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover" />
 
     <div class="head">
       <div class="duo">
@@ -165,7 +163,6 @@ const rows = computed(() => [
   background-size: cover; background-position: center;
 }
 .cover.img { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
-.gear { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(var(--glass-rgb), .78); color: var(--ink); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 
 .head { padding: 0 24px; position: relative; z-index: 1; }
 .duo { display: flex; margin: -42px 0 0 -4px; }

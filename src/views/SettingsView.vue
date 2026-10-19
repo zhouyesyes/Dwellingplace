@@ -6,7 +6,6 @@ import { store } from "../store/index.js";
 import { pickAndCrop, deleteImage } from "../lib/images.js";
 import { syncState } from "../lib/sync.js";
 import Icon from "../components/Icon.vue";
-import SubHeader from "../components/SubHeader.vue";
 import Sheet from "../components/Sheet.vue";
 
 const router = useRouter();
@@ -37,7 +36,7 @@ function setHelper(v) {
 
 <template>
   <div class="page">
-    <SubHeader title="设置" home="/" />
+    <h1 class="page-title">设置</h1>
 
     <div class="section-label">API</div>
     <div class="list-card">
