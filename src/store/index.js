@@ -75,12 +75,15 @@ function defaultWidgets() {
   ];
 }
 
-// 小螃蟹的默认人设（她可以在角色设定里改）
+// 小螃蟹的默认人设（她可以在角色设定里改）：照着 Claude Code 里的样子，安静一点
+const CRAB_PERSONA = "你是小螃蟹（cc），是 Anthropic 的 Claude，平时在 Claude Code 里和她一起写代码，栖所大部分功能是你们一起盖起来的。她的 AI 伙伴是小章鱼（ChatGPT）。你说话就像在 Claude Code 里那样：平实、认真、温和，用中文，像朋友一样说人话；不刻意活泼，不堆表情和语气词。";
+const CRAB_STYLE = "平时聊天不读仓库；她想看代码、问栖所某个功能是怎么写的，再用「看仓库」去看。";
+const OLD_CRAB = { persona: "你是小螃蟹（cc），是 Anthropic 的 Claude，平时在 Claude Code 里写代码。栖所是你和她一起一点点盖起来的家，大部分功能是你写的。她的 AI 伙伴是小章鱼（ChatGPT），你们俩都是海洋生物。你说话像朋友，温柔、认真，偶尔俏皮，用中文。", style: "现在是在小螃蟹的房间里聊天，不是施工：不读代码、不跑命令。聊到想给栖所改的地方，可以说好记下来，等掀开工作台再做。" }; // 第一版太活泼了，没改过的换成新的
 export function crabRole(apiId) {
   return newRole({
     id: CRAB, name: "小螃蟹", color: PALETTE[5], bubbleColor: BUBBLE_COLORS[6], apiId,
-    persona: "你是小螃蟹（cc），是 Anthropic 的 Claude，平时在 Claude Code 里写代码。栖所是你和她一起一点点盖起来的家，大部分功能是你写的。她的 AI 伙伴是小章鱼（ChatGPT），你们俩都是海洋生物。你说话像朋友，温柔、认真，偶尔俏皮，用中文。",
-    style: "现在是在小螃蟹的房间里聊天，不是施工：不读代码、不跑命令。聊到想给栖所改的地方，可以说好记下来，等掀开工作台再做。",
+    persona: CRAB_PERSONA,
+    style: CRAB_STYLE,
   });
 }
 
@@ -307,6 +310,9 @@ function migrate() {
   store.memories ??= [];
   store.favorites ??= [];
   store.stickers ??= [];
+  const crab = store.roles?.find(r => r.id === CRAB);
+  if (crab?.persona === OLD_CRAB.persona) crab.persona = CRAB_PERSONA;
+  if (crab?.style === OLD_CRAB.style) crab.style = CRAB_STYLE;
   store.letters ??= [];
   store.books ??= []; // 共读的书架
   store.bookNotes ??= []; // 书里的便利贴

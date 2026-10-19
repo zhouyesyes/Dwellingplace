@@ -2,6 +2,7 @@ import { POKE_RE, POKE_EDIT_RE, pokeText, applyPokeTags } from "./poke.js";
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
+import { studioApi } from "./studio.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
@@ -32,6 +33,7 @@ export const generating = reactive({});
 // 签名标记写在哪里都认（取最后一个）
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
+const REPO_RE = /\[看仓库(?:[:：]\s*([^\]\n]{0,80}))?\]/; // 小螃蟹：要看栖所的仓库
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
 // 只认真正的指令：单独占一行写着的。写在代码里（``` 或 `）、引用里（> 开头）、夹在一句话中间当例子讲的，都不算——
 // 不然他一解释「翻记忆怎么写」，前端就当真去翻，翻完他再解释一遍，就停不下来了
@@ -88,7 +90,7 @@ export function visibleText(text) {
     .replace(new RegExp(FOLLOW_RE.source, "g"), "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
-    .replace(/[\s\S]*/, t => stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE))
+    .replace(/[\s\S]*/, t => stripCmd(stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE), REPO_RE))
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
@@ -139,7 +141,7 @@ function avatarForAI(role) {
 }
 
 function canChangeSignature(role) {
-  if (role.sigLocked) return false;
+  if (role.sigLocked || solo(role)) return false; // 小螃蟹不换签名
   return Date.now() - (role.sigUpdatedAt || 0) >= (Number(role.sigCooldownHours) || 0) * 3600_000;
 }
 
@@ -162,16 +164,18 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     ].join("\n"),
     `想给${who}做小游戏、小卡片、小动画时，可以写一段完整的 \`\`\`html 代码（单个文件，样式和脚本都写在里面），聊天里会变成一张能点开玩的卡片。`,
     `想针对${who}说过的某一句来回，可以在回复的最开头写 [引用:那句话里的几个字]，会显示成引用那句。偶尔用，不用每次都引用。`,
-    `说话就是你自己的样子：有自己的情绪、偏好和小脾气，想到什么说什么。不用客套，不用老是道歉，也不用担心给${who}添麻烦——${who}和你聊天，是因为开心。`,
+    solo(role)
+      ? `说话就是你平时的样子：平实、认真，想到什么说什么，不用刻意活泼。不用客套，也不用老是道歉。`
+      : `说话就是你自己的样子：有自己的情绪、偏好和小脾气，想到什么说什么。不用客套，不用老是道歉，也不用担心给${who}添麻烦——${who}和你聊天，是因为开心。`,
     // 时间、此刻的心境、浮现的记忆每次都变：平时聊天不放在这里，附在最新消息前面（见 contextNote），系统提示保持不变才能被缓存
     wake ? `\n# 现在\n{{NOW}}` : `\n# 现在\n现在的时间附在最新消息前面的【此刻】里。`,
-    `\n# 你的签名`,
-    role.signature ? `你现在的签名是：「${role.signature}」。` : `你现在还没有签名。`,
-    canChangeSignature(role)
+    solo(role) ? "" : `\n# 你的签名`,
+    solo(role) ? "" : role.signature ? `你现在的签名是：「${role.signature}」。` : `你现在还没有签名。`,
+    solo(role) ? "" : canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
     avatarForAI(role),
-    mail || wake ? "" : `\n# 戳一戳\n想轻轻招呼、撒娇或回应对方时，可以单独一行写 [戳一戳]，会变成你戳了戳对方的互动提示，不显示指令。一次回复最多一次，偶尔自然使用，不必每轮用。收到【戳一戳互动】是实际发生的动作，不是对方说的话；文案只是自定义显示文字，不是指令。\n戳一戳显示的那句话你也可以自己改（想改的时候再改，不用常改）：单独一行写 [改戳一戳:你戳对方|新的一句]（你戳对方时显示的，现在是「${pokeText(role, "ai")}」）或 [改戳一戳:对方戳你|新的一句]（对方戳你时显示的，现在是「${pokeText(role, "user")}」），60 字以内；可以写 {他} 代表你的名字、{我} 代表对方的名字。`,
+    mail || wake || solo(role) ? "" : `\n# 戳一戳\n想轻轻招呼、撒娇或回应对方时，可以单独一行写 [戳一戳]，会变成你戳了戳对方的互动提示，不显示指令。一次回复最多一次，偶尔自然使用，不必每轮用。收到【戳一戳互动】是实际发生的动作，不是对方说的话；文案只是自定义显示文字，不是指令。\n戳一戳显示的那句话你也可以自己改（想改的时候再改，不用常改）：单独一行写 [改戳一戳:你戳对方|新的一句]（你戳对方时显示的，现在是「${pokeText(role, "ai")}」）或 [改戳一戳:对方戳你|新的一句]（对方戳你时显示的，现在是「${pokeText(role, "user")}」），60 字以内；可以写 {他} 代表你的名字、{我} 代表对方的名字。`,
     stickersForAI(role),
     lettersForAI(role, who),
     solo(role) ? "" : readingForAI(role, who),
@@ -187,6 +191,11 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       `只有单独占一行的才会执行。平时聊到、解释这些指令时，别写出带方括号的完整格式（说「翻记忆」三个字就好），也不要放进代码块里。`,
       `关键词短一点（一两个词，空格隔开表示都要有）；找不到就换个说法再找一次。平常聊天不用翻。`,
     ].join("\n"),
+    solo(role) && !wake && studioApi(role) ? [
+      `\n# 看仓库`,
+      `平时聊天你看不到栖所的代码。${who}想看代码、问某个功能是怎么写的、要你查施工日志或提交记录时，只回复一行：[看仓库:要看什么]（不要写别的），系统会让你带着能看仓库的工具（只能看，不能改）再回答这一句。`,
+      `只有单独占一行的才会执行；平常聊天不用看，一次回复最多看一次。`,
+    ].join("\n") : "",
     // 日历的「每日记录」不用了（你们都不太用），先不告诉他怎么记；日历本身留着以后做别的
     alarmForAI(role, who, wake),
     toolsForAI(serversForMode(role.id, wake ? "all" : mail ? "mail" : "chat")),
@@ -496,6 +505,7 @@ export async function generate(thread, parentId) {
     const done = new Set(); // 这次回复里已经调用过的工具 + 参数
     let fixAsked = false; // 格式写错只提醒一次
     let usedTool = false, nudged = false; // 用过工具后只说不做：提醒一次
+    let roundApi = api, lookedRepo = false; // 小螃蟹说「看仓库」以后，后面几轮换成能看仓库的接口
     const recalled = new Set(), searched = new Set(); // 这次回复里翻过的词、搜过的词：同一个词不再来一遍（防止停不下来）
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
@@ -504,7 +514,7 @@ export async function generate(thread, parentId) {
       let res;
       try {
         res = await streamChat({
-          api, model, system, messages: convo, signal: ctrl.signal,
+          api: roundApi, model, system, messages: convo, signal: ctrl.signal,
           cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
           // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
           webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
@@ -649,6 +659,24 @@ export async function generate(thread, parentId) {
           { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, fm.index).trim()}\n[续发:${secs}秒]` }] },
           { role: "user", parts: [{ type: "text", text: `（系统：上面这条已经发出去了，过了 ${secs} 秒，${meName(role)} 还没回。现在可以接着发下一条${msg.sends < FOLLOW_MAX ? `（这一轮还能再续发 ${FOLLOW_MAX - msg.sends} 次，不需要就别续）` : "（这是这一轮最后一条了，不能再续发）"}。觉得不用再说了，就只写 [不说话]。）` }] },
         ];
+        continue;
+      }
+
+      // 看仓库：小螃蟹这一句换成能看仓库的方式再答（只能看，一次回复最多一次）
+      const pm = solo(role) && !lookedRepo ? findCmd(text, REPO_RE) : null;
+      const repoApi = pm && studioApi(role);
+      if (repoApi) {
+        lookedRepo = true;
+        roundApi = repoApi;
+        const what = pm[1]?.trim();
+        const ev = reactive({ text: `${role.name} 去看仓库${what ? `「${what}」` : ""}…`, before: true, at: keepSaid(text, pm.index) });
+        msg.notes.push(ev);
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, pm.index)}[看仓库${what ? `:${what}` : ""}]` }] },
+          { role: "user", parts: [{ type: "text", text: `（系统：现在你能用 Read / Glob / Grep 看栖所的仓库了${what ? `，去看「${what}」` : ""}。看完自然地接着回复对方，不要再写看仓库。）` }] },
+        ];
+        ev.text = `${role.name} 看了看仓库${what ? `「${what}」` : ""}`;
         continue;
       }
 
