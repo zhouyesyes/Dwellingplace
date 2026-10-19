@@ -99,7 +99,7 @@ onMounted(async () => {
   if (!role.value) return router.replace("/");
   const list = threadsOf(role.value.id);
   const pick =
-    list.find(t => t.id === route.params.threadId) ||
+    store.threads.find(t => t.id === route.params.threadId && t.roleId === role.value.id && !t.mail) || // 工作室不在列表里，但能直接打开
     list.find(t => t.id === role.value.lastThreadId) ||
     list[0] ||
     createThread(role.value.id);

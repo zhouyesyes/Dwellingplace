@@ -71,7 +71,8 @@ COPY --from=build /src/deploy/qisuo-server/sync.mjs /app/sync.mjs
 COPY --from=build /src/deploy/qisuo-server/devices.mjs /app/devices.mjs
 COPY --from=build /src/deploy/qisuo-server/preview.mjs /app/preview.mjs
 COPY --from=build /src/deploy/qisuo-server/claude.mjs /app/claude.mjs
-# 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）
+# 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）；git 给工作室拉栖所仓库用
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund
 ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data DISABLE_AUTOUPDATER=1
 CMD ["node", "/app/server.mjs"]

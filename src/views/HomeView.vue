@@ -3,7 +3,8 @@
 // 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条只有一个英文粗标题（共读、共写、信、纪念日）。英文用 Poppins
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
-import { store, roleById, threadsOf, MAIN, CRAB } from "../store/index.js";
+import { store, uid, roleById, apiById, threadsOf, studioThreadOf, MAIN, CRAB } from "../store/index.js";
+import { newApi } from "../lib/providers.js";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 import { anniversaryInfo } from "../lib/dates.js";
 import { projects, freshNotes } from "../lib/writing.js";
@@ -79,6 +80,19 @@ const thread = computed(() => threadsOf(MAIN)[0]);
 // 小螃蟹住进来了的话：他下面再一条
 const crab = computed(() => roleById(CRAB));
 const crabThread = computed(() => threadsOf(CRAB)[0]);
+const studioThread = computed(() => store.threads.find(t => t.roleId === CRAB && t.studio));
+// 工作室：照着小螃蟹聊天的地址（…/claude/v1）配一个工作室的（…/claude/studio/v1），单独一个对话
+function openStudio() {
+  const chatApi = apiById(crab.value.apiId);
+  if (!chatApi) return router.push(`/settings/role/${CRAB}`);
+  const url = chatApi.baseUrl.replace(/\/+$/, "").replace(/\/claude\/v1$/i, "/claude/studio/v1");
+  let api = store.apis.find(a => a.baseUrl?.replace(/\/+$/, "") === url);
+  if (!api) {
+    api = { ...newApi("openai"), id: uid(), name: "小螃蟹的工作室", baseUrl: url, key: "plan", model: chatApi.model || "sonnet", favModels: ["sonnet", "opus"] };
+    store.apis.push(api);
+  }
+  router.push(`/chat/${CRAB}/${studioThreadOf(CRAB, api.id).id}`);
+}
 const when = ts => {
   if (!ts) return "";
   const d = new Date(ts), now = new Date();
@@ -136,6 +150,11 @@ const rows = computed(() => [
         <span class="txt"><b>{{ crab.name }}</b><small>{{ crabThread?.preview || "来小螃蟹的房间坐坐" }}</small></span>
         <span class="time">{{ when(crabThread?.updatedAt) }}</span>
       </button>
+      <button v-if="crab" class="row chat crab studio" @click="openStudio">
+        <span class="desk">🦀</span>
+        <span class="txt"><b>小螃蟹的工作室</b><small>{{ studioThread?.preview || "让它自己翻栖所的施工日志，写进它的记忆" }}</small></span>
+        <span class="time">{{ when(studioThread?.updatedAt) }}</span>
+      </button>
       <button v-for="r in rows" :key="r.key" class="row plain" @click="r.go()">
         <b class="en">{{ r.title }}</b>
         <span class="meta">{{ r.meta }}</span>
@@ -191,6 +210,7 @@ const rows = computed(() => [
 /* 小螃蟹那条：淡淡的珊瑚橘，和他那条一样细；两条之间一道细线 */
 .row.chat.crab { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
 :root[data-theme="dark"] .row.chat.crab { background: #3a3029; }
+.desk { width: 36px; height: 36px; flex: none; display: grid; place-items: center; font-size: 1.15rem; border-radius: 50%; background: rgba(var(--glass-rgb), .6); }
 .row.chat + .row.chat.crab::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
