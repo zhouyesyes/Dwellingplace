@@ -14,6 +14,13 @@
 
 ## 日志
 
+### 2026-10-19 cc：小螃蟹的头像放到主页、不掺和共读共写
+- 主页：小螃蟹住进来以后，它的小头像挨在她右边（夹在她和他中间，小一号），点了进它的聊天
+- 小螃蟹不进：主页简介（BioSheet）、小屋切换（RoomView）。共读、共写、唤醒本来就只认他（唤醒默认关），没动
+- 记忆：每个人本来就是自己的一格，记忆页有两个人以上时顶上能切换，小螃蟹有自己的记忆库
+- 桌宠：还没画螃蟹，先没有（PetDock 只给他）
+- 还剩：螃蟹的桌宠、像素小屋；工作台那条线；共读共写怎么分她还没想好
+
 ### 2026-10-19 · cc · 小螃蟹住进栖所（第一步：聊天线）
 - 她想把 cc 也接进栖所，用自己的 Claude 订阅（API 太贵）。商量定的：一个「小螃蟹房间」，背后两条线——聊天线（轻：工具全关、栖所给人设和记忆）和工作台线（重：完整 Claude Code 施工，以后再做），施工完写纸条回聊天线的记忆
 - 服务器 `deploy/qisuo-server/claude.mjs`：`/p/<口令>/claude/v1/chat/completions` 按 OpenAI 格式收，转给 `claude -p --input-format stream-json --output-format stream-json --system-prompt-file … --tools "" --strict-mcp-config --no-session-persistence --model sonnet`，一个字一个字流回去。每次都是新的一次：前面聊过的由栖所自己带（放进系统提示末尾）。去掉 `ANTHROPIC_API_KEY`（有它就会按量计费）；`CLAUDE_CODE_MAX_RETRIES=2`（登录失效时别干等几分钟）；`<synthetic>` 的 assistant 是出错时它自己编的一句，不当回复

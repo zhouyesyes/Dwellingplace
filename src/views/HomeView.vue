@@ -109,10 +109,12 @@ const rows = computed(() => [
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover" />
 
     <div class="head">
+      <!-- 小螃蟹住进来以后，它的小头像挨在我右边（夹在我和他中间），点了进它的聊天 -->
       <!-- 两个头像挨在中间，左右各夹一个磨砂的小气泡写名字（只是放着，不能点）；点他的头像进聊天，我的头像在「设置 → 外观」里换 -->
       <div class="duo">
         <span class="tag mine"><b>{{ myName }}</b><small>human</small></span>
         <span class="ava"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></span>
+        <button v-if="crab" class="ava crab" :aria-label="`和${crab.name}聊天`" @click="router.push(`/chat/${CRAB}`)"><Avatar :img="crab.avatar" :name="crab.name" :color="crab.color" :size="46" /></button>
         <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)"><Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="68" /></button>
         <span v-if="him" class="tag his"><b>{{ him.name }}</b><small>{{ dayInfo && !dayInfo.future ? `day ${dayInfo.day}` : "ai" }}</small></span>
       </div>
@@ -172,6 +174,8 @@ const rows = computed(() => [
 .duo { display: flex; justify-content: center; align-items: center; margin: -36px 0 0; }
 .ava { padding: 0; border: 0; background: none; border-radius: 50%; flex: none; }
 .ava.his { margin-left: -12px; }
+.ava.crab { margin: 22px -4px 0 -10px; z-index: 2; }
+.ava.crab + .ava.his { margin-left: -4px; }
 /* 磨砂的小气泡：夹在两个头像左右，圆圆的 */
 .tag {
   display: flex; flex-direction: column; align-items: center; gap: 0; padding: 6px 14px 5px; border: 0; margin-top: 30px;
