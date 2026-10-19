@@ -12,7 +12,7 @@ import { store, uid } from "../store/index.js";
 import { get, set } from "./kv.js";
 import { progressOf } from "./books.js";
 import { latestImpr, readingMemsOf, applyNoteTags, applyReadMemTags } from "./reading.js";
-import { globalMemoryForScene, takeSuggestions } from "./memoryTags.js";
+import { globalMemoryForScene, takeSuggestions, CAT_HINT } from "./memoryTags.js";
 import { recallForAI } from "./recall.js";
 import { tail, sumTokens, keepCount, writeTokens, AUTO, snapshotSum } from "./budget.js";
 
@@ -173,7 +173,7 @@ export async function compressRoom(role, id, { keep, why = "manual" } = {}) {
       prev ? `（以前已经整理好的讨论摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${cut(prev, 1500)}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
       `只把这一段新的讨论整理成一小段摘要，写给以后接着讨论的自己看：聊了哪些书、哪些地方，各自怎么看，有什么分歧，${me}在意什么。书里的人物写名字，别用含糊的「他」「她」。按先后，客观简洁，不超过 800 字。只写这一段摘要本身。`,
-      `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的内容），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
+      `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的内容），在最后另起一行写 [候选记忆:类别|标题|内容]，最多 2 条（类别从这几个里选：${CAT_HINT}）；没有就不写。`,
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
     text = takeSuggestions(role, text, roomTitle(id));
     if (!text) return 0;
