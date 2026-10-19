@@ -208,8 +208,8 @@ const rows = computed(() => [
 .row.chat { background: var(--home-chat); padding: 10px 24px; gap: 12px; }
 .row.chat :deep(.avatar.flat) { box-shadow: none; }
 /* 小螃蟹那条：淡淡的珊瑚橘，和他那条一样细；两条之间一道细线 */
-.row.chat.crab, .row.studio { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
-:root[data-theme="dark"] .row.chat.crab, :root[data-theme="dark"] .row.studio { background: #3a3029; }
+.row.chat.crab { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
+:root[data-theme="dark"] .row.chat.crab { background: #3a3029; }
 .row.chat + .row.chat.crab::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
