@@ -35,6 +35,7 @@ export const generating = reactive({});
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const REPO_RE = /\[看仓库(?:[:：]\s*([^\]\n]{0,80}))?\]/; // 小螃蟹：要看栖所的仓库
+const JOB_RE = /\[派活[:：]\s*([^\]]{4,4000})\]/; // 小螃蟹：把要改代码的活派去云端
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
 // 只认真正的指令：单独占一行写着的。写在代码里（``` 或 `）、引用里（> 开头）、夹在一句话中间当例子讲的，都不算——
 // 不然他一解释「翻记忆怎么写」，前端就当真去翻，翻完他再解释一遍，就停不下来了
@@ -91,7 +92,7 @@ export function visibleText(text) {
     .replace(new RegExp(FOLLOW_RE.source, "g"), "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
-    .replace(/[\s\S]*/, t => stripCmd(stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE), REPO_RE))
+    .replace(/[\s\S]*/, t => stripCmd(stripCmd(stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE), REPO_RE), JOB_RE))
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
@@ -196,6 +197,9 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       `\n# 看仓库`,
       `平时聊天你看不到栖所的代码。${who}想看代码、问某个功能是怎么写的、要你查施工日志或提交记录时，只回复一行：[看仓库:要看什么]（不要写别的），系统会让你带着能看仓库的工具（只能看，不能改）再回答这一句。`,
       `只有单独占一行的才会执行；平常聊天不用看，一次回复最多看一次。`,
+      `\n# 派活去云端`,
+      `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的你（Claude Code）去做：拉最新代码、改、构建、截图、开 PR、合并，做完的报告会回到这条聊天里。`,
+      `「要做的事」写清楚：改哪里、改成什么样、做完要给${who}看什么（比如截图）。一次回复最多派一件；只是聊聊想法的时候别派。`,
     ].join("\n") : "",
     // 日历的「每日记录」不用了（你们都不太用），先不告诉他怎么记；日历本身留着以后做别的
     alarmForAI(role, who, wake),
@@ -508,7 +512,7 @@ export async function generate(thread, parentId) {
     const done = new Set(); // 这次回复里已经调用过的工具 + 参数
     let fixAsked = false; // 格式写错只提醒一次
     let usedTool = false, nudged = false; // 用过工具后只说不做：提醒一次
-    let roundApi = api, lookedRepo = false; // 小螃蟹说「看仓库」以后，后面几轮换成能看仓库的接口
+    let roundApi = api, lookedRepo = false, sentJob = false; // 小螃蟹说「看仓库」以后，后面几轮换成能看仓库的接口
     const recalled = new Set(), searched = new Set(); // 这次回复里翻过的词、搜过的词：同一个词不再来一遍（防止停不下来）
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
@@ -680,6 +684,35 @@ export async function generate(thread, parentId) {
           { role: "user", parts: [{ type: "text", text: `（系统：现在你能用 Read / Glob / Grep 看栖所的仓库了${what ? `，去看「${what}」` : ""}。看完自然地接着回复对方，不要再写看仓库。）` }] },
         ];
         ev.text = `${role.name} 看了看仓库${what ? `「${what}」` : ""}`;
+        continue;
+      }
+
+      // 派活：小螃蟹把要改代码的活派去云端（经过她的服务器，地址和钥匙都在服务器上）
+      const jm = solo(role) && !sentJob ? findCmd(text, JOB_RE) : null;
+      if (jm) {
+        sentJob = true;
+        const job = jm[1].trim();
+        const ev = reactive({ text: `${role.name} 把活派去云端…`, before: true, at: keepSaid(text, jm.index), detail: job });
+        msg.notes.push(ev);
+        let back;
+        try {
+          const base = String(apiFor(thread, role)?.baseUrl || "").replace(/\/+$/, "").replace(/\/v1$/i, "");
+          const r = await fetch(base + "/cloud/fire", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: job }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error?.message || `返回 ${r.status}`);
+          ev.text = `${role.name} 派去云端开工了`;
+          if (j.url) ev.sources = [{ title: "在 Claude App 里看过程", url: j.url }];
+          back = `（系统：已经派出去了，云端的你开工了${j.url ? `，过程在 ${j.url}` : ""}。简单告诉对方一声，做完的报告会回到这条聊天里。）`;
+        } catch (e) {
+          ev.text = `派活没派出去：${e.message}`;
+          back = `（系统：派活没派出去：${e.message}。告诉对方没派成，别假装已经在做了。）`;
+        }
+        if (ctrl.signal.aborted) break;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${job}]` }] },
+          { role: "user", parts: [{ type: "text", text: back }] },
+        ];
         continue;
       }
 
