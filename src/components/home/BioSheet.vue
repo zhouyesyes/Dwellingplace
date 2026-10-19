@@ -1,7 +1,7 @@
 <script setup>
 // 简介：每个 AI 各写一段，全部保留；也可以自己写一段
 import { ref, reactive, computed } from "vue";
-import { store, roleById, CRAB } from "../../store/index.js";
+import { store, roleById } from "../../store/index.js";
 import { oneShot, describeError } from "../../lib/chat.js";
 import { toast } from "../../lib/toast.js";
 import Sheet from "../Sheet.vue";
@@ -38,7 +38,7 @@ async function write(role) {
   }
 }
 
-const people = computed(() => store.roles.filter(r => r.id !== CRAB)); // 主页简介只写他的，小螃蟹不掺和
+const people = computed(() => store.roles); // 主页简介：他和小螃蟹各一句
 
 function writeAll() {
   people.value.forEach(write);
