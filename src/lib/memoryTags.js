@@ -91,7 +91,7 @@ export function recalledForAI(role, text) {
 }
 
 // 你们来往的信：他读过的你的信、他写的信，留一行（标题 + 一句），他以后提得起来
-export function lettersLog(role, meName, n = 10) {
+export function lettersLog(role, meName, n = 5) {
   return lettersOf(role.id).filter(l => l.from !== "me" || l.readAt).slice(-n)
     .map(l => `- [${l.date}] ${l.from === "me" ? `${meName}写给你` : `你写给${meName}`}「${l.title || "无题"}」：${(l.body || "").replace(/\s+/g, " ").slice(0, 40)}${(l.body || "").length > 40 ? "…" : ""}`).join("\n");
 }
@@ -123,7 +123,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
   const all = memoriesOf(role.id).filter(isLive);
   const pinned = all.filter(m => memKind(m) === "card" && accessOf(m) === "pinned");
   const recent = wake ? all.filter(m => memKind(m) === "card" && accessOf(m) === "normal").slice(0, 10) : [];
-  const reads = all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 10);
+  const reads = all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5); // 共读的笔记、来往的信：他只记得最近 5 个
   const writes = all.filter(m => memKind(m) === "write" && accessOf(m) !== "archived").slice(0, 6);
   const letters = lettersLog(role, meName);
   const board = boardForAI(role);
