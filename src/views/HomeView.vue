@@ -152,7 +152,8 @@ const rows = computed(() => [
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
 :root[data-theme="dark"] .home { --home-bg: var(--bg); --home-card: var(--card); --home-chat: #2c3531; --home-line: var(--line); }
 /* 主页的底色铺满（主页比内容高的那截也是这个颜色） */
-:global(body:has(.home)) { background: var(--home-bg, var(--bg)); }
+:global(body:has(.home)) { background: #f3f1ee; --fade-bg: #f3f1ee; }
+:global(:root[data-theme="dark"] body:has(.home)) { background: var(--bg); --fade-bg: var(--bg); }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
 .pull.on { opacity: 1; transform: translate(-50%, 0); }
 
