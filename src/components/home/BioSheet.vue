@@ -1,7 +1,7 @@
 <script setup>
 // 简介：每个 AI 各写一段，全部保留；也可以自己写一段
-import { ref, reactive } from "vue";
-import { store, roleById } from "../../store/index.js";
+import { ref, reactive, computed } from "vue";
+import { store, roleById, CRAB } from "../../store/index.js";
 import { oneShot, describeError } from "../../lib/chat.js";
 import { toast } from "../../lib/toast.js";
 import Sheet from "../Sheet.vue";
@@ -38,8 +38,10 @@ async function write(role) {
   }
 }
 
+const people = computed(() => store.roles.filter(r => r.id !== CRAB)); // 主页简介只写他的，小螃蟹不掺和
+
 function writeAll() {
-  store.roles.forEach(write);
+  people.value.forEach(write);
 }
 
 function startEdit(id) {
@@ -61,7 +63,7 @@ function removeBio(id) {
 
 <template>
   <Sheet :open="open" title="简介" @close="emit('close')">
-    <button class="btn soft wide" :disabled="!store.roles.length" @click="writeAll">
+    <button class="btn soft wide" :disabled="!people.length" @click="writeAll">
       <Icon name="refresh" :size="16" /> 让他写一段
     </button>
 
@@ -77,7 +79,7 @@ function removeBio(id) {
       </template>
     </div>
 
-    <div v-for="r in store.roles" :key="r.id" class="item" :style="{ '--c': r.color }">
+    <div v-for="r in people" :key="r.id" class="item" :style="{ '--c': r.color }">
       <div class="who"><Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="28" /><b>{{ r.name }} 写的</b></div>
       <template v-if="editingId === r.id">
         <BigTextarea v-model="editText" rows="3" :title="`${r.name} 写的简介`" />

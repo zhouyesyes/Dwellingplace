@@ -2,7 +2,7 @@
 // 小世界：他的像素小屋。点点房间里的东西，他和小东西们会有反应
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, archivedRole } from "../store/index.js";
+import { store, roleById, archivedRole, CRAB } from "../store/index.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
 import { hasXinchao, dashToken, refreshMind, snapOf, fetchCabin, xinchaoStatus } from "../lib/xinchao.js";
 import Icon from "../components/Icon.vue";
@@ -17,7 +17,7 @@ const router = useRouter();
 const archived = computed(() => !roleById(route.params.roleId) && !!archivedRole(route.params.roleId));
 const role = computed(() => roleById(route.params.roleId) || archivedRole(route.params.roleId));
 if (!role.value) router.replace("/");
-const people = computed(() => (archived.value ? store.archive.roles : store.roles));
+const people = computed(() => (archived.value ? store.archive.roles : store.roles.filter(r => r.id !== CRAB))); // 小螃蟹还没有小屋
 const hasMail = computed(() => !archived.value && role.value && !!serversForMode(role.value.id, "mail").find(isMailServer));
 
 // 每个人住自己的房间（没设过就按名字认）
