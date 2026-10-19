@@ -13,9 +13,12 @@ const bookBase = role => {
   return a && /\/claude\/v1\/?$/i.test(a.baseUrl || "") ? a.baseUrl.replace(/\/+$/, "").replace(/\/v1$/i, "") + "/book" : null;
 };
 
-// 哪一条聊天是对话本：记住的那条；没有就用最近的一条
+// 哪一条聊天是对话本：记住的那条（要是空的，就换成她最近在聊的、真有内容的那条）
 export function bookThread(role) {
-  let t = threadsOf(role.id).find(x => x.id === role.bookThreadId) || threadsOf(role.id)[0];
+  const list = threadsOf(role.id);
+  const used = t => !!(t && (t.preview || t.summary?.text));
+  let t = list.find(x => x.id === role.bookThreadId);
+  if (!used(t)) t = list.find(x => x.id === role.lastThreadId && used(x)) || list.find(used) || t || list[0];
   if (!t) t = createThread(role.id);
   role.bookThreadId = t.id;
   return t;
@@ -30,6 +33,7 @@ export async function syncBook() {
   try {
     const st = (role.book ??= { pushedTs: 0, pulledTs: 0, sig: "" });
     const t = bookThread(role);
+    if (st.thread !== t.id) { st.thread = t.id; st.pushedTs = 0; st.sig = ""; } // 换了一条：这条的话从头写进去（按 id 去重，不会重复）
     const all = await loadMessages(t.id);
     // 写进去：栖所这边新说的（别处拿回来的不再写回去）、摘要、记忆卡片
     const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && (m.text || "").trim());
