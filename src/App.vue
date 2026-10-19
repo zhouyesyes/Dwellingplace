@@ -2,6 +2,7 @@
 import { computed, watchEffect } from "vue";
 import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
+import Foreground from "./components/Foreground.vue";
 import Cropper from "./components/Cropper.vue";
 import FullEditor from "./components/FullEditor.vue";
 import { store } from "./store/index.js";
@@ -28,6 +29,7 @@ watchEffect(() => {
 
 <template>
   <RouterView />
+  <Foreground v-if="tab" />
   <TabBar v-if="tab" :active="tab" />
   <Cropper />
   <FullEditor />
