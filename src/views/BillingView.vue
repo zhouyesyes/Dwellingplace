@@ -2,7 +2,7 @@
 // API 管理：每个 API 在这台手机上每天用了多少次、多少 tokens；DeepSeek、OpenRouter 还能直接查账户余额和花费
 import { ref, computed, onMounted } from "vue";
 import { store, fmtTokens, today } from "../store/index.js";
-import { isPlan } from "../lib/providers.js";
+import { isPlan, isCrabApi } from "../lib/providers.js";
 import { planPercents } from "../lib/quota.js";
 import { useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
@@ -11,7 +11,11 @@ import SubHeader from "../components/SubHeader.vue";
 
 // ---------- ChatGPT 会员额度：放在最上面 ----------
 const planApis = computed(() => store.apis.filter(a => a.type === "openai" && isPlan(a)));
-const otherApis = computed(() => store.apis.filter(a => !planApis.value.includes(a)));
+// 小螃蟹：聊天和工作室是两个接口，但用的是同一份 Claude 订阅，合成一张卡
+const crabApis = computed(() => store.apis.filter(isCrabApi));
+const crabApi = computed(() => crabApis.value.find(a => !/\/studio\//i.test(a.baseUrl)) || crabApis.value[0]);
+const crabIds = computed(() => crabApis.value.map(a => a.id));
+const otherApis = computed(() => store.apis.filter(a => !planApis.value.includes(a) && !isCrabApi(a)));
 const plan = ref({}); // apiId -> { loading, error, st }
 const planBase = a => String(a.baseUrl).trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
 async function checkPlan(a) {
@@ -29,7 +33,7 @@ async function checkPlan(a) {
 const bars = limits => planPercents(limits).map(p => ({ label: p.label, left: Math.round(100 - p.used), reset: Number.isFinite(p.secs) && p.secs > 0 ? untilText(p.secs) : "" }));
 const untilText = s => (s < 3600 ? `${Math.ceil(s / 60)} 分钟后恢复` : s < 86400 ? `${Math.round(s / 3600)} 小时后恢复` : `${Math.round(s / 86400)} 天后恢复`);
 const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : `${Math.round(m / 60)} 小时前`; };
-const todayCalls = a => store.usage[today()]?.[a.id]?.calls || 0;
+const todayCalls = (a, ids = [a.id]) => ids.reduce((n, id) => n + (store.usage[today()]?.[id]?.calls || 0), 0);
 
 
 // OpenRouter 的查询地址跟着接口地址走（自己服务器转发的也行）
@@ -66,14 +70,20 @@ async function check(a) {
     account.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上（可能要开梯子）" : e.message };
   }
 }
-const refresh = () => { store.apis.forEach(check); planApis.value.forEach(checkPlan); };
+const refresh = () => { store.apis.forEach(check); planApis.value.forEach(checkPlan); if (crabApi.value) checkPlan(crabApi.value); };
 onMounted(refresh);
 
 // 这台手机上记下来的：最近 14 天，每天每个 API 的次数和 tokens（点开看每个模型）
 const days = computed(() => Object.keys(store.usage || {}).sort().reverse().slice(0, 14));
 const open = ref({});
-const rowsOf = a => days.value.map(d => ({ d, u: store.usage[d]?.[a.id] })).filter(r => r.u);
-const sum = a => rowsOf(a).reduce((s, { u }) => ({ calls: s.calls + u.calls, input: s.input + u.input, output: s.output + u.output }), { calls: 0, input: 0, output: 0 });
+// ids：几个接口合在一起算（小螃蟹的聊天 + 工作室）
+const merge = us => us.reduce((s, u) => {
+  s.calls += u.calls; s.input += u.input; s.output += u.output;
+  for (const [n, m] of Object.entries(u.models || {})) { const t = (s.models ??= {})[n] ??= { calls: 0, input: 0, output: 0 }; t.calls += m.calls; t.input += m.input; t.output += m.output; }
+  return s;
+}, { calls: 0, input: 0, output: 0 });
+const rowsOf = (a, ids = [a.id]) => days.value.map(d => { const us = ids.map(id => store.usage[d]?.[id]).filter(Boolean); return { d, u: us.length ? merge(us) : null }; }).filter(r => r.u);
+const sum = (a, ids) => rowsOf(a, ids).reduce((s, { u }) => ({ calls: s.calls + u.calls, input: s.input + u.input, output: s.output + u.output }), { calls: 0, input: 0, output: 0 });
 const short = d => d.slice(5).replace("-", "/");
 
 // 最近每一轮回复：请求了几次、多少 tokens；会员额度的话，这一轮前后百分比变了多少
@@ -129,6 +139,44 @@ const showTurns = ref(false);
       <div class="plan-foot">
         <span>今天在这台设备上聊了 {{ todayCalls(a) }} 次</span>
         <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">ChatGPT 里看用量 ›</a>
+      </div>
+    </div>
+
+    <div v-if="crabApi" class="card plan api-item">
+      <button class="api-edit" @click="router.push(`/settings/api/${crabApi.id}`)">
+        <Icon :name="crabApi.id === store.defaultApiId ? 'star' : 'key'" :size="20" />
+        <span class="grow"><b>小螃蟹（Claude 订阅）</b><span class="model">聊天和工作室一起算 · {{ crabApi.model || "sonnet" }}</span></span>
+        <span class="edit-label">编辑</span><Icon name="right" :size="18" />
+      </button>
+      <div class="plan-top"><b>Claude 订阅额度</b></div>
+      <p v-if="plan[crabApi.id]?.loading" class="muted">正在查…</p>
+      <p v-else-if="plan[crabApi.id]?.error" class="bad">查不到：{{ plan[crabApi.id].error }}</p>
+      <p v-else-if="plan[crabApi.id]?.st && !plan[crabApi.id].st.loggedIn" class="bad">小螃蟹还没登录：在服务器终端里再运行一次安装那一行</p>
+      <template v-if="plan[crabApi.id]?.st">
+        <div v-for="b in bars(plan[crabApi.id].st.limits)" :key="b.label" class="bar-row">
+          <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
+          <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
+        </div>
+        <p v-if="!bars(plan[crabApi.id].st.limits).length" class="muted small">和小螃蟹聊一句以后，这里就有「5 小时」和「每周」还剩多少了</p>
+        <p v-else-if="plan[crabApi.id].st.limits?.at" class="muted small">（{{ ago(plan[crabApi.id].st.limits.at) }}聊天时 Claude 带回来的，和 Claude 网页、Claude Code 共用）</p>
+      </template>
+      <div class="total">最近 14 天：{{ sum(crabApi, crabIds).calls }} 次 · 输入 {{ fmtTokens(sum(crabApi, crabIds).input) }} · 输出 {{ fmtTokens(sum(crabApi, crabIds).output) }}</div>
+      <div v-for="r in rowsOf(crabApi, crabIds)" :key="r.d" class="day" @click="open[crabApi.id + r.d] = !open[crabApi.id + r.d]">
+        <div class="day-row">
+          <b>{{ short(r.d) }}</b>
+          <span>{{ r.u.calls }} 次</span>
+          <span>输入 {{ fmtTokens(r.u.input) }}</span>
+          <span>输出 {{ fmtTokens(r.u.output) }}</span>
+          <i>{{ r.u.models ? (open[crabApi.id + r.d] ? "▴" : "▾") : "" }}</i>
+        </div>
+        <div v-if="open[crabApi.id + r.d] && r.u.models" class="models">
+          <div v-for="(m, name) in r.u.models" :key="name" class="m-row"><span class="m-name">{{ name }}</span><span>{{ m.calls }} 次 · {{ fmtTokens(m.input) }} / {{ fmtTokens(m.output) }}</span></div>
+        </div>
+      </div>
+      <p v-if="!rowsOf(crabApi, crabIds).length" class="muted small">最近 14 天在这台手机上还没用过。</p>
+      <div class="plan-foot">
+        <span>今天在这台设备上聊了 {{ todayCalls(crabApi, crabIds) }} 次</span>
+        <a href="https://claude.ai/settings/usage" target="_blank" rel="noopener">Claude 里看用量 ›</a>
       </div>
     </div>
 
