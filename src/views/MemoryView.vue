@@ -339,7 +339,7 @@ function remove() {
       </article>
 
       <template v-if="letterLines">
-        <p class="sec">来往的信<small>他记得的：标题和开头一句（最近 10 封）</small></p>
+        <p class="sec">来往的信<small>他记得的：标题和开头一句（最近 5 封）</small></p>
         <article class="sum tmp"><p class="pre">{{ letterLines }}</p></article>
       </template>
 
