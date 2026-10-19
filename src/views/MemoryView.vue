@@ -22,6 +22,7 @@ import MemorySettings from "../components/memory/MemorySettings.vue";
 import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
 import { ref, reactive, computed, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { goBack } from "../lib/nav.js";
 import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
 import { memoriesOf, memKind } from "../lib/memoryTags.js";
 import { todayYmd } from "../lib/dates.js";
@@ -221,6 +222,8 @@ function remove() {
 
 <template>
   <div class="page memory">
+    <!-- 底栏拿掉了：左上角回主页 -->
+    <button class="icon-btn home-back" aria-label="回主页" @click="goBack(router, '/')"><Icon name="back" /></button>
     <h1 class="studio">Memory Studio</h1>
 
     <!-- 换角色：右上角展开 -->
@@ -435,6 +438,7 @@ function remove() {
 
 <style scoped>
 .memory { position: relative; }
+.home-back { position: absolute; top: calc(var(--safe-top) + 12px); left: 12px; z-index: 2; }
 .drawer-name { text-align: center; margin: -6px 0 14px; font-size: 0.87rem; color: var(--text-2); }
 .who-switch { position: absolute; top: calc(var(--safe-top, 0px) + 18px); right: 16px; z-index: 20; }
 .who-btn { display: flex; align-items: center; gap: 4px; border: 0; background: var(--card); border-radius: 999px; padding: 4px 8px 4px 4px; box-shadow: var(--shadow-soft); font-size: 0.85rem; }
