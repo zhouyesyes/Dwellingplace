@@ -3,8 +3,7 @@
 // 上面是他（点卡片进他的设定）；下面是对话和背景、唤醒、语音和画画、信箱（平时收在右边，点一下整个抽出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { store, threadsOf, today, apiById, solo } from "../store/index.js";
-import { studioPath } from "../lib/studio.js";
+import { store, threadsOf, today, apiById } from "../store/index.js";
 import { stickersOf } from "../lib/stickers.js";
 import { lettersOf } from "../lib/letters.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
@@ -110,12 +109,6 @@ function tapRack() {
             <Icon name="mic" :size="20" /><span class="grow">语音和画画<small>{{ mediaOn || "还没开：选好服务商再来填" }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
 
-          <template v-if="solo(role)">
-          <p class="sec">工作室 <em>studio</em></p>
-          <button class="row" @click="go(studioPath(role))">
-            <Icon name="book" :size="20" /><span class="grow">Studio<small>{{ role.name }} 在这里翻栖所的仓库，自己写记忆</small></span><Icon name="right" :size="16" class="chev" />
-          </button>
-          </template>
 
           <p class="sec">信箱 <em>letters</em></p>
           <div class="rack-card" :class="{ out: rackOut }" @click="tapRack">
