@@ -110,6 +110,7 @@ const rows = computed(() => [
   <div ref="home" class="home">
     <div class="pull" :class="{ on: pullLabel }" role="status" aria-live="polite">{{ pullLabel }}</div>
 
+    <h2 class="brand">Dwelling place</h2>
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover">
       <button class="gear" aria-label="设置" @click.stop="router.push('/settings')"><Icon name="settings" :size="18" /></button>
     </div>
@@ -148,7 +149,8 @@ const rows = computed(() => [
 .home {
   --home-bg: #f3f1ee; --home-card: #fbfaf8; --home-chat: #e6ece8; --home-line: #ebe7e2;
   font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
-  min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 10px) 14px calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
+  min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 14px) 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
+.brand { margin: 8px 24px 18px; font-size: 1.5rem; font-weight: 600; letter-spacing: -.3px; }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
 :root[data-theme="dark"] .home { --home-bg: var(--bg); --home-card: var(--card); --home-chat: #2c3531; --home-line: var(--line); }
 /* 主页的底色铺满（主页比内容高的那截也是这个颜色） */
@@ -158,34 +160,34 @@ const rows = computed(() => [
 
 /* 封面：圆角的一张，默认是淡淡的雾蓝 */
 .cover {
-  position: relative; height: 210px; border-radius: 26px; cursor: pointer;
+  position: relative; height: 196px; margin: 0 14px; border-radius: 24px; cursor: pointer;
   background: linear-gradient(160deg, color-mix(in srgb, #e4e6e8 var(--pastel), var(--card)), color-mix(in srgb, #ece9e5 var(--pastel), var(--card)) 60%, color-mix(in srgb, #efe9e6 var(--pastel), var(--card)));
   background-size: cover; background-position: center;
 }
 .cover.img { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
 .gear { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(var(--glass-rgb), .78); color: var(--ink); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 
-.head { padding: 0 10px; position: relative; z-index: 1; }
-.duo { display: flex; margin: -44px 0 0 4px; }
+.head { padding: 0 24px; position: relative; z-index: 1; }
+.duo { display: flex; margin: -42px 0 0 -4px; }
 .ava { padding: 0; border: 0; background: none; border-radius: 50%; }
 .ava.his { margin-left: -14px; }
 .ava :deep(.avatar) { box-shadow: 0 0 0 2.5px var(--home-bg), 0 6px 16px rgba(40, 40, 60, .1); }
-h1 { margin: 12px 0 4px; font-size: 1.75rem; font-weight: 600; letter-spacing: -.2px; line-height: 1.25; }
+h1 { margin: 12px 0 4px; font-size: 1.45rem; font-weight: 600; letter-spacing: -.2px; line-height: 1.25; }
 h1 i { font-style: normal; font-weight: 400; color: var(--text-3); }
-.bio { margin: 0; font-size: .9rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.bio { margin: 0; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .bio.ph { color: var(--text-3); }
 
 /* 一列条：挨在一起，中间一道细线，整列是一张圆角的卡 */
-.list { margin-top: 24px; background: var(--home-card); border-radius: 22px; box-shadow: 0 0 0 1px var(--home-line); overflow: hidden; }
-.row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 0; background: none; text-align: left; color: var(--text); position: relative; }
-.row + .row::before { content: ""; position: absolute; top: 0; left: 18px; right: 18px; height: 1px; background: var(--home-line); }
-.row.chat { background: var(--home-chat); padding: 16px; }
-.row.plain { padding: 18px 18px; }
-.en { flex: 1; font-size: 1.12rem; font-weight: 600; letter-spacing: -.1px; }
+.list { margin-top: 26px; border-top: 1px solid var(--home-line); border-bottom: 1px solid var(--home-line); }
+.row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-radius: 0; border: 0; background: none; text-align: left; color: var(--text); position: relative; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 24px; right: 0; height: 1px; background: var(--home-line); }
+.row.chat { background: var(--home-chat); padding: 16px 24px; }
+.row.plain { padding: 17px 24px; }
+.en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
 .meta { font-size: .8rem; color: var(--text-3); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.chat + .row::before { display: none; }
 .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.txt b { font-size: 1.05rem; font-weight: 600; }
+.txt b { font-size: .95rem; font-weight: 600; }
 .txt small { font-size: .82rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .time { align-self: flex-start; margin-top: 4px; font-size: .75rem; color: var(--text-3); flex: none; }
 .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: .72rem; display: grid; place-items: center; flex: none; }
