@@ -1,6 +1,6 @@
 <script setup>
 // 主页：上面一张封面（点了换图），我和他的头像挨在一起、两个人的名字、一句简介；
-// 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条是共读、共写、信、纪念日
+// 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条只有一个英文粗标题（共读、共写、信、纪念日）。英文用 Poppins
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { store, roleById, threadsOf, MAIN } from "../store/index.js";
@@ -99,26 +99,10 @@ const dayInfo = computed(() => day.value && anniversaryInfo(day.value.date));
 const anniv = ref(null);
 
 const rows = computed(() => [
-  {
-    key: "read", icon: "book", tint: "var(--green)", title: "共读", badge: bookNotes.value,
-    sub: book.value ? `《${book.value.title}》${bookNotes.value ? ` · ${bookNotes.value} 张新便利贴` : ""}` : "放一本想一起读的书",
-    go: () => router.push("/books"),
-  },
-  {
-    key: "write", icon: "edit", tint: "var(--yellow)", title: "共写", badge: writeNotes.value,
-    sub: project.value ? `《${project.value.title}》${writeNotes.value ? ` · ${writeNotes.value} 张新便利贴` : ""}` : "开一本一起写的书",
-    go: () => router.push("/write"),
-  },
-  {
-    key: "letter", icon: "mail", tint: "var(--pink)", title: "信", badge: unreadLetters.value,
-    sub: unreadLetters.value ? `有 ${unreadLetters.value} 封还没拆` : (store.letters || []).length ? `一共 ${store.letters.length} 封` : "给他写第一封信",
-    go: () => router.push("/letters"),
-  },
-  {
-    key: "days", icon: "heart", tint: "var(--lilac)", title: "纪念日", badge: 0,
-    sub: dayInfo.value ? (dayInfo.value.future ? `还有 ${dayInfo.value.until} 天` : `在一起第 ${dayInfo.value.day} 天 · 离${dayInfo.value.nextLabel}还有 ${dayInfo.value.until} 天`) : "加一个纪念日",
-    go: () => anniv.value?.openManage(),
-  },
+  { key: "read", title: "Reading", meta: book.value ? `《${book.value.title}》` : "", badge: bookNotes.value, go: () => router.push("/books") },
+  { key: "write", title: "Writing", meta: project.value ? `《${project.value.title}》` : "", badge: writeNotes.value, go: () => router.push("/write") },
+  { key: "letter", title: "Letters", meta: (store.letters || []).length ? `${store.letters.length} 封` : "", badge: unreadLetters.value, go: () => router.push("/letters") },
+  { key: "days", title: "Days", meta: dayInfo.value ? (dayInfo.value.future ? `还有 ${dayInfo.value.until} 天` : `第 ${dayInfo.value.day} 天`) : "", badge: 0, go: () => anniv.value?.openManage() },
 ]);
 </script>
 
@@ -146,11 +130,11 @@ const rows = computed(() => [
         <span class="txt"><b>{{ him.name }}</b><small>{{ thread?.preview || "和他说说话" }}</small></span>
         <span class="time">{{ when(thread?.updatedAt) }}</span>
       </button>
-      <button v-for="r in rows" :key="r.key" class="row" @click="r.go()">
-        <span class="ic" :style="{ background: r.tint }"><Icon :name="r.icon" :size="21" /></span>
-        <span class="txt"><b>{{ r.title }}</b><small>{{ r.sub }}</small></span>
+      <button v-for="r in rows" :key="r.key" class="row plain" @click="r.go()">
+        <b class="en">{{ r.title }}</b>
+        <span class="meta">{{ r.meta }}</span>
         <span v-if="r.badge" class="badge">{{ r.badge }}</span>
-        <Icon v-else name="right" :size="16" class="chev" />
+        <Icon name="right" :size="15" class="chev" />
       </button>
     </div>
 
@@ -161,15 +145,21 @@ const rows = computed(() => [
 </template>
 
 <style scoped>
-.home { min-height: 100%; max-width: 680px; margin: 0 auto; padding: calc(var(--safe-top) + 10px) 14px calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
+.home {
+  --home-bg: #f3f1ee; --home-card: #fbfaf8; --home-chat: #e6ece8; --home-line: #ebe7e2;
+  font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+  min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 10px) 14px calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
+:root[data-theme="dark"] .home { --home-bg: var(--bg); --home-card: var(--card); --home-chat: #2c3531; --home-line: var(--line); }
+/* 主页的底色铺满（主页比内容高的那截也是这个颜色） */
+:global(body:has(.home)) { background: var(--home-bg, var(--bg)); }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
 .pull.on { opacity: 1; transform: translate(-50%, 0); }
 
 /* 封面：圆角的一张，默认是淡淡的雾蓝 */
 .cover {
   position: relative; height: 210px; border-radius: 26px; cursor: pointer;
-  background: linear-gradient(160deg, color-mix(in srgb, #dfe7f1 var(--pastel), var(--card)), color-mix(in srgb, #eef0f3 var(--pastel), var(--card)) 60%, color-mix(in srgb, #f3eef0 var(--pastel), var(--card)));
+  background: linear-gradient(160deg, color-mix(in srgb, #e4e6e8 var(--pastel), var(--card)), color-mix(in srgb, #ece9e5 var(--pastel), var(--card)) 60%, color-mix(in srgb, #efe9e6 var(--pastel), var(--card)));
   background-size: cover; background-position: center;
 }
 .cover.img { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
@@ -179,21 +169,23 @@ const rows = computed(() => [
 .duo { display: flex; margin: -44px 0 0 4px; }
 .ava { padding: 0; border: 0; background: none; border-radius: 50%; }
 .ava.his { margin-left: -14px; }
-.ava :deep(.avatar) { box-shadow: 0 0 0 4px var(--bg), 0 6px 18px rgba(40, 40, 60, .12); }
-h1 { margin: 12px 0 4px; font-size: 1.6rem; font-weight: 700; letter-spacing: .3px; line-height: 1.25; }
+.ava :deep(.avatar) { box-shadow: 0 0 0 2.5px var(--home-bg), 0 6px 16px rgba(40, 40, 60, .1); }
+h1 { margin: 12px 0 4px; font-size: 1.75rem; font-weight: 600; letter-spacing: -.2px; line-height: 1.25; }
 h1 i { font-style: normal; font-weight: 400; color: var(--text-3); }
 .bio { margin: 0; font-size: .9rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .bio.ph { color: var(--text-3); }
 
 /* 一列条：挨在一起，中间一道细线，整列是一张圆角的卡 */
-.list { margin-top: 22px; background: var(--card); border-radius: 24px; box-shadow: var(--shadow); overflow: hidden; }
+.list { margin-top: 24px; background: var(--home-card); border-radius: 22px; box-shadow: 0 0 0 1px var(--home-line); overflow: hidden; }
 .row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 0; background: none; text-align: left; color: var(--text); position: relative; }
-.row + .row::before { content: ""; position: absolute; top: 0; left: 78px; right: 16px; height: 1px; background: var(--line); }
-.row.chat { background: color-mix(in srgb, var(--blue) 65%, var(--card)); padding: 16px; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 18px; right: 18px; height: 1px; background: var(--home-line); }
+.row.chat { background: var(--home-chat); padding: 16px; }
+.row.plain { padding: 18px 18px; }
+.en { flex: 1; font-size: 1.12rem; font-weight: 600; letter-spacing: -.1px; }
+.meta { font-size: .8rem; color: var(--text-3); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.chat + .row::before { display: none; }
-.ic { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: none; color: var(--ink); }
 .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.txt b { font-size: 1.02rem; font-weight: 600; }
+.txt b { font-size: 1.05rem; font-weight: 600; }
 .txt small { font-size: .82rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .time { align-self: flex-start; margin-top: 4px; font-size: .75rem; color: var(--text-3); flex: none; }
 .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: .72rem; display: grid; place-items: center; flex: none; }
