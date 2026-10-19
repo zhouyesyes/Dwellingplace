@@ -76,9 +76,13 @@ async function changeAvatar() {
   deleteImage(store.profile.avatar);
   store.profile.avatar = id;
 }
+// 我的名字：用设定里写的（他角色设定里的「我」的称呼 > 用户名），不用主页标题「栖所」
+const myName = computed(() => him.value?.me?.name || store.profile.userName || "我");
 function rename() {
-  const name = prompt("你的名字", store.profile.name);
-  if (name?.trim()) store.profile.name = name.trim().slice(0, 20);
+  const name = prompt("你的名字", myName.value);
+  if (!name?.trim()) return;
+  if (him.value?.me?.name) him.value.me.name = name.trim().slice(0, 20);
+  else store.profile.userName = name.trim().slice(0, 20);
 }
 
 // ---------- 下面那一列 ----------
@@ -114,18 +118,20 @@ const rows = computed(() => [
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover" />
 
     <div class="head">
+      <!-- 两个头像挨在中间，左右各夹一个磨砂的小气泡写名字 -->
       <div class="duo">
-        <button class="ava" aria-label="换头像" @click="changeAvatar"><Avatar :img="store.profile.avatar" :name="store.profile.name" :color="store.profile.color" :size="78" /></button>
-        <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)"><Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="78" /></button>
+        <button class="tag mine" @click="rename"><b>{{ myName }}</b><small>human</small></button>
+        <button class="ava" aria-label="换头像" @click="changeAvatar"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></button>
+        <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)"><Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="68" /></button>
+        <span v-if="him" class="tag his"><b>{{ him.name }}</b><small>{{ dayInfo && !dayInfo.future ? `day ${dayInfo.day}` : "ai" }}</small></span>
       </div>
-      <h1><span @click="rename">{{ store.profile.name }}</span><i v-if="him"> &amp; </i><span v-if="him">{{ him.name }}</span></h1>
       <p class="bio" :class="{ ph: !bio }" @click="bioOpen = true">{{ bio || "点这里写一句简介，或者让他帮你写" }}</p>
     </div>
 
     <!-- 一列紧挨着的条：第一条是聊天 -->
     <div class="list">
       <button v-if="him" class="row chat" @click="router.push(`/chat/${MAIN}`)">
-        <Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="48" />
+        <Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="36" class="flat" />
         <span class="txt"><b>{{ him.name }}</b><small>{{ thread?.preview || "和他说说话" }}</small></span>
         <span class="time">{{ when(thread?.updatedAt) }}</span>
       </button>
@@ -145,49 +151,57 @@ const rows = computed(() => [
 
 <style scoped>
 .home {
-  --home-bg: #f3f1ee; --home-card: #fbfaf8; --home-chat: #e6ece8; --home-line: #ebe7e2;
+  /* 聊天那条用底栏扇贝的奶黄，和底栏统一 */
+  --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #f6efd8; --home-line: var(--line);
   font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
   min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: calc(var(--safe-top) + 14px) 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
 .brand { margin: 8px 24px 18px; font-size: 1.5rem; font-weight: 600; letter-spacing: -.3px; }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
-:root[data-theme="dark"] .home { --home-bg: var(--bg); --home-card: var(--card); --home-chat: #2c3531; --home-line: var(--line); }
-/* 主页的底色铺满（主页比内容高的那截也是这个颜色） */
-:global(body:has(.home)) { background: #f3f1ee; --fade-bg: #f3f1ee; }
-:global(:root[data-theme="dark"] body:has(.home)) { background: var(--bg); --fade-bg: var(--bg); }
+:root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #3a3529; }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
 .pull.on { opacity: 1; transform: translate(-50%, 0); }
 
 /* 封面：圆角的一张，默认是淡淡的雾蓝 */
 .cover {
-  position: relative; height: 196px; margin: 0 14px; border-radius: 24px; cursor: pointer;
+  position: relative; height: 200px; margin: 0 8px; border-radius: 12px; cursor: pointer;
   background: linear-gradient(160deg, color-mix(in srgb, #e4e6e8 var(--pastel), var(--card)), color-mix(in srgb, #ece9e5 var(--pastel), var(--card)) 60%, color-mix(in srgb, #efe9e6 var(--pastel), var(--card)));
   background-size: cover; background-position: center;
 }
 .cover.img { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); }
 
-.head { padding: 0 24px; position: relative; z-index: 1; }
-.duo { display: flex; margin: -42px 0 0 -4px; }
-.ava { padding: 0; border: 0; background: none; border-radius: 50%; }
-.ava.his { margin-left: -14px; }
+.head { padding: 0 24px; position: relative; z-index: 1; text-align: center; }
+.duo { display: flex; justify-content: center; align-items: center; margin: -36px 0 0; }
+.ava { padding: 0; border: 0; background: none; border-radius: 50%; flex: none; }
+.ava.his { margin-left: -12px; }
+/* 磨砂的小气泡：夹在两个头像左右，圆圆的 */
+.tag {
+  display: flex; flex-direction: column; align-items: center; gap: 0; padding: 6px 14px 5px; border: 0; margin-top: 30px;
+  border-radius: 999px; background: rgba(var(--glass-rgb), .55); backdrop-filter: blur(12px) saturate(1.2); -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5) inset, 0 4px 14px rgba(40, 40, 60, .07); color: var(--text); max-width: 34%;
+}
+.tag.mine { margin-right: -6px; z-index: 0; }
+.tag.his { margin-left: -6px; z-index: 0; }
+.tag b { font-size: .82rem; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag small { font-size: .6rem; letter-spacing: 1px; color: var(--text-3); text-transform: uppercase; }
+.ava { position: relative; z-index: 1; }
 .ava :deep(.avatar) { box-shadow: 0 0 0 2.5px var(--home-bg), 0 6px 16px rgba(40, 40, 60, .1); }
-h1 { margin: 12px 0 4px; font-size: 1.45rem; font-weight: 600; letter-spacing: -.2px; line-height: 1.25; }
-h1 i { font-style: normal; font-weight: 400; color: var(--text-3); }
-.bio { margin: 0; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.bio { margin: 12px auto 0; max-width: 300px; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .bio.ph { color: var(--text-3); }
 
 /* 一列条：挨在一起，中间一道细线，整列是一张圆角的卡 */
 .list { margin-top: 26px; border-top: 1px solid var(--home-line); border-bottom: 1px solid var(--home-line); }
 .row { width: 100%; display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-radius: 0; border: 0; background: none; text-align: left; color: var(--text); position: relative; }
 .row + .row::before { content: ""; position: absolute; top: 0; left: 24px; right: 0; height: 1px; background: var(--home-line); }
-.row.chat { background: var(--home-chat); padding: 16px 24px; }
-.row.plain { padding: 17px 24px; }
+.row.chat { background: var(--home-chat); padding: 10px 24px; gap: 12px; }
+.row.chat :deep(.avatar.flat) { box-shadow: none; }
+.row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
 .meta { font-size: .8rem; color: var(--text-3); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.chat + .row::before { display: none; }
-.txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.txt b { font-size: .95rem; font-weight: 600; }
+.txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.txt b { font-size: .88rem; font-weight: 600; }
 .txt small { font-size: .82rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.time { align-self: flex-start; margin-top: 4px; font-size: .75rem; color: var(--text-3); flex: none; }
+.time { align-self: flex-start; margin-top: 2px; font-size: .75rem; color: var(--text-3); flex: none; }
 .badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: .72rem; display: grid; place-items: center; flex: none; }
 .chev { color: var(--text-3); flex: none; }
 </style>
