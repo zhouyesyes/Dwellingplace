@@ -93,16 +93,16 @@ const timeline = computed(() => {
   }
   return groups;
 });
-// 小章鱼的样子：常驻的开心、聊天里的冒「…」、共读看书、共写拿笔、信抱着信、你自己写的抱着小本子
+// 小章鱼的样子看这件事发生在哪（大多是整理模型挑出来的，它会记下是从哪挑的：聊天摘要 / 某本书的讨论室 / 共写《…》）：
+// 常驻的开心、聊天里的冒「…」、共读里的看书、共写里的拿笔、你自己写的抱着小本子
 const OCT = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/oct-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/oct-(\w+)\.png/)[1], v]));
-const LEGEND = [{ k: "pin", label: "常驻" }, { k: "chat", label: "聊天" }, { k: "read", label: "共读" }, { k: "write", label: "共写" }, { k: "letter", label: "信" }, { k: "diary", label: "你写的" }];
+const LEGEND = [{ k: "pin", label: "常驻" }, { k: "chat", label: "聊天里" }, { k: "read", label: "共读里" }, { k: "write", label: "共写里" }, { k: "diary", label: "你写的" }];
 function octOf(m) {
   if (isLive(m) && accessOf(m) === "pinned") return "pin";
-  const t = m.source?.type;
-  if (t === "read" || m.bookId) return "read";
-  if (t === "write" || m.writingId) return "write";
-  if (t === "letter") return "letter";
+  const t = m.source?.type, label = m.source?.label || "";
   if (t === "manual" || m.author === "me") return "diary";
+  if (t === "read" || m.bookId || /讨论室/.test(label)) return "read";
+  if (t === "write" || m.writingId || /^共写/.test(label)) return "write";
   return "chat";
 }
 // 抽屉
@@ -120,6 +120,14 @@ function drawerCount(k) {
   if (k === "board") return `${boardWrite.value.length + boardRead.value.length + boardPals.value.length} 项`;
   if (k === "letters") return `${letterLines.value ? letterLines.value.split("\n").length : 0} 封`;
   return `${derived.value.length} 条`;
+}
+// 谁记的：他聊天时自己记的 / 整理模型从哪挑出来的 / 他整理时改的 / 你写的
+function whoOf(m) {
+  const t = m.source?.type;
+  if (t === "manual" || m.author === "me") return "你写的";
+  if (t === "helper") return `整理时从${m.source?.label || "聊天"}里挑的`;
+  if (t === "review") return "他整理时改的";
+  return `${role.value?.name || "他"}自己记的`;
 }
 const badge = m => (m.status === "pending" ? "待确认" : m.status === "obsolete" ? "已过时" : m.status === "deleted" ? "回收站" : ACCESS[accessOf(m)]);
 const srcLine = m => [SRC[m.source?.type] || "", m.source?.label || "", BY[m.source?.by] || (m.author === "me" ? "你写的" : "他自己记的")].filter(Boolean).join(" · ");
@@ -335,7 +343,7 @@ function remove() {
           <p>{{ m.content }}</p>
           <div class="tg">
             <span v-if="badge(m) !== '普通'" class="bdg" :class="[m.status || 'valid', accessOf(m)]">{{ badge(m) }}</span>
-            <span>{{ SRC[m.source?.type] || (m.author === "me" ? "你写的" : "聊天") }}</span>
+            <span>{{ whoOf(m) }}</span>
           </div>
         </article>
       </template>
