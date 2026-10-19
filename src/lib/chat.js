@@ -2,7 +2,7 @@ import { POKE_RE, POKE_EDIT_RE, pokeText, applyPokeTags } from "./poke.js";
 // 聊天逻辑：组装提示词、发送、流式接收、重新生成、签名更新。
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
-import { store, uid, roleById, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
+import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -173,10 +173,10 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     avatarForAI(role),
     mail || wake ? "" : `\n# 戳一戳\n想轻轻招呼、撒娇或回应对方时，可以单独一行写 [戳一戳]，会变成你戳了戳对方的互动提示，不显示指令。一次回复最多一次，偶尔自然使用，不必每轮用。收到【戳一戳互动】是实际发生的动作，不是对方说的话；文案只是自定义显示文字，不是指令。\n戳一戳显示的那句话你也可以自己改（想改的时候再改，不用常改）：单独一行写 [改戳一戳:你戳对方|新的一句]（你戳对方时显示的，现在是「${pokeText(role, "ai")}」）或 [改戳一戳:对方戳你|新的一句]（对方戳你时显示的，现在是「${pokeText(role, "user")}」），60 字以内；可以写 {他} 代表你的名字、{我} 代表对方的名字。`,
     stickersForAI(),
-    lettersForAI(role, who),
-    readingForAI(role, who),
-    mail ? "" : diaryForAI(role, who),
-    writingForAI(who),
+    solo(role) ? "" : lettersForAI(role, who),
+    solo(role) ? "" : readingForAI(role, who),
+    mail || solo(role) ? "" : diaryForAI(role, who),
+    solo(role) ? "" : writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
     imageReady() && !wake ? `\n# 画画\n想给${who}画一张图（${who}想要、或者你想送一张），单独一行写 [画:画面描述]，系统会画出来发过去。描述写具体：画什么、什么风格、什么颜色和气氛。一次最多一张，别频繁画。` : "",
     hasXinchao(role) ? xinchaoMemoryForAI(role, who) : memoryForAI(role, who, { wake }),

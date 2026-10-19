@@ -3,7 +3,7 @@
 //   共读：24 小时里读过的每本书分开记——书名、进度、最新的印象、24 小时里来往的划线批注（每本最多 10 条）
 //   他自己记的：[此刻:…] 最多 3 条、每条 35 字以内，24 小时后自动忘
 // 存的都是准确的时间戳，「3 小时前」是给他看的那一刻才算出来的
-import { store, uid } from "../store/index.js";
+import { store, uid, solo } from "../store/index.js";
 import { lettersOf } from "./letters.js";
 
 export const DAY = 86400_000;
@@ -127,8 +127,10 @@ export function readingMoment(role, who, { peek = false } = {}) {
 export function momentParts(role, who, opt = {}) {
   const mine = momentsOf(role.id);
   return [
-    { key: "letters", title: "信箱", text: lettersMoment(role, who, opt) },
-    { key: "read", title: "共读", text: readingMoment(role, who, opt) },
+    ...(solo(role) ? [] : [
+      { key: "letters", title: "信箱", text: lettersMoment(role, who, opt) },
+      { key: "read", title: "共读", text: readingMoment(role, who, opt) },
+    ]),
     { key: "self", title: "你自己记在此刻的（24 小时后自动忘）", text: mine.map(m => `- ${ago(m.ts)}：${m.text}`).join("\n") },
   ];
 }

@@ -33,7 +33,7 @@ async function inviteCrab() {
     }
     if (!crab.value) store.roles.push(crabRole(api.id));
     toast("小螃蟹住进来了 🦀");
-    router.push(`/settings/role/${CRAB}`);
+    router.push(`/chat/${CRAB}`); // 设定在聊天里的小世界
   } finally { crabBusy.value = false; }
 }
 const lookOpen = ref(false);
@@ -72,10 +72,10 @@ function setHelper(v) {
     </div>
 
 
-    <div class="section-label">小螃蟹</div>
-    <div class="list-card">
-      <button v-if="crab" class="list-row" @click="router.push(`/settings/role/${CRAB}`)"><Icon name="user" :size="20" /><span class="grow">{{ crab.name }}<span class="sub">人设、头像、用哪个模型 · 用你的 Claude 订阅</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <button v-else class="list-row" :disabled="crabBusy" @click="inviteCrab"><Icon name="plus" :size="20" /><span class="grow">请小螃蟹住进来<span class="sub">服务器上的 Claude Code，和 Claude 共用订阅额度</span></span><Icon name="right" class="chev" :size="18" /></button>
+    <!-- 小螃蟹住进来以后，它的设定在它聊天里的小世界，这里就不放了 -->
+    <div v-if="!crab" class="section-label">小螃蟹</div>
+    <div v-if="!crab" class="list-card">
+      <button class="list-row" :disabled="crabBusy" @click="inviteCrab"><Icon name="plus" :size="20" /><span class="grow">请小螃蟹住进来<span class="sub">服务器上的 Claude Code，和 Claude 共用订阅额度</span></span><Icon name="right" class="chev" :size="18" /></button>
     </div>
 
     <div class="section-label">更多</div>
