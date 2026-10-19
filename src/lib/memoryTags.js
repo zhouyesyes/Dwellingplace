@@ -1,5 +1,5 @@
 // AI 在回复里写记忆卡片：
-//   [记忆:标题|内容]
+//   [记忆:类别|标题|内容]（类别可以不写；以前的 [记忆:标题|内容] 照样认）
 //   [改记忆:#ab12|新的内容]   或   [改记忆:#ab12|新标题|新的内容]
 import { momentParts } from "./moment.js";
 import { boardForAI, boardRule } from "./board.js";
@@ -19,6 +19,14 @@ export const PIN_MAX = 20;
 export const ACCESS = { pinned: "常驻", normal: "普通", archived: "归档" };
 export const SRC = { chat: "聊天", read: "共读", write: "共写", letter: "信件", manual: "你手动写的", helper: "整理时挑出来的", calendar: "日历", review: "他整理时改的", work: "工作间" };
 export const BY = { ai: "他自己记的", helper: "整理模型建议的", me: "你写的" };
+// 记忆讲的是什么（记忆页时间轴上每一类一只小章鱼）：新卡片由整理模型或他自己标，旧卡片在记忆页 ⋯ 里让整理模型过一遍
+export const CATS = ["喜好", "约定", "心事", "时刻", "读写", "日常"];
+export const CAT_HINT = "喜好（喜欢的、讨厌的、习惯）、约定（说好要一起做的、计划）、心事（心情、在意的事）、时刻（重要的、第一次、值得纪念的）、读写（读书、写作）、日常（其他生活小事）";
+// [类别|标题|内容]：第一段是类别就拿出来
+function takeCat(parts) {
+  if (parts.length > 1 && CATS.includes(parts[0])) return parts.shift();
+  return undefined;
+}
 export const isLive = m => (m.status || "valid") === "valid";
 export const accessOf = m => m.access || (m.pinned ? "pinned" : "normal");
 // 每次自动想起几张普通记忆（记忆库「记忆设置」里调）
@@ -100,12 +108,14 @@ export function lettersLog(role, meName, n = 5) {
 // 整理摘要、前情、讨论摘要的时候，整理模型顺手挑出值得单独记住的事，写成 [候选记忆:标题|内容]；
 // 变成一张「待确认」的卡片：不发给他、不自动想起，你确认了才生效
 export const SUGGEST_RE = /\[候选记忆[:：]([^\]]{2,600})\]/g;
-export const suggestRule = me => `另外：如果这些里面有值得单独长久记住的事（${me}的喜好、经历、约定、重要的时刻），在最后另起一行写 [候选记忆:标题|内容]，最多 3 条，一两句话；没有就不写。`;
+export const suggestRule = me => `另外：如果这些里面有值得单独长久记住的事（${me}的喜好、经历、约定、重要的时刻），在最后另起一行写 [候选记忆:类别|标题|内容]，最多 3 条，一两句话；类别从这几个里选一个：${CAT_HINT}；没有就不写。`;
 export function takeSuggestions(role, text, src) {
   for (const [, inner] of text.matchAll(SUGGEST_RE)) {
-    const [title = "", ...rest] = inner.split(/[|｜]/).map(x => x.trim());
+    const parts = inner.split(/[|｜]/).map(x => x.trim());
+    const cat = takeCat(parts);
+    const [title = "", ...rest] = parts;
     const content = rest.join(" ").trim() || title;
-    if (content && !store.memories.some(x => x.roleId === role.id && x.content === content)) newMemory(role, { title, content, status: "pending", source: { type: "helper", by: "helper", label: src } });
+    if (content && !store.memories.some(x => x.roleId === role.id && x.content === content)) newMemory(role, { title, content, status: "pending", source: { type: "helper", by: "helper", label: src }, ...(cat ? { cat } : {}) });
   }
   return text.replace(SUGGEST_RE, "").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -138,7 +148,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
     letters ? `## 你们来往的信（只记了标题和开头）\n${letters}` : "",
     reads.length ? `## 共读里你记下的读书笔记\n${reads.map(m => line(m, 200)).join("\n")}` : "",
     writes.length ? `## 共写：你们在写的书（你自己记的总结）\n${writes.map(m => line(m, 300)).join("\n")}` : "",
-    `如果这次聊天里有值得长久记住的事（关于${meName}的喜好、经历、约定、重要的时刻），可以在回复末尾另起一行写：[记忆:标题|内容]`,
+    `如果这次聊天里有值得长久记住的事（关于${meName}的喜好、经历、约定、重要的时刻），可以在回复末尾另起一行写：[记忆:类别|标题|内容]，类别从这几个里选一个：${CAT_HINT}`,
     `需要更新某张卡片时写：[改记忆:#编号|新的内容]（也可以 [改记忆:#编号|新标题|新的内容]）。能直接改的就改原卡，别留两张互相矛盾的。`,
     `某张卡片说的事已经不成立了（比如病好了、搬家了），写 [过时记忆:#编号]，它会留作历史，不再当成现在的事。不常用了但还成立的写 [归档记忆:#编号]；特别要紧、想一直记着的写 [常驻记忆:#编号]（最多 ${PIN_MAX} 张）。`,
     `只记真正重要的事，不要每次都写；标题简短，内容一两句话。`,
@@ -183,10 +193,11 @@ export function applyMemoryTags(role, text) {
   const clean = text.replace(MEM_TAG_RE, (_, op, body) => {
     const parts = body.split(/[|｜]/).map(s => s.trim());
     if (op === "记忆") {
+      const cat = takeCat(parts);
       const title = (parts.length > 1 ? parts[0] : parts[0].slice(0, 12)).slice(0, 40);
       const content = (parts.length > 1 ? parts.slice(1).join(" ") : parts[0]).trim();
       if (content) {
-        newMemory(role, { title, content, source: { type: "chat", by: "ai" } });
+        newMemory(role, { title, content, source: { type: "chat", by: "ai" }, ...(cat ? { cat } : {}) });
         notes.push(`${role.name} 写下了一张记忆卡片：${title}`);
       }
       return "";
@@ -215,4 +226,27 @@ export function applyMemoryTags(role, text) {
     return "";
   });
   return { text: clean.replace(/\n{3,}/g, "\n\n").trim(), notes };
+}
+
+// ---------- 给旧卡片分类 ----------
+// 还没有类别的记忆卡片：交给整理模型，一次 30 张，每张回一个类别。onStep(已分, 总共) 报进度
+export async function classifyMemories(role, onStep = () => {}) {
+  const todo = memoriesOf(role.id).filter(m => memKind(m) === "card" && m.status !== "deleted" && !m.cat);
+  const { oneShot } = await import("./chat.js");
+  let done = 0;
+  for (let i = 0; i < todo.length; i += 30) {
+    const batch = todo.slice(i, i + 30);
+    const text = await oneShot(role, [
+      `下面是一些记忆卡片。给每一张挑一个类别，只能从这几个里选：${CAT_HINT}。`,
+      `每行只写「序号 类别」，比如「3 喜好」，不要别的话。`,
+      "",
+      ...batch.map((m, k) => `${k + 1}. ${m.title}：${(m.content || "").replace(/\s+/g, " ").slice(0, 120)}`),
+    ].join("\n"), { helper: true, raw: true });
+    for (const [, n, cat] of String(text).matchAll(/(\d+)\D{0,3}?(喜好|约定|心事|时刻|读写|日常)/g)) {
+      const m = batch[Number(n) - 1];
+      if (m && !m.cat) { m.cat = cat; done++; }
+    }
+    onStep(done, todo.length);
+  }
+  return { done, total: todo.length };
 }

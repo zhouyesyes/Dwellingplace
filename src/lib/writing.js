@@ -338,13 +338,14 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
   try {
     const me = meName(role);
     const prev = p.talkSum?.text;
+    const { CAT_HINT } = await import("./memoryTags.js");
     let text = (await oneShot(role, [
       p.kind === "ideas" ? `你和${me}在翻${me}的灵感抽屉（还没成书的灵感、以前的书的复盘）。` : `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
       prev ? `（以前已经整理好的讨论摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${prev.length > 1500 ? "……" + prev.slice(-1500) : prev}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
       `只把这一段新的讨论整理成一小段摘要，写给以后接着讨论的自己看：定下了什么、改了什么、还没想好什么、${me}在意什么、你提过的建议。书里的人物写名字，别用含糊的「他」「她」。按先后，简洁，不超过 800 字。只写这一段摘要本身。`,
       p.kind === "ideas" ? "" : `然后另起一行写这本书现在的进度：[写书进度:现在到哪了|下一步]，各 ${PROGRESS_MAX} 字以内。`,
-      `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的设定），在最后另起一行写 [候选记忆:标题|内容]，最多 2 条；没有就不写。`,
+      `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的设定），在最后另起一行写 [候选记忆:类别|标题|内容]，最多 2 条（类别从这几个里选：${CAT_HINT}）；没有就不写。`,
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
     const { takeSuggestions } = await import("./memoryTags.js");
     text = takeSuggestions(role, text, `共写《${p.title}》`);

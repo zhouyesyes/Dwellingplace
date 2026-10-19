@@ -20,7 +20,7 @@ import ReviewSheet from "../components/memory/ReviewSheet.vue";
 import { openItems } from "../lib/review.js";
 import { snapshotSum } from "../lib/budget.js";
 import MemorySettings from "../components/memory/MemorySettings.vue";
-import { lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
+import { classifyMemories, CATS, lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
 import { ref, reactive, computed, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
@@ -93,17 +93,27 @@ const timeline = computed(() => {
   }
   return groups;
 });
-// 小章鱼的样子看这件事发生在哪（大多是整理模型挑出来的，它会记下是从哪挑的：聊天摘要 / 某本书的讨论室 / 共写《…》）：
-// 常驻的开心、聊天里的冒「…」、共读里的看书、共写里的拿笔、你自己写的抱着小本子
+// 小章鱼的样子看这条记忆讲的是什么（m.cat）：常驻的最开心；喜好脸红、约定抱信、心事在想、时刻欢呼、读写捧书、日常抱小本子
 const OCT = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/oct-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/oct-(\w+)\.png/)[1], v]));
-const LEGEND = [{ k: "pin", label: "常驻" }, { k: "chat", label: "聊天里" }, { k: "read", label: "共读里" }, { k: "write", label: "共写里" }, { k: "diary", label: "你写的" }];
+const CAT_OCT = { 喜好: "like", 约定: "promise", 心事: "feel", 时刻: "moment", 读写: "book", 日常: "daily" };
+const LEGEND = [{ k: "pin", label: "常驻" }, ...CATS.map(c => ({ k: CAT_OCT[c], label: c }))];
 function octOf(m) {
   if (isLive(m) && accessOf(m) === "pinned") return "pin";
-  const t = m.source?.type, label = m.source?.label || "";
-  if (t === "manual" || m.author === "me") return "diary";
-  if (t === "read" || m.bookId || /讨论室/.test(label)) return "read";
-  if (t === "write" || m.writingId || /^共写/.test(label)) return "write";
-  return "chat";
+  if (CAT_OCT[m.cat]) return CAT_OCT[m.cat];
+  // 还没分类的：从共读、共写来的捧书，其他先当日常
+  return m.bookId || m.writingId || /讨论室|^共写/.test(m.source?.label || "") ? "book" : "daily";
+}
+// 给还没分类的卡片分类（整理模型过一遍）
+const unsorted = computed(() => all.value.filter(m => memKind(m) === "card" && m.status !== "deleted" && !m.cat).length);
+const sorting = ref("");
+async function sortCats() {
+  if (!role.value || sorting.value) return;
+  if (!confirm(`让整理模型给 ${unsorted.value} 张还没分类的卡片分类？会花一点整理模型的额度。`)) return;
+  sorting.value = "0";
+  try {
+    const { done, total } = await classifyMemories(role.value, (d, t) => (sorting.value = `${d}/${t}`));
+    toast(done < total ? `分好了 ${done} 张，还有 ${total - done} 张没认出来，可以再点一次` : `${done} 张都分好了`, 3500);
+  } catch (e) { toast(`没分成：${describeError(e)}`, 4000); } finally { sorting.value = ""; }
 }
 // 抽屉
 const DRAWERS = [
@@ -230,11 +240,11 @@ function newCard() {
   if (!role.value) return;
   const now = Date.now();
   draft.value = { id: uid(), roleId: tab.value, title: "", content: "", img: null, date: todayYmd(), author: "me", ts: now, createdAt: now, updatedAt: now,
-    status: "valid", access: bucket.value === "pinned" ? "pinned" : bucket.value === "archived" ? "archived" : "normal", source: { type: "manual", by: "me" }, tags: [], importance: 3, _tags: "", _isNew: true };
+    status: "valid", access: bucket.value === "pinned" ? "pinned" : bucket.value === "archived" ? "archived" : "normal", source: { type: "manual", by: "me" }, tags: [], importance: 3, cat: "", _tags: "", _isNew: true };
 }
 function editCard(m) {
   viewing.value = null;
-  draft.value = { ...m, _tags: (m.tags || []).join("，"), _isNew: false };
+  draft.value = { ...m, cat: m.cat || "", _tags: (m.tags || []).join("，"), _isNew: false };
 }
 async function changeImg() {
   const id = await pickAndCrop({ aspect: 4 / 3, title: "调整图片", maxSize: 1400 });
@@ -247,6 +257,7 @@ function save() {
   const { _isNew, _tags, ...m } = draft.value;
   m.tags = _tags.split(/[，,、\s]+/).map(x => x.trim()).filter(Boolean).slice(0, 8);
   m.importance = Number(m.importance) || 3;
+  if (!m.cat) delete m.cat;
   if (_isNew && m.access === "pinned" && all.value.filter(BUCKETS.pinned.test).length >= PIN_MAX) { m.access = "normal"; toast(`常驻已经满 ${PIN_MAX} 张了，先放进普通`, 3000); }
   m.title = m.title.trim() || m.content.trim().slice(0, 12);
   m.content = m.content.trim();
@@ -297,6 +308,7 @@ function remove() {
       <div v-if="menuOpen" class="more-menu" @click="menuOpen = false">
         <button @click="showChat">看看聊天时发给{{ role.name }}的全部</button>
         <button @click="tryOpen = true">试试{{ role.name }}翻记忆会翻到什么</button>
+        <button v-if="unsorted || sorting" :disabled="!!sorting" @click="sortCats">{{ sorting ? `正在分类… ${sorting}` : `给记忆分类（${unsorted} 张还没分）` }}</button>
         <button @click="healthOpen = true">记忆体检</button>
         <button :class="{ due: reviewWaiting }" @click="reviewOpen = true">{{ role.name }}的整理建议{{ reviewWaiting ? `（${reviewWaiting} 条等你看）` : "" }}</button>
         <button @click="setOpen = true">记忆设置</button>
@@ -343,6 +355,7 @@ function remove() {
           <p>{{ m.content }}</p>
           <div class="tg">
             <span v-if="badge(m) !== '普通'" class="bdg" :class="[m.status || 'valid', accessOf(m)]">{{ badge(m) }}</span>
+            <span v-if="m.cat">{{ m.cat }}</span>
             <span>{{ whoOf(m) }}</span>
           </div>
         </article>
@@ -475,7 +488,10 @@ function remove() {
         </label>
         <label class="field"><span>标题</span><input v-model="draft.title" class="input" placeholder="例如：第一次给小鸡起名字" /></label>
         <label class="field"><span>内容</span><BigTextarea v-model="draft.content" rows="5" title="记忆内容" placeholder="想让他一直记得的事" /></label>
-        <label class="field"><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
+        <div class="field two">
+          <label><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
+          <label><span>类别</span><select v-model="draft.cat" class="input"><option value="">还没分</option><option v-for="c in CATS" :key="c" :value="c">{{ c }}</option></select></label>
+        </div>
         <div class="field two">
           <label><span>标签（逗号隔开，可不填）</span><input v-model="draft._tags" class="input" placeholder="比如：身体，学校" /></label>
           <label><span>重要程度</span><select v-model.number="draft.importance" class="input"><option v-for="n in 5" :key="n" :value="n">{{ "★".repeat(n) }}</option></select></label>
