@@ -123,8 +123,8 @@ const DRAWERS = [
   { key: "letters", en: "LETTERS", title: "来往的信", sub: "他记得最近 5 封" },
   { key: "rw", en: "READ · WRITE", title: "共读和共写", sub: "整理来的笔记和总结" },
 ];
-// 小螃蟹不掺和共读、共写和信：它的抽屉只有聊天摘要和此刻；场景记忆也是共读共写里的，不给它看
-const drawers = computed(() => (solo(role.value) ? DRAWERS.filter(d => ["sum", "now"].includes(d.key)) : DRAWERS));
+// 共读共写还没给小螃蟹接：没有「共读和共写」抽屉，板块记忆里只有笔友；场景记忆也是共读共写里的，不给它看
+const drawers = computed(() => (solo(role.value) ? DRAWERS.filter(d => d.key !== "rw") : DRAWERS));
 watch(role, r => { if (solo(r) && view.value === "scene") view.value = "timeline"; });
 const openDrawer = ref(null);
 function drawerCount(k) {
@@ -405,12 +405,12 @@ function remove() {
 
           </template>
           <template v-else-if="d.key === 'board'">
-      <article class="sum tmp board">
+      <article v-if="!solo(role)" class="sum tmp board">
         <div class="meta"><span>共写：在写的书</span><span>归档了就不再记</span></div>
         <button v-for="x in boardWrite" :key="x.id" class="brow" @click="editProgress(x)"><b>《{{ x.title }}》</b><span>{{ x.board?.progress || x.board?.next ? `现在：${x.board.progress || "—"}；下一步：${x.board.next || "—"}` : "还没记进度" }}</span></button>
         <p v-if="!boardWrite.length" class="none">书桌上没有在写的书</p>
       </article>
-      <article class="sum tmp board">
+      <article v-if="!solo(role)" class="sum tmp board">
         <div class="meta"><span>共读：在读和读完的书</span><span>读完的记一句印象</span></div>
         <button v-for="b in boardRead" :key="b.id" class="brow" :disabled="!b.mine" @click="editImpression(b)"><b>《{{ b.title }}》<template v-if="roundOf(b) > 1">（第 {{ roundOf(b) }} 次）</template></b><span>{{ b.mine ? b.impression?.text || "读完了，印象还没整理（点这里写）" : `在读，读到第 ${(b.pos?.ch || 0) + 1} / ${b.chapters.length} 章` }}</span></button>
         <p v-if="!boardRead.length" class="none">还没开始读书</p>

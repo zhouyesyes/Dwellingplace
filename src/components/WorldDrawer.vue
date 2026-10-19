@@ -3,7 +3,9 @@
 // 上面是他（点卡片进他的设定）；下面是对话和背景、唤醒、语音和画画、信箱（平时收在右边，点一下整个抽出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { store, threadsOf, today, apiById } from "../store/index.js";
+import { store, threadsOf, today, apiById, solo } from "../store/index.js";
+import { studioPath } from "../lib/studio.js";
+import { stickersOf } from "../lib/stickers.js";
 import { lettersOf } from "../lib/letters.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
 import Avatar from "./Avatar.vue";
@@ -41,7 +43,7 @@ const pulledText = t => { if (!t) return "刚拉过"; const m = Math.round((Date
 const rackOut = ref(false);
 watch(() => props.open, o => { if (!o) rackOut.value = false; });
 function tapRack() {
-  if (rackOut.value || !letters.value.length) go("/letters");
+  if (rackOut.value || !letters.value.length) go(`/letters?role=${props.role.id}`);
   else rackOut.value = true;
 }
 </script>
@@ -108,6 +110,13 @@ function tapRack() {
             <Icon name="mic" :size="20" /><span class="grow">语音和画画<small>{{ mediaOn || "还没开：选好服务商再来填" }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
 
+          <template v-if="solo(role)">
+          <p class="sec">工作室 <em>studio</em></p>
+          <button class="row" @click="go(studioPath(role))">
+            <Icon name="book" :size="20" /><span class="grow">Studio<small>{{ role.name }} 在这里翻栖所的仓库，自己写记忆</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
+          </template>
+
           <p class="sec">信箱 <em>letters</em></p>
           <div class="rack-card" :class="{ out: rackOut }" @click="tapRack">
             <LetterRack :letters="letters" half :active="rackOut" />
@@ -121,8 +130,8 @@ function tapRack() {
           <button class="row" :class="{ dim: !hasMail }" @click="hasMail && go('/mail/' + role.id)">
             <Icon name="mail" :size="20" /><span class="grow">邮箱<small>{{ hasMail ? "他的信件和笔友" : "还没接上邮箱，之后再说" }}</small></span><Icon v-if="hasMail" name="right" :size="16" class="chev" />
           </button>
-          <button class="row" @click="go('/settings/stickers')">
-            <Icon name="smile" :size="20" /><span class="grow">表情包<small>{{ store.stickers?.length ? `${store.stickers.length} 张` : "上传几张，你们都能发" }}</small></span><Icon name="right" :size="16" class="chev" />
+          <button class="row" @click="go('/settings/stickers?owner=' + role.id)">
+            <Icon name="smile" :size="20" /><span class="grow">表情包<small>{{ stickersOf(role.id).length ? `${stickersOf(role.id).length} 张（${role.name}的和共用的）` : "上传几张，你们都能发" }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
           <button class="row" @click="emit('search')">
             <Icon name="search" :size="20" /><span class="grow">搜聊天<small>在你们说过的话里找，还有收藏</small></span><Icon name="right" :size="16" class="chev" />

@@ -1,8 +1,9 @@
 <script setup>
 // 信箱的大页面：从上往下看进信盒子，点一封拆开看；右上角写信（先挑信纸）
 import { ref, computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, roleById, threadsOf } from "../store/index.js";
+import Avatar from "../components/Avatar.vue";
 import { lettersOf, writeLetter } from "../lib/letters.js";
 import { generate } from "../lib/chat.js";
 import { todayYmd } from "../lib/dates.js";
@@ -15,8 +16,13 @@ import LetterPaper from "../components/letters/LetterPaper.vue";
 import { PAPERS, paperById, DEFAULT_MINE } from "../lib/stationery.js";
 
 const router = useRouter();
-const role = computed(() => roleById(MAIN));
-const letters = computed(() => lettersOf(MAIN));
+const route = useRoute();
+// 看谁的信箱：从小世界进来带着是谁；右上角能换（不止一个人住的时候）
+const rid = ref(roleById(route.query.role) ? route.query.role : MAIN);
+const role = computed(() => roleById(rid.value));
+const letters = computed(() => lettersOf(rid.value));
+const others = computed(() => store.roles.filter(r => r.id !== rid.value));
+function switchRole() { rid.value = others.value[0]?.id || MAIN; opened.value = null; router.replace({ query: { role: rid.value } }); }
 const opened = ref(null);
 function open(l) {
   opened.value = l;
@@ -45,12 +51,12 @@ function grow(e) {
 async function send(callHim) {
   const d = draft.value;
   if (!d.body.trim()) return toast("信还是空的");
-  writeLetter(d);
+  writeLetter(d, rid.value);
   draft.value = null;
   if (callHim && !d.locked) {
     const r = role.value;
-    const t = threadsOf(MAIN).find(x => x.id === r?.lastThreadId) || threadsOf(MAIN)[0];
-    if (t) { toast("寄出去了，他去拆信了"); generate(t); router.push(`/chat/${MAIN}/${t.id}`); return; }
+    const t = threadsOf(rid.value).find(x => x.id === r?.lastThreadId) || threadsOf(rid.value)[0];
+    if (t) { toast(`寄出去了，${r.name}去拆信了`); generate(t); router.push(`/chat/${rid.value}/${t.id}`); return; }
   }
   toast(d.locked ? "寄出去了（上着锁）" : "寄出去了，他下次聊天时会读到");
 }
@@ -59,12 +65,15 @@ async function send(callHim) {
 <template>
   <div class="letters">
     <header class="head">
-      <button class="icon-btn" aria-label="返回" @click="goBack(router, `/chat/${MAIN}`)"><Icon name="back" /></button>
+      <button class="icon-btn" aria-label="返回" @click="goBack(router, `/chat/${rid}`)"><Icon name="back" /></button>
       <div class="grow title">
         <h1>Letters</h1>
-        <p class="sub">{{ letters.length ? `${letters.length} 封信` : "还没有信" }}<template v-if="letters.some(l => l.from !== 'me' && !l.readAt)"> · 有没拆的</template></p>
+        <p class="sub"><template v-if="others.length">{{ role?.name }} · </template>{{ letters.length ? `${letters.length} 封信` : "还没有信" }}<template v-if="letters.some(l => l.from !== 'me' && !l.readAt)"> · 有没拆的</template></p>
       </div>
-      <button class="btn small" @click="startWrite"><Icon name="edit" :size="16" /> 写信</button>
+      <div class="acts">
+        <button v-if="others.length" class="who-btn" :aria-label="`换到${others[0].name}的信箱`" @click="switchRole"><Avatar :img="others[0].avatar" :name="others[0].name" :color="others[0].color" :size="30" /></button>
+        <button class="btn small" @click="startWrite"><Icon name="edit" :size="16" /> 写信</button>
+      </div>
     </header>
 
     <LetterRack :letters="letters" @open="open" />
@@ -114,6 +123,8 @@ async function send(callHim) {
 .sub { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-2); }
 .grow { flex: 1; }
 .head .btn { display: flex; align-items: center; gap: 4px; }
+.acts { display: flex; align-items: center; gap: 8px; }
+.who-btn { padding: 0; border: 0; background: none; border-radius: 50%; }
 .empty { text-align: center; color: var(--text-3); font-size: 0.85rem; margin-top: 18px; }
 .legend { text-align: center; font-size: 0.75rem; color: var(--text-3); margin-top: 14px; }
 .legend .new { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #d4ad5a; box-shadow: 0 0 5px rgba(240, 205, 120, .9); vertical-align: 1px; }
