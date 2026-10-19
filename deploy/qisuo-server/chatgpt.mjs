@@ -155,7 +155,7 @@ function noteLimits(headers) {
     names.push(k); // 都有哪些头（只记名字），看看 OpenAI 到底带了什么
     if (LIMIT_HEADER.test(k) && !/authorization|cookie|token/i.test(k)) h[k] = String(v).slice(0, 200);
   }
-  limits = { at: Date.now(), headers: h, names };
+  limits = { at: Date.now(), headers: h, names, ...(limits?.events ? { events: limits.events } : {}) }; // 流里记过的额度事件留着（报错的那次没有流）
 }
 
 // 流里其他的事件：记下有哪些类型；像「额度」的整条留着（Codex 那边是放在流里的事件里告诉的）
@@ -254,8 +254,15 @@ function toInput(messages) {
   return { instructions: instructions.join("\n\n"), input };
 }
 
-const USAGE_CODES = { subscription_sharing_usage_limit_exceeded: "ChatGPT 会员这阵子的用量用完了（Plus 每 5 小时、每周都有上限），过一会儿再试，或者在 ChatGPT 设置 → 用量里调高栖所的上限", subscription_sharing_usage_unavailable: "现在用不了会员额度，过一会儿再试" };
-const errMsg = err => USAGE_CODES[err?.code] || err?.message || err?.code || "出错了";
+const USAGE_CODES = { subscription_sharing_usage_limit_exceeded: "ChatGPT 会员额度这阵子用完了（Plus 每 5 小时、每周各有上限，和 ChatGPT、Codex 共用）。去栖所「设置 → API」看还剩多少、什么时候恢复。玩游戏、调工具时一轮会来回好几次，特别费额度", subscription_sharing_usage_unavailable: "现在用不了会员额度，过一会儿再试" };
+// OpenAI 有时会在报错里带上多久后恢复，带了就说出来
+const untilText = s => (s < 3600 ? `大约 ${Math.max(1, Math.ceil(s / 60))} 分钟后恢复` : s < 86400 ? `大约 ${Math.round(s / 3600)} 小时后恢复` : `大约 ${Math.round(s / 86400)} 天后恢复`);
+function errMsg(err) {
+  const nice = USAGE_CODES[err?.code];
+  if (!nice) return err?.message || err?.code || "出错了";
+  const secs = Number(err.resets_in_seconds ?? err.reset_after_seconds ?? (err.resets_at ? err.resets_at - Date.now() / 1000 : NaN));
+  return Number.isFinite(secs) && secs > 0 ? `${nice}（${untilText(secs)}）` : nice;
+}
 
 let noCacheKey = false; // prompt_cache_key 被拒过一次就不再发
 
