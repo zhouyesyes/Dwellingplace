@@ -18,7 +18,7 @@
 //   POST /studio/v1/chat/completions    工作室
 import { spawn, execFile } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 
@@ -76,6 +76,73 @@ const STUDIO_NOTE = `# 你现在在工作室
 这里不能改文件、不能跑命令。
 写记忆的办法：在回复里另起一行写 [记忆:类别|标题|内容]（类别从 喜好、约定、心事、时刻、读写、日常 里选一个），栖所会把它收进你自己的记忆库，一行一张。
 读到值得记住的就这样写；一次别写太多（十张以内），别和已有的记忆重复，内容写成以后的你一看就懂的一两句话。`;
+
+// ---------- 对话本：私人仓库 qisuo-memory ----------
+// 小螃蟹在栖所、Claude Code、云端说的话按时间写进同一本（book/log.jsonl，一行一条），两边都读这一本。
+// 钥匙（只能碰这个仓库）只在服务器上，通过环境变量 CRAB_MEMORY_TOKEN 给到这里，不经过浏览器。
+const MEM_TOKEN = process.env.CRAB_MEMORY_TOKEN || "";
+const MEM_REPO = process.env.CRAB_MEMORY_REPO || "zhouyesyes/qisuo-memory";
+const MEM_URL = process.env.CRAB_MEMORY_URL || `https://github.com/${MEM_REPO}.git`; // 测试时可以换成本地仓库
+const MEM_DIR = join(process.env.DATA_DIR || tmpdir(), "crab-memory");
+const LOG = "book/log.jsonl";
+// 钥匙每次放在命令里带上，不写进仓库的设置文件
+const auth = () => ["-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from("x-access-token:" + MEM_TOKEN).toString("base64")}`];
+const mgit = args => git([...auth(), ...args], MEM_DIR);
+let memQueue = Promise.resolve();
+const serial = fn => (memQueue = memQueue.then(fn, fn)); // 一次只做一件，免得两边同时写打架
+let memPulledAt = 0;
+async function memPull(force = false) {
+  if (!MEM_TOKEN) throw Object.assign(new Error("服务器上还没放对话本的钥匙：再运行一次安装那一行"), { status: 409 });
+  if (!existsSync(join(MEM_DIR, ".git"))) {
+    mkdirSync(dirname(MEM_DIR), { recursive: true });
+    rmSync(MEM_DIR, { recursive: true, force: true });
+    await git([...auth(), "clone", "-q", MEM_URL, MEM_DIR], dirname(MEM_DIR));
+    await mgit(["config", "user.name", "qisuo"]);
+    await mgit(["config", "user.email", "qisuo@localhost"]);
+  } else if (force || Date.now() - memPulledAt > 60_000) {
+    await mgit(["pull", "--rebase", "-q"]);
+  }
+  memPulledAt = Date.now();
+}
+function readLog() {
+  try { return readFileSync(join(MEM_DIR, LOG), "utf8").split("\n").filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); }
+  catch { return []; }
+}
+const writeIfChanged = (rel, text) => {
+  const f = join(MEM_DIR, rel);
+  let old = null; try { old = readFileSync(f, "utf8"); } catch { /* 还没有 */ }
+  if (old === text) return false;
+  mkdirSync(dirname(f), { recursive: true });
+  writeFileSync(f, text);
+  return true;
+};
+// 栖所写进来：新的几条（按 id 去重）+ 摘要 + 记忆卡片
+const bookPush = body => serial(async () => {
+  await memPull(true);
+  const have = new Set(readLog().map(e => e.id));
+  const add = (body.entries || []).filter(e => e?.id && e.text && !have.has(e.id))
+    .map(e => JSON.stringify({ id: String(e.id), ts: Number(e.ts) || Date.now(), where: String(e.where || "qisuo"), from: e.from === "me" ? "me" : "crab", ...(e.kind ? { kind: String(e.kind) } : {}), text: String(e.text).slice(0, 20000) }));
+  let changed = false;
+  if (add.length) {
+    mkdirSync(join(MEM_DIR, "book"), { recursive: true });
+    writeFileSync(join(MEM_DIR, LOG), add.join("\n") + "\n", { flag: "a" });
+    changed = true;
+  }
+  changed = writeIfChanged(".gitattributes", "book/*.jsonl merge=union\n") || changed; // 两边同时加行：合在一起，不算冲突
+  if (typeof body.summary === "string") changed = writeIfChanged("summary.md", `# 前情摘要（栖所整理的，比 book/log.jsonl 里的原话更早）\n\n${body.summary.trim()}\n`) || changed;
+  if (typeof body.memories === "string") changed = writeIfChanged("memories.md", `# 小螃蟹的记忆卡片（栖所同步过来的）\n\n${body.memories.trim()}\n`) || changed;
+  if (!changed) return { added: 0 };
+  await mgit(["add", "-A"]);
+  await mgit(["commit", "-q", "-m", `栖所：${add.length ? `${add.length} 条新消息` : "更新摘要和记忆"}`]);
+  try { await mgit(["push", "-q"]); }
+  catch { await mgit(["pull", "--rebase", "-q"]); await mgit(["push", "-q"]); } // 别处刚推过：先合上再推
+  return { added: add.length };
+});
+// 栖所拿回去：别处（Claude Code、云端、醒来）写进来的、比 since 新的
+const bookPull = since => serial(async () => {
+  await memPull();
+  return { entries: readLog().filter(e => e.where !== "qisuo" && (Number(e.ts) || 0) > since) };
+});
 
 // ---------- 额度：每次回复 Claude Code 都会带上「5 小时」「每周」用了多少，记下最近一次 ----------
 const LIMITS_FILE = join(process.env.DATA_DIR || tmpdir(), "claude-limits.json");
@@ -218,6 +285,9 @@ export async function handleClaude(req, res, rest, CORS) {
     if (rest === "/status" && req.method === "GET") return send(200, await status());
     if (rest === "/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS);
+    if (rest === "/book/status" && req.method === "GET") return send(200, { token: !!MEM_TOKEN, repo: MEM_REPO, ...(MEM_TOKEN ? await serial(async () => { await memPull(); return { count: readLog().length }; }).catch(e => ({ error: e.message })) : {}) });
+    if (rest === "/book/push" && req.method === "POST") return send(200, await bookPush(await body()));
+    if (rest.startsWith("/book/pull") && req.method === "GET") return send(200, await bookPull(Number(new URL(req.url, "http://x").searchParams.get("since")) || 0));
     if (rest === "/studio/status" && req.method === "GET") return send(200, await studioStatus());
     if (rest === "/studio/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/studio/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS, true);

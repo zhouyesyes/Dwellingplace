@@ -140,6 +140,26 @@ if [ "$CLAUDE" = "y" ]; then
     fi
   fi
   [ -s claude.env ] && CLAUDE_ENV="--env-file $DIR/claude.env"
+
+  # 小螃蟹的对话本：私人仓库 qisuo-memory 的钥匙（GitHub 上生成的、只能碰这个仓库的那把）。只在这里粘一次，存在 memory.env（只有你能读）
+  if [ -n "$CLAUDE_ENV" ] && [ ! -s memory.env ]; then
+    say "小螃蟹的对话本（私人仓库 qisuo-memory）"
+    echo "  在 GitHub 生成一把只能碰 qisuo-memory、Contents 读写的钥匙（github_pat_ 开头），粘在这里。"
+    read -r -s -p "  粘贴钥匙后回车（不会显示；不想现在弄就直接回车）: " MEM_TOKEN </dev/tty; echo
+    MEM_TOKEN=$(printf '%s' "$MEM_TOKEN" | tr -d '[:space:]')
+    if [ -n "$MEM_TOKEN" ]; then
+      ask MEM_REPO "  仓库（你的用户名/仓库名）" "zhouyesyes/qisuo-memory"
+      if curl -fsS -o /dev/null -H "Authorization: Bearer $MEM_TOKEN" "https://api.github.com/repos/$MEM_REPO/contents/"; then
+        ( umask 077; printf 'CRAB_MEMORY_TOKEN=%s\nCRAB_MEMORY_REPO=%s\n' "$MEM_TOKEN" "$MEM_REPO" > memory.env )
+        echo "  记好了，试了一下也能打开这个仓库 ✓"
+      else
+        echo "  这把钥匙打不开 $MEM_REPO：看看是不是没勾这个仓库、或者 Contents 没给读写。没记下，下次运行再粘。"
+      fi
+    else
+      echo "  先跳过了：以后想接，再运行一次安装那一行。"
+    fi
+  fi
+  [ -n "$CLAUDE_ENV" ] && [ -s memory.env ] && CLAUDE_ENV="$CLAUDE_ENV --env-file $DIR/memory.env"
 fi
 
 say "启动…"

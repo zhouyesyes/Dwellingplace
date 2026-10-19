@@ -29,6 +29,7 @@ function blockMd(text) {
 import { onlySticker, stickerUrl, withStickers, stickersOf } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
+import { WHERE } from "../lib/crabBook.js";
 import WorldDrawer from "../components/WorldDrawer.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SearchPanel from "../components/SearchPanel.vue";
@@ -114,11 +115,11 @@ const items = computed(() => {
   let group = null;
   const event = (m, n, i) => { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; };
   const add = m => {
-    if (group && group.from === m.from && m.ts - group.lastTs < 5 * 60_000) {
+    if (group && group.from === m.from && (group.where || "") === (m.where || "") && m.ts - group.lastTs < 5 * 60_000) {
       group.msgs.push(m);
       group.lastTs = m.ts;
     } else {
-      group = { type: "group", from: m.from, msgs: [m], lastTs: m.ts, key: m._key || m.id };
+      group = { type: "group", from: m.from, where: m.where, msgs: [m], lastTs: m.ts, key: m._key || m.id }; // where：小螃蟹从别处（Claude Code、云端）来的消息
       out.push(group);
     }
   };
@@ -767,7 +768,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                   </div>
                 </template>
               </template>
-              <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
+              <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="it.where && WHERE[it.where]"> · {{ WHERE[it.where] }}</template><template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
             </div>
           </div>
         </template>
