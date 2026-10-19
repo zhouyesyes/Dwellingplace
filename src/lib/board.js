@@ -3,7 +3,7 @@
 //   共读：在读的书读到哪；读完的书一句印象（b.impression = { text, at, by }，100 字以内），读第二遍起书名后面标「第 N 次」
 //   笔友：他邮箱里的笔友，每人一句话（store.penpals [{ id, roleId, email, name, note, at, by }]，50 字以内）
 // 他可以自己写 [写书进度:书名|现在到哪了|下一步]、[笔友:名字或邮箱|一句话]；整理讨论、读完一本书时整理模型也会顺手更新；你在记忆库里也能改
-import { store, uid } from "../store/index.js";
+import { store, uid, solo } from "../store/index.js";
 import { projects, ideaBoard } from "./writing.js";
 
 export const PROGRESS_MAX = 80;
@@ -102,6 +102,7 @@ export function boardParts(role, { skip } = {}) {
   ];
 }
 export function boardForAI(role, opt) {
+  if (solo(role)) return ""; // 在写的书、在读的书、笔友都是他的
   const parts = boardParts(role, opt).filter(p => p.text);
   return parts.length ? parts.map(p => `### ${p.title}\n${p.text}`).join("\n") : "";
 }

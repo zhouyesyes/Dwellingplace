@@ -23,7 +23,7 @@ import MemorySettings from "../components/memory/MemorySettings.vue";
 import { classifyMemories, CATS, lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
 import { ref, reactive, computed, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, uid, roleById, authorInfo, threadsOf } from "../store/index.js";
+import { store, uid, roleById, authorInfo, threadsOf, solo } from "../store/index.js";
 import { memoriesOf, memKind } from "../lib/memoryTags.js";
 import { todayYmd } from "../lib/dates.js";
 import { imageURL, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
@@ -123,6 +123,9 @@ const DRAWERS = [
   { key: "letters", en: "LETTERS", title: "来往的信", sub: "他记得最近 5 封" },
   { key: "rw", en: "READ · WRITE", title: "共读和共写", sub: "整理来的笔记和总结" },
 ];
+// 小螃蟹不掺和共读、共写和信：它的抽屉只有聊天摘要和此刻；场景记忆也是共读共写里的，不给它看
+const drawers = computed(() => (solo(role.value) ? DRAWERS.filter(d => ["sum", "now"].includes(d.key)) : DRAWERS));
+watch(role, r => { if (solo(r) && view.value === "scene") view.value = "timeline"; });
 const openDrawer = ref(null);
 function drawerCount(k) {
   if (k === "sum") return `${sums.value.length} 份`;
@@ -302,7 +305,7 @@ function remove() {
     <div v-if="role" class="views">
       <button :class="{ on: view === 'timeline' }" @click="view = 'timeline'">Timeline</button>
       <button :class="{ on: view === 'drawers' }" @click="view = 'drawers'">Drawers</button>
-      <button :class="{ on: view === 'scene' }" @click="view = 'scene'">Scenes</button>
+      <button v-if="!solo(role)" :class="{ on: view === 'scene' }" @click="view = 'scene'">Scenes</button>
       <button class="more" :class="{ due: reviewWaiting }" aria-label="更多" @click="menuOpen = !menuOpen">⋯</button>
       <!-- 以前那一列小链接、设置和说明书都收在这里 -->
       <div v-if="menuOpen" class="more-menu" @click="menuOpen = false">
@@ -342,13 +345,15 @@ function remove() {
       <label><input v-model="withHistory" type="checkbox" /> 包含已过时</label>
     </div>
     <p v-else-if="bucket !== 'all'" class="btip">{{ BUCKETS[bucket].tip }}{{ bucket === "normal" ? `（现在每次最多 ${recallCount()} 张，⋯ → 记忆设置 里调）` : "" }}</p>
-    <div class="legend"><span v-for="x in LEGEND" :key="x.k"><img :src="OCT[x.k]" alt="" />{{ x.label }}</span></div>
+    <!-- 小章鱼的小表情是他的；小螃蟹的以后换成螃蟹，先只放一个小圆点 -->
+    <div v-if="!solo(role)" class="legend"><span v-for="x in LEGEND" :key="x.k"><img :src="OCT[x.k]" alt="" />{{ x.label }}</span></div>
 
     <div class="tl">
       <template v-for="g in timeline" :key="g.key">
         <div class="mon">{{ g.label }}</div>
         <article v-for="m in g.items" :key="m.id" class="it" :class="{ off: !isLive(m) || accessOf(m) === 'archived' }" @click="viewing = m">
-          <img class="oct" :src="OCT[octOf(m)]" alt="" />
+          <img v-if="!solo(role)" class="oct" :src="OCT[octOf(m)]" alt="" />
+          <i v-else class="dot" />
           <div class="d">{{ md(m.date) }}</div>
           <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
           <b>{{ m.title }}</b>
@@ -373,7 +378,7 @@ function remove() {
 
     <!-- 抽屉：其他的资料，一叠文件夹，平时合着，点一个拉开 -->
     <div v-if="role && view === 'drawers'" class="drawers">
-      <section v-for="(d, i) in DRAWERS" :key="d.key" class="drw" :class="['k-' + d.key, { open: openDrawer === d.key }]" :style="{ zIndex: i + 1 }">
+      <section v-for="(d, i) in drawers" :key="d.key" class="drw" :class="['k-' + d.key, { open: openDrawer === d.key }]" :style="{ zIndex: i + 1 }">
         <span class="lab" :style="{ marginLeft: 12 + i * 15 + '%' }">{{ d.en }}</span>
         <button class="drw-head" @click="openDrawer = openDrawer === d.key ? null : d.key">
           <b>{{ d.title }}</b><span>{{ d.sub }}</span><i>{{ openDrawer === d.key ? "收起 ▴" : drawerCount(d.key) }}</i>
@@ -566,6 +571,7 @@ function remove() {
 .tl::before { content: ""; position: absolute; left: 28px; top: 14px; bottom: 6px; width: 1px; background: var(--line); }
 .mon { margin: 10px 0 8px -40px; font-family: "Poppins", var(--font); font-size: .68rem; letter-spacing: 2px; color: var(--text-3); }
 .it { position: relative; margin-bottom: 14px; cursor: pointer; }
+.it .dot { position: absolute; left: -36px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 2px var(--text-3); }
 .it .oct { position: absolute; left: -54px; top: -5px; width: 48px; height: auto; image-rendering: pixelated; background: var(--bg); padding: 1px 0; }
 .it .d { font-family: "Poppins", var(--font); font-size: .7rem; color: var(--text-3); }
 .it b { display: block; font-size: .95rem; font-weight: 600; margin: 1px 0 2px; }

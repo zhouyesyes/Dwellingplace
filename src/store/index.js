@@ -20,6 +20,8 @@ export const DEFAULT_BUBBLE = BUBBLE_COLORS[0];
 export const MAIN = "main";
 // 小螃蟹（cc，Claude Code）：第二个住客，在「设置 → 小螃蟹」请进来；用服务器上的 Claude Code（…/claude/v1）
 export const CRAB = "crab";
+// 小螃蟹不掺和共读、共写、信、日记这些（那是他的），记忆和此刻也只算它自己的
+export const solo = role => role?.id === CRAB;
 
 function defaults() {
   return {

@@ -24,10 +24,14 @@ import { tmpdir } from "node:os";
 
 const BIN = process.env.CLAUDE_BIN || "claude";
 const WORK = join(tmpdir(), "qisuo-crab"); // 空文件夹：不读任何项目、任何 CLAUDE.md
+// sonnet / opus / haiku 是简称，永远指向那一档最新的；后面几个是写死版本的，想固定用哪一版就选它
 const MODELS = [
-  { id: "sonnet", name: "Sonnet（平时聊天，省额度）" },
-  { id: "opus", name: "Opus（更聪明，费额度）" },
-  { id: "haiku", name: "Haiku（最省）" },
+  { id: "sonnet", name: "Sonnet（最新的，平时聊天，省额度）" },
+  { id: "opus", name: "Opus（最新的，更聪明，费额度）" },
+  { id: "haiku", name: "Haiku（最新的，最省）" },
+  { id: "claude-opus-5-5", name: "Opus 5.5" },
+  { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+  { id: "claude-haiku-5-5", name: "Haiku 5.5" },
 ];
 
 // ---------- 工作室：栖所仓库的拷贝 ----------
