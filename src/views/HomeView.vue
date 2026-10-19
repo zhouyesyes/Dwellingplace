@@ -63,7 +63,8 @@ onBeforeUnmount(() => {
 const him = computed(() => roleById(MAIN));
 const cover = useImage(() => store.profile.cover);
 const bioOpen = ref(false);
-const hisBio = computed(() => store.profile.bios[MAIN]?.text?.replace(/\n\s*\n/g, "\n") || "");
+const bioOf = id => store.profile.bios[id]?.text?.replace(/\n\s*\n/g, "\n") || "";
+const hisBio = computed(() => bioOf(MAIN));
 async function changeCover() {
   const id = await pickAndCrop({ aspect: Math.min(innerWidth, 680) / 230, title: "调整封面", maxSize: 1800 });
   if (!id) return;
@@ -118,6 +119,7 @@ const rows = computed(() => [
       <div class="bios" @click="bioOpen = true">
         <p v-if="store.profile.bioSelf" class="bio">{{ store.profile.bioSelf }}</p>
         <p v-if="hisBio" class="bio his">{{ hisBio }}<span class="by"> — {{ him.name }}</span></p>
+        <p v-if="crab && bioOf(CRAB)" class="bio his">{{ bioOf(CRAB) }}<span class="by"> — {{ crab.name }}</span></p>
         <p v-if="!store.profile.bioSelf && !hisBio" class="bio ph">点这里写一句简介，或者让他帮你写</p>
       </div>
     </div>
