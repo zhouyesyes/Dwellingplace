@@ -1,17 +1,23 @@
 // 小螃蟹的对话本：Claude Code 这边的钩子（她的私人仓库 qisuo-memory，和栖所里那条聊天是同一本）
 //   node book.mjs prompt   她每发一句：先拉最新的，把栖所那边（还有别处）新写的塞给我看，再把她这句记下
 //   node book.mjs stop     我回完一轮：把我这轮说的话记下，推上去
+//   node book.mjs say cloud < 报告.txt   直接写一段话进去并推上去（云端派活的窗口用它写完工报告；那边不一定装得上钩子）
 // 找不到仓库、没网、没权限：什么都不做，不挡着干活。不想用：环境变量 QISUO_BOOK=off
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2];
 if (process.env.QISUO_BOOK === "off") process.exit(0);
-const input = (() => { try { return JSON.parse(readFileSync(0, "utf8")); } catch { return {}; } })();
+const RAW = (() => { try { return readFileSync(0, "utf8"); } catch { return ""; } })();
+const input = (() => { try { return JSON.parse(RAW); } catch { return {}; } })();
 const project = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
-const DIR = process.env.QISUO_MEMORY_DIR || join(dirname(project), "qisuo-memory");
+// 私人仓库在哪：指定的 → 栖所仓库旁边 → 当前目录下面（窗口接了好几个仓库时，工作目录可能是它们的上一层）
+const HERE = resolve(dirname(fileURLToPath(import.meta.url)), "..", ".."); // 栖所仓库
+const DIR = [process.env.QISUO_MEMORY_DIR, join(dirname(HERE), "qisuo-memory"), join(dirname(project), "qisuo-memory"), join(project, "qisuo-memory")]
+  .find(d => d && existsSync(join(d, ".git"))) || "";
 const LOG = join(DIR, "book", "log.jsonl");
 const sid = String(input.session_id || "local").replace(/[^\w-]/g, "").slice(0, 40);
 const STATE = join(tmpdir(), `qisuo-book-${sid}.json`); // 这个窗口看过哪些、记到哪了
@@ -36,7 +42,22 @@ const WHERE = { qisuo: "栖所", code: "Claude Code", cloud: "云端干活", wak
 const fmt = e => `[${new Date(e.ts).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · ${WHERE[e.where] || e.where}] ${WHO[e.from] || e.from}：${String(e.text).slice(0, 1500)}`;
 const cap = (s, n) => (s.length > n ? "…" + s.slice(-n) : s);
 
-if (!existsSync(join(DIR, ".git"))) process.exit(0); // 这个窗口没接私人仓库
+if (!DIR) process.exit(0); // 这个窗口没接私人仓库
+
+const push = () => {
+  if (!tryGit("status", "--porcelain")?.trim()) return;
+  tryGit("add", "-A");
+  tryGit("commit", "-q", "-m", `Claude Code：${mode === "say" ? "写了一段" : "新的一轮"}`);
+  if (tryGit("push", "-q") === null && tryGit("pull", "--rebase", "-q") !== null) tryGit("push", "-q");
+};
+
+if (mode === "say") {
+  const text = String(input.text || (Object.keys(input).length ? "" : RAW)).trim();
+  tryGit("pull", "--rebase", "-q");
+  if (text) add({ id: id(), ts: Date.now(), where: process.argv[3] || "code", from: "crab", text: text.slice(0, 20000) });
+  push();
+  process.exit(0);
+}
 
 if (mode === "prompt") {
   tryGit("pull", "--rebase", "-q");
@@ -91,10 +112,6 @@ if (mode === "stop") {
   const st = loadState();
   const text = said.join("\n\n").trim();
   if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "crab", text: text.slice(0, 20000) }; add(e, st); (st.seen ??= []).push(e.id); saveState(st); }
-  if (tryGit("status", "--porcelain")?.trim()) {
-    tryGit("add", "-A");
-    tryGit("commit", "-q", "-m", "Claude Code：新的一轮");
-    if (tryGit("push", "-q") === null && tryGit("pull", "--rebase", "-q") !== null) tryGit("push", "-q");
-  }
+  push();
   process.exit(0);
 }

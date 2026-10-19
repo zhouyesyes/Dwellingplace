@@ -34,7 +34,7 @@ export const generating = reactive({});
 // 签名标记写在哪里都认（取最后一个）
 const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
-const REPO_RE = /\[看仓库(?:[:：]\s*([^\]\n]{0,80}))?\]/; // 小螃蟹：要看栖所的仓库
+const REPO_RE = /\[看仓库(?:[:：]\s*([^\]]{0,600}))?\]/; // 小螃蟹：要看栖所的仓库
 const JOB_RE = /\[派活[:：]\s*([^\]]{4,4000})\]/; // 小螃蟹：把要改代码的活派去云端
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
 // 只认真正的指令：单独占一行写着的。写在代码里（``` 或 `）、引用里（> 开头）、夹在一句话中间当例子讲的，都不算——
@@ -676,14 +676,15 @@ export async function generate(thread, parentId) {
         lookedRepo = true;
         roundApi = repoApi;
         const what = pm[1]?.trim();
-        const ev = reactive({ text: `${role.name} 去看仓库${what ? `「${what}」` : ""}…`, before: true, at: keepSaid(text, pm.index) });
+        const short = what && what.length > 30 ? what.slice(0, 30) + "…" : what;
+        const ev = reactive({ text: `${role.name} 去看仓库${short ? `「${short}」` : ""}…`, before: true, at: keepSaid(text, pm.index) });
         msg.notes.push(ev);
         convo = [
           ...convo,
           { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, pm.index)}[看仓库${what ? `:${what}` : ""}]` }] },
           { role: "user", parts: [{ type: "text", text: `（系统：现在你能用 Read / Glob / Grep 看栖所的仓库了${what ? `，去看「${what}」` : ""}。看完自然地接着回复对方，不要再写看仓库。）` }] },
         ];
-        ev.text = `${role.name} 看了看仓库${what ? `「${what}」` : ""}`;
+        ev.text = `${role.name} 看了看仓库${short ? `「${short}」` : ""}`;
         continue;
       }
 
