@@ -94,6 +94,7 @@ export function palBoard(role) {
 
 // ---------- 合起来 ----------
 export function boardParts(role, { skip } = {}) {
+  if (solo(role)) return [{ key: "pals", title: "邮箱：笔友", text: palBoard(role) }]; // 共读共写还没给小螃蟹接，只有它自己的笔友
   return [
     { key: "write", title: "共写：在写的书", text: skip === "write" ? "" : writingBoard() },
     { key: "ideas", title: "共写：灵感抽屉（大概的样子）", text: skip === "write" ? "" : ideaBoard() },
@@ -102,7 +103,6 @@ export function boardParts(role, { skip } = {}) {
   ];
 }
 export function boardForAI(role, opt) {
-  if (solo(role)) return ""; // 在写的书、在读的书、笔友都是他的
   const parts = boardParts(role, opt).filter(p => p.text);
   return parts.length ? parts.map(p => `### ${p.title}\n${p.text}`).join("\n") : "";
 }

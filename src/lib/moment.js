@@ -127,10 +127,8 @@ export function readingMoment(role, who, { peek = false } = {}) {
 export function momentParts(role, who, opt = {}) {
   const mine = momentsOf(role.id);
   return [
-    ...(solo(role) ? [] : [
-      { key: "letters", title: "信箱", text: lettersMoment(role, who, opt) },
-      { key: "read", title: "共读", text: readingMoment(role, who, opt) },
-    ]),
+    { key: "letters", title: "信箱", text: lettersMoment(role, who, opt) },
+    ...(solo(role) ? [] : [{ key: "read", title: "共读", text: readingMoment(role, who, opt) }]), // 共读还没给小螃蟹接
     { key: "self", title: "你自己记在此刻的（24 小时后自动忘）", text: mine.map(m => `- ${ago(m.ts)}：${m.text}`).join("\n") },
   ];
 }

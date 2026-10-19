@@ -124,6 +124,12 @@ function removeEdit() {
         <span>名字</span>
         <input v-model="draft.title" class="input" :placeholder="roleById(draft.roleId) ? `和${roleById(draft.roleId).name}相遇` : '纪念日'" />
       </label>
+      <label v-if="store.roles.length > 1" class="field"><span>和谁的</span>
+        <select v-model="draft.roleId" class="input">
+          <option v-for="r in store.roles" :key="r.id" :value="r.id">{{ r.name }}</option>
+          <option :value="null">只是我自己的</option>
+        </select>
+      </label>
       <label class="field"><span>日期</span><input v-model="draft.date" class="input" type="date" /></label>
       <div class="field">
         <span>背景</span>

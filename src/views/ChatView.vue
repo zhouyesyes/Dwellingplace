@@ -26,7 +26,7 @@ function blockMd(text) {
   markdownCache.set(text, html);
   return html;
 }
-import { onlySticker, stickerUrl, withStickers } from "../lib/stickers.js";
+import { onlySticker, stickerUrl, withStickers, stickersOf } from "../lib/stickers.js";
 import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.js";
 import VoiceBubble from "../components/VoiceBubble.vue";
 import WorldDrawer from "../components/WorldDrawer.vue";
@@ -825,11 +825,11 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 
     <!-- 表情包 -->
     <Sheet :open="stickerOpen" title="表情包" @close="stickerOpen = false">
-      <div v-if="store.stickers?.length" class="st-grid">
-        <button v-for="s in store.stickers" :key="s.id" @click="sendSticker(s)"><img v-if="stickerUrl(s)" :src="stickerUrl(s)" :alt="s.name" /><span>{{ s.name }}</span></button>
+      <div v-if="stickersOf(role.id).length" class="st-grid">
+        <button v-for="s in stickersOf(role.id)" :key="s.id" @click="sendSticker(s)"><img v-if="stickerUrl(s)" :src="stickerUrl(s)" :alt="s.name" /><span>{{ s.name }}</span></button>
       </div>
       <p v-else class="tip">还没有表情包。去「设置 → 表情包」上传几张。</p>
-      <button class="btn soft small st-manage" @click="stickerOpen = false; router.push('/settings/stickers')">管理表情包</button>
+      <button class="btn soft small st-manage" @click="stickerOpen = false; router.push(`/settings/stickers?owner=${role.id}`)">管理表情包</button>
     </Sheet>
 
     <!-- 对话切换 -->
