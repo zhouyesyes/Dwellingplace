@@ -957,9 +957,10 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .chat {
   position: fixed;
   inset: 0;
+  bottom: calc(-1 * var(--ios-gap, 0px)); /* iPhone 主屏幕打开时底下短一截：铺到屏幕最底（见 App.vue） */
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: calc(100dvh + var(--ios-gap, 0px));
 }
 .bg {
   position: absolute;

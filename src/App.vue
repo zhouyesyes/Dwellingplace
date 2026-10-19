@@ -17,6 +17,20 @@ document.addEventListener("focusout", () => {
   setTimeout(() => { if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0); }, 60);
 });
 
+// iPhone 从主屏幕打开时，有的系统版本整页会短一截（短的正好是顶上状态栏那么高），底下露出一条空白。
+// 量出差了多少放进 --ios-gap，整屏固定的页面（主页、聊天）往下多铺这么多。键盘弹起时不量
+function measureGap() {
+  if (!navigator.standalone) return;
+  const el = document.activeElement;
+  if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+  const full = matchMedia("(orientation: portrait)").matches ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  const gap = full - window.innerHeight;
+  document.documentElement.style.setProperty("--ios-gap", `${gap > 0 && gap <= 80 ? gap : 0}px`);
+}
+measureGap();
+window.addEventListener("resize", () => setTimeout(measureGap, 50));
+window.addEventListener("orientationchange", () => setTimeout(measureGap, 300));
+
 // 字号：小 / 标准 / 大
 const FONT = { small: "13px", standard: "14px", large: "15.5px" };
 watchEffect(() => {

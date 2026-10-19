@@ -1,6 +1,6 @@
 <script setup>
 // 主页（她自己画的设计）：大字「Dwelling place」+ 他写的一段话；底下一块圆角的功能区，小章鱼坐在边上。
-// 功能区往上滑就是聊天；往下拉，后面藏着的两间像素小屋（章鱼的、螃蟹的）露出来。背景默认灰色，长按可以换图
+// 功能区往上滑就是聊天；往下拉，后面藏着的两间像素小屋（章鱼的、螃蟹的）露出来。背景默认灰色，长按或在「设置 → 外观」里换图
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { store, MAIN } from "../store/index.js";
@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .home {
   --hero: #dedee2;
-  position: fixed; inset: 0; overflow: hidden;
+  position: fixed; inset: 0; bottom: calc(-1 * var(--ios-gap, 0px)); overflow: hidden; /* iPhone 主屏幕打开时底下短一截（见 App.vue） */
   background: var(--hero) center / cover no-repeat;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
@@ -205,6 +205,8 @@ h1 span + span { font-size: 3.1rem; font-weight: 500; margin-top: 2px; }
   touch-action: none; transition: transform .3s cubic-bezier(.2, .8, .3, 1);
 }
 .panel.dragging { transition: none; }
+/* 往上滑的时候功能区会被拉起来一点：底下接着一截白，不露出背景 */
+.panel::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 50vh; background: var(--card); }
 .pet { position: absolute; left: 30px; pointer-events: none; }
 .handle { width: 36px; height: 4px; border-radius: 9px; background: var(--line); margin: 0 auto 10px; }
 .hint { text-align: center; font-size: .72rem; color: var(--text-3); margin-bottom: 16px; letter-spacing: .5px; }
