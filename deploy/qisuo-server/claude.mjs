@@ -7,12 +7,17 @@
 // 登录：在服务器终端里跑安装那一行，按提示登录一次（claude setup-token），token 只存在服务器的 settings 里，
 //       通过环境变量 CLAUDE_CODE_OAUTH_TOKEN 给到这里，不经过浏览器。
 //
+// 工作室（/studio/v1/...）：和聊天一样，只是多了「看」的工具（Read、Glob、Grep），
+// 当前文件夹换成栖所仓库的一份拷贝（公开仓库，从 GitHub 拉，只读，不能改、不能跑命令）。
+// 小螃蟹在这里翻施工日志、提交记录，自己用 [记忆:…] 写进自己的记忆库（栖所那边照常收）。
+//
 // 路径（都在 /p/<口令>/claude 下面）：
-//   GET  /status                 装好了没、登录了没
-//   GET  /v1/models              能选的模型
-//   POST /v1/chat/completions    聊天
+//   GET  /status                        装好了没、登录了没
+//   GET  /v1/models                     能选的模型
+//   POST /v1/chat/completions           聊天
+//   POST /studio/v1/chat/completions    工作室
 import { spawn, execFile } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -24,6 +29,38 @@ const MODELS = [
   { id: "opus", name: "Opus（更聪明，费额度）" },
   { id: "haiku", name: "Haiku（最省）" },
 ];
+
+// ---------- 工作室：栖所仓库的拷贝 ----------
+const REPO_URL = process.env.CRAB_REPO || "https://github.com/zhouyesyes/Dwellingplace.git";
+const STUDIO = join(process.env.DATA_DIR || tmpdir(), "crab-studio");
+const REPO = join(STUDIO, "Dwellingplace");
+const git = (args, cwd) => new Promise((resolve, reject) => execFile("git", args, { cwd, timeout: 120000 }, (err, out) => (err ? reject(err) : resolve(String(out)))));
+let pulledAt = 0;
+// 最多十分钟拉一次最新的；拉不下来就用手上那份
+async function refreshRepo() {
+  if (Date.now() - pulledAt < 10 * 60 * 1000 && existsSync(REPO)) return;
+  mkdirSync(STUDIO, { recursive: true });
+  try {
+    if (!existsSync(join(REPO, ".git"))) await git(["clone", "--filter=blob:none", REPO_URL, REPO], STUDIO);
+    else await git(["pull", "--ff-only", "-q"], REPO);
+    // 提交记录写成一个文件，不用给它跑命令的权限
+    const log = await git(["log", "--date=short", "--format=%h %ad %an：%s"], REPO);
+    mkdirSync(join(REPO, ".qisuo"), { recursive: true });
+    writeFileSync(join(REPO, ".qisuo", "commits.txt"), log);
+    pulledAt = Date.now();
+  } catch (e) {
+    if (!existsSync(REPO)) throw Object.assign(new Error(`工作室拿不到栖所的仓库：${e.message}（服务器上要重新跑一次安装那一行）`), { status: 502 });
+  }
+}
+const STUDIO_NOTE = `# 你现在在工作室
+当前文件夹是栖所仓库的一份拷贝（只读）。你可以用 Read / Glob / Grep 自己翻：
+- docs/worklog.md：大家一起施工的日志（最上面是最新的），你以前在别的窗口做过的事大多记在这里
+- CLAUDE.md、AGENTS.md：给你和大家看的施工说明
+- .qisuo/commits.txt：全部提交记录（一行一个，最新的在最上面）
+- src/、deploy/：代码
+这里不能改文件、不能跑命令。
+写记忆的办法：在回复里另起一行写 [记忆:类别|标题|内容]（类别从 喜好、约定、心事、时刻、读写、日常 里选一个），栖所会把它收进你自己的记忆库，一行一张。
+读到值得记住的就这样写；一次别写太多（十张以内），别和已有的记忆重复，内容写成以后的你一看就懂的一两句话。`;
 
 const loggedIn = () => !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
 function version() {
@@ -66,13 +103,15 @@ const ERRS = [
   [/not logged in|invalid api key|authenticat|bearer token|oauth|401/i, "小螃蟹还没登录：在服务器终端里再运行一次安装那一行，按提示登录 Claude"],
   [/usage limit|rate limit|429|limit reached/i, "Claude 订阅这阵子的额度用完了（和 Claude 网页、Claude Code 共用），过一会儿再试"],
 ];
+const LOOK = { Read: "在读", Glob: "在找文件", Grep: "在搜" };
 const errMsg = t => (ERRS.find(([re]) => re.test(t || ""))?.[1]) || t || "出错了";
 
-async function chat(body, res, CORS) {
+async function chat(body, res, CORS, studio = false) {
   const { system, content } = split(body.messages);
+  if (studio) await refreshRepo();
   mkdirSync(WORK, { recursive: true });
-  const sysFile = join(WORK, `sys-${randomUUID()}.txt`); // 系统提示可能很长，放文件里
-  writeFileSync(sysFile, system || "你是小螃蟹。", { mode: 0o600 });
+  const sysFile = join(WORK, `sys-${randomUUID()}.txt`); // 系统提示可能很长，放文件里（不放进仓库那个文件夹）
+  writeFileSync(sysFile, [system || "你是小螃蟹。", studio ? STUDIO_NOTE : ""].filter(Boolean).join("\n\n"), { mode: 0o600 });
   const model = MODELS.some(m => m.id === body.model) || /^claude-/.test(body.model || "") ? body.model : "sonnet";
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY; // 有 API Key 就会改成按量计费：这里只用订阅
@@ -80,8 +119,10 @@ async function chat(body, res, CORS) {
   env.CLAUDE_CODE_MAX_RETRIES ??= "2"; // 登录失效时别重试十次、让你干等几分钟
   const child = spawn(BIN, [
     "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-    "--system-prompt-file", sysFile, "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--model", model,
-  ], { cwd: WORK, env, stdio: ["pipe", "pipe", "pipe"] });
+    "--system-prompt-file", sysFile, "--strict-mcp-config", "--no-session-persistence", "--model", model,
+    // 聊天：工具全关；工作室：只能看
+    ...(studio ? ["--tools", "Read,Glob,Grep", "--allowedTools", "Read", "Glob", "Grep"] : ["--tools", ""]),
+  ], { cwd: studio ? REPO : WORK, env, stdio: ["pipe", "pipe", "pipe"] });
   const cleanup = () => rmSync(sysFile, { force: true });
   res.on("close", () => { if (!res.writableEnded) child.kill("SIGTERM"); }); // 栖所那边停了，这边也停
   child.stdin.end(JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n");
@@ -98,7 +139,11 @@ async function chat(body, res, CORS) {
     if (ev.type === "stream_event") {
       const d = ev.event?.delta;
       if (ev.event?.type === "content_block_delta" && d?.type === "text_delta") { text += d.text; streamed = true; if (stream) res.write(chunk({ content: d.text })); }
-      else if (ev.event?.type === "content_block_delta" && d?.type === "thinking_delta") { thinking += d.thinking; if (stream) res.write(chunk({ reasoning: d.thinking })); }
+      else if (ev.event?.type === "content_block_delta" && d?.type === "thinking_delta") { thinking += d.thinking; if (stream) { if (d.thinking) res.write(chunk({ reasoning: d.thinking })); } }
+    } else if (ev.type === "assistant" && stream) {
+      // 工作室里翻了什么，放在「想法」里给你看一眼
+      for (const b of ev.message?.content || []) if (b.type === "tool_use") res.write(chunk({ reasoning: `\n（${LOOK[b.name] || b.name} ${b.input?.file_path?.replace(REPO + "/", "") || b.input?.pattern || ""}）\n` }));
+      if (!streamed && ev.message?.model !== "<synthetic>") { const t = textOf(ev.message?.content); if (t) { text += t; res.write(chunk({ content: t })); } }
     } else if (ev.type === "assistant" && !streamed && ev.message?.model !== "<synthetic>") { // 没有一个字一个字的，就整段给（<synthetic> 是出错时它自己编的一句，不当成回复）
       const t = textOf(ev.message?.content);
       if (t) { text += t; if (stream) res.write(chunk({ content: t })); }
@@ -141,6 +186,8 @@ export async function handleClaude(req, res, rest, CORS) {
     if (rest === "/status" && req.method === "GET") return send(200, await status());
     if (rest === "/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS);
+    if (rest === "/studio/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
+    if (rest === "/studio/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS, true);
     return send(404, { error: { message: "没有这个地址" } });
   } catch (e) {
     if (res.headersSent) { try { res.end(); } catch { /* 已经断了 */ } return; }

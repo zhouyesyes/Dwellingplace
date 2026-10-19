@@ -375,9 +375,16 @@ export function authorInfo(id) {
   return r ? { name: r.name, color: r.color } : { name: "（已删除）", color: "#c8c8d0" };
 }
 export const apiById = id => store.apis.find(a => a.id === id);
-// 邮箱页自己的小对话（mail: true）不算在聊天列表里
+// 邮箱页自己的小对话（mail: true）、小螃蟹的工作室（studio: true）不算在聊天列表里
 export const threadsOf = roleId =>
-  store.threads.filter(t => t.roleId === roleId && !t.mail).sort((a, b) => b.updatedAt - a.updatedAt);
+  store.threads.filter(t => t.roleId === roleId && !t.mail && !t.studio).sort((a, b) => b.updatedAt - a.updatedAt);
+// 小螃蟹的工作室：单独一个对话，走工作室的接口（能翻栖所仓库）
+export function studioThreadOf(roleId, apiId) {
+  let t = store.threads.find(x => x.roleId === roleId && x.studio);
+  if (!t) { t = createThread(roleId); t.studio = true; t.title = "工作室"; }
+  t.apiId = apiId;
+  return t;
+}
 export function mailThreadOf(roleId) {
   let t = store.threads.find(x => x.roleId === roleId && x.mail);
   if (!t) { t = createThread(roleId); t.mail = true; t.title = "邮箱"; }
