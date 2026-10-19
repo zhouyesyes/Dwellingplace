@@ -197,6 +197,8 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     body.reasoning = { ...(api.effort ? { effort: api.effort } : {}), ...(api.showThinking ? { enabled: true } : { exclude: true }) };
   }
   if (cacheKey && (isPlan(api) || isOpenAI(api)) && !noCacheKey.has(api.baseUrl)) body.prompt_cache_key = cacheKey;
+  // 会员额度报错时带上这次用的模型：有的模型单独有上限，换个模型就能接着用
+  const withModel = m => (isPlan(api) && /额度|用量|usage|limit/i.test(m) ? `${m}（这次用的模型：${model}）` : m);
   const post = () => fetch(`${trimUrl(api.baseUrl)}/chat/completions`, {
     method: "POST",
     signal,
@@ -217,7 +219,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     if (/not available in your region|unsupported_country|country, region, or territory/i.test(raw)) {
       throw new Error("这个模型不对你现在所在的地区提供服务：开梯子再试，或者换一个模型。");
     }
-    throw new Error(httpError(res.status, raw));
+    throw new Error(withModel(httpError(res.status, raw)));
   }
 
   // 关了流式：整条一次拿回来
@@ -225,7 +227,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     const raw = await res.text();
     let j;
     try { j = JSON.parse(raw); } catch { throw new Error(`接口返回的不是 JSON：${raw.slice(0, 200)}`); }
-    if (j.error) throw new Error(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`);
+    if (j.error) throw new Error(withModel(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`));
     const m = j.choices?.[0]?.message || {};
     const c = typeof m.content === "string" ? m.content : (m.content || []).map(x => x.text || "").join("");
     const parts = splitThink(c);
@@ -263,7 +265,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       let j;
       try { j = JSON.parse(data); } catch { continue; } // 不完整的行，忽略
       // 流到一半出错（比如会员额度用完了）
-      if (j.error && !j.choices) throw new Error(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`);
+      if (j.error && !j.choices) throw new Error(withModel(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`));
       {
         const delta = j.choices?.[0]?.delta || {};
         // OpenRouter 还会把思考放在 reasoning_details 里（GPT 给的是摘要；加密的那种看不了）
