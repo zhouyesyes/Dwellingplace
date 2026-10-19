@@ -16,7 +16,7 @@ function apply(animate) {
     setTimeout(() => root.classList.remove("theme-switching"), 220);
   }
   root.dataset.theme = dark ? "dark" : "light";
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#1b1e25" : "#f6f6f8");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#1b1e25" : "#f3f1ee");
 }
 export function setTheme(v) {
   themePref.value = v;

@@ -1,10 +1,10 @@
 :root {
   /* 干净的白 / 浅灰 + 很淡的多巴胺色 */
-  --bg: #f6f6f8;
-  --bg-deep: #ececf0;
+  --bg: #f3f1ee; /* 暖一点的灰白，和主页统一 */
+  --bg-deep: #ebe8e3;
   --card: #ffffff;
-  --card-2: #f8f8fa;
-  --line: #ebebef;
+  --card-2: #f9f8f5;
+  --line: #ebe7e2;
   --text: #2e2e34;
   --text-2: #84848e;
   --text-3: #b5b5bd;

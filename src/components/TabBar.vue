@@ -38,12 +38,12 @@ const tabs = [
   z-index: 20;
   font-family: "Poppins", var(--font);
 }
-/* 不要底框：页面最下面一截渐渐变成底色，内容滑到图标后面慢慢淡掉（主页的底色见 HomeView 的 --fade-bg） */
+/* 不要底框：页面最下面一截渐渐变成底色，内容滑到图标后面慢慢淡掉 */
 .tabbar::before {
   /* 底栏自己有 transform，fixed 会跟着它走：用 absolute 撑满整个屏幕宽、一直到屏幕最底 */
   content: ""; position: absolute; left: calc(50% - 50vw); width: 100vw; bottom: calc(-1 * (var(--safe-bottom) + 10px)); z-index: -1; pointer-events: none;
   height: calc(var(--safe-bottom) + 112px);
-  background: linear-gradient(to bottom, transparent, var(--fade-bg, var(--bg)) 58%);
+  background: linear-gradient(to bottom, transparent, var(--bg) 58%);
 }
 .tab { display: flex; flex-direction: column; align-items: center; gap: 0; width: 72px; color: var(--text-2); text-decoration: none; }
 /* 不分深浅：选中的只是大一点点 */
