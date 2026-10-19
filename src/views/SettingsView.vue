@@ -11,9 +11,9 @@ import Sheet from "../components/Sheet.vue";
 
 const router = useRouter();
 const lookOpen = ref(false);
-// 主页背景（主页上长按背景也能换）
+// 主页封面（主页上点封面也能换）
 async function homeCover() {
-  const id = await pickAndCrop({ aspect: innerWidth / innerHeight, title: "调整主页背景", maxSize: 1800 });
+  const id = await pickAndCrop({ aspect: Math.min(innerWidth, 680) / 230, title: "调整主页封面", maxSize: 1800 });
   if (!id) return;
   deleteImage(store.profile.cover);
   store.profile.cover = id;
@@ -85,13 +85,13 @@ function setHelper(v) {
             <button v-for="(l, k) in { small: '小', standard: '标准', large: '大' }" :key="k" :class="{ on: store.settings.fontSize === k }" @click="store.settings.fontSize = k">{{ l }}</button>
           </div>
         </div>
-        <div class="look-line"><span>主页背景</span>
+        <div class="look-line"><span>主页封面</span>
           <div class="seg">
             <button @click="homeCover">换图</button>
             <button :class="{ on: !store.profile.cover }" @click="plainCover">灰色</button>
           </div>
         </div>
-        <p class="look-tip">在主页长按背景也能换</p>
+        <p class="look-tip">在主页点封面也能换</p>
       </div>
     </Sheet>
   </div>
