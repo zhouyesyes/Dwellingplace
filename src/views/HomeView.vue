@@ -109,14 +109,11 @@ const rows = computed(() => [
     <div class="cover" :class="{ img: cover }" :style="cover ? { backgroundImage: `url(${cover})` } : null" @click="changeCover" />
 
     <div class="head">
-      <!-- 小螃蟹住进来以后，它的小头像挨在我右边（夹在我和他中间），点了进它的聊天 -->
-      <!-- 两个头像挨在中间，左右各夹一个磨砂的小气泡写名字（只是放着，不能点）；点他的头像进聊天，我的头像在「设置 → 外观」里换 -->
+      <!-- 头像挨在中间：他在左、我在正中、小螃蟹在右；点他们的进各自的聊天，我的头像在「设置 → 外观」里换 -->
       <div class="duo">
-        <span class="tag mine"><b>{{ myName }}</b><small>human</small></span>
-        <span class="ava"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></span>
-        <button v-if="crab" class="ava crab" :aria-label="`和${crab.name}聊天`" @click="router.push(`/chat/${CRAB}`)"><Avatar :img="crab.avatar" :name="crab.name" :color="crab.color" :size="46" /></button>
         <button v-if="him" class="ava his" :aria-label="`和${him.name}聊天`" @click="router.push(`/chat/${MAIN}`)"><Avatar :img="him.avatar" :name="him.name" :color="him.color" :size="68" /></button>
-        <span v-if="him" class="tag his"><b>{{ him.name }}</b><small>{{ dayInfo && !dayInfo.future ? `day ${dayInfo.day}` : "ai" }}</small></span>
+        <span class="ava me"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></span>
+        <button v-if="crab" class="ava crab" :aria-label="`和${crab.name}聊天`" @click="router.push(`/chat/${CRAB}`)"><Avatar :img="crab.avatar" :name="crab.name" :color="crab.color" :size="68" /></button>
       </div>
       <div class="bios" @click="bioOpen = true">
         <p v-if="store.profile.bioSelf" class="bio">{{ store.profile.bioSelf }}</p>
@@ -173,19 +170,8 @@ const rows = computed(() => [
 .head { padding: 0 24px; position: relative; z-index: 1; text-align: center; }
 .duo { display: flex; justify-content: center; align-items: center; margin: -36px 0 0; }
 .ava { padding: 0; border: 0; background: none; border-radius: 50%; flex: none; }
-.ava.his { margin-left: -12px; }
-.ava.crab { margin: 22px -4px 0 -10px; z-index: 2; }
-.ava.crab + .ava.his { margin-left: -4px; }
-/* 磨砂的小气泡：夹在两个头像左右，圆圆的 */
-.tag {
-  display: flex; flex-direction: column; align-items: center; gap: 0; padding: 6px 14px 5px; border: 0; margin-top: 30px;
-  border-radius: 999px; background: rgba(var(--glass-rgb), .55); backdrop-filter: blur(12px) saturate(1.2); -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5) inset, 0 4px 14px rgba(40, 40, 60, .07); color: var(--text); width: 88px; flex: none;
-}
-.tag.mine { margin-right: -6px; z-index: 0; }
-.tag.his { margin-left: -6px; z-index: 0; }
-.tag b { font-size: .82rem; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tag small { font-size: .6rem; letter-spacing: 1px; color: var(--text-3); text-transform: uppercase; }
+.ava + .ava { margin-left: -12px; }
+.ava.me { z-index: 2; }
 .ava { position: relative; z-index: 1; }
 .ava :deep(.avatar) { box-shadow: 0 0 0 2.5px var(--home-bg), 0 6px 16px rgba(40, 40, 60, .1); }
 .bios { margin: 12px auto 0; max-width: 320px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
