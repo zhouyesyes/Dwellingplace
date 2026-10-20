@@ -7,7 +7,7 @@ import { store } from "../../store/index.js";
 import { todayYmd } from "../../lib/dates.js";
 import { pickFile, saveImage, deleteImage } from "../../lib/images.js";
 import {
-  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf,
+  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf, plansOnDay, updatePlan,
   setMood, clearMood, addPost, removePost, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
 } from "../../lib/meanwhile.js";
 import Icon from "../Icon.vue";
@@ -140,16 +140,42 @@ function react(p, kind) {
 const plansOpen = ref(false);
 const planText = ref("");
 const plans = computed(() => plansOf(month.value));
-function savePlan() { if (addPlan(ME, planText.value, month.value)) planText.value = ""; }
+const dayPlans = computed(() => (selected.value ? plansOnDay(selected.value) : []));
+// 新加：挂在这个月，或者挂在某一天
+const planScope = ref("month");
+const planDay = ref("");
+function openPlans() { planScope.value = "month"; planDay.value = selected.value || (month.value === today.value.slice(0, 7) ? today.value : `${month.value}-01`); plansOpen.value = true; }
+function savePlan() {
+  const date = planScope.value === "day" && planDay.value ? planDay.value : null;
+  if (addPlan(ME, planText.value, month.value, date)) planText.value = "";
+}
 function tickPlan(p) { togglePlan(p, ME); }
 const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
+const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
+// 点开一件待续：改文字、改日期（月和日之间可以换）、删掉
+const editing = ref(null);
+const edit = ref({ text: "", scope: "month", date: "", month: "" });
+function openEdit(p) {
+  editing.value = p;
+  edit.value = { text: p.text, scope: p.date ? "day" : "month", date: p.date || `${p.month}-01`, month: p.month };
+}
+function saveEdit() {
+  const e = edit.value;
+  if (!updatePlan(editing.value, { text: e.text, date: e.scope === "day" ? e.date : null, month: e.month })) return;
+  editing.value = null;
+}
+function dropEdit() {
+  if (!confirm("把这件待续拿掉？")) return;
+  removePlan(editing.value);
+  editing.value = null;
+}
 </script>
 
 <template>
   <div class="mw">
     <TideHero />
 
-    <TideCalendar :month="month" :selected="selected" @select="pick" @shift="shift" @today="toToday" @plans="plansOpen = true" @mood="x => showCard(x.who, x.date, x.key, x.text)" />
+    <TideCalendar :month="month" :selected="selected" @select="pick" @shift="shift" @today="toToday" @plans="openPlans" @mood="x => showCard(x.who, x.date, x.key, x.text)" />
 
     <!-- 水温：默认看今天，点了日历上的哪天就看哪天 -->
     <section class="temp">
@@ -167,6 +193,13 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
           <span class="say">{{ p.mood ? (p.m.text || p.mood.name) : p.who === ME && canSet ? "选一个水温" : "还没选" }}</span>
         </button>
       </div>
+    </section>
+
+    <!-- 点了某一天：挂在那天的待续 -->
+    <section v-if="dayPlans.length" class="day-plans">
+      <button v-for="p in dayPlans" :key="p.id" class="dp" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }" @click="openEdit(p)">
+        <span class="tag">待续</span><span class="t">{{ p.text }}</span><small>{{ info(p.who).name }}</small>
+      </button>
     </section>
 
     <slot name="after-temp" :date="selected" />
@@ -208,6 +241,8 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
       <button v-if="feed.length > shown.length" class="more-btn" @click="more++">再往前看看</button>
     </section>
 
+    <slot name="end" />
+
     <button class="fab" aria-label="贴一条" @click="openCompose"><Icon name="plus" :size="24" /></button>
 
     <MoodCard :card="card" :me="ME" :can-edit="canSet" @close="card = null" @edit="editFromCard" />
@@ -247,20 +282,42 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 
     <!-- 待续 -->
     <Sheet :open="plansOpen" :title="`${monthName}的待续`" @close="plansOpen = false">
-      <p class="hint">接下来想做的事。做完了点一下，就会在当天留下一条记录；没做完也没关系，就放在这儿。</p>
+      <p class="hint">接下来想做的事，可以挂在这个月，也可以挂在某一天。点一件可以改字、改日期、删掉；做完了点前面的圈，就会在当天留下一条记录，没做完也没关系。</p>
       <form class="plan-add" @submit.prevent="savePlan">
         <input v-model="planText" class="input" maxlength="60" placeholder="写一件想做的事" enterkeyhint="done" />
         <button class="btn small" :disabled="!planText.trim()">贴上</button>
       </form>
+      <div class="scope">
+        <button type="button" class="chip" :class="{ on: planScope === 'month' }" @click="planScope = 'month'">这个月</button>
+        <button type="button" class="chip" :class="{ on: planScope === 'day' }" @click="planScope = 'day'">某一天</button>
+        <input v-if="planScope === 'day'" v-model="planDay" class="input date" type="date" :min="`${month}-01`" :max="`${month}-31`" />
+      </div>
       <ul class="plan-list">
         <li v-for="p in plans" :key="p.id" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }">
           <button class="tick" :aria-label="p.doneAt ? '取消完成' : '完成'" @click="tickPlan(p)"><Icon v-if="p.doneAt" name="check" :size="14" /></button>
-          <span class="t">{{ p.text }}</span>
+          <button class="t" @click="openEdit(p)"><em v-if="p.date">{{ md(p.date) }}</em>{{ p.text }}</button>
           <small>{{ info(p.who).name }}</small>
           <button class="x" aria-label="拿掉" @click="removePlan(p)">×</button>
         </li>
         <li v-if="!plans.length" class="none">这个月还没有待续</li>
       </ul>
+    </Sheet>
+
+    <!-- 改一件待续 -->
+    <Sheet :open="!!editing" title="改待续" :z="60" @close="editing = null">
+      <template v-if="editing">
+        <input v-model="edit.text" class="input" maxlength="60" placeholder="这件事" />
+        <div class="scope">
+          <button type="button" class="chip" :class="{ on: edit.scope === 'month' }" @click="edit.scope = 'month'">挂在月上</button>
+          <button type="button" class="chip" :class="{ on: edit.scope === 'day' }" @click="edit.scope = 'day'">挂在某一天</button>
+        </div>
+        <input v-if="edit.scope === 'day'" v-model="edit.date" class="input date" type="date" />
+        <label v-else class="mon">挂在 <input v-model="edit.month" class="input" type="month" /></label>
+        <div class="sheet-act">
+          <button class="btn soft" @click="dropEdit">删掉</button>
+          <button class="btn" :disabled="!edit.text.trim() || (edit.scope === 'day' && !edit.date) || (edit.scope === 'month' && !edit.month)" @click="saveEdit">保存</button>
+        </div>
+      </template>
     </Sheet>
 
     <ImageViewer :open="viewAt != null" :images="viewImgs" :start="viewAt || 0" @close="viewAt = null" />
@@ -366,7 +423,19 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 .plan-list li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: color-mix(in srgb, var(--c, #ccc) 12%, var(--card-2)); }
 .plan-list .tick { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--text-3); background: none; display: grid; place-items: center; color: #fff; }
 .plan-list li.done .tick { background: color-mix(in srgb, var(--c) 80%, #555); border-color: transparent; }
-.plan-list .t { flex: 1; min-width: 0; font-size: .9rem; word-break: break-word; }
+.plan-list .t { flex: 1; min-width: 0; font-size: .9rem; word-break: break-word; border: 0; background: none; padding: 0; text-align: left; color: var(--text); font-family: inherit; }
+.plan-list .t em { font-style: normal; font-size: .7rem; font-weight: 700; margin-right: 6px; padding: 1px 6px; border-radius: 999px; background: #f3dc8b; color: #6b5a22; }
+.scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.scope .date, .mon .input { width: auto; flex: 1; min-width: 150px; }
+.scope + .input { margin-top: 10px; }
+.mon { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: .85rem; color: var(--text-2); }
+.plan-list .t + small { flex: none; }
+.day-plans { margin: 14px 16px 0; display: flex; flex-direction: column; gap: 6px; }
+.dp { border: 0; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; background: color-mix(in srgb, #f3dc8b 22%, var(--note)); box-shadow: 0 0 0 1px var(--note-line); color: var(--text); text-align: left; font-family: inherit; }
+.dp .tag { flex: none; font-size: .68rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #f3dc8b; color: #6b5a22; }
+.dp .t { flex: 1; min-width: 0; font-size: .92rem; word-break: break-word; }
+.dp.done .t { text-decoration: line-through; color: var(--text-3); }
+.dp small { color: var(--text-3); font-size: .72rem; flex: none; }
 .plan-list li.done .t { color: var(--text-3); text-decoration: line-through; }
 .plan-list small { color: var(--text-3); font-size: .7rem; }
 .plan-list .x { background: none; color: var(--text-3); font-size: 1.1rem; }
