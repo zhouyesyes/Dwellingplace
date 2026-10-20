@@ -31,6 +31,9 @@
   --on-ink: #ffffff;
   --glass-rgb: 255, 255, 255;
   --tint-rgb: 0, 0, 0;
+  --ask-bg: #fbf5e6; /* 提问卡：浅奶油色，不分人 */
+  --ask-line: #e8dcc0;
+  --ask-sel: #f1e2b8;
   --pastel: 100%;
   --ink-keep: 100%;
   --avatar-mix: #ffffff;
@@ -61,6 +64,9 @@
   --shadow-soft: 0 4px 16px rgba(0, 0, 0, .28);
   --glass-rgb: 38, 42, 51;
   --tint-rgb: 255, 255, 255;
+  --ask-bg: #3a362b;
+  --ask-line: #5b5440;
+  --ask-sel: #5a4f32;
   --pastel: 20%;
   --ink-keep: 30%;
   --avatar-mix: #3a404c;

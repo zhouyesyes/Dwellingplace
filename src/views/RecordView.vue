@@ -3,13 +3,11 @@
 // 以前这里的白日历换成了潮汐表：点日期看那天，那天的日记、他记住的事在日期下面接着列
 import { ref, computed } from "vue";
 import { store, authorInfo } from "../store/index.js";
-import { diaryList } from "../lib/diary.js";
+import { diaryList, SHOW_DIARY } from "../lib/diary.js";
 import MeanwhilePanel from "../components/meanwhile/MeanwhilePanel.vue";
 import { useDayMemories } from "../lib/dayMemories.js";
 import DiaryBook from "../components/record/DiaryBook.vue";
 
-// 日记先收起来（10/20）：页面上不出现日记的入口和块；数据（store.diary）、DiaryBook 和这里的写法都留着，把它改成 true 就接回来
-const SHOW_DIARY = false;
 const pages = computed(diaryList);
 const recent = computed(() => pages.value.map((e, i) => ({ e, i })).slice(-4).reverse());
 const book = ref(false);

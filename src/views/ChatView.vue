@@ -34,6 +34,8 @@ import WorldDrawer from "../components/WorldDrawer.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SearchPanel from "../components/SearchPanel.vue";
 import LinkCard from "../components/LinkCard.vue";
+import AskCard from "../components/AskCard.vue";
+import { askAnswerText } from "../lib/ask.js";
 import { cardOf, urlsIn, onlyUrl } from "../lib/linkcard.js";
 import { goBack } from "../lib/nav.js";
 import Avatar from "../components/Avatar.vue";
@@ -298,6 +300,15 @@ async function send(reply = true) {
   nextTick(autoGrow);
   scrollToBottom(true);
   await sendMessage(thread.value, text, atts, { reply, quote });
+}
+// 提问卡答完点「好了」：卡片记下选了什么（变淡、不能再点），答案作为她的一条消息发出去，他接着回
+async function answerAsk(msg, { picks, others }) {
+  if (msg.ask.done) return;
+  const text = askAnswerText(msg.ask, picks, others);
+  msg.ask.done = { picks, others };
+  saveMessages(thread.value.id);
+  scrollToBottom(true);
+  await sendMessage(thread.value, text, [], { reply: !wakeBusy.value });
 }
 // 表情包：发出去就是一条 [表情:名字]
 const stickerOpen = ref(false);
@@ -770,6 +781,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                   <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><LinkCard v-else-if="cardOf(b)" v-bind="cardOf(b)" /><template v-else><div v-if="!onlyUrl(b)" class="bubble" :data-mid="src(m).id" @click="openActions(src(m), b)" v-html="withStickers(blockMd(b))" /><LinkCard v-for="u in urlsIn(b)" :key="u" :url="u" /></template></template>
                   <template v-if="!m._src || m._last">
                     <div v-if="src(m).pending && (src(m).paused || src(m).typing) && splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
+                    <AskCard v-if="src(m).ask && !src(m).pending" :ask="src(m).ask" :disabled="busy" @submit="a => answerAsk(src(m), a)" />
                     <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
                     <div v-if="imgsOf(src(m)).length" class="att one" @click="viewImgs(src(m))"><ImgThumb :id="imgsOf(src(m))[0].img" /></div>
                   </template>
