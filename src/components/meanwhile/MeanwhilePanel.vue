@@ -165,6 +165,11 @@ function saveEdit() {
   if (!updatePlan(editing.value, { text: e.text, date: e.scope === "day" ? e.date : null, month: e.month })) return;
   editing.value = null;
 }
+// 在卡里点「做完了」：等于在待续清单里点前面的小圆圈（留一条「✓ 待续完成了」），然后关卡
+function finishEdit() {
+  if (!editing.value.doneAt) togglePlan(editing.value, ME);
+  editing.value = null;
+}
 function dropEdit() {
   if (!confirm("把这件待续拿掉？")) return;
   removePlan(editing.value);
@@ -319,6 +324,8 @@ function dropEdit() {
         <label v-else class="mon">挂在 <input v-model="edit.month" class="input" type="month" /></label>
         <div class="sheet-act">
           <button class="btn soft" @click="dropEdit">删掉</button>
+          <span class="act-gap" />
+          <button v-if="!editing.doneAt" class="btn soft" @click="finishEdit">做完了</button>
           <button class="btn" :disabled="!edit.text.trim() || (edit.scope === 'day' && !edit.date) || (edit.scope === 'month' && !edit.month)" @click="saveEdit">保存</button>
         </div>
       </template>
@@ -407,6 +414,7 @@ function dropEdit() {
 .mood b { font-size: .72rem; font-weight: 600; margin-top: 2px; }
 .mood small { font-size: .62rem; color: var(--text-3); }
 .sheet-act { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.act-gap { flex: 1; min-width: 14px; }
 .area { width: 100%; resize: none; }
 .prev { position: relative; margin-top: 10px; width: 140px; }
 .prev .x, .plan-list .x { border: 0; background: rgba(30, 30, 40, .55); color: #fff; width: 24px; height: 24px; border-radius: 50%; line-height: 1; }

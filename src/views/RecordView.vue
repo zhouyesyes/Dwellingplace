@@ -8,6 +8,8 @@ import MeanwhilePanel from "../components/meanwhile/MeanwhilePanel.vue";
 import { useDayMemories } from "../lib/dayMemories.js";
 import DiaryBook from "../components/record/DiaryBook.vue";
 
+// 日记先收起来（10/20）：页面上不出现日记的入口和块；数据（store.diary）、DiaryBook 和这里的写法都留着，把它改成 true 就接回来
+const SHOW_DIARY = false;
 const pages = computed(diaryList);
 const recent = computed(() => pages.value.map((e, i) => ({ e, i })).slice(-4).reverse());
 const book = ref(false);
@@ -16,7 +18,7 @@ function open(i = -1) { start.value = i; book.value = true; }
 const who = e => e.from === "me" ? authorInfo("me").name : (store.roles[0]?.name || "他");
 const md = d => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
 const { memsOn, openMem } = useDayMemories();
-const dayDiaries = date => pages.value.map((e, i) => ({ e, i })).filter(x => x.e.date === date);
+const dayDiaries = date => !SHOW_DIARY ? [] : pages.value.map((e, i) => ({ e, i })).filter(x => x.e.date === date);
 </script>
 
 <template>
@@ -40,7 +42,7 @@ const dayDiaries = date => pages.value.map((e, i) => ({ e, i })).filter(x => x.e
 
       <!-- 日记本放在最下面，潮间带之后 -->
       <template #end>
-        <section class="diary">
+        <section v-if="SHOW_DIARY" class="diary">
           <button class="cover" @click="open()">
             <b>日记本</b>
             <span>{{ pages.length ? `一起写了 ${pages.length} 页` : "翻开第一页" }}</span>
@@ -57,7 +59,7 @@ const dayDiaries = date => pages.value.map((e, i) => ({ e, i })).filter(x => x.e
       </template>
     </MeanwhilePanel>
 
-    <DiaryBook :open="book" :start="start" @close="book = false" />
+    <DiaryBook v-if="SHOW_DIARY" :open="book" :start="start" @close="book = false" />
   </div>
 </template>
 
