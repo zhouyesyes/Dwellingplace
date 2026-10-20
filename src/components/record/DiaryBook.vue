@@ -55,7 +55,6 @@ function del() {
   removeDiary(cur.value);
   i.value = Math.min(i.value, Math.max(0, pages.value.length - 1));
 }
-const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能写成 /stickers/…：栖所挂在带口令的路径下
 </script>
 
 <template>
@@ -78,7 +77,6 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
               <div class="sign" :style="{ '--c': who(cur).color }">— {{ who(cur).name }}</div>
             </article>
             <article v-else key="empty" class="paper empty">
-              <img :src="TITLE" alt="" class="cover-img" />
               <p>日记本还是空的。<br />他想写的时候会写一页，你也可以先写。</p>
               <button class="btn" @click="write">写第一页</button>
             </article>
@@ -136,7 +134,6 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
 .body { white-space: pre-wrap; word-break: break-word; color: var(--text); font-size: 1rem; }
 .sign { text-align: right; margin-top: 10px; color: var(--c); font-size: .93rem; }
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; color: var(--text-2); line-height: 1.7; background-image: none; }
-.cover-img { width: min(240px, 70%); }
 
 .dots { display: flex; align-items: center; justify-content: center; gap: 16px; padding-top: 10px; font-size: .75rem; color: var(--text-3); }
 .turn { border: 0; background: var(--card); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); box-shadow: var(--shadow-soft); }

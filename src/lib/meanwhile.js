@@ -4,7 +4,7 @@
 // 数据都在 store.meanwhile 里（随 meta 一起同步），每样都带 id，两台设备同时改也能合并：
 //   posts   { id, n, who, ts, date, text, img, status: {kind, text}|null, planId, src, replies: [{id, who, text, ts}], reacts: [{id, who, kind, ts}] }
 //   moods   { id: "日期:谁", date, who, key, text, ts }
-//   plans   { id, month: "YYYY-MM", who, text, ts, doneAt, postId }
+//   plans   { id, month: "YYYY-MM", date: "YYYY-MM-DD"|null（挂在某一天；null 就是挂在这个月）, who, text, ts, doneAt, postId }
 //   shells / diaries：第二版的「拾贝」（今日小报）和日记，先留着位置
 // who：她是 "me"，他是 MAIN，小螃蟹是 CRAB
 import { store, uid, roleById, MAIN, CRAB } from "../store/index.js";
@@ -87,6 +87,8 @@ export const postsOn = date => postsOf().filter(p => p.date === date).sort((a, b
 export const moodsOn = date => ensureMeanwhile().moods.filter(m => m.date === date);
 export const moodOf = (who, date = todayYmd()) => ensureMeanwhile().moods.find(m => m.id === `${date}:${who}`) || null;
 export const plansOf = month => ensureMeanwhile().plans.filter(p => p.month === month).sort((a, b) => a.ts - b.ts);
+export const monthPlansOf = month => plansOf(month).filter(p => !p.date);
+export const plansOnDay = date => ensureMeanwhile().plans.filter(p => p.date === date).sort((a, b) => a.ts - b.ts);
 
 // ---------- 写 ----------
 export function setMood(who, key, text, date = todayYmd()) {
@@ -136,12 +138,27 @@ export function toggleReact(post, who, kind) {
 export const reactorsOf = (post, kind) => post.reacts.filter(r => r.kind === kind).map(r => r.who);
 
 // 待续：完成了就在当天落成一条记录；没完成就那样放着，不标红、不催
-export function addPlan(who, text, month) {
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+// date 有值就挂在那一天（月份跟着日期走），没有就挂在 month 这个月
+export function addPlan(who, text, month, date = null) {
   const t = String(text || "").trim().slice(0, 60);
   if (!t) return null;
-  const p = { id: uid(), month, who, text: t, ts: Date.now(), doneAt: null, postId: null };
+  const d = YMD_RE.test(date || "") ? date : null;
+  const p = { id: uid(), month: d ? d.slice(0, 7) : month, date: d, who, text: t, ts: Date.now(), doneAt: null, postId: null };
   ensureMeanwhile().plans.push(p);
   return p;
+}
+// 改文字、改日期（日期留空 = 挂回这个月，month 是要挂的月份；月和日之间可以互相换）
+export function updatePlan(plan, { text, date, month }) {
+  const t = String(text ?? plan.text).trim().slice(0, 60);
+  if (!t) return false;
+  plan.text = t;
+  const d = YMD_RE.test(date || "") ? date : null;
+  plan.date = d;
+  plan.month = d ? d.slice(0, 7) : (month || plan.month);
+  const post = ensureMeanwhile().posts.find(x => x.id === plan.postId);
+  if (post) post.text = t;
+  return true;
 }
 export function togglePlan(plan, who = ME) {
   const m = ensureMeanwhile();
@@ -174,10 +191,25 @@ const lineRe = body => new RegExp(`^[ \\t]*\\[${body}\\][ \\t]*$`, "gm");
 export const TIDE_POST_RE = lineRe("潮间带[:：]([^\\]]{1,600})");
 export const TIDE_REPLY_RE = lineRe("潮间带回复[:：]\\s*#?(\\d{1,6})\\s*[|｜]([^\\]]{1,300})");
 export const TIDE_MOOD_RE = lineRe("水温[:：]\\s*([^\\]|｜]{1,6})(?:[|｜]([^\\]]{0,60}))?");
-export const TIDE_PLAN_RE = lineRe("待续[:：]([^\\]]{1,60})");
+// 可以带日期：[待续:12-25|一件事]（也认 2026-12-25；不带日期就挂在当月）。日期用 - 不用 :，免得被当成别的指令切开
+export const TIDE_PLAN_RE = lineRe("待续[:：](?:\\s*(\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}-\\d{1,2})\\s*[|｜])?([^\\]|｜]{1,60})");
 export const TIDE_ANY_RE = new RegExp([TIDE_POST_RE, TIDE_REPLY_RE, TIDE_MOOD_RE, TIDE_PLAN_RE].map(r => `(?:${r.source})`).join("|"), "gm");
 const POST_DAY_MAX = 3; // 每个人每天最多自己贴三条，别刷屏
 const PLAN_MONTH_MAX = 5; // 每个人每个月没完成的待续最多挂五条
+
+// 指令里的日期 → YYYY-MM-DD；没写年份的按今年算，已经过去很久的当成明年；写得不对（2-30）就当没写
+function planDate(str) {
+  if (!str) return null;
+  const parts = str.split("-").map(Number);
+  const today = todayYmd();
+  let [y, mo, d] = parts.length === 3 ? parts : [Number(today.slice(0, 4)), parts[0], parts[1]];
+  const ok = (yy) => { const t = new Date(yy, mo - 1, d); return t.getFullYear() === yy && t.getMonth() === mo - 1 && t.getDate() === d; };
+  if (!ok(y)) return null;
+  let ymd = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  if (parts.length === 2 && ymd < ymdAdd(today, -60) && ok(y + 1)) ymd = `${y + 1}-${ymd.slice(5)}`;
+  return ymd;
+}
+const ymdAdd = (ymdStr, n) => ymd(new Date(new Date(ymdStr + "T00:00").getTime() + n * 86400_000));
 
 export function applyTideTags(role, text) {
   const notes = [];
@@ -201,12 +233,13 @@ export function applyTideTags(role, text) {
     if (mood) { setMood(who, mood.key, line); notes.push(`${role.name} 今天的水温：${mood.name}${line?.trim() ? `，${line.trim().slice(0, 20)}` : ""}`); }
     return "";
   });
-  out = out.replace(TIDE_PLAN_RE, (_, body) => {
-    const month = monthOf(todayYmd());
+  out = out.replace(TIDE_PLAN_RE, (_, dateStr, body) => {
+    const date = planDate(dateStr);
+    const month = date ? date.slice(0, 7) : monthOf(todayYmd());
     const t = body.trim();
     const mine = plansOf(month).filter(p => p.who === who);
-    if (mine.some(p => p.text === t) || mine.filter(p => !p.doneAt).length >= PLAN_MONTH_MAX) return "";
-    if (addPlan(who, t, month)) notes.push(`${role.name} 给这个月加了一件待续：${t.slice(0, 24)}`);
+    if (mine.some(p => p.text === t && (p.date || null) === date) || mine.filter(p => !p.doneAt).length >= PLAN_MONTH_MAX) return "";
+    if (addPlan(who, t, month, date)) notes.push(`${role.name} 给${date ? `${Number(date.slice(5, 7))}月${Number(date.slice(8))}日` : "这个月"}加了一件待续：${t.slice(0, 24)}`);
     return "";
   });
   out = out.replace(TIDE_POST_RE, (_, body) => {
@@ -231,7 +264,7 @@ export function tideForAI(role, who) {
     `想往上贴一条，在回复末尾单独一行写：[潮间带:内容]，一两句话、100 字以内，像便笺那样随手贴；在读书、画画、写作也可以直接写进内容里。每天自己最多贴 3 条，不用每次都贴。`,
     `今天的水温（心情）每人每天一个：单独一行写 [水温:名字|一句话]，名字从这十个里选：${names}；一句话可以不写。再写一次就是改。`,
     `回别人贴的：单独一行写 [潮间带回复:序号|一句话]，序号是【此刻】里「潮间带」那一段的 #号；只想轻轻回应，就把一句话换成 爱心 / 摸摸 / 抱抱 / 戳一戳 之一。`,
-    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内；做完了由她点一下，会在当天留下一条记录。别刷，每个月自己挂着的不超过 5 件。`,
+    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内，会挂在当月；想挂在某一天就写 [待续:12-25|一件事]（月-日，日期和事情之间用 | 隔开，日期里不要用冒号）。做完了由她点一下，会在当天留下一条记录。别刷，每个月自己挂着的不超过 5 件。`,
     `只有单独占一行的才会执行；平时聊到、解释这些指令时，别写出带方括号的完整格式，也不要放进代码块里。`,
   ].join("\n");
 }
@@ -245,7 +278,7 @@ export function tideMoment(role) {
   const moods = whoList().map(w => [w, moodOf(w, today)]).filter(([, x]) => x);
   if (moods.length) lines.push(`今天的水温：${moods.map(([w, x]) => `${w === role.id ? "你" : whoInfo(w).name}${moodByKey(x.key)?.name}${x.text ? `（${x.text}）` : ""}`).join("；")}`);
   const plans = plansOf(monthOf(today)).filter(p => !p.doneAt).slice(-6);
-  if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${p.who === role.id ? "你" : whoInfo(p.who).name}：${p.text.slice(0, 20)}`).join("；")}`);
+  if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${p.who === role.id ? "你" : whoInfo(p.who).name}：${p.date ? `${Number(p.date.slice(5, 7))}/${Number(p.date.slice(8))} ` : ""}${p.text.slice(0, 20)}`).join("；")}`);
   const recent = m.posts.filter(p => p.ts > since && p.src !== "plan").sort((a, b) => a.ts - b.ts).slice(-6);
   for (const p of recent) {
     const name = p.who === role.id ? "你" : whoInfo(p.who).name;

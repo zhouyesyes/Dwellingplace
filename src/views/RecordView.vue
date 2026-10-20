@@ -17,7 +17,6 @@ const who = e => e.from === "me" ? authorInfo("me").name : (store.roles[0]?.name
 const md = d => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
 const { memsOn, openMem } = useDayMemories();
 const dayDiaries = date => pages.value.map((e, i) => ({ e, i })).filter(x => x.e.date === date);
-const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能写成 /stickers/…：栖所挂在带口令的路径下
 </script>
 
 <template>
@@ -37,14 +36,14 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
             <span class="w">{{ s.role.name }}</span>
           </button>
         </section>
+      </template>
 
+      <!-- 日记本放在最下面，潮间带之后 -->
+      <template #end>
         <section class="diary">
           <button class="cover" @click="open()">
-            <img :src="TITLE" alt="" />
-            <div class="cover-text">
-              <b>日记本</b>
-              <span>{{ pages.length ? `一起写了 ${pages.length} 页` : "翻开第一页" }}</span>
-            </div>
+            <b>日记本</b>
+            <span>{{ pages.length ? `一起写了 ${pages.length} 页` : "翻开第一页" }}</span>
           </button>
 
           <div v-if="recent.length" class="recent">
@@ -69,16 +68,14 @@ const TITLE = `${import.meta.env.BASE_URL}stickers/octopus/title.png`; // 不能
 
 /* 日记本封面：浅蓝的布面，贴着小章鱼的标题 */
 .cover {
-  width: 100%; border: 0; display: flex; align-items: center; gap: 14px; text-align: left;
+  width: 100%; border: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
   padding: 16px 18px 16px 26px; border-radius: 10px 24px 24px 10px;
   background: color-mix(in srgb, #dce7f7 var(--pastel), var(--card));
   box-shadow: inset 8px 0 0 color-mix(in srgb, #b9cdeb var(--pastel), var(--card-2)), var(--shadow);
   color: var(--text);
 }
-.cover img { width: 46%; max-width: 220px; flex: none; }
-.cover-text { display: flex; flex-direction: column; gap: 4px; }
-.cover-text b { font-size: 1.13rem; font-weight: 600; }
-.cover-text span { font-size: .8rem; color: var(--text-2); }
+.cover b { font-size: 1.13rem; font-weight: 600; }
+.cover span { font-size: .8rem; color: var(--text-2); }
 
 .recent { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .entry { border: 0; display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 14px; background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--text); text-align: left; }

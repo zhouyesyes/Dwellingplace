@@ -3,7 +3,7 @@
 // 每格：日期、当天三个人的水温小图标、有没有记录（右上一个小点）。月初的空格放当月的「待续」
 import { computed } from "vue";
 import { todayYmd, MONTHS_EN } from "../../lib/dates.js";
-import { moodByKey, moodsOn, postsOf, plansOf, whoList, whoInfo } from "../../lib/meanwhile.js";
+import { moodByKey, moodsOn, postsOf, monthPlansOf, plansOnDay, whoList, whoInfo } from "../../lib/meanwhile.js";
 import { useDayMemories } from "../../lib/dayMemories.js";
 
 const props = defineProps({ month: String, selected: String });
@@ -27,9 +27,12 @@ const cells = computed(() => Array.from({ length: dayCount.value }, (_, i) => {
   const d = i + 1, date = `${props.month}-${pad(d)}`;
   const order = whoList();
   const moods = moodsOn(date).sort((a, b) => order.indexOf(a.who) - order.indexOf(b.who)).map(x => ({ ...x, mood: moodByKey(x.key) })).filter(x => x.mood);
-  return { d, date, moods, has: recorded.value.has(date), today: date === today, future: date > today };
+  return { d, date, moods, has: recorded.value.has(date), today: date === today, future: date > today, plans: plansOnDay(date), last: (lead.value + i + 1) % 7 === 0 };
 }));
-const plans = computed(() => plansOf(props.month));
+// 月末补满最后一周的空格，也画线，整张表四边都收口
+const tail = computed(() => Array.from({ length: (7 - (lead.value + dayCount.value) % 7) % 7 }, (_, i) => i));
+const tailLast = i => i === tail.value.length - 1;
+const plans = computed(() => monthPlansOf(props.month));
 const todo = computed(() => plans.value.slice(0, 3));
 const monthEn = computed(() => MONTHS_EN[m.value - 1]);
 const isThisMonth = computed(() => props.month === today.slice(0, 7));
@@ -61,14 +64,16 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
         <span v-if="!plans.length" class="ln ph">写点接下来想做的 +</span>
       </button>
       <div v-else-if="lead === 1" class="blank" />
-      <button v-for="c in cells" :key="c.date" class="cell" :class="{ today: c.today, sel: c.date === selected, future: c.future }" :aria-label="label(c)" @click="emit('select', c.date)">
+      <button v-for="c in cells" :key="c.date" class="cell" :class="{ today: c.today, sel: c.date === selected, future: c.future, last: c.last }" :aria-label="label(c)" @click="emit('select', c.date)">
         <span class="d">{{ c.d }}</span>
         <i v-if="c.has" class="dot" />
+        <span v-if="c.plans.length" class="sticker" :class="{ done: c.plans.every(p => p.doneAt) }" :title="c.plans.map(p => p.text).join('、')"><b v-if="c.plans.length > 1">{{ c.plans.length }}</b></span>
         <span v-if="starsOf(c.date).length" class="stars"><i v-for="(col, j) in starsOf(c.date)" :key="j" :style="{ color: col }">✦</i></span>
         <span v-if="c.moods.length" class="ms" :class="`n${c.moods.length}`">
           <img v-for="x in c.moods" :key="x.id" :src="x.mood.img" :alt="`${nameOf(x.who)}：${x.mood.name}`" draggable="false" role="button" @click.stop="emit('mood', x)" />
         </span>
       </button>
+      <div v-for="i in tail" :key="'t' + i" class="blank" :class="{ last: tailLast(i) }" />
     </div>
     <!-- 空格不到两个的月份：待续放在下面一行 -->
     <button v-if="lead < 2" class="todo wide" @click="emit('plans')">
@@ -96,15 +101,21 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
 .wk { position: relative; text-align: center; font-size: .6rem; letter-spacing: .5px; padding: 0 0 5px; color: var(--ink-cal); }
 .wk::after { content: ""; position: absolute; left: 14%; right: 14%; bottom: 0; height: 1.5px; background: var(--paper-line); box-shadow: 0 1px 0 var(--paper-hi); }
 .cell, .blank, .todo { position: relative; min-height: 62px; }
-/* 每格只有左边一竖和底下一横：比底色深一点的同色，旁边一道亮边，像压在纸上的印子 */
-.cell::before, .todo::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 5px; width: 1.5px; background: var(--paper-line); box-shadow: 1px 0 0 var(--paper-hi); border-radius: 1px; }
-.cell::after, .todo::after { content: ""; position: absolute; left: 7px; right: 7px; bottom: 0; height: 1.5px; background: var(--paper-line); box-shadow: 0 1px 0 var(--paper-hi); border-radius: 1px; }
-.cell { border: 0; background: none; padding: 5px 0 0; color: var(--ink-cal); text-align: left; font-family: inherit; }
+.cell::before, .blank::before, .todo::before, .cell::after, .blank::after, .todo::after { content: ""; position: absolute; background: var(--paper-line); border-radius: 1px; }
+/* 每格有左边一竖和底下一横（月初月末的空格也一样），最右一列再收一竖口：比底色深一点的同色，旁边一道亮边，像压在纸上的印子 */
+.cell::before, .blank::before, .todo::before { left: 0; top: 7px; bottom: 5px; width: 1.5px; box-shadow: 1px 0 0 var(--paper-hi); }
+.cell::after, .blank::after, .todo::after { left: 0; right: 0; bottom: 0; height: 1.5px; box-shadow: 0 1px 0 var(--paper-hi); }
+.cell.last, .blank.last, .todo.wide { background-image: linear-gradient(var(--paper-line), var(--paper-line)); background-size: 1.5px calc(100% - 12px); background-position: right 0 top 7px; background-repeat: no-repeat; }
+.cell { border: 0; background-color: transparent; padding: 5px 0 0; color: var(--ink-cal); text-align: left; font-family: inherit; }
 .cell .d { position: absolute; left: 7px; top: 5px; font-size: .72rem; line-height: 1; }
 .cell.today .d { display: grid; place-items: center; width: 17px; height: 17px; left: 4px; top: 2px; border-radius: 50%; background: #4a6086; color: #fff; font-size: .66rem; }
 :root[data-theme="dark"] .cell.today .d { background: #a9c1e2; color: #1b1e25; }
-.cell.sel { background: rgba(106, 163, 232, .13); border-radius: 6px; }
+.cell.sel { background-color: rgba(106, 163, 232, .13); border-radius: 6px; }
 .cell.future .d { opacity: .55; }
+.sticker { position: absolute; left: 7px; top: 21px; width: 15px; height: 12px; border-radius: 2px 2px 2px 5px; background: #f3dc8b; box-shadow: 0 1px 2px rgba(80, 70, 50, .25); transform: rotate(-4deg); display: grid; place-items: center; }
+.sticker b { font-size: 7px; font-weight: 700; color: #6b5a22; line-height: 1; }
+.sticker.done { opacity: .5; }
+:root[data-theme="dark"] .sticker { background: #cdb764; }
 .dot { position: absolute; right: 7px; top: 6px; width: 5px; height: 5px; border-radius: 50%; background: #6f8fb8; opacity: .8; }
 /* 一个人、两个人、三个人，水滴一样大：按三颗刚好并排放得下的尺寸定，少于三颗就居中 */
 .ms { position: absolute; left: 0; right: 0; bottom: 5px; display: flex; justify-content: center; align-items: flex-end; padding: 0 3px; }
@@ -112,7 +123,7 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
 .stars { position: absolute; right: 6px; top: 13px; display: flex; font-size: 7px; line-height: 1; }
 .stars i { font-style: normal; }
 /* 待续：月初空格里的一张小贴纸 */
-.todo { border: 0; background: none; padding: 8px 8px 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 1px; color: var(--ink-cal); min-width: 0; }
+.todo { border: 0; background-color: transparent; padding: 8px 8px 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 1px; color: var(--ink-cal); min-width: 0; }
 .todo b { font-size: .74rem; font-weight: 700; letter-spacing: .5px; }
 .todo .ln { font-size: .66rem; line-height: 1.35; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .todo .ln.done { text-decoration: line-through; opacity: .6; }

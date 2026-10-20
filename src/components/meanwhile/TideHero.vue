@@ -28,13 +28,13 @@ const sub = { left: pct(layout.sub.x, W), top: pct(layout.sub.y, H), width: pct(
 </template>
 
 <style scoped>
-.hero { position: relative; text-align: center; --ink-title: #4a6086; }
+.hero { position: relative; text-align: center; margin-bottom: -6px; --ink-title: #4a6086; }
 :root[data-theme="dark"] .hero { --ink-title: #a9c1e2; }
 .wave { position: relative; z-index: 2; pointer-events: none; opacity: .62; display: block; width: 100%; height: auto; aspect-ratio: 720 / 485; transform-origin: 50% 0; animation: sway 9s ease-in-out infinite alternate; }
 .wave.night { display: none; }
 :root[data-theme="dark"] .wave.day { display: none; }
 :root[data-theme="dark"] .wave.night { display: block; }
-.title { position: relative; z-index: 1; width: 76%; margin: -78px auto 0; font-size: 0; }
+.title { position: relative; z-index: 1; width: 76%; margin: -94px auto 0; font-size: 0; }
 .ch, .sub { position: absolute; background: var(--ink-title); -webkit-mask: var(--m) center / 100% 100% no-repeat; mask: var(--m) center / 100% 100% no-repeat; }
 .ch { animation: bob 3.2s ease-in-out infinite; animation-delay: var(--d); will-change: transform; }
 @keyframes bob { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-4px) rotate(-.8deg); } }
