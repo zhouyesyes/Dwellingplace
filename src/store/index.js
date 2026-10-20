@@ -126,6 +126,7 @@ export function newWake(roleId) {
 export const store = reactive(defaults());
 
 let metaTimer = null;
+let migratedDirty = false; // 迁移改了东西：存档开始监听之前改的，要主动存一次
 let persistedMeta;
 let protectBookMeta = false;
 let metaSaving = Promise.resolve();
@@ -208,6 +209,7 @@ export async function loadStore() {
     metaSaving = result.catch(() => { if (!sameMeta(store, persistedMeta)) metaTimer ??= -1; });
     return result;
   };
+  if (migratedDirty) metaTimer = setTimeout(() => flush().catch(console.error), 300);
   watch(store, () => {
     bookTransactionAbort?.abort();
     clearTimeout(metaTimer);
@@ -365,6 +367,8 @@ function migrate() {
     if (r.id === CRAB && !r.wake.enabled && r.wake.every === 120 && r.wake.jitter === 20 && !r.wake.times?.length) { r.wake.every = 720; r.wake.jitter = 120; }
     // 小螃蟹的共读 / 共写一律不勾（以前没有这一项，自由时间会把屋子全列给她）；她之后自己勾上的不动
     if (r.id === CRAB && !r.wake.roomsFixed) { r.wake.rooms = { read: false, write: false }; r.wake.roomsFixed = true; }
+    // 总开关去掉了：以前总开关关着的话谁也不醒，所以那时开着的人一次性改成关着（行为不变），之后谁开谁醒
+    if (!store.wake.noMaster && !store.wake.enabled) r.wake.enabled = false;
     r.wakeAlarms ??= [];
     r.wakeLog ??= [];
     r.xinchao ??= { dashToken: "" }; // 心潮看板口令
@@ -372,21 +376,30 @@ function migrate() {
     r.avatars ??= []; // 头像库：{ id, name, img }，他自己挑着换
     r.avatarAuto ??= true;
   }
+  store.wake.noMaster = true;
   // 10/20 12:00 自由时间，小螃蟹误进了共读《渣攻的白月光和我HE了》：划线和读书笔记本来该是小章鱼那边的记录。
-  // 一次性处理：那 5 处划线开头标上说明，那条读书笔记从小螃蟹的记忆挪给小章鱼；进度不动（只记下来让她看）
-  if (!store.fixes?.crabReadMixup) {
-    const WAKE_AT = 1792468848000, TAG = "（这段是小螃蟹醒来时误读的）";
-    const book = (store.books || []).find(b => b.title?.includes("渣攻的白月光和我HE了"));
-    if (book) {
-      store.fixes = { ...(store.fixes || {}), crabReadMixup: true };
-      // 同一次醒来贴的批注是一批、时间挨得很近；取醒来之后的第一批
-      const mine = (store.bookNotes || []).filter(n => n.bookId === book.id && n.from === "ai" && n.ts >= WAKE_AT).sort((a, b) => a.ts - b.ts);
+  // 一次性处理：那一批划线开头标上说明，那条读书笔记从小螃蟹的记忆挪给小章鱼；进度不动（只记下来让她看）
+  // （#261 的第一版按书名和书 id 去找，找不到时也把「做过了」记上；并且迁移是在存档开始监听之前改的，不一定存得下来。
+  //   这一版：只按那条笔记的标题找（不靠书名）、找不到就不记「做过了」、改完主动存一次；改过的不会再改）
+  if (!store.fixes?.crabReadMixup2) {
+    const WAKE_AT = 1792468848000, TAG = "（这段是小螃蟹醒来时误读的）", TITLE = "被比较与被看见";
+    const isIt = m => m.title?.includes(TITLE) && m.bookId;
+    const live = m => m.status !== "deleted";
+    // 先找还在小螃蟹那边的；找不到再看有没有已经在小章鱼那边（#261 挪过的）
+    const mem = (store.memories || []).find(m => live(m) && m.roleId === CRAB && isIt(m)) || (store.memories || []).find(m => live(m) && m.roleId === MAIN && isIt(m) && m.content?.startsWith(TAG));
+    if (mem) {
+      if (mem.roleId !== MAIN) { mem.roleId = MAIN; mem.author = MAIN; }
+      if (!mem.content.startsWith(TAG)) mem.content = TAG + mem.content;
+      mem.updatedAt = Date.now(); // 栖所同步给小螃蟹的记忆卡片是按内容变没变来推的；这里也让别的设备知道这张改过
+      // 同一次醒来贴的批注：和这条笔记同时记下来的、小章鱼名下的那一批
+      const anchor = Math.max(WAKE_AT, 0);
+      const mine = (store.bookNotes || []).filter(n => n.bookId === mem.bookId && n.from === "ai" && n.ts >= anchor).sort((a, b) => a.ts - b.ts);
       const batch = mine.filter(n => n.ts - mine[0].ts < 60_000);
-      if (batch.length === 5) for (const n of batch) if (!n.text.startsWith(TAG)) n.text = (TAG + n.text).slice(0, 1000);
-      const mem = (store.memories || []).find(m => m.roleId === CRAB && m.bookId === book.id && m.title?.includes("被比较与被看见"));
-      if (mem) { mem.roleId = MAIN; mem.author = MAIN; mem.content = TAG + mem.content; }
-      const moved = book.hisPos && book.hisPos.at >= WAKE_AT;
-      store.fixes.crabReadMixupInfo = { notes: batch.length, memory: !!mem, hisPosMoved: !!moved, hisPos: book.hisPos || null, alongTo: book.alongTo || null };
+      for (const n of batch) if (!n.text.startsWith(TAG)) n.text = (TAG + n.text).slice(0, 1000);
+      const book = (store.books || []).find(b => b.id === mem.bookId);
+      const moved = !!(book?.hisPos && book.hisPos.at >= WAKE_AT);
+      store.fixes = { ...(store.fixes || {}), crabReadMixup2: true, crabReadMixupInfo: { notes: batch.length, memory: true, hisPosMoved: moved, hisPos: book?.hisPos || null, alongTo: book?.alongTo || null, book: book?.title || "" } };
+      migratedDirty = true;
     }
   }
   for (const a of store.apis) {

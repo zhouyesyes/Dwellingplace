@@ -13,11 +13,7 @@ import Avatar from "../components/Avatar.vue";
 
 const router = useRouter();
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/wake.md";
-// 总开关只管中转叫不叫醒（和手机通知）；谁醒是各自的开关，开一个不影响另一个
-const on = computed({
-  get: () => !!store.wake.enabled,
-  set: v => { store.wake.enabled = v; syncNow(); },
-});
+// 没有总开关：他和小螃蟹各有一个开关，谁开谁醒，互不影响
 // 住着的人：他一定有，小螃蟹请进来了才有；各一栏，各自设置
 const people = computed(() => [roleById(MAIN), roleById(CRAB)].filter(Boolean));
 const pick = ref(MAIN);
@@ -25,7 +21,6 @@ const current = computed(() => people.value.find(r => r.id === pick.value) || pe
 const callName = r => (r.id === CRAB ? r.name : "他");
 function setPerson(r, v) {
   r.wake.enabled = v;
-  if (v && !store.wake.enabled) store.wake.enabled = true; // 总开关没开的话顺手打开
   syncNow();
 }
 const relaySet = computed(() => !!(store.tools.relay?.url && store.tools.relay?.token));
@@ -95,8 +90,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
 
     <div class="card body">
       <p class="desc">
-        打开以后，就算你没打开栖所，他和小螃蟹也会按各自设好的时间自己醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。
-        他发来的消息会推送到你的手机上。
+        他和小螃蟹各有一个开关，谁的开着，就算你没打开栖所，谁也会按自己设好的时间醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。两边互不影响；醒来能进哪些屋子（共读、共写），也在各自下面分别勾。
       </p>
       <p class="desc small">
         唤醒在你自己的 Cloudflare 中转上运行，需要把他的设定、记忆、最近的聊天、对外保密、API Key 和 MCP 的 token 存到你的 Cloudflare 里（只有你能看到）。
@@ -109,15 +103,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
       </div>
     </div>
 
-    <div class="list-card" style="margin-top: 12px">
-      <label class="list-row">
-        <Icon name="alarm" :size="20" />
-        <span class="grow">总开关<span class="sub">管着中转会不会按时叫醒你们，还有手机通知；具体谁醒、几点醒，在下面各自设</span></span>
-        <input v-model="on" type="checkbox" class="sw" :disabled="!relaySet" />
-      </label>
-    </div>
-
-    <template v-if="on">
+    <template v-if="relaySet">
       <div class="section-label">谁会自己醒来</div>
       <div class="ppl" :class="{ one: people.length < 2 }">
         <div v-for="r in people" :key="r.id" class="pcard" :class="{ sel: current?.id === r.id }" @click="pick = r.id">
@@ -137,7 +123,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
       <div class="card body">
         <p v-if="iosHint" class="desc small">iPhone（iOS 16.4 以上）要先在 Safari 里点「分享 → 添加到主屏幕」，然后从主屏幕打开栖所，才能收到通知。</p>
         <p v-else-if="!pushSupported()" class="desc small">这个浏览器不支持推送通知。</p>
-        <p class="desc small">通知是共用的：谁醒来发了消息，都会显示名字和消息开头几个字。</p>
+        <p class="desc small">这个通知是他和小螃蟹共用的一个：不管谁醒来给你发了消息，都会推到这台手机上，显示名字和消息开头几个字。没有按人分开的通知。</p>
         <div class="btns">
           <button class="btn soft" :disabled="!!busy" @click="turnOnPush">{{ busy === "push" ? "打开中…" : store.wake.push ? "重新开通知" : "打开通知" }}</button>
           <button class="btn soft" :disabled="!!busy || !store.wake.push" @click="sendTest">{{ busy === "test" ? "发送中…" : "发一条测试通知" }}</button>

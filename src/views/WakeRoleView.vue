@@ -179,7 +179,6 @@ async function wakeUpNow() {
   }
 }
 async function toggled() {
-  if (w.value.enabled && !store.wake.enabled) store.wake.enabled = true; // 总开关没开的话顺手打开（只管中转叫不叫醒，谁醒还是各自的开关）
   await syncNow();
   if (w.value.enabled) loadState();
 }
@@ -214,7 +213,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
     <div v-if="!embedded" class="list-card">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
-        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">{{ store.wake.enabled || !w.enabled ? "这个开关只管" + role.name : "总开关还没开，现在谁也不会醒：去「设置 → 唤醒」打开总开关" }}</span></span>
+        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">这个开关只管{{ role.name }}</span></span>
         <input v-model="w.enabled" type="checkbox" class="sw" @change="toggled" />
       </label>
     </div>

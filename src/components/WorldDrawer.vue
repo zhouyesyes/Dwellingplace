@@ -103,7 +103,7 @@ function tapRack() {
             <Icon name="memory" :size="20" /><span class="grow">摘要记忆<small>{{ summaryLine }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
           <button class="row" @click="go(role.id === CRAB ? '/settings/wake/' + role.id : '/settings/wake')">
-            <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ store.wake?.enabled && role.wake?.enabled ? `已开启：${role.id === CRAB ? role.name : "他"}会自己醒来` : `让${role.id === CRAB ? role.name : "他"}按时间自己醒来，给你发消息` }}</small></span><Icon name="right" :size="16" class="chev" />
+            <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ role.wake?.enabled ? `已开启：${role.id === CRAB ? role.name : "他"}会自己醒来` : `让${role.id === CRAB ? role.name : "他"}按时间自己醒来，给你发消息` }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
           <button class="row" @click="go('/settings/media')">
             <Icon name="mic" :size="20" /><span class="grow">语音和画画<small>{{ mediaOn || "还没开：选好服务商再来填" }}</small></span><Icon name="right" :size="16" class="chev" />
