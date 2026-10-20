@@ -1159,7 +1159,7 @@ async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, outp
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
     await env.KV.put("boxlatest", String(item.ts));
     if (!silent) {
-      const path = room.kind === "read" ? `/read/${room.bookId}` : room.room === "write" ? `/write/${room.id}` : `/books/talk/${room.id}`;
+      const path = room.kind === "read" ? `/read/${room.bookId}` : room.room === "write" ? `/write/${room.id}` : room.room === "tide" ? "/meanwhile" : `/books/talk/${room.id}`;
       const body = room.kind === "read" ? `去读了一会儿书，在书里留了批注` : `在${room.label}留了话：${visible(text).split(/\n\s*\n/)[0].slice(0, 30)}`;
       item.push = await pushAll(env, { title: role.name, body, url: cfg.appUrl ? `${cfg.appUrl}#${path}` : undefined, tag: "free-" + role.id });
     }
@@ -1553,7 +1553,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 31, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 32, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

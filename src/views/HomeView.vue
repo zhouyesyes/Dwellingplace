@@ -7,6 +7,7 @@ import { store, roleById, threadsOf, MAIN, CRAB } from "../store/index.js";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 import { anniversaryInfo } from "../lib/dates.js";
 import { projects, freshNotes } from "../lib/writing.js";
+import { postsOf, unseenCount } from "../lib/meanwhile.js";
 import { syncState, startSync, resumeSync } from "../lib/sync.js";
 import { useHomePullRefresh } from "../lib/homePullRefresh.js";
 import Icon from "../components/Icon.vue";
@@ -94,7 +95,9 @@ const day = computed(() => store.anniversaries.find(a => a.roleId === MAIN) || s
 const dayInfo = computed(() => day.value && anniversaryInfo(day.value.date));
 const anniv = ref(null);
 
+const tidePosts = computed(() => postsOf().filter(p => p.src !== "plan").sort((a, b) => b.ts - a.ts));
 const rows = computed(() => [
+  { key: "tide", title: "Meanwhile", meta: tidePosts.value[0]?.text ? tidePosts.value[0].text.replace(/\s+/g, " ").slice(0, 16) : "同一屋檐下", badge: unseenCount(), go: () => router.push("/meanwhile") },
   { key: "read", title: "Reading", meta: book.value ? `《${book.value.title}》` : "", badge: bookNotes.value, go: () => router.push("/books") },
   { key: "write", title: "Writing", meta: project.value ? `《${project.value.title}》` : "", badge: writeNotes.value, go: () => router.push("/write") },
   { key: "letter", title: "Letters", meta: (store.letters || []).length ? `${store.letters.length} 封` : "", badge: unreadLetters.value, go: () => router.push("/letters") },

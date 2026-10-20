@@ -133,6 +133,7 @@ async function tryFree() {
 if (role.value) {
   w.value.events ??= { letter: false, note: false, write: false };
   w.value.rooms ??= { read: role.value.id !== CRAB, write: role.value.id !== CRAB };
+  w.value.rooms.tide ??= false;
   w.value.companion ??= { on: false, hours: 24 };
 }
 // 响过一小时以上的，自己清掉
@@ -272,7 +273,8 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
       <div class="card body">
         <label class="row"><span class="grow">共读（接着读书、书的讨论室）</span><input v-model="w.rooms.read" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">共写（共写的讨论）</span><input v-model="w.rooms.write" type="checkbox" class="sw" /></label>
-        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。</p>
+        <label class="row"><span class="grow">潮间带（Meanwhile，贴一条、记水温、回一句）</span><input v-model="w.rooms.tide" type="checkbox" class="sw" /></label>
+        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。</p>
       </div>
 
       <div class="section-label">自由时间（他自己挑想做什么）</div>

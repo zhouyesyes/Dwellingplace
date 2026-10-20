@@ -36,6 +36,7 @@ export const router = createRouter({
     { path: "/archive/thread/:tid", component: () => import("./views/archive/ArchiveThreadView.vue") },
     { path: "/archive/:id", component: () => import("./views/archive/ArchiveRoleView.vue") },
     { path: "/settings/sync", component: SyncView },
+    { path: "/meanwhile", component: () => import("./views/MeanwhileView.vue") },
     { path: "/letters", component: () => import("./views/LettersView.vue") },
     { path: "/books", component: () => import("./views/BooksView.vue") },
     { path: "/books/talk/:id", component: () => import("./views/ReadTalkView.vue") },
