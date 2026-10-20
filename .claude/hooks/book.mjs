@@ -54,8 +54,15 @@ const push = () => {
 if (mode === "say") {
   const text = String(input.text || (Object.keys(input).length ? "" : RAW)).trim();
   tryGit("pull", "--rebase", "-q");
-  if (text) add({ id: id(), ts: Date.now(), where: process.argv[3] || "code", from: "crab", text: text.slice(0, 20000) });
+  if (!text) { console.error("对话本：没收到要写的话"); process.exit(1); }
+  add({ id: id(), ts: Date.now(), where: process.argv[3] || "code", from: "crab", text: text.slice(0, 20000) });
   push();
+  // 这里要说清楚成没成：云端窗口看得到，推不上去时能照实告诉她（例行任务默认只能推 claude/ 开头的分支）
+  let err = "";
+  try { execFileSync("git", ["push", "-q"], { cwd: DIR, timeout: 20000, stdio: ["ignore", "pipe", "pipe"] }); }
+  catch (e) { err = String(e.stderr || e.message).trim(); }
+  if (err) { console.error(`对话本：写进去了，但推不上去（栖所收不到）：\n${err}`); process.exit(1); }
+  console.log("对话本：写进去了，也推上去了");
   process.exit(0);
 }
 

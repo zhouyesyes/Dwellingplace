@@ -29,9 +29,26 @@ function resetViewport() {
   if (chat) { chat.style.height = `${window.innerHeight}px`; requestAnimationFrame(() => { chat.style.height = ""; }); }
 }
 function resetSoon() { [0, 60, 250, 500, 900, 1500].forEach(ms => setTimeout(resetViewport, ms)); }
+// 键盘开着：聊天页只占键盘上面看得见的那块（高度、位置跟着 visualViewport 走），输入框就贴在键盘上面
+// （以前靠 iOS 自己把整页顶上去露出输入框；有的键盘带翻译栏特别高，或者顶的时候被上面复位抢回去，输入框就被键盘盖住了）
+function fitChat() {
+  const chat = document.querySelector(".chat");
+  if (!chat) return;
+  const vv = window.visualViewport;
+  if (inChat() && kbOpen()) {
+    const sc = chat.querySelector(".scroll");
+    const stick = sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 140;
+    chat.style.top = `${Math.round(vv.offsetTop)}px`;
+    chat.style.height = `${Math.round(vv.height)}px`;
+    if (stick) sc.scrollTop = sc.scrollHeight;
+  } else if (chat.style.top) {
+    chat.style.top = "";
+    chat.style.height = "";
+  }
+}
 document.addEventListener("focusout", resetSoon);
-window.visualViewport?.addEventListener("resize", resetSoon);
-window.visualViewport?.addEventListener("scroll", resetViewport);
+window.visualViewport?.addEventListener("resize", () => { fitChat(); resetSoon(); });
+window.visualViewport?.addEventListener("scroll", () => { fitChat(); resetViewport(); });
 window.addEventListener("scroll", resetViewport, { passive: true });
 // 点输入框和按钮以外的地方：让输入框真的失去焦点（键盘收了、焦点还留着，iOS 就会卡在半路），再复位
 document.addEventListener("touchend", e => {
@@ -44,7 +61,7 @@ document.addEventListener("touchend", e => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) resetSoon(); });
 
 // 排查用（暂时的）：屏幕高度一变（键盘弹出、收起），顶上小字显示几秒视口的数字；卡住时截图给 cc 看是哪里没复位
-const BUILD = "10-20b"; // 看这个就知道手机上是不是新版本
+const BUILD = "10-20c"; // 看这个就知道手机上是不是新版本
 const vpNote = ref("");
 let vpTimer = 0;
 function noteViewport() {
