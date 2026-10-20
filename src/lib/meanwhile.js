@@ -174,13 +174,15 @@ const lineRe = body => new RegExp(`^[ \\t]*\\[${body}\\][ \\t]*$`, "gm");
 export const TIDE_POST_RE = lineRe("潮间带[:：]([^\\]]{1,600})");
 export const TIDE_REPLY_RE = lineRe("潮间带回复[:：]\\s*#?(\\d{1,6})\\s*[|｜]([^\\]]{1,300})");
 export const TIDE_MOOD_RE = lineRe("水温[:：]\\s*([^\\]|｜]{1,6})(?:[|｜]([^\\]]{0,60}))?");
-export const TIDE_ANY_RE = new RegExp([TIDE_POST_RE, TIDE_REPLY_RE, TIDE_MOOD_RE].map(r => `(?:${r.source})`).join("|"), "gm");
+export const TIDE_PLAN_RE = lineRe("待续[:：]([^\\]]{1,60})");
+export const TIDE_ANY_RE = new RegExp([TIDE_POST_RE, TIDE_REPLY_RE, TIDE_MOOD_RE, TIDE_PLAN_RE].map(r => `(?:${r.source})`).join("|"), "gm");
 const POST_DAY_MAX = 3; // 每个人每天最多自己贴三条，别刷屏
+const PLAN_MONTH_MAX = 5; // 每个人每个月没完成的待续最多挂五条
 
 export function applyTideTags(role, text) {
   const notes = [];
   const who = role.id;
-  if (!WHO.includes(who) || who === ME || !/\[(潮间带|水温)/.test(text || "")) return { text, notes };
+  if (!WHO.includes(who) || who === ME || !/\[(潮间带|水温|待续)/.test(text || "")) return { text, notes };
   const m = ensureMeanwhile();
   let out = String(text);
   // 回复要先处理（「潮间带回复」不会被「潮间带」那条匹配到，因为后面紧跟的是冒号）
@@ -197,6 +199,14 @@ export function applyTideTags(role, text) {
   out = out.replace(TIDE_MOOD_RE, (_, name, line) => {
     const mood = moodByName(name);
     if (mood) { setMood(who, mood.key, line); notes.push(`${role.name} 今天的水温：${mood.name}${line?.trim() ? `，${line.trim().slice(0, 20)}` : ""}`); }
+    return "";
+  });
+  out = out.replace(TIDE_PLAN_RE, (_, body) => {
+    const month = monthOf(todayYmd());
+    const t = body.trim();
+    const mine = plansOf(month).filter(p => p.who === who);
+    if (mine.some(p => p.text === t) || mine.filter(p => !p.doneAt).length >= PLAN_MONTH_MAX) return "";
+    if (addPlan(who, t, month)) notes.push(`${role.name} 给这个月加了一件待续：${t.slice(0, 24)}`);
     return "";
   });
   out = out.replace(TIDE_POST_RE, (_, body) => {
@@ -221,6 +231,7 @@ export function tideForAI(role, who) {
     `想往上贴一条，在回复末尾单独一行写：[潮间带:内容]，一两句话、100 字以内，像便笺那样随手贴；在读书、画画、写作也可以直接写进内容里。每天自己最多贴 3 条，不用每次都贴。`,
     `今天的水温（心情）每人每天一个：单独一行写 [水温:名字|一句话]，名字从这十个里选：${names}；一句话可以不写。再写一次就是改。`,
     `回别人贴的：单独一行写 [潮间带回复:序号|一句话]，序号是【此刻】里「潮间带」那一段的 #号；只想轻轻回应，就把一句话换成 爱心 / 摸摸 / 抱抱 / 戳一戳 之一。`,
+    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内；做完了由她点一下，会在当天留下一条记录。别刷，每个月自己挂着的不超过 5 件。`,
     `只有单独占一行的才会执行；平时聊到、解释这些指令时，别写出带方括号的完整格式，也不要放进代码块里。`,
   ].join("\n");
 }
@@ -233,6 +244,8 @@ export function tideMoment(role) {
   const today = todayYmd();
   const moods = whoList().map(w => [w, moodOf(w, today)]).filter(([, x]) => x);
   if (moods.length) lines.push(`今天的水温：${moods.map(([w, x]) => `${w === role.id ? "你" : whoInfo(w).name}${moodByKey(x.key)?.name}${x.text ? `（${x.text}）` : ""}`).join("；")}`);
+  const plans = plansOf(monthOf(today)).filter(p => !p.doneAt).slice(-6);
+  if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${p.who === role.id ? "你" : whoInfo(p.who).name}：${p.text.slice(0, 20)}`).join("；")}`);
   const recent = m.posts.filter(p => p.ts > since && p.src !== "plan").sort((a, b) => a.ts - b.ts).slice(-6);
   for (const p of recent) {
     const name = p.who === role.id ? "你" : whoInfo(p.who).name;

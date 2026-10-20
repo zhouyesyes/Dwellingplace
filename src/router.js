@@ -36,7 +36,7 @@ export const router = createRouter({
     { path: "/archive/thread/:tid", component: () => import("./views/archive/ArchiveThreadView.vue") },
     { path: "/archive/:id", component: () => import("./views/archive/ArchiveRoleView.vue") },
     { path: "/settings/sync", component: SyncView },
-    { path: "/meanwhile", component: () => import("./views/MeanwhileView.vue") },
+    { path: "/meanwhile", redirect: "/record" }, // Meanwhile 搬进了 Record 页；推送、旧链接还指着这里
     { path: "/letters", component: () => import("./views/LettersView.vue") },
     { path: "/books", component: () => import("./views/BooksView.vue") },
     { path: "/books/talk/:id", component: () => import("./views/ReadTalkView.vue") },
