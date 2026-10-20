@@ -132,6 +132,7 @@ async function tryFree() {
 // 他自己来找你：事件（你离开以后）、陪伴（很久没来）
 if (role.value) {
   w.value.events ??= { letter: false, note: false, write: false };
+  w.value.rooms ??= { read: role.value.id !== CRAB, write: role.value.id !== CRAB };
   w.value.companion ??= { on: false, hours: 24 };
 }
 // 响过一小时以上的，自己清掉
@@ -266,6 +267,13 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒${role.name}、不花额度`" maxlength="300" />
         <textarea v-if="!newSay" v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
         <p class="hint">两种：写了「直接发的话」，到点就把这句发给你，不叫醒他（零消耗）；没写，就叫醒他，他看着备注自己想说什么。固定时间不受免打扰影响。点已经加好的时间，会放回上面的框里改。</p>
+      </div>
+
+      <div class="section-label">醒来能进哪些屋子</div>
+      <div class="card body">
+        <label class="row"><span class="grow">共读（接着读书、书的讨论室）</span><input v-model="w.rooms.read" type="checkbox" class="sw" /></label>
+        <label class="row"><span class="grow">共写（共写的讨论）</span><input v-model="w.rooms.write" type="checkbox" class="sw" /></label>
+        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。</p>
       </div>
 
       <div class="section-label">自由时间（他自己挑想做什么）</div>

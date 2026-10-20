@@ -55,6 +55,9 @@ export function scheduleText(role) {
   return parts.join(" · ") || "只在他自己定的闹钟时醒";
 }
 
+// 这个人醒来时能不能进共读 / 共写（没写过的当作能，小螃蟹在 newWake 和迁移里已经写成不能）
+const roomOn = (role, k) => role.wake?.rooms?.[k] !== false;
+
 const liveAlarms = role => (role.wakeAlarms || []).filter(a => a.at > Date.now());
 
 // ---------- 给 AI 的说明 ----------
@@ -158,7 +161,7 @@ function eventsOf(role, path) {
   const out = [];
   if (on.letter) for (const l of (store.letters || []).filter(l => l.roleId === role.id && l.from === "me" && !l.locked && !l.readAt && l.ts > since))
     out.push({ kind: "letter", id: l.id, ts: l.ts, room: "chat", text: `${me}给你写了一封信《${l.title || "无题"}》：\n${l.body.slice(0, 1500)}` });
-  if (on.note) {
+  if (on.note && roomOn(role, "read")) {
     const byBook = {};
     for (const n of (store.bookNotes || []).filter(n => n.from === "me" && n.ts > since)) (byBook[n.bookId] ??= []).push(n);
     for (const [bid, ns] of Object.entries(byBook)) {
@@ -168,7 +171,7 @@ function eventsOf(role, path) {
         text: `${me}在《${b.title}》里划了 ${ns.length} 处：${ns.slice(-5).map(n => `「${(n.quote || "").slice(0, 30)}」${n.text ? `（${me}写：${n.text.slice(0, 80)}）` : ""}`).join("；")}` });
     }
   }
-  if (on.write) {
+  if (on.write && roomOn(role, "write")) {
     const { projects, cardsOf, CARD_TYPES } = writingMod || {};
     for (const p of projects ? projects() : []) {
       const cards = cardsOf(p.id).filter(c => c.from === "me" && (c.ts || 0) > since);
@@ -201,7 +204,7 @@ async function roomsOf(role, thread, path, extra = []) {
   const { progressOf, loadBook } = await import("./books.js");
   const { estTokens } = await import("./budget.js");
   const reading = (store.books || []).filter(b => !b.his && !b.mine && b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
-  if (reading) {
+  if (reading && roomOn(role, "read")) {
     const from = hisNextFrom(reading, await loadBook(reading.id));
     const items = await forwardSlice(reading, from, READ_MAX, estTokens);
     // maxChars 记成这一段的字数：取回来时按字数重新切，切出来是同一段
@@ -212,7 +215,7 @@ async function roomsOf(role, thread, path, extra = []) {
   const { roomPrompt, loadRoom, HALL } = await import("./readTalk.js");
   const talkBook = [...(store.books || [])].filter(b => b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
   const evBooks = extra.filter(k => k.startsWith("talk:")).map(k => k.slice(5)); // 事件要去的书的讨论室
-  for (const id of [...new Set([talkBook?.id, ...evBooks, (store.books || []).length > 1 ? HALL : null])].filter(Boolean)) {
+  for (const id of roomOn(role, "read") ? [...new Set([talkBook?.id, ...evBooks, (store.books || []).length > 1 ? HALL : null])].filter(Boolean) : []) {
     const list = await loadRoom(id);
     const last = list.at(-1);
     const bk = (store.books || []).find(x => x.id === id);
@@ -224,7 +227,7 @@ async function roomsOf(role, thread, path, extra = []) {
   const { projects, writingPrompt, loadTalk } = await import("./writing.js");
   const latest = projects().filter(x => !x.archived).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
   const evProjects = extra.filter(k => k.startsWith("write:")).map(k => projects().find(x => x.id === k.slice(6))).filter(Boolean);
-  for (const p of [...new Set([latest, ...evProjects])].filter(Boolean)) {
+  for (const p of roomOn(role, "write") ? [...new Set([latest, ...evProjects])].filter(Boolean) : []) {
     const last = (await loadTalk(p.id)).at(-1);
     rooms.push({ key: `write:${p.id}`, kind: "talk", room: "write", id: p.id, label: `共写《${p.title}》`,
       status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没讨论过", prompt: await writingPrompt(role, p, [], true) });
