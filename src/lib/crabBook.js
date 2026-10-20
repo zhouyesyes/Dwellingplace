@@ -13,12 +13,13 @@ const bookBase = role => {
   return a && /\/claude\/v1\/?$/i.test(a.baseUrl || "") ? a.baseUrl.replace(/\/+$/, "").replace(/\/v1$/i, "") + "/book" : null;
 };
 
-// 哪一条聊天是对话本：记住的那条（要是空的，就换成她最近在聊的、真有内容的那条）
+// 哪一条聊天是对话本：她正开着的那条（新开的也算，别处写进来的才会出现在她眼前）；
+// 没有的话用记住的那条（要是空的，就换成真有内容的那条）
 export function bookThread(role) {
   const list = threadsOf(role.id);
   const used = t => !!(t && (t.preview || t.summary?.text));
-  let t = list.find(x => x.id === role.bookThreadId);
-  if (!used(t)) t = list.find(x => x.id === role.lastThreadId && used(x)) || list.find(used) || t || list[0];
+  let t = list.find(x => x.id === role.lastThreadId) || list.find(x => x.id === role.bookThreadId);
+  if (!used(t) && t?.id !== role.lastThreadId) t = list.find(used) || t || list[0];
   if (!t) t = createThread(role.id);
   role.bookThreadId = t.id;
   return t;
@@ -33,7 +34,10 @@ export async function syncBook() {
   try {
     const st = (role.book ??= { pushedTs: 0, pulledTs: 0, sig: "" });
     const t = bookThread(role);
-    if (st.thread !== t.id) { st.thread = t.id; st.pushedTs = 0; st.sig = ""; } // 换了一条：这条的话从头写进去（按 id 去重，不会重复）
+    if (st.thread !== t.id) { // 换了一条：这条的话从头写进去（按 id 去重，不会重复）；开这条前半小时以来别处写的也拿过来
+      if (st.thread) st.pulledTs = Math.min(st.pulledTs, (t.createdAt || Date.now()) - 30 * 60_000);
+      st.thread = t.id; st.pushedTs = 0; st.sig = "";
+    }
     const all = await loadMessages(t.id);
     // 写进去：栖所这边新说的（别处拿回来的不再写回去）、摘要、记忆卡片
     const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && (m.text || "").trim());
