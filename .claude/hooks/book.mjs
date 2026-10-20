@@ -5,6 +5,7 @@
 // 找不到仓库、没网、没权限：什么都不做，不挡着干活。不想用：环境变量 QISUO_BOOK=off
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -39,10 +40,60 @@ const add = (e, st) => {
 const id = () => `code-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const WHO = { me: "她", crab: "你" };
 const WHERE = { qisuo: "栖所", code: "Claude Code", cloud: "云端干活", wake: "自己醒来" };
-const fmt = e => `[${new Date(e.ts).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · ${WHERE[e.where] || e.where}] ${WHO[e.from] || e.from}：${String(e.text).slice(0, 1500)}`;
+// 带图的话：后面接上图在这台机器上的位置，我用 Read 打开就真的看得到
+const fmt = e => `[${new Date(e.ts).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · ${WHERE[e.where] || e.where}] ${WHO[e.from] || e.from}：${String(e.text).slice(0, 1500)}`
+  + (Array.isArray(e.media) && e.media.length ? `\n  （图在 ${e.media.map(m => join(DIR, m.p)).join("、")} ——用 Read 打开看${e.media.some(m => m.k === "video") ? "；视频只存了第一帧" : ""}）` : "");
 const cap = (s, n) => (s.length > n ? "…" + s.slice(-n) : s);
 
 if (!DIR) process.exit(0); // 这个窗口没接私人仓库
+
+// ---------- 图片、视频：压小了存进私人仓库的 book/media/日期/ ----------
+// 图：长边 1280、jpg、几百 KB 以内；视频：不存整段，只截第一帧当缩略图。压不了（读不到文件、没有工具）就只在话后面标「附了 N 张图片」
+const IMG_EXT = /\.(png|jpe?g|webp|gif|heic|heif|bmp)$/i, VID_EXT = /\.(mp4|mov|m4v|webm|mkv)$/i;
+const MEDIA_MAX_KB = 400;
+const run = (cmd, args) => { try { execFileSync(cmd, args, { timeout: 60000, stdio: "ignore" }); return true; } catch { return false; } };
+const shrinkImage = (src, out) => {
+  for (const [size, q] of [[1280, 80], [1024, 65], [800, 55]]) {
+    const ok = run("convert", [`${src}[0]`, "-auto-orient", "-background", "white", "-flatten", "-resize", `${size}x${size}>`, "-quality", String(q), out])
+      || run("ffmpeg", ["-y", "-loglevel", "error", "-i", src, "-frames:v", "1", "-vf", `scale='min(${size},iw)':'min(${size},ih)':force_original_aspect_ratio=decrease`, "-q:v", String(Math.round(2 + (100 - q) / 8)), out])
+      || run("python3", ["-I", "-c", `import sys\nfrom PIL import Image,ImageOps\nim=ImageOps.exif_transpose(Image.open(sys.argv[1])).convert("RGB")\nim.thumbnail((${size},${size}))\nim.save(sys.argv[2],"JPEG",quality=${q})`, src, out]);
+    if (!ok || !existsSync(out)) return false;
+    if (statSync(out).size <= MEDIA_MAX_KB * 1024) return true;
+  }
+  return existsSync(out);
+};
+const firstFrame = (src, out) => run("ffmpeg", ["-y", "-loglevel", "error", "-ss", "0", "-i", src, "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "5", out]) && existsSync(out);
+// 她这句里带的图和视频：{ text: 去掉文件路径的话, media: [...], note: 要接在话后面的标记 }
+function takeMedia(prompt, entryId) {
+  const found = [];
+  const seenPath = new Set();
+  for (const m of prompt.matchAll(/@?"([^"\n]+\.\w{2,5})"|(?:^|\s)@?(\/[^\s"]+\.\w{2,5})/g)) {
+    const f = m[1] || m[2];
+    if (IMG_EXT.test(f) || VID_EXT.test(f)) { if (!seenPath.has(f)) { seenPath.add(f); found.push({ f, ref: m[0].trim() }); } }
+  }
+  const pasted = (prompt.match(/\[Image #\d+\]/g) || []).length; // 粘贴进来的图：窗口里没有文件可存
+  let text = prompt;
+  const media = [];
+  let lostImgs = pasted, lostVids = 0;
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  for (const { f, ref } of found) {
+    text = text.replace(ref, "").replace(/ {2,}/g, " ");
+    const vid = VID_EXT.test(f);
+    let ok = false, out = "";
+    if (existsSync(f)) {
+      const rel = `book/media/${day}/${entryId}-${media.length + 1}.jpg`;
+      out = join(DIR, rel);
+      mkdirSync(dirname(out), { recursive: true });
+      ok = vid ? firstFrame(f, out) : shrinkImage(f, out);
+      if (ok) media.push({ p: rel, k: vid ? "video" : "image", kb: Math.max(1, Math.round(statSync(out).size / 1024)) });
+    }
+    if (!ok) vid ? lostVids++ : lostImgs++;
+  }
+  const notes = media.map(m => m.k === "video" ? `（附了一段视频，第一帧缩略图：${m.p}，约 ${m.kb}KB）` : `（附图：${m.p}，约 ${m.kb}KB）`);
+  if (lostImgs) notes.push(`（附了 ${lostImgs} 张图片，没能存下来）`);
+  if (lostVids) notes.push(`（附了${lostVids > 1 ? ` ${lostVids} 段` : "一段"}视频，没能截到缩略图）`);
+  return { text: text.trim(), media, note: notes.join("\n") };
+}
 
 const push = () => {
   if (!tryGit("status", "--porcelain")?.trim()) return;
@@ -101,9 +152,14 @@ if (mode === "prompt") {
   }
   for (const e of all) seen.add(e.id);
   // 她这句记下（推的事留到我回完一起做）
-  const text = String(input.prompt || "").trim();
-  if (text.includes("【云端派活】")) st.where = "cloud"; // 栖所派到云端的窗口：这里写的都算「云端干活」
-  if (text) { const e = { id: id(), ts: Date.now(), where: st.where || "code", from: "me", text: text.slice(0, 20000) }; add(e, st); seen.add(e.id); }
+  const raw = String(input.prompt || "").trim();
+  if (raw.includes("【云端派活】")) st.where = "cloud"; // 栖所派到云端的窗口：这里写的都算「云端干活」
+  if (raw) {
+    const eid = id();
+    const { text, media, note } = takeMedia(raw, eid);
+    const e = { id: eid, ts: Date.now(), where: st.where || "code", from: "me", text: [text, note].filter(Boolean).join("\n").slice(0, 20000), ...(media.length ? { media } : {}) };
+    add(e, st); seen.add(e.id);
+  }
   st.seen = [...seen].slice(-5000);
   saveState(st);
   if (ctx) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } }));

@@ -1,8 +1,9 @@
 // 小螃蟹的对话本：栖所里和它的那一条聊天 ↔ 私人仓库 qisuo-memory（经过她的服务器，钥匙只在服务器上）
 // 栖所这边新说的写进去；Claude Code、云端、醒来时写进去的，拿回来按时间接在这条聊天后面。
 // 这条聊天就是对话本：太长了照栖所平时那样整理成摘要，两边读的都是「摘要 + 最近原话」。
-import { store, roleById, apiById, threadsOf, createThread, loadMessages, saveMessages, CRAB } from "../store/index.js";
+import { store, roleById, apiById, threadsOf, createThread, loadMessages, saveMessages, uid, CRAB } from "../store/index.js";
 import { activePath, ROOT } from "./tree.js";
+import { get, set } from "./kv.js";
 import { applyMemoryTags, memoriesOf, isLive } from "./memoryTags.js";
 
 export const WHERE = { code: "在 Claude Code 里", cloud: "云端干活", wake: "自己醒来" };
@@ -25,6 +26,54 @@ export function bookThread(role) {
   return t;
 }
 
+
+// ---------- 图片：压到几百 KB 以内再送去存（私人仓库别越变越胖） ----------
+const MEDIA_KB = 400;
+const toBase64 = async blob => {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
+async function shrink(blob) {
+  if (blob.size <= MEDIA_KB * 1024) return blob;
+  const bmp = await createImageBitmap(blob);
+  try {
+    let out = blob;
+    for (const [size, q] of [[1024, 0.7], [800, 0.6], [640, 0.5]]) {
+      const k = Math.min(1, size / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      out = await new Promise(r => c.toBlob(r, "image/jpeg", q)) || out;
+      if (out.size <= MEDIA_KB * 1024) break;
+    }
+    return out;
+  } finally { bmp.close?.(); }
+}
+// 这句话带的图 → { media: [{data}], lost: 读不到的张数 }
+async function packImages(m) {
+  const media = []; let lost = 0;
+  for (const a of (m.attachments || []).filter(a => a.kind === "image")) {
+    try { const b = await get("img:" + a.img); if (!b) throw 0; media.push({ data: await toBase64(await shrink(b)) }); }
+    catch { lost++; }
+  }
+  return { media, lost };
+}
+// 别处发来的图：从服务器拿回来存进本地，变成这句话的图片附件；拿不到就返回 null（下次再拿）
+async function fetchImages(base, media) {
+  const atts = [];
+  for (const x of media) {
+    const r = await fetch(`${base}/media?p=${encodeURIComponent(x.p)}`);
+    if (!r.ok) return null;
+    const id = uid();
+    await set("img:" + id, await r.blob());
+    atts.push({ kind: "image", img: id, name: x.k === "video" ? "视频第一帧" : "" });
+  }
+  return atts;
+}
+const stripMediaNotes = text => String(text).replace(/\n?（附图：book\/media\/[^）]*）/g, "").replace(/\n?（附了一段视频，第一帧缩略图：[^）]*）/g, "\n（附了一段视频，这里只有第一帧）").trim();
+
 let busy = false;
 export async function syncBook() {
   const role = roleById(CRAB);
@@ -40,7 +89,8 @@ export async function syncBook() {
     }
     const all = await loadMessages(t.id);
     // 写进去：栖所这边新说的（别处拿回来的不再写回去）、摘要、记忆卡片
-    const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && (m.text || "").trim());
+    const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && ((m.text || "").trim() || m.attachments?.some(a => a.kind === "image")));
+    const packs = await Promise.all(fresh.map(packImages));
     const summary = t.summary?.text || "";
     const memories = memoriesOf(CRAB).filter(isLive).map(m => `- [${m.date}] ${m.cat ? `（${m.cat}）` : ""}${m.title}：${m.content.replace(/\n+/g, " ")}`).join("\n");
     const sig = `${summary.length}:${memories.length}:${summary.slice(-40)}:${memories.slice(0, 40)}`;
@@ -48,7 +98,7 @@ export async function syncBook() {
       const r = await fetch(base + "/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries: fresh.map(m => ({ id: m.id, ts: m.ts, where: "qisuo", from: m.from === "ai" ? "crab" : "me", text: m.text })), summary, memories }),
+        body: JSON.stringify({ entries: fresh.map((m, i) => ({ id: m.id, ts: m.ts, where: "qisuo", from: m.from === "ai" ? "crab" : "me", text: m.text || "", ...(packs[i].media.length ? { media: packs[i].media } : {}), ...(packs[i].lost ? { lost: packs[i].lost } : {}) })), summary, memories }),
       });
       if (!r.ok) return; // 服务器还没放钥匙、或者没更新：安静地等下次
       if (fresh.length) st.pushedTs = Math.max(...fresh.map(m => m.ts));
@@ -60,12 +110,14 @@ export async function syncBook() {
     const { entries = [] } = await r.json();
     let added = 0;
     for (const e of entries.sort((a, b) => a.ts - b.ts)) {
+      if (all.some(m => m.id === e.id)) { st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0); continue; }
+      const atts = e.media?.length ? await fetchImages(base, e.media) : [];
+      if (!atts) break; // 图还没拿到：这句和后面的下次再拿，别悄悄丢了
       st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0);
-      if (all.some(m => m.id === e.id)) continue;
       if (e.kind === "memory") { applyMemoryTags(role, e.text); continue; } // 别处记下的记忆卡片
       const path = activePath(all, t.sel || {});
       const parentId = path.length ? path[path.length - 1].id : ROOT;
-      all.push({ id: e.id, parentId, from: e.from === "me" ? "user" : "ai", text: e.text, ts: Number(e.ts) || Date.now(), where: e.where, notes: [] });
+      all.push({ id: e.id, parentId, from: e.from === "me" ? "user" : "ai", text: atts.length ? stripMediaNotes(e.text) : e.text, ...(atts.length ? { attachments: atts } : {}), ts: Number(e.ts) || Date.now(), where: e.where, notes: [] });
       (t.sel ??= {})[parentId] = e.id;
       added++;
     }
