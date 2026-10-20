@@ -18,6 +18,7 @@ import TideHero from "./TideHero.vue";
 import MoodCard from "./MoodCard.vue";
 import TideCalendar from "./TideCalendar.vue";
 import TideImg from "./TideImg.vue";
+import ShellPrinter from "./ShellPrinter.vue";
 
 ensureMeanwhile();
 const today = ref(todayYmd());
@@ -176,6 +177,9 @@ function dropEdit() {
     <TideHero />
 
     <TideCalendar :month="month" :selected="selected" @select="pick" @shift="shift" @today="toToday" @plans="openPlans" @mood="x => showCard(x.who, x.date, x.key, x.text)" />
+
+    <!-- 拾贝（今日小报）：当天内容的最上面，没点日期是今天，点了哪天是哪天 -->
+    <ShellPrinter :key="day" :date="day" />
 
     <!-- 水温：默认看今天，点了日历上的哪天就看哪天 -->
     <section class="temp">

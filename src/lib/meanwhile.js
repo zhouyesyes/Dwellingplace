@@ -5,7 +5,8 @@
 //   posts   { id, n, who, ts, date, text, img, status: {kind, text}|null, planId, src, replies: [{id, who, text, ts}], reacts: [{id, who, kind, ts}] }
 //   moods   { id: "日期:谁", date, who, key, text, ts }
 //   plans   { id, month: "YYYY-MM", date: "YYYY-MM-DD"|null（挂在某一天；null 就是挂在这个月）, who, text, ts, doneAt, postId }
-//   shells / diaries：第二版的「拾贝」（今日小报）和日记，先留着位置
+//   shells  { id: 日期, date, ts, n }  拾贝（今日小报）：哪天打印过、打了几次；小票内容每次按当天的数据现生成，不存
+//   diaries：第二版的日记，先留着位置
 // who：她是 "me"，他是 MAIN，小螃蟹是 CRAB
 import { store, uid, roleById, MAIN, CRAB } from "../store/index.js";
 import { todayYmd, ymd } from "./dates.js";
@@ -89,6 +90,37 @@ export const moodOf = (who, date = todayYmd()) => ensureMeanwhile().moods.find(m
 export const plansOf = month => ensureMeanwhile().plans.filter(p => p.month === month).sort((a, b) => a.ts - b.ts);
 export const monthPlansOf = month => plansOf(month).filter(p => !p.date);
 export const plansOnDay = date => ensureMeanwhile().plans.filter(p => p.date === date).sort((a, b) => a.ts - b.ts);
+
+// ---------- 拾贝（小票）----------
+export const shellOf = date => ensureMeanwhile().shells.find(s => s.id === date) || null;
+export function markShell(date) {
+  const list = ensureMeanwhile().shells;
+  const cur = list.find(s => s.id === date);
+  if (cur) { cur.ts = Date.now(); cur.n = (cur.n || 1) + 1; return cur; }
+  const next = { id: date, date, ts: Date.now(), n: 1 };
+  list.push(next);
+  return next;
+}
+const hhmm = ts => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const oneLine = (t, n) => { const s = String(t || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
+// 那一天的小票内容：水温、潮间带、待续、第一张照片（图只给 id，像素小图在打印时算）
+export function shellData(date) {
+  const order = whoList();
+  const temps = order.map(w => { const m = moodOf(w, date); const info = whoInfo(w); return { who: w, name: info.name, color: info.color, mood: m && moodByKey(m.key), text: m?.text || "" }; });
+  const posts = postsOn(date).slice().reverse();
+  const planIds = new Set();
+  const plans = [];
+  const addPlanLine = p => { if (planIds.has(p.id)) return; planIds.add(p.id); plans.push({ id: p.id, done: !!p.doneAt, text: oneLine(p.text, 18), color: whoInfo(p.who).color }); };
+  plansOnDay(date).forEach(addPlanLine);
+  for (const post of posts) { const p = post.planId && ensureMeanwhile().plans.find(x => x.id === post.planId); if (p) addPlanLine(p); }
+  const lines = posts.filter(p => !p.planId).map(p => {
+    const st = p.status ? `${STATUSES.find(s => s.kind === p.status.kind)?.name || ""}${p.status.text ? " " + p.status.text : ""}` : "";
+    return { id: p.id, color: whoInfo(p.who).color, time: hhmm(p.ts), text: oneLine([st && `[${st}]`, p.text].filter(Boolean).join(" ") || (p.img ? "［照片］" : ""), 16) };
+  });
+  const photo = posts.find(p => p.img)?.img || null;
+  const total = temps.filter(t => t.mood).length + lines.length + plans.length;
+  return { date, label: dayLabel(date), temps, lines, plans, photo, total, quiet: !total };
+}
 
 // ---------- 写 ----------
 export function setMood(who, key, text, date = todayYmd()) {
