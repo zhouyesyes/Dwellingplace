@@ -52,7 +52,7 @@ async function build() {
   }
   // 先把用到的像素字块下载好，再排版，免得量好高度以后字又换了
   const text = [d.label, d.quiet ? "今天的海很安静这一天的" : "", ...d.temps.map(t => t.name + (t.text || "还没选")), ...d.lines.map(l => l.text), ...d.plans.map(p => p.text), "拾贝小票水温潮间带待续合计条✓周一二三四五六日年月号"].join("");
-  try { await Promise.race([document.fonts.load('12px "Pixel"', text), sleep(1500)]); } catch { /* 字体没下来就先用备用字 */ }
+  try { await Promise.race([document.fonts.load('10px "Pixel"', text), sleep(1500)]); } catch { /* 字体没下来就先用备用字 */ }
   data.value = d;
 }
 
@@ -158,7 +158,7 @@ const moodIcon = t => t.mood?.img;
 @keyframes blink { 0% { opacity: 1; } 50% { opacity: .15; } }
 
 /* 小票挂在打印机下面：顶边落在出纸口中线，比打印机窄一点、居中 */
-.hang { position: relative; z-index: 2; width: calc(var(--mw) * .76); margin-top: calc(var(--mw) * -0.0515); }
+.hang { position: relative; z-index: 2; width: calc(var(--mw) * .76); margin-top: calc(var(--mw) * -0.0515); filter: drop-shadow(0 0 .5px rgba(90, 70, 50, .45)) drop-shadow(0 1px 3px rgba(90, 70, 50, .2)); } /* 页面底也是奶油色，纸边加一道淡影子才分得开；影子跟着锯齿走 */
 .clip.live { overflow: hidden; transition: height .2s steps(5); }
 .paper { position: relative; }
 .paper::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; z-index: 1; background: linear-gradient(rgba(52, 51, 49, .45), transparent); pointer-events: none; }
@@ -168,32 +168,33 @@ const moodIcon = t => t.mood?.img;
 
 /* 小票：素净一点，颜色只留水滴图标和发布人的小圆点 */
 .sheet {
-  display: flow-root; background: #fff7e6; color: #3d3347; padding: 14px 16px 0;
-  font: 11px/17px "Pixel", "PingFang SC", sans-serif; -webkit-font-smoothing: none; font-smooth: never;
-  box-shadow: inset 1px 0 0 rgba(170, 140, 100, .18), inset -1px 0 0 rgba(170, 140, 100, .18);
+  /* 字号都取像素字格子的整数倍（--u 是字体原本的一格），不然缩放后边缘会糊、笔画显得粗；纸是淡淡的暖白（热敏纸），深色模式也一样，所以字色不跟主题走 */
+  --u: 10px; --ink: #5c504a; --ink-line: rgba(92, 80, 74, .38); --paper: #fdfbf6;
+  display: flow-root; background: var(--paper); color: var(--ink); padding: 14px 16px 0;
+  font: var(--u)/calc(var(--u) * 1.6) "Pixel", "PingFang SC", sans-serif; -webkit-font-smoothing: none; font-smooth: never;
 }
 .ln { display: block; min-width: 0; }
-.head { text-align: center; font-size: 18px; line-height: 24px; letter-spacing: 1px; }
-.sub { text-align: center; font-size: 11px; letter-spacing: 3px; margin: 1px 0 12px; }
+.head { text-align: center; font-size: calc(var(--u) * 2); line-height: calc(var(--u) * 2.4); letter-spacing: 1px; }
+.sub { text-align: center; letter-spacing: 3px; margin: 1px 0 12px; }
 .date { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-.date b { font-weight: 400; font-size: 13px; letter-spacing: 1px; }
-.dash { height: 0; margin: 12px 0 8px; border-top: 1px dashed rgba(61, 51, 71, .35); }
-.tag { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 10px; letter-spacing: 2px; }
-.tag::before, .tag::after { content: ""; flex: 1; border-top: 1px dashed rgba(61, 51, 71, .35); }
+.date b { font-weight: 400; letter-spacing: 1px; }
+.dash { height: 0; margin: 12px 0 8px; border-top: 1px dashed var(--ink-line); }
+.tag { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; letter-spacing: 2px; }
+.tag::before, .tag::after { content: ""; flex: 1; border-top: 1px dashed var(--ink-line); }
 .temp { display: flex; align-items: center; gap: 6px; line-height: 21px; }
 .temp img { width: 18px; height: 18px; object-fit: contain; flex: none; }
-.temp .drop { width: 12px; height: 12px; margin: 0 3px; border: 1px dashed rgba(61, 51, 71, .5); border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%; flex: none; box-sizing: border-box; }
+.temp .drop { width: 12px; height: 12px; margin: 0 3px; border: 1px dashed var(--ink-line); border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%; flex: none; box-sizing: border-box; }
 .temp b { font-weight: 400; flex: none; }
 .temp em, .tide em, .plan em { font-style: normal; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .temp.off b, .temp.off em { opacity: .5; }
 .tide { display: flex; align-items: center; gap: 6px; }
 .tide .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-.tide small { font-size: 11px; flex: none; }
+.tide small { flex: none; }
 .more { opacity: .6; padding-left: 12px; }
-.photo { margin: 8px 0 4px; padding: 4px; background: #fffdf6; box-shadow: 0 0 0 1px rgba(61, 51, 71, .35); }
+.photo { margin: 8px 0 4px; padding: 4px; background: #fff; box-shadow: 0 0 0 1px var(--ink-line); }
 .photo img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 .plan { display: flex; align-items: center; gap: 7px; }
-.plan .box { width: 11px; height: 11px; border: 1px solid rgba(61, 51, 71, .6); box-sizing: border-box; border-radius: 2px; flex: none; font-size: 9px; line-height: 9px; text-align: center; }
+.plan .box { width: 11px; height: 11px; border: 1px solid var(--ink-line); box-sizing: border-box; border-radius: 2px; flex: none; font-size: 9px; line-height: 9px; text-align: center; }
 .plan.done em { opacity: .55; }
 .quiet { text-align: center; padding: 10px 0 2px; }
 .wave { text-align: center; letter-spacing: 2px; opacity: .5; }
@@ -201,8 +202,8 @@ const moodIcon = t => t.mood?.img;
 .sum b { font-weight: 400; }
 .code { margin: 12px auto 4px; width: 62%; height: 26px; opacity: .5; }
 .code svg { display: block; width: 100%; height: 100%; }
-.no { text-align: center; letter-spacing: 4px; font-size: 10px; opacity: .6; }
-.keep { text-align: center; font-size: 10px; line-height: 15px; opacity: .55; margin: 8px 0 16px; letter-spacing: .5px; }
-.tear { height: 8px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0H12L6 8Z' fill='%23fff7e6'/%3E%3C/svg%3E") 0 0 / 12px 8px repeat-x; }
+.no { text-align: center; letter-spacing: 4px; opacity: .6; }
+.keep { text-align: center; opacity: .55; margin: 8px 0 16px; letter-spacing: .5px; }
+.tear { height: 8px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0H12L6 8Z' fill='%23fdfbf6'/%3E%3C/svg%3E") 0 0 / 12px 8px repeat-x; }
 @media (prefers-reduced-motion: reduce) { .printing .led { animation: none; opacity: 1; } .clip.live { transition: none; } }
 </style>
