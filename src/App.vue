@@ -1,5 +1,5 @@
 <script setup>
-import { computed, watchEffect, ref } from "vue";
+import { computed, watchEffect } from "vue";
 import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
 import Foreground from "./components/Foreground.vue";
@@ -60,23 +60,6 @@ document.addEventListener("touchend", e => {
 // 切回 App 时也复位一次
 document.addEventListener("visibilitychange", () => { if (!document.hidden) resetSoon(); });
 
-// 排查用（暂时的）：屏幕高度一变（键盘弹出、收起），顶上小字显示几秒视口的数字；卡住时截图给 cc 看是哪里没复位
-const BUILD = "10-20c"; // 看这个就知道手机上是不是新版本
-const vpNote = ref("");
-let vpTimer = 0;
-function noteViewport() {
-  if (!inChat()) return;
-  const vv = window.visualViewport;
-  const r = n => Math.round(n || 0);
-  vpNote.value = `${BUILD} · 视口 ${r(vv?.height)}/${r(window.innerHeight)} · 偏 ${r(vv?.offsetTop)} · 滚 ${r(window.scrollY)} · 焦点 ${document.activeElement?.tagName || "-"}`;
-  clearTimeout(vpTimer);
-  vpTimer = setTimeout(() => { vpNote.value = ""; }, 8000);
-}
-let vpWait = 0;
-const noteSoon = () => { clearTimeout(vpWait); vpWait = setTimeout(noteViewport, 1000); };
-window.visualViewport?.addEventListener("resize", noteSoon);
-document.addEventListener("focusout", noteSoon);
-
 // 字号：小 / 标准 / 大
 const FONT = { small: "13px", standard: "14px", large: "15.5px" };
 watchEffect(() => {
@@ -95,11 +78,9 @@ watchEffect(() => {
     <div>正在处理图片…</div>
   </div>
   <Transition name="fade"><div v-if="toastText" class="toast">{{ toastText }}</div></Transition>
-  <div v-if="vpNote" class="vp-note">{{ vpNote }}</div>
 </template>
 
 <style scoped>
-.vp-note { position: fixed; top: calc(var(--safe-top) + 2px); left: 0; right: 0; z-index: 2000; text-align: center; font-size: 10px; color: var(--text-3); pointer-events: none; }
 .file-progress { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: var(--bg); color: var(--text); }
 .file-progress > div { padding: 24px; background: var(--card); border-radius: 16px; }
 </style>

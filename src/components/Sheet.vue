@@ -1,14 +1,39 @@
 <script setup>
 // 从底部弹出的面板
-defineProps({ open: Boolean, title: String, z: Number });
+import { ref, computed, watch, onBeforeUnmount } from "vue";
+const props = defineProps({ open: Boolean, title: String, z: Number });
 const emit = defineEmits(["close"]);
+
+// iPhone：键盘弹起时，面板整个待在键盘上面看得见的那块里（跟着 visualViewport 走），内容多了在面板里滚；
+// 键盘收起（屏幕高度恢复）就复位，不留错位
+const kb = ref(null); // { top, height }，键盘没开是 null
+function fit() {
+  const vv = window.visualViewport;
+  if (vv && vv.height < window.innerHeight * 0.8) {
+    kb.value = { top: Math.round(vv.offsetTop), height: Math.round(vv.height) };
+    // 正在输入的框滚到看得见的地方
+    setTimeout(() => document.activeElement?.scrollIntoView?.({ block: "nearest" }), 50);
+  } else kb.value = null;
+}
+watch(() => props.open, on => {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  if (on) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); fit(); }
+  else { vv.removeEventListener("resize", fit); vv.removeEventListener("scroll", fit); kb.value = null; }
+}, { immediate: true });
+onBeforeUnmount(() => { window.visualViewport?.removeEventListener("resize", fit); window.visualViewport?.removeEventListener("scroll", fit); });
+const backdropStyle = computed(() => ({
+  ...(props.z ? { zIndex: props.z } : null),
+  ...(kb.value ? { top: `${kb.value.top}px`, height: `${kb.value.height}px`, bottom: "auto" } : null),
+}));
+const sheetStyle = computed(() => (kb.value ? { maxHeight: `${kb.value.height - 12}px`, paddingBottom: "20px" } : null));
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="sheet">
-      <div v-if="open" class="backdrop" :style="z ? { zIndex: z } : null" @click.self="emit('close')">
-        <div class="sheet">
+      <div v-if="open" class="backdrop" :style="backdropStyle" @click.self="emit('close')">
+        <div class="sheet" :style="sheetStyle">
           <div class="grip" />
           <button class="close" aria-label="关闭" @click="emit('close')">×</button>
           <h3 v-if="title">{{ title }}</h3>
