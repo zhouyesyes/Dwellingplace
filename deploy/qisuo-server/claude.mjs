@@ -117,11 +117,32 @@ const writeIfChanged = (rel, text) => {
   return true;
 };
 // 栖所写进来：新的几条（按 id 去重）+ 摘要 + 记忆卡片
+// 栖所发来的图：已经在浏览器里压小了（长边 1280、几百 KB），这里存进 book/media/日期/ 并在话后面记上路径；超过 700KB 的不收，只标张数
+const MEDIA_MAX = 700 * 1024;
+function saveMedia(e) {
+  const imgs = Array.isArray(e.media) ? e.media : [];
+  const media = [], notes = [];
+  let lost = 0;
+  const day = new Date(Number(e.ts) + 8 * 3600_000).toISOString().slice(0, 10);
+  for (const m of imgs) {
+    const buf = Buffer.from(String(m?.data || ""), "base64");
+    if (!buf.length || buf.length > MEDIA_MAX) { lost++; continue; }
+    const rel = `book/media/${day}/${String(e.id).replace(/[^\w-]/g, "")}-${media.length + 1}.jpg`;
+    mkdirSync(dirname(join(MEM_DIR, rel)), { recursive: true });
+    writeFileSync(join(MEM_DIR, rel), buf);
+    const kb = Math.max(1, Math.round(buf.length / 1024));
+    media.push({ p: rel, k: "image", kb });
+    notes.push(`（附图：${rel}，约 ${kb}KB）`);
+  }
+  if (lost) notes.push(`（附了 ${lost} 张图片，没能存下来）`);
+  if (Number(e.lost) > 0) notes.push(`（附了 ${Math.floor(Number(e.lost))} 张图片，没能存下来）`);
+  return { media, text: [String(e.text || "").trim(), ...notes].filter(Boolean).join("\n") };
+}
 const bookPush = body => serial(async () => {
   await memPull(true);
   const have = new Set(readLog().map(e => e.id));
-  const add = (body.entries || []).filter(e => e?.id && e.text && !have.has(e.id))
-    .map(e => JSON.stringify({ id: String(e.id), ts: Number(e.ts) || Date.now(), where: String(e.where || "qisuo"), from: e.from === "me" ? "me" : "crab", ...(e.kind ? { kind: String(e.kind) } : {}), text: String(e.text).slice(0, 20000) }));
+  const add = (body.entries || []).filter(e => e?.id && (e.text || e.media?.length || e.lost) && !have.has(e.id))
+    .map(e => { const { media, text } = saveMedia(e); return JSON.stringify({ id: String(e.id), ts: Number(e.ts) || Date.now(), where: String(e.where || "qisuo"), from: e.from === "me" ? "me" : "crab", ...(e.kind ? { kind: String(e.kind) } : {}), ...(media.length ? { media } : {}), text: text.slice(0, 20000) }); });
   let changed = false;
   if (add.length) {
     mkdirSync(join(MEM_DIR, "book"), { recursive: true });
@@ -138,6 +159,11 @@ const bookPush = body => serial(async () => {
   catch { await mgit(["pull", "--rebase", "-q"]); await mgit(["push", "-q"]); } // 别处刚推过：先合上再推
   return { added: add.length };
 });
+// 栖所拿回去一张图（只给 book/media/ 下面的 jpg）
+function bookMedia(p) {
+  if (!/^book\/media\/[\w-]+\/[\w-]+\.jpg$/.test(p)) return null;
+  return serial(async () => { await memPull(); try { return readFileSync(join(MEM_DIR, p)); } catch { return null; } });
+}
 // 栖所拿回去：别处（Claude Code、云端、醒来）写进来的、比 since 新的
 const bookPull = since => serial(async () => {
   await memPull();
@@ -306,6 +332,12 @@ export async function handleClaude(req, res, rest, CORS) {
     if (rest === "/book/status" && req.method === "GET") return send(200, { token: !!MEM_TOKEN, repo: MEM_REPO, ...(MEM_TOKEN ? await serial(async () => { await memPull(); return { count: readLog().length }; }).catch(e => ({ error: e.message })) : {}) });
     if (rest === "/book/push" && req.method === "POST") return send(200, await bookPush(await body()));
     if (rest.startsWith("/book/pull") && req.method === "GET") return send(200, await bookPull(Number(new URL(req.url, "http://x").searchParams.get("since")) || 0));
+    if (rest === "/book/media" && req.method === "GET") {
+      const buf = await bookMedia(new URL(req.url, "http://x").searchParams.get("p") || "");
+      if (!buf) return send(404, { error: { message: "没有这张图" } });
+      res.writeHead(200, { ...CORS, "Content-Type": "image/jpeg", "Cache-Control": "max-age=31536000, immutable" });
+      return res.end(buf);
+    }
     if (rest === "/studio/status" && req.method === "GET") return send(200, await studioStatus());
     if (rest === "/studio/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/studio/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS, true);
