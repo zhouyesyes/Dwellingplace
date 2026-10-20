@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-import { store, MAIN, roleById } from "../store/index.js";
+import { store, MAIN, CRAB, roleById } from "../store/index.js";
 import WakeRoleView from "./WakeRoleView.vue";
 import { relayPing } from "../lib/search.js";
 import { wakeStatus, syncNow, scheduleText, enablePush, testPush, pushSupported, isIOS, isStandalone } from "../lib/wake.js";
@@ -9,19 +9,25 @@ import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
+import Avatar from "../components/Avatar.vue";
 
 const router = useRouter();
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/wake.md";
-// 只有一个开关：总开关和他自己的开关一起开、一起关
+// 总开关只管中转叫不叫醒（和手机通知）；谁醒是各自的开关，开一个不影响另一个
 const on = computed({
-  get: () => !!store.wake.enabled && !!roleById(MAIN)?.wake?.enabled,
-  set: v => {
-    store.wake.enabled = v;
-    const r = roleById(MAIN);
-    if (r) r.wake.enabled = v;
-    syncNow();
-  },
+  get: () => !!store.wake.enabled,
+  set: v => { store.wake.enabled = v; syncNow(); },
 });
+// 住着的人：他一定有，小螃蟹请进来了才有；各一栏，各自设置
+const people = computed(() => [roleById(MAIN), roleById(CRAB)].filter(Boolean));
+const pick = ref(MAIN);
+const current = computed(() => people.value.find(r => r.id === pick.value) || people.value[0]);
+const callName = r => (r.id === CRAB ? r.name : "他");
+function setPerson(r, v) {
+  r.wake.enabled = v;
+  if (v && !store.wake.enabled) store.wake.enabled = true; // 总开关没开的话顺手打开
+  syncNow();
+}
 const relaySet = computed(() => !!(store.tools.relay?.url && store.tools.relay?.token));
 
 // 中转的情况：版本、有没有 KV、定时任务有没有在跑
@@ -89,7 +95,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
 
     <div class="card body">
       <p class="desc">
-        打开以后，就算你没打开栖所，他也会按设好的时间自己醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。
+        打开以后，就算你没打开栖所，他和小螃蟹也会按各自设好的时间自己醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。
         他发来的消息会推送到你的手机上。
       </p>
       <p class="desc small">
@@ -106,19 +112,32 @@ const iosHint = computed(() => isIOS() && !isStandalone());
     <div class="list-card" style="margin-top: 12px">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
-        <span class="grow">开启唤醒<span class="sub">他会按下面的设置自己醒来</span></span>
+        <span class="grow">总开关<span class="sub">管着中转会不会按时叫醒你们，还有手机通知；具体谁醒、几点醒，在下面各自设</span></span>
         <input v-model="on" type="checkbox" class="sw" :disabled="!relaySet" />
       </label>
     </div>
 
     <template v-if="on">
-      <WakeRoleView embedded :role-id="MAIN" />
+      <div class="section-label">谁会自己醒来</div>
+      <div class="ppl" :class="{ one: people.length < 2 }">
+        <div v-for="r in people" :key="r.id" class="pcard" :class="{ sel: current?.id === r.id }" @click="pick = r.id">
+          <div class="phead">
+            <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="34" />
+            <b>{{ r.id === MAIN ? "他" : r.name }}</b>
+            <input type="checkbox" class="sw" :checked="!!r.wake?.enabled" @click.stop @change="setPerson(r, $event.target.checked)" />
+          </div>
+          <p class="psub">{{ scheduleText(r) }}</p>
+        </div>
+      </div>
+
+      <p v-if="current && !current.wake?.enabled" class="note">{{ callName(current) }}的开关还没开：打开上面{{ callName(current) }}那一栏右边的开关，再在这里设几点醒、醒来做什么。</p>
+      <WakeRoleView v-if="current" :key="current.id" embedded :role-id="current.id" />
 
       <div class="section-label">通知</div>
       <div class="card body">
         <p v-if="iosHint" class="desc small">iPhone（iOS 16.4 以上）要先在 Safari 里点「分享 → 添加到主屏幕」，然后从主屏幕打开栖所，才能收到通知。</p>
         <p v-else-if="!pushSupported()" class="desc small">这个浏览器不支持推送通知。</p>
-        <p class="desc small">通知会显示他的名字和消息开头几个字。</p>
+        <p class="desc small">通知是共用的：谁醒来发了消息，都会显示名字和消息开头几个字。</p>
         <div class="btns">
           <button class="btn soft" :disabled="!!busy" @click="turnOnPush">{{ busy === "push" ? "打开中…" : store.wake.push ? "重新开通知" : "打开通知" }}</button>
           <button class="btn soft" :disabled="!!busy || !store.wake.push" @click="sendTest">{{ busy === "test" ? "发送中…" : "发一条测试通知" }}</button>
@@ -136,7 +155,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
           <button class="btn soft small" :disabled="wakeStatus.syncing" @click="syncNowClick">立即同步</button>
         </div>
       </div>
-      <p class="note">Cloudflare 免费版每天能写 1000 次数据，他醒得太频繁（比如设成每 10 分钟）可能会不够用，一般的设置完全够。</p>
+      <p class="note">Cloudflare 免费版每天能写 1000 次数据，醒得太频繁（比如设成每 10 分钟）可能会不够用，一般的设置完全够。</p>
     </template>
   </div>
 </template>
@@ -152,6 +171,13 @@ const iosHint = computed(() => isIOS() && !isStandalone());
 .status .result { flex: 1; }
 .status .btn { flex: none; margin-top: 2px; }
 .sw { width: 20px; height: 20px; accent-color: var(--ink); }
+.ppl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ppl.one { grid-template-columns: 1fr; }
+.pcard { background: var(--card); border: 1.5px solid transparent; border-radius: 16px; padding: 12px; min-width: 0; cursor: pointer; }
+.pcard.sel { border-color: var(--ink); }
+.phead { display: flex; align-items: center; gap: 8px; }
+.phead b { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psub { margin: 8px 0 0; font-size: 0.78rem; color: var(--text-3); line-height: 1.5; }
 .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .btns .btn { flex: 1; }
 .note { font-size: 0.8rem; color: var(--text-3); line-height: 1.7; margin: 10px 8px 0; }

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { roleById, newWake, fmtTokens } from "../store/index.js";
+import { store, roleById, newWake, fmtTokens, CRAB } from "../store/index.js";
 import { fetchState, cancelAlarm, wakeNow, whenLabel, everyText, syncNow, MAX_ALARMS } from "../lib/wake.js";
 import { stamp } from "../lib/time.js";
 import { relayCall } from "../lib/search.js";
@@ -16,7 +16,7 @@ const router = useRouter();
 const props = defineProps({ roleId: String, embedded: Boolean });
 const role = computed(() => roleById(props.roleId || route.params.id));
 if (!role.value) router.replace("/settings/wake");
-else role.value.wake ??= newWake();
+else role.value.wake ??= newWake(role.value.id);
 const w = computed(() => role.value.wake);
 // 改了设置很快同步上去
 // 改了就自动存：停手 1.5 秒后同步到中转，再刷新「下次醒来」
@@ -178,6 +178,7 @@ async function wakeUpNow() {
   }
 }
 async function toggled() {
+  if (w.value.enabled && !store.wake.enabled) store.wake.enabled = true; // 总开关没开的话顺手打开（只管中转叫不叫醒，谁醒还是各自的开关）
   await syncNow();
   if (w.value.enabled) loadState();
 }
@@ -212,10 +213,11 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
     <div v-if="!embedded" class="list-card">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
-        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">醒来后他自己决定要不要给你发消息</span></span>
+        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">{{ store.wake.enabled || !w.enabled ? "这个开关只管" + role.name : "总开关还没开，现在谁也不会醒：去「设置 → 唤醒」打开总开关" }}</span></span>
         <input v-model="w.enabled" type="checkbox" class="sw" @change="toggled" />
       </label>
     </div>
+    <p v-if="role.id === CRAB && w.enabled" class="hint" style="margin: 8px 8px 0">{{ role.name }}用的是你的 Claude 订阅，额度比较紧：每醒一次都要用一次，建议一天醒一两次（现在是{{ w.intervalOn ? "每隔 " + everyText(w.every) : "没有定时醒来" }}）。</p>
 
     <template v-if="w.enabled">
       <div class="section-label">每隔一段时间</div>
@@ -237,7 +239,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <span class="grow">前后随机浮动<small>（分钟，免得像闹钟一样准）</small></span>
             <input v-model.number="w.jitter" class="num-input" type="number" min="0" step="5" inputmode="numeric" />
           </div>
-          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" placeholder="备注（可选）：醒了想让他做什么" maxlength="1000" />
+          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" :placeholder="`备注（可选）：醒了想让${role.name}做什么`" maxlength="1000" />
           <div class="row">
             <span class="grow saved">{{ saved }}</span>
             <button class="btn soft small" @click="saveNow(true)">保存</button>
@@ -261,7 +263,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <button v-if="editing" class="btn soft small" @click="cancelEdit">取消</button>
           <button class="btn soft small" @click="addTime">{{ editing ? "保存" : "添加" }}</button>
         </div>
-        <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒他、不花额度`" maxlength="300" />
+        <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒${role.name}、不花额度`" maxlength="300" />
         <textarea v-if="!newSay" v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
         <p class="hint">两种：写了「直接发的话」，到点就把这句发给你，不叫醒他（零消耗）；没写，就叫醒他，他看着备注自己想说什么。固定时间不受免打扰影响。点已经加好的时间，会放回上面的框里改。</p>
       </div>
@@ -316,7 +318,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <input v-model="onceAt" class="input time" type="datetime-local" :min="onceMin" />
           <button class="btn soft small" @click="addOnce">添加</button>
         </div>
-        <textarea v-model.trim="onceSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「出门记得带钥匙去配」。写了就不叫醒他`" maxlength="300" />
+        <textarea v-model.trim="onceSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「出门记得带钥匙去配」。写了就不叫醒${role.name}`" maxlength="300" />
         <textarea v-if="!onceSay" v-model.trim="onceNote" class="input note-box" rows="3" placeholder="备注（可选）：比如「明天 9 点有面试，叫我起来、帮我再顺一遍自我介绍」" maxlength="1000" />
         <p class="hint">到点响一次就没了，不受免打扰影响。写了「直接发的话」就不叫醒他。需要中转是最新版（v22）。</p>
       </div>
