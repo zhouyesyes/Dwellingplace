@@ -1,25 +1,24 @@
 <script setup>
 // Meanwhile（同一屋檐下）：她、他、小螃蟹三个人共用的生活记录页。
 // 浪花标题 → 潮汐表（日历）→ 今天的水温 → 潮间带（共同动态）。数据和规矩见 lib/meanwhile.js
+// 住在底栏的 Record 页里（RecordView 引用），日记本之类的放进插槽 after-temp
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
-import { useRouter } from "vue-router";
-import { store } from "../store/index.js";
-import { todayYmd } from "../lib/dates.js";
-import { pickFile, saveImage, deleteImage } from "../lib/images.js";
-import { goBack } from "../lib/nav.js";
+import { store } from "../../store/index.js";
+import { todayYmd } from "../../lib/dates.js";
+import { pickFile, saveImage, deleteImage } from "../../lib/images.js";
 import {
   ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf,
   setMood, clearMood, addPost, removePost, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
-} from "../lib/meanwhile.js";
-import Icon from "../components/Icon.vue";
-import Avatar from "../components/Avatar.vue";
-import Sheet from "../components/Sheet.vue";
-import ImageViewer from "../components/ImageViewer.vue";
-import TideHero from "../components/meanwhile/TideHero.vue";
-import TideCalendar from "../components/meanwhile/TideCalendar.vue";
-import TideImg from "../components/meanwhile/TideImg.vue";
+} from "../../lib/meanwhile.js";
+import Icon from "../Icon.vue";
+import Avatar from "../Avatar.vue";
+import Sheet from "../Sheet.vue";
+import ImageViewer from "../ImageViewer.vue";
+import TideHero from "./TideHero.vue";
+import MoodCard from "./MoodCard.vue";
+import TideCalendar from "./TideCalendar.vue";
+import TideImg from "./TideImg.vue";
 
-const router = useRouter();
 ensureMeanwhile();
 const today = ref(todayYmd());
 const month = ref(monthOf(today.value));
@@ -49,6 +48,17 @@ const canSet = computed(() => day.value <= today.value);
 const moodOpen = ref(false);
 const moodKey = ref("");
 const moodLine = ref("");
+// 水温小卡：点任意一张卡、或日历格子里的水滴，弹出大图标 + 名字 + 心情 + 那句话
+const card = ref(null);
+function showCard(who, date, key, text) {
+  const mood = moodByKey(key);
+  if (mood) card.value = { who, date, mood, text: text || "" };
+}
+function tapSlot(p) {
+  if (p.mood) showCard(p.who, day.value, p.m.key, p.m.text);
+  else if (p.who === ME) openMood();
+}
+function editFromCard() { card.value = null; openMood(); }
 function openMood() {
   if (!canSet.value) return;
   const cur = moodOf(ME, day.value);
@@ -137,10 +147,9 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 
 <template>
   <div class="mw">
-    <button class="back" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" :size="20" /></button>
     <TideHero />
 
-    <TideCalendar :month="month" :selected="selected" @select="pick" @shift="shift" @today="toToday" @plans="plansOpen = true" />
+    <TideCalendar :month="month" :selected="selected" @select="pick" @shift="shift" @today="toToday" @plans="plansOpen = true" @mood="x => showCard(x.who, x.date, x.key, x.text)" />
 
     <!-- 水温：默认看今天，点了日历上的哪天就看哪天 -->
     <section class="temp">
@@ -149,7 +158,7 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
         <button v-if="selected" class="chip" @click="selected = null">看全部 ×</button>
       </div>
       <div class="slots">
-        <button v-for="p in moods" :key="p.who" class="slot" :class="{ mine: p.who === ME, empty: !p.mood }" :disabled="p.who !== ME || !canSet" :style="{ '--c': p.color }" @click="openMood">
+        <button v-for="p in moods" :key="p.who" class="slot" :class="{ mine: p.who === ME, empty: !p.mood }" :disabled="!p.mood && (p.who !== ME || !canSet)" :style="{ '--c': p.color }" @click="tapSlot(p)">
           <span class="pic">
             <img v-if="p.mood" :src="p.mood.img" :alt="p.mood.name" draggable="false" />
             <span v-else class="ph">{{ p.who === ME && canSet ? "＋" : "…" }}</span>
@@ -159,6 +168,8 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
         </button>
       </div>
     </section>
+
+    <slot name="after-temp" :date="selected" />
 
     <!-- 潮间带：共同动态 -->
     <section class="tide">
@@ -198,6 +209,8 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
     </section>
 
     <button class="fab" aria-label="贴一条" @click="openCompose"><Icon name="plus" :size="24" /></button>
+
+    <MoodCard :card="card" :me="ME" :can-edit="canSet" @close="card = null" @edit="editFromCard" />
 
     <!-- 选今天的水温 -->
     <Sheet :open="moodOpen" :title="selected && selected !== today ? `${dayLabel(selected)}的水温` : '今天的水温'" @close="moodOpen = false">
@@ -258,12 +271,10 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 .mw {
   --cream: var(--bg); --note: #fffdf7; --note-line: rgba(120, 100, 70, .14);
   position: relative; min-height: 100%; max-width: 520px; margin: 0 auto; background: var(--cream);
-  padding: 0 0 calc(var(--safe-bottom) + 96px); overflow-x: clip;
-  font-family: var(--font);
+  padding: 0 0 calc(var(--tabbar-h) + var(--safe-bottom) + 40px); overflow-x: clip;
+  font-family: "Poppins", var(--font);
 }
 :root[data-theme="dark"] .mw { --note: #2a2f3a; --note-line: rgba(255, 255, 255, .07); }
-.back { position: absolute; z-index: 3; top: calc(var(--safe-top) + 10px); left: 10px; width: 38px; height: 38px; border-radius: 50%; border: 0; display: grid; place-items: center; color: #3d5a80; background: rgba(var(--glass-rgb), .72); box-shadow: var(--shadow-soft); backdrop-filter: blur(6px); }
-:root[data-theme="dark"] .back { color: #b9cde8; }
 
 .sec-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 20px; margin-bottom: 10px; }
 .sec-head h2 { margin: 0; font-size: .95rem; font-weight: 600; color: var(--text); letter-spacing: .3px; }
@@ -324,7 +335,7 @@ const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 .reply-box .input { flex: 1; min-width: 0; }
 .more-btn { display: block; margin: 0 auto; border: 0; background: none; color: var(--text-2); font-size: .82rem; padding: 10px 18px; }
 
-.fab { position: fixed; z-index: 20; right: max(18px, calc(50% - 260px + 18px)); bottom: calc(var(--safe-bottom) + 22px); width: 54px; height: 54px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #4a6086; color: #fff; box-shadow: 0 8px 22px rgba(60, 80, 120, .35); }
+.fab { position: fixed; z-index: 20; right: max(18px, calc(50% - 260px + 18px)); bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 26px); width: 54px; height: 54px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #4a6086; color: #fff; box-shadow: 0 8px 22px rgba(60, 80, 120, .35); }
 :root[data-theme="dark"] .fab { background: #a9c1e2; color: #1b1e25; }
 
 /* 弹层里 */

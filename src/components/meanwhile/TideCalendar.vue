@@ -4,15 +4,17 @@
 import { computed } from "vue";
 import { todayYmd, MONTHS_EN } from "../../lib/dates.js";
 import { moodByKey, moodsOn, postsOf, plansOf, whoList, whoInfo } from "../../lib/meanwhile.js";
+import { useDayMemories } from "../../lib/dayMemories.js";
 
 const props = defineProps({ month: String, selected: String });
-const emit = defineEmits(["select", "shift", "today", "plans"]);
+const emit = defineEmits(["select", "shift", "today", "plans", "mood"]);
+const { starsOf } = useDayMemories({ load: true });
 
-const WEEK = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const WEEK = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]; // 周一开头
 const today = todayYmd();
 const y = computed(() => Number(props.month.slice(0, 4)));
 const m = computed(() => Number(props.month.slice(5, 7)));
-const lead = computed(() => new Date(y.value, m.value - 1, 1).getDay());
+const lead = computed(() => (new Date(y.value, m.value - 1, 1).getDay() + 6) % 7);
 const dayCount = computed(() => new Date(y.value, m.value, 0).getDate());
 const pad = n => String(n).padStart(2, "0");
 
@@ -62,8 +64,9 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
       <button v-for="c in cells" :key="c.date" class="cell" :class="{ today: c.today, sel: c.date === selected, future: c.future }" :aria-label="label(c)" @click="emit('select', c.date)">
         <span class="d">{{ c.d }}</span>
         <i v-if="c.has" class="dot" />
+        <span v-if="starsOf(c.date).length" class="stars"><i v-for="(col, j) in starsOf(c.date)" :key="j" :style="{ color: col }">✦</i></span>
         <span v-if="c.moods.length" class="ms" :class="`n${c.moods.length}`">
-          <img v-for="x in c.moods" :key="x.id" :src="x.mood.img" alt="" draggable="false" />
+          <img v-for="x in c.moods" :key="x.id" :src="x.mood.img" :alt="`${nameOf(x.who)}：${x.mood.name}`" draggable="false" role="button" @click.stop="emit('mood', x)" />
         </span>
       </button>
     </div>
@@ -79,7 +82,7 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
 <style scoped>
 .cal {
   --paper-line: #cdc3b3; --paper-hi: rgba(255, 255, 255, .75); --ink-cal: #3d3a35;
-  padding: 18px 16px 6px; font-family: Georgia, "Times New Roman", "Songti SC", serif;
+  padding: 18px 16px 6px; font-family: "Poppins", var(--font);
 }
 :root[data-theme="dark"] .cal { --paper-line: #12151b; --paper-hi: rgba(255, 255, 255, .07); --ink-cal: #d6d9e0; }
 .head { display: flex; align-items: center; justify-content: space-between; color: var(--ink-cal); }
@@ -87,7 +90,7 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
 .yr { font-size: 1.3rem; letter-spacing: 1px; }
 .mo { font-size: 1.55rem; letter-spacing: .5px; }
 .nav { border: 0; background: none; font-size: 1.7rem; line-height: 1; color: var(--text-2); width: 40px; height: 36px; font-family: inherit; }
-.sub-ttl { display: flex; justify-content: center; align-items: center; gap: 10px; margin: -2px 0 10px; font-size: .72rem; letter-spacing: .4em; text-indent: .4em; color: var(--text-3); font-family: var(--font); }
+.sub-ttl { display: flex; justify-content: center; align-items: center; gap: 10px; margin: -2px 0 10px; font-size: .72rem; letter-spacing: .4em; text-indent: .4em; color: var(--text-3); }
 .back-today { border: 0; background: none; color: var(--accent); font-size: .74rem; letter-spacing: 0; text-indent: 0; padding: 2px 6px; }
 .grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .wk { position: relative; text-align: center; font-size: .6rem; letter-spacing: .5px; padding: 0 0 5px; color: var(--ink-cal); }
@@ -103,15 +106,14 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
 .cell.sel { background: rgba(106, 163, 232, .13); border-radius: 6px; }
 .cell.future .d { opacity: .55; }
 .dot { position: absolute; right: 7px; top: 6px; width: 5px; height: 5px; border-radius: 50%; background: #6f8fb8; opacity: .8; }
+/* 一个人、两个人、三个人，水滴一样大：按三颗刚好并排放得下的尺寸定，少于三颗就居中 */
 .ms { position: absolute; left: 0; right: 0; bottom: 5px; display: flex; justify-content: center; align-items: flex-end; padding: 0 3px; }
-.ms img { display: block; flex: none; width: 34px; height: 34px; object-fit: contain; pointer-events: none; }
-.ms.n2 img { width: 25px; height: 25px; }
-.ms.n3 img { width: 20px; height: 20px; }
-.ms.n2 img + img { margin-left: -2px; }
-.ms.n3 img + img { margin-left: -3px; }
+.ms img { display: block; flex: none; width: calc((100% - 6px) / 3); max-width: 22px; aspect-ratio: 1; object-fit: contain; }
+.stars { position: absolute; right: 6px; top: 13px; display: flex; font-size: 7px; line-height: 1; }
+.stars i { font-style: normal; }
 /* 待续：月初空格里的一张小贴纸 */
-.todo { border: 0; background: none; padding: 8px 8px 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 1px; font-family: var(--font); color: var(--ink-cal); min-width: 0; }
-.todo b { font-family: Georgia, "Times New Roman", serif; font-size: .74rem; font-weight: 700; letter-spacing: .5px; }
+.todo { border: 0; background: none; padding: 8px 8px 8px 10px; text-align: left; display: flex; flex-direction: column; gap: 1px; color: var(--ink-cal); min-width: 0; }
+.todo b { font-size: .74rem; font-weight: 700; letter-spacing: .5px; }
 .todo .ln { font-size: .66rem; line-height: 1.35; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .todo .ln.done { text-decoration: line-through; opacity: .6; }
 .todo .ln.ph { color: var(--text-3); }

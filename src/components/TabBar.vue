@@ -4,6 +4,7 @@ import home from "../assets/tabbar/home.png";
 import record from "../assets/tabbar/record.png";
 import memory from "../assets/tabbar/memory.png";
 import settings from "../assets/tabbar/settings.png";
+import { unseenCount } from "../lib/meanwhile.js";
 defineProps({ active: String });
 const tabs = [
   // tilt：有两个随手歪一点，不是每个都歪
@@ -17,7 +18,7 @@ const tabs = [
 <template>
   <nav class="tabbar">
     <RouterLink v-for="t in tabs" :key="t.key" :to="t.to" replace class="tab" :class="{ on: active === t.key }" :aria-label="t.label">
-      <img :src="t.img" alt="" draggable="false" :style="{ '--tilt': t.tilt + 'deg' }" />
+      <span class="ic"><img :src="t.img" alt="" draggable="false" :style="{ '--tilt': t.tilt + 'deg' }" /><i v-if="t.key === 'record' && unseenCount() && active !== 'record'" class="dot" aria-label="有新的潮间带动态" /></span>
       <span>{{ t.label }}</span>
     </RouterLink>
   </nav>
@@ -48,7 +49,9 @@ const tabs = [
 .tab { display: flex; flex-direction: column; align-items: center; gap: 0; width: 72px; color: var(--text-2); text-decoration: none; }
 /* 不分深浅：选中的只是大一点点 */
 .tab img { width: 36px; height: 36px; filter: drop-shadow(0 2px 3px rgba(60, 50, 40, .08)); transform: rotate(var(--tilt, 0deg)); transition: transform .2s; -webkit-user-select: none; user-select: none; }
-.tab span { font-size: .66rem; font-weight: 600; letter-spacing: .2px; }
+.tab .ic { position: relative; display: block; line-height: 0; }
+.tab .ic .dot { position: absolute; top: 1px; right: -1px; width: 10px; height: 10px; border-radius: 50%; background: #e5534b; box-shadow: 0 0 0 2px var(--bg); }
+.tab > span:not(.ic) { font-size: .66rem; font-weight: 600; letter-spacing: .2px; }
 .tab.on { color: var(--text); }
 .tab.on img { transform: rotate(var(--tilt, 0deg)) scale(1.14); }
 
