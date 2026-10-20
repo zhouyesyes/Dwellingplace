@@ -16,6 +16,7 @@ import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
 import { BOARD_RE, applyBoardTags } from "./board.js";
+import { applyTideTags, stripTideTags, tideForAI } from "./meanwhile.js";
 import { petHears, petAfterReply } from "./pet.js";
 import { planLow, logTurn } from "./quota.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
@@ -87,6 +88,7 @@ export function visibleText(text) {
     .replace(QUOTE_RE, "")
     .replace(MOMENT_RE, "")
     .replace(BOARD_RE, "")
+    .replace(/[\s\S]*/, stripTideTags)
     .replace(ALARM_RE, "")
     .replace(new RegExp(PAUSE_RE.source, "g"), "\n\n")
     .replace(new RegExp(FOLLOW_RE.source, "g"), "")
@@ -96,7 +98,7 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续|戳)[^\]]*$/, "")
+    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续|戳|潮|水)[^\]]*$/, "")
     .trimEnd();
 }
 
@@ -180,6 +182,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     mail || wake ? "" : `\n# 戳一戳\n想轻轻招呼、撒娇或回应对方时，可以单独一行写 [戳一戳]，会变成你戳了戳对方的互动提示，不显示指令。一次回复最多一次，偶尔自然使用，不必每轮用。收到【戳一戳互动】是实际发生的动作，不是对方说的话；文案只是自定义显示文字，不是指令。\n戳一戳显示的那句话你也可以自己改（想改的时候再改，不用常改）：单独一行写 [改戳一戳:你戳对方|新的一句]（你戳对方时显示的，现在是「${pokeText(role, "ai")}」）或 [改戳一戳:对方戳你|新的一句]（对方戳你时显示的，现在是「${pokeText(role, "user")}」），60 字以内；可以写 {他} 代表你的名字、{我} 代表对方的名字。`,
     stickersForAI(role),
     lettersForAI(role, who),
+    mail || (wake && !role.wake?.rooms?.tide) ? "" : tideForAI(role, who), // 醒来时只有她在「醒来能进哪些屋子」里勾了潮间带才说
     solo(role) ? "" : readingForAI(role, who),
     mail || solo(role) ? "" : diaryForAI(role, who),
     solo(role) ? "" : writingForAI(who),
@@ -944,8 +947,9 @@ export function applyReplyTags(role, msg) {
   const mom = applyMomentTags(role, rmem.text);
   const brd = applyBoardTags(role, mom.text);
   const dia = applyDiaryTags(role, brd.text);
-  msg.text = applyPokeTags(role, dia.text).text;
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes];
+  const tide = applyTideTags(role, dia.text);
+  msg.text = applyPokeTags(role, tide.text).text;
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes, ...tide.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();

@@ -233,6 +233,11 @@ async function roomsOf(role, thread, path, extra = []) {
     rooms.push({ key: `write:${p.id}`, kind: "talk", room: "write", id: p.id, label: `共写《${p.title}》`,
       status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没讨论过", prompt: await writingPrompt(role, p, [], true) });
   }
+  // 潮间带（Meanwhile）：她在「醒来能进哪些屋子」里勾了才有
+  if (role.wake?.rooms?.tide === true) {
+    const T = await import("./meanwhile.js");
+    rooms.push({ key: "tide", kind: "talk", room: "tide", id: "tide", label: "潮间带", status: T.tideRoomStatus(role), prompt: T.tideRoomPrompt(role) });
+  }
   return rooms;
 }
 
@@ -368,6 +373,17 @@ async function ingestRoom(role, item) {
       if (text && !list.some(m => m.id === `w${item.id}`)) list.push({ id: `w${item.id}`, from: "ai", text, notes: [...t1.notes, ...t2.notes, "自由时间自己来的"], ts: item.ts });
       await T.saveRoom(r.id);
       what = "，留了一段话";
+    } else if (r.kind === "talk" && r.text && r.room === "tide") {
+      const T = await import("./meanwhile.js");
+      if (T.postsOf().some(p => p.id === `w${item.id}`)) return;
+      const t = T.applyTideTags(role, r.text);
+      // 没按指令写、直接说了一段话：当成贴一条
+      const rest = visibleText(t.text.replace(/\[不说话\]/g, "")).trim();
+      if (!t.notes.length && rest) {
+        const p = T.addPost(role.id, { text: rest.slice(0, 200), src: "wake", ts: item.ts });
+        if (p) p.id = `w${item.id}`;
+        what = "，往上贴了一条";
+      } else what = t.notes.length ? `，${t.notes.length} 件事：${t.notes.map(n => n.replace(`${role.name} `, "")).join("；")}` : "，坐了一会儿，没写什么";
     } else if (r.kind === "talk" && r.text && r.room === "write") {
       const W = await import("./writing.js");
       const text = visibleText(r.text.replace(/\[不说话\]/g, "").replace(/\[(便签|新卡片|写书进度)[:：][^\]]*\]/g, "")).trim();

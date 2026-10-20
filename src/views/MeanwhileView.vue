@@ -1,0 +1,364 @@
+<script setup>
+// Meanwhile（同一屋檐下）：她、他、小螃蟹三个人共用的生活记录页。
+// 浪花标题 → 潮汐表（日历）→ 今天的水温 → 潮间带（共同动态）。数据和规矩见 lib/meanwhile.js
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { useRouter } from "vue-router";
+import { store } from "../store/index.js";
+import { todayYmd } from "../lib/dates.js";
+import { pickFile, saveImage, deleteImage } from "../lib/images.js";
+import { goBack } from "../lib/nav.js";
+import {
+  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf,
+  setMood, clearMood, addPost, removePost, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
+} from "../lib/meanwhile.js";
+import Icon from "../components/Icon.vue";
+import Avatar from "../components/Avatar.vue";
+import Sheet from "../components/Sheet.vue";
+import ImageViewer from "../components/ImageViewer.vue";
+import TideHero from "../components/meanwhile/TideHero.vue";
+import TideCalendar from "../components/meanwhile/TideCalendar.vue";
+import TideImg from "../components/meanwhile/TideImg.vue";
+
+const router = useRouter();
+ensureMeanwhile();
+const today = ref(todayYmd());
+const month = ref(monthOf(today.value));
+const selected = ref(null); // 点了哪天（没点就是看全部）
+const day = computed(() => selected.value || today.value);
+const people = computed(() => whoList().map(whoInfo));
+
+// 回到前台、过了零点：「今天」跟着换
+let timer;
+onMounted(() => { markSeen(); timer = setInterval(() => { const t = todayYmd(); if (t !== today.value) today.value = t; markSeen(); }, 30_000); });
+onBeforeUnmount(() => clearInterval(timer));
+
+function shift(n) {
+  const [y, m] = month.value.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  month.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  selected.value = null;
+}
+const toToday = () => { month.value = monthOf(today.value); selected.value = null; };
+function pick(date) {
+  selected.value = selected.value === date ? null : date;
+}
+
+// ---------- 水温 ----------
+const moods = computed(() => people.value.map(p => ({ ...p, m: moodOf(p.who, day.value) })).map(p => ({ ...p, mood: p.m && moodByKey(p.m.key) })));
+const canSet = computed(() => day.value <= today.value);
+const moodOpen = ref(false);
+const moodKey = ref("");
+const moodLine = ref("");
+function openMood() {
+  if (!canSet.value) return;
+  const cur = moodOf(ME, day.value);
+  moodKey.value = cur?.key || "";
+  moodLine.value = cur?.text || "";
+  moodOpen.value = true;
+}
+function saveMood() {
+  if (moodKey.value) setMood(ME, moodKey.value, moodLine.value, day.value);
+  moodOpen.value = false;
+}
+function dropMood() { clearMood(ME, day.value); moodOpen.value = false; }
+
+// ---------- 发一条 ----------
+const composeOpen = ref(false);
+const text = ref("");
+const img = ref(null);
+const stKind = ref("");
+const stText = ref("");
+const quickMood = ref("");
+const busyImg = ref(false);
+const latestBook = computed(() => [...(store.books || [])].sort((a, b) => (b.readAt || b.addedAt || 0) - (a.readAt || a.addedAt || 0))[0]);
+function openCompose() { text.value = ""; img.value = null; stKind.value = ""; stText.value = ""; quickMood.value = ""; composeOpen.value = true; }
+function pickStatus(kind) {
+  if (stKind.value === kind) { stKind.value = ""; stText.value = ""; return; }
+  stKind.value = kind;
+  stText.value = kind === "read" && latestBook.value ? `《${latestBook.value.title}》` : "";
+}
+async function pickImg() {
+  if (busyImg.value) return;
+  const [file] = await pickFile("image/*");
+  if (!file) return;
+  busyImg.value = true;
+  try { if (img.value) deleteImage(img.value); img.value = await saveImage(file, { maxSize: 1280, quality: 0.8 }); } finally { busyImg.value = false; }
+}
+function dropImg() { if (img.value) deleteImage(img.value); img.value = null; }
+const canPost = computed(() => text.value.trim() || img.value || stKind.value);
+function closeCompose() { if (img.value) deleteImage(img.value); img.value = null; composeOpen.value = false; } // 没贴就关了：图也不留
+function post() {
+  if (!canPost.value) return;
+  addPost(ME, { text: text.value, img: img.value, status: stKind.value ? { kind: stKind.value, text: stText.value } : null });
+  if (quickMood.value) setMood(ME, quickMood.value, moodOf(ME, today.value)?.key === quickMood.value ? moodOf(ME, today.value).text : "", today.value);
+  img.value = null;
+  composeOpen.value = false;
+  selected.value = null;
+}
+function dropPost(p) {
+  if (!confirm("把这条从潮间带拿下来？")) return;
+  if (p.img) deleteImage(p.img);
+  removePost(p);
+}
+
+// ---------- 动态 ----------
+const LIMIT = 20;
+const more = ref(0);
+const feed = computed(() => {
+  const all = selected.value ? postsOn(selected.value) : [...postsOf()].sort((a, b) => b.ts - a.ts);
+  return all;
+});
+const shown = computed(() => feed.value.slice(0, LIMIT + more.value * LIMIT));
+const tilt = p => ((p.n * 7) % 5 - 2) * 0.35; // 每张贴得有一点点歪，但不影响读
+const statusName = k => STATUSES.find(s => s.kind === k)?.name || "";
+const info = who => whoInfo(who);
+const replying = ref(null);
+const replyText = ref("");
+function sendReply(p) {
+  if (addReply(p, ME, replyText.value)) { replyText.value = ""; replying.value = null; }
+}
+const viewImgs = ref([]);
+const viewAt = ref(null);
+const openImg = p => { viewImgs.value = [p.img]; viewAt.value = 0; };
+const poked = ref("");
+function react(p, kind) {
+  toggleReact(p, ME, kind);
+  if (kind === "poke") { poked.value = p.id; setTimeout(() => { if (poked.value === p.id) poked.value = ""; }, 500); }
+}
+
+// ---------- 待续 ----------
+const plansOpen = ref(false);
+const planText = ref("");
+const plans = computed(() => plansOf(month.value));
+function savePlan() { if (addPlan(ME, planText.value, month.value)) planText.value = ""; }
+function tickPlan(p) { togglePlan(p, ME); }
+const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
+</script>
+
+<template>
+  <div class="mw">
+    <button class="back" aria-label="返回" @click="goBack(router, '/')"><Icon name="back" :size="20" /></button>
+    <TideHero />
+
+    <TideCalendar :month="month" :selected="selected" @select="pick" @shift="shift" @today="toToday" @plans="plansOpen = true" />
+
+    <!-- 水温：默认看今天，点了日历上的哪天就看哪天 -->
+    <section class="temp">
+      <div class="sec-head">
+        <h2>{{ selected ? dayLabel(selected) : "今天的水温" }}</h2>
+        <button v-if="selected" class="chip" @click="selected = null">看全部 ×</button>
+      </div>
+      <div class="slots">
+        <button v-for="p in moods" :key="p.who" class="slot" :class="{ mine: p.who === ME, empty: !p.mood }" :disabled="p.who !== ME || !canSet" :style="{ '--c': p.color }" @click="openMood">
+          <span class="pic">
+            <img v-if="p.mood" :src="p.mood.img" :alt="p.mood.name" draggable="false" />
+            <span v-else class="ph">{{ p.who === ME && canSet ? "＋" : "…" }}</span>
+          </span>
+          <span class="who"><i />{{ p.name }}</span>
+          <span class="say">{{ p.mood ? (p.m.text || p.mood.name) : p.who === ME && canSet ? "选一个水温" : "还没选" }}</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- 潮间带：共同动态 -->
+    <section class="tide">
+      <div class="sec-head">
+        <h2>潮间带</h2>
+        <span class="cap">{{ selected ? "这一天贴的" : "三个人的便笺" }}</span>
+      </div>
+      <p v-if="!feed.length" class="empty">{{ selected ? "这天还没贴过东西" : "还没有东西，贴第一条吧" }}</p>
+      <article v-for="p in shown" :key="p.id" class="card" :class="{ polaroid: p.img, plan: p.planId }" :style="{ '--c': info(p.who).color, '--t': tilt(p) + 'deg' }">
+        <i class="tape" />
+        <header>
+          <Avatar :img="info(p.who).avatar" :name="info(p.who).name" :color="info(p.who).color" :size="30" class="ava" />
+          <div class="meta"><b>{{ info(p.who).name }}</b><small>{{ stamp(p.ts) }}</small></div>
+          <button v-if="p.who === ME" class="more" aria-label="删除" @click="dropPost(p)"><Icon name="trash" :size="15" /></button>
+        </header>
+        <button v-if="p.img" class="pic" @click="openImg(p)"><TideImg :id="p.img" /></button>
+        <p v-if="p.status" class="st"><span>{{ statusName(p.status.kind) }}</span>{{ p.status.text }}</p>
+        <p v-if="p.planId" class="done">✓ 待续完成了</p>
+        <p v-if="p.text" class="body" :class="{ cap: p.img }">{{ p.text }}</p>
+        <ul v-if="p.replies.length" class="replies">
+          <li v-for="r in p.replies" :key="r.id"><b :style="{ color: `color-mix(in srgb, ${info(r.who).color} 70%, var(--text))` }">{{ info(r.who).name }}</b>{{ r.text }}</li>
+        </ul>
+        <footer>
+          <button v-for="r in REACTS" :key="r.kind" class="rx" :class="{ on: reactorsOf(p, r.kind).includes(ME), pop: poked === p.id && r.kind === 'poke' }" :aria-label="r.name" @click="react(p, r.kind)">
+            <span class="em">{{ r.emoji }}</span>
+            <span v-if="reactorsOf(p, r.kind).length" class="who-dots"><i v-for="w in reactorsOf(p, r.kind)" :key="w" :style="{ background: info(w).color }" /></span>
+            <span v-else class="nm">{{ r.name }}</span>
+          </button>
+          <button class="rx reply" @click="replying = replying === p.id ? null : p.id; replyText = ''">回一句</button>
+        </footer>
+        <form v-if="replying === p.id" class="reply-box" @submit.prevent="sendReply(p)">
+          <input v-model="replyText" class="input" maxlength="300" placeholder="短短回一句…" enterkeyhint="send" />
+          <button class="btn small" :disabled="!replyText.trim()">发</button>
+        </form>
+      </article>
+      <button v-if="feed.length > shown.length" class="more-btn" @click="more++">再往前看看</button>
+    </section>
+
+    <button class="fab" aria-label="贴一条" @click="openCompose"><Icon name="plus" :size="24" /></button>
+
+    <!-- 选今天的水温 -->
+    <Sheet :open="moodOpen" :title="selected && selected !== today ? `${dayLabel(selected)}的水温` : '今天的水温'" @close="moodOpen = false">
+      <div class="mood-grid">
+        <button v-for="m in MOODS" :key="m.key" class="mood" :class="{ on: moodKey === m.key }" @click="moodKey = m.key">
+          <img :src="m.img" :alt="m.name" draggable="false" />
+          <b>{{ m.name }}</b><small>{{ m.feel }}</small>
+        </button>
+      </div>
+      <input v-model="moodLine" class="input" maxlength="30" placeholder="一句状态（可以不写）" />
+      <div class="sheet-act">
+        <button v-if="moodOf(ME, day)" class="btn soft" @click="dropMood">清掉</button>
+        <button class="btn" :disabled="!moodKey" @click="saveMood">记下来</button>
+      </div>
+    </Sheet>
+
+    <!-- 贴一条 -->
+    <Sheet :open="composeOpen" title="贴一条" @close="closeCompose">
+      <textarea v-model="text" class="input area" rows="3" maxlength="1000" placeholder="此刻想贴点什么…" />
+      <div v-if="img" class="prev"><TideImg :id="img" /><button class="x" aria-label="去掉图片" @click="dropImg">×</button></div>
+      <div class="row-chips">
+        <button class="chip" :disabled="busyImg" @click="pickImg"><Icon name="image" :size="14" /> {{ busyImg ? "处理中…" : "图片" }}</button>
+        <button v-for="s in STATUSES" :key="s.kind" class="chip" :class="{ on: stKind === s.kind }" @click="pickStatus(s.kind)">{{ s.name }}</button>
+      </div>
+      <input v-if="stKind" v-model="stText" class="input" maxlength="60" :placeholder="STATUSES.find(s => s.kind === stKind).hint" />
+      <div class="quick">
+        <span class="lab">顺便记今天的水温</span>
+        <div class="q-row">
+          <button v-for="m in MOODS" :key="m.key" class="q" :class="{ on: quickMood === m.key }" :aria-label="m.name" @click="quickMood = quickMood === m.key ? '' : m.key"><img :src="m.img" alt="" draggable="false" /></button>
+        </div>
+      </div>
+      <div class="sheet-act"><button class="btn" :disabled="!canPost" @click="post">贴上去</button></div>
+    </Sheet>
+
+    <!-- 待续 -->
+    <Sheet :open="plansOpen" :title="`${monthName}的待续`" @close="plansOpen = false">
+      <p class="hint">接下来想做的事。做完了点一下，就会在当天留下一条记录；没做完也没关系，就放在这儿。</p>
+      <form class="plan-add" @submit.prevent="savePlan">
+        <input v-model="planText" class="input" maxlength="60" placeholder="写一件想做的事" enterkeyhint="done" />
+        <button class="btn small" :disabled="!planText.trim()">贴上</button>
+      </form>
+      <ul class="plan-list">
+        <li v-for="p in plans" :key="p.id" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }">
+          <button class="tick" :aria-label="p.doneAt ? '取消完成' : '完成'" @click="tickPlan(p)"><Icon v-if="p.doneAt" name="check" :size="14" /></button>
+          <span class="t">{{ p.text }}</span>
+          <small>{{ info(p.who).name }}</small>
+          <button class="x" aria-label="拿掉" @click="removePlan(p)">×</button>
+        </li>
+        <li v-if="!plans.length" class="none">这个月还没有待续</li>
+      </ul>
+    </Sheet>
+
+    <ImageViewer :open="viewAt != null" :images="viewImgs" :start="viewAt || 0" @close="viewAt = null" />
+  </div>
+</template>
+
+<style scoped>
+.mw {
+  --cream: var(--bg); --note: #fffdf7; --note-line: rgba(120, 100, 70, .14);
+  position: relative; min-height: 100%; max-width: 520px; margin: 0 auto; background: var(--cream);
+  padding: 0 0 calc(var(--safe-bottom) + 96px); overflow-x: clip;
+  font-family: var(--font);
+}
+:root[data-theme="dark"] .mw { --note: #2a2f3a; --note-line: rgba(255, 255, 255, .07); }
+.back { position: absolute; z-index: 3; top: calc(var(--safe-top) + 10px); left: 10px; width: 38px; height: 38px; border-radius: 50%; border: 0; display: grid; place-items: center; color: #3d5a80; background: rgba(var(--glass-rgb), .72); box-shadow: var(--shadow-soft); backdrop-filter: blur(6px); }
+:root[data-theme="dark"] .back { color: #b9cde8; }
+
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 20px; margin-bottom: 10px; }
+.sec-head h2 { margin: 0; font-size: .95rem; font-weight: 600; color: var(--text); letter-spacing: .3px; }
+.sec-head .cap { font-size: .75rem; color: var(--text-3); }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text-2); font-size: .78rem; }
+.chip.on { background: color-mix(in srgb, var(--accent) 16%, var(--card)); border-color: var(--accent); color: var(--text); }
+.chip:disabled { opacity: .5; }
+
+/* 今天的水温 */
+.temp { margin-top: 10px; padding-top: 6px; }
+.slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 16px; }
+.slot { border: 0; border-radius: 16px; padding: 8px 6px 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; background: var(--note); box-shadow: 0 0 0 1px var(--note-line), 0 3px 10px rgba(80, 70, 50, .06); min-width: 0; color: var(--text); }
+.slot:disabled { opacity: 1; }
+.slot.mine:not(:disabled) { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--c) 60%, transparent), 0 3px 10px rgba(80, 70, 50, .06); }
+.slot .pic { width: 56px; height: 56px; display: grid; place-items: center; }
+.slot .pic img { width: 100%; height: 100%; object-fit: contain; }
+.slot .ph { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; border: 1.5px dashed var(--text-3); color: var(--text-3); font-size: 1.1rem; }
+.slot .who { display: flex; align-items: center; gap: 5px; font-size: .74rem; font-weight: 600; max-width: 100%; }
+.slot .who i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+.slot .say { font-size: .72rem; color: var(--text-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot.empty .say { color: var(--text-3); }
+
+/* 潮间带 */
+.tide { margin-top: 26px; }
+.empty { margin: 24px 20px; text-align: center; font-size: .85rem; color: var(--text-3); }
+.card {
+  position: relative; margin: 0 16px 18px; padding: 14px 14px 10px; border-radius: 6px;
+  background: color-mix(in srgb, var(--c) 9%, var(--note)); box-shadow: 0 0 0 1px var(--note-line), 0 6px 14px rgba(80, 70, 50, .08);
+  transform: rotate(var(--t)); transition: transform .2s;
+}
+.card.polaroid { background: var(--note); padding: 12px 12px 10px; }
+.tape { position: absolute; top: -9px; left: 50%; width: 64px; height: 18px; margin-left: -32px; background: color-mix(in srgb, var(--c) 45%, transparent); transform: rotate(-2deg); border-radius: 2px; opacity: .85; pointer-events: none; }
+.card header { display: flex; align-items: center; gap: 9px; }
+.ava :deep(.avatar) { box-shadow: 0 0 0 2px var(--c); }
+.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.meta b { font-size: .84rem; }
+.meta small { font-size: .7rem; color: var(--text-3); }
+.more { border: 0; background: none; color: var(--text-3); padding: 6px; }
+.pic { display: block; width: 100%; margin: 10px 0 0; padding: 0; border: 0; background: none; }
+.st { margin: 10px 0 0; font-size: .8rem; color: var(--text-2); }
+.st span { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--c) 28%, transparent); color: var(--text); font-size: .72rem; }
+.done { margin: 8px 0 0; font-size: .74rem; color: color-mix(in srgb, var(--c) 70%, var(--text-2)); }
+.body { margin: 8px 0 0; font-size: .92rem; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+.body.cap { font-size: .88rem; text-align: center; margin-top: 10px; }
+.replies { list-style: none; margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: rgba(var(--tint-rgb), .035); font-size: .8rem; line-height: 1.55; display: flex; flex-direction: column; gap: 2px; }
+.replies b { margin-right: 6px; font-weight: 600; }
+.card footer { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.rx { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 999px; border: 0; background: none; font-size: .72rem; color: var(--text-3); min-height: 30px; }
+.rx .em { font-size: .95rem; filter: grayscale(.6); opacity: .7; }
+.rx.on .em, .rx:active .em { filter: none; opacity: 1; }
+.rx.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text-2); }
+.rx.reply { margin-left: auto; color: var(--text-2); }
+.rx.pop .em { animation: pop .45s; }
+@keyframes pop { 30% { transform: translateX(5px) scale(1.2); } 60% { transform: translateX(-3px); } }
+.who-dots { display: inline-flex; gap: 2px; }
+.who-dots i { width: 7px; height: 7px; border-radius: 50%; }
+.reply-box { display: flex; gap: 8px; margin-top: 6px; }
+.reply-box .input { flex: 1; min-width: 0; }
+.more-btn { display: block; margin: 0 auto; border: 0; background: none; color: var(--text-2); font-size: .82rem; padding: 10px 18px; }
+
+.fab { position: fixed; z-index: 20; right: max(18px, calc(50% - 260px + 18px)); bottom: calc(var(--safe-bottom) + 22px); width: 54px; height: 54px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #4a6086; color: #fff; box-shadow: 0 8px 22px rgba(60, 80, 120, .35); }
+:root[data-theme="dark"] .fab { background: #a9c1e2; color: #1b1e25; }
+
+/* 弹层里 */
+.mood-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 4px 0 12px; }
+.mood { border: 1.5px solid transparent; border-radius: 14px; background: var(--card-2); padding: 6px 2px 6px; display: flex; flex-direction: column; align-items: center; gap: 0; color: var(--text); }
+.mood.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card-2)); }
+.mood img { width: 100%; max-width: 52px; aspect-ratio: 1; object-fit: contain; }
+.mood b { font-size: .72rem; font-weight: 600; margin-top: 2px; }
+.mood small { font-size: .62rem; color: var(--text-3); }
+.sheet-act { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.area { width: 100%; resize: none; }
+.prev { position: relative; margin-top: 10px; width: 140px; }
+.prev .x, .plan-list .x { border: 0; background: rgba(30, 30, 40, .55); color: #fff; width: 24px; height: 24px; border-radius: 50%; line-height: 1; }
+.prev .x { position: absolute; top: -8px; right: -8px; }
+.row-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sheet-act + * { margin-top: 0; }
+.row-chips + .input { margin-top: 10px; }
+.quick { margin-top: 14px; }
+.quick .lab { font-size: .75rem; color: var(--text-3); }
+.q-row { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; }
+.q { flex: none; width: 40px; height: 40px; padding: 2px; border-radius: 12px; border: 1.5px solid transparent; background: var(--card-2); }
+.q.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--card-2)); }
+.q img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.hint { margin: 0 0 10px; font-size: .78rem; color: var(--text-3); line-height: 1.6; }
+.plan-add { display: flex; gap: 8px; }
+.plan-add .input { flex: 1; min-width: 0; }
+.plan-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.plan-list li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: color-mix(in srgb, var(--c, #ccc) 12%, var(--card-2)); }
+.plan-list .tick { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--text-3); background: none; display: grid; place-items: center; color: #fff; }
+.plan-list li.done .tick { background: color-mix(in srgb, var(--c) 80%, #555); border-color: transparent; }
+.plan-list .t { flex: 1; min-width: 0; font-size: .9rem; word-break: break-word; }
+.plan-list li.done .t { color: var(--text-3); text-decoration: line-through; }
+.plan-list small { color: var(--text-3); font-size: .7rem; }
+.plan-list .x { background: none; color: var(--text-3); font-size: 1.1rem; }
+.plan-list .none { justify-content: center; background: none; color: var(--text-3); font-size: .82rem; }
+@media (prefers-reduced-motion: reduce) { .rx.pop .em { animation: none; } }
+</style>

@@ -34,6 +34,7 @@ function defaults() {
     anniversaries: [], // { id, title, roleId, date: "YYYY-MM-DD", bg }
     events: [], // 日历：{ id, date: "YYYY-MM-DD", text, author: "me" | roleId, ts }
     media: defaultMedia(), // 语音转文字、他的声音、画画（见 lib/media.js）
+    meanwhile: { seq: 0, seenAt: 0, posts: [], moods: [], plans: [], shells: [], diaries: [] }, // Meanwhile（同一屋檐下），见 lib/meanwhile.js
     letters: [], // 信箱：{ id, roleId, from: "me" | "ai", title, body, sign, date, ts, locked, readAt }
     stickers: [], // 表情包：{ id, name, img }
     favorites: [], // 收藏的聊天：{ id, msgId, threadId, roleId, from, text, ts, savedAt }
@@ -120,7 +121,7 @@ export function newWake(roleId) {
   const crab = roleId === CRAB;
   return { enabled: false, intervalOn: true, every: crab ? 720 : 120, unit: "hour", jitter: crab ? 120 : 20, times: [], once: [], quiet: { enabled: true, from: "03:00", to: "10:00" },
     // 自由时间 / 事件醒来时能进哪些屋子：共读（读书、书的讨论室）、共写。小螃蟹还没分到，默认不勾
-    rooms: { read: !crab, write: !crab } };
+    rooms: { read: !crab, write: !crab, tide: false } }; // 潮间带：两个人都默认不勾，她开了才发
 }
 
 export const store = reactive(defaults());
@@ -320,6 +321,8 @@ function migrate() {
   if (crab?.persona === OLD_CRAB.persona) crab.persona = CRAB_PERSONA;
   if (crab?.style === OLD_CRAB.style) crab.style = CRAB_STYLE;
   store.letters ??= [];
+  store.meanwhile ??= { seq: 0, seenAt: 0, posts: [], moods: [], plans: [], shells: [], diaries: [] };
+  for (const k of ["posts", "moods", "plans", "shells", "diaries"]) store.meanwhile[k] ??= [];
   store.books ??= []; // 共读的书架
   store.bookNotes ??= []; // 书里的便利贴
   store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）

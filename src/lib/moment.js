@@ -5,6 +5,7 @@
 // 存的都是准确的时间戳，「3 小时前」是给他看的那一刻才算出来的
 import { store, uid, solo } from "../store/index.js";
 import { lettersOf } from "./letters.js";
+import { tideMoment } from "./meanwhile.js";
 
 export const DAY = 86400_000;
 export const MOMENT_MAX = 3;
@@ -129,6 +130,7 @@ export function momentParts(role, who, opt = {}) {
   return [
     { key: "letters", title: "信箱", text: lettersMoment(role, who, opt) },
     ...(solo(role) ? [] : [{ key: "read", title: "共读", text: readingMoment(role, who, opt) }]), // 共读还没给小螃蟹接
+    { key: "tide", title: "潮间带（你们三个人共用的生活记录页）", text: tideMoment(role) },
     { key: "self", title: "你自己记在此刻的（24 小时后自动忘）", text: mine.map(m => `- ${ago(m.ts)}：${m.text}`).join("\n") },
   ];
 }
