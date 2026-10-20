@@ -112,7 +112,7 @@ function tapRack() {
 
           <p class="sec">信箱 <em>letters</em></p>
           <div class="rack-card" :class="{ out: rackOut }" @click="tapRack">
-            <LetterRack :letters="letters" half :active="rackOut" />
+            <LetterRack :letters="letters" half :active="rackOut" :role-id="role.id" />
             <div class="rack-foot">
               <span>{{ letters.length ? `${letters.length} 封信${unread ? `，${unread} 封没拆` : ""}` : "还没有信" }}</span>
               <span class="link">{{ rackOut ? "再点一下，打开信箱 ›" : "打开信箱 ›" }}</span>
