@@ -74,6 +74,24 @@ async function fetchImages(base, media) {
 }
 const stripMediaNotes = text => String(text).replace(/\n?（附图：book\/media\/[^）]*）/g, "").replace(/\n?（附了一段视频，第一帧缩略图：[^）]*）/g, "\n（附了一段视频，这里只有第一帧）").trim();
 
+// 自己醒来写进对话本的那份（id 是 wake-<醒来的id>）；栖所聊天里同一次醒来是 w<醒来的id>、带 wakeId。
+// 之前已经被当成新话搬进来的重复那条，在这里清掉（对话本里的记录不动）：它的后续消息接回它的上一条
+const wakeIdOf = e => (/^wake-/.test(String(e.id)) || e.where === "wake") ? String(e.id).replace(/^wake-/, "") : "";
+function dropWakeEchoes(all, t) {
+  const real = new Set(all.filter(m => m.wakeId).map(m => m.wakeId));
+  const echoes = all.filter(m => !m.wakeId && /^wake-/.test(String(m.id)) && real.has(m.id.slice(5)));
+  if (!echoes.length) return false;
+  for (const e of echoes) {
+    for (const c of all) if (c.parentId === e.id) c.parentId = e.parentId;
+    if (t.sel) {
+      if (t.sel[e.parentId] === e.id) t.sel[e.parentId] = t.sel[e.id] || all.find(c => c.parentId === e.parentId && c !== e)?.id;
+      delete t.sel[e.id];
+    }
+    all.splice(all.indexOf(e), 1);
+  }
+  return true;
+}
+
 let busy = false;
 export async function syncBook() {
   const role = roleById(CRAB);
@@ -88,6 +106,7 @@ export async function syncBook() {
       st.thread = t.id; st.pushedTs = 0; st.sig = "";
     }
     const all = await loadMessages(t.id);
+    if (dropWakeEchoes(all, t)) saveMessages(t.id);
     // 写进去：栖所这边新说的（别处拿回来的不再写回去）、摘要、记忆卡片
     const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && ((m.text || "").trim() || m.attachments?.some(a => a.kind === "image")));
     const packs = await Promise.all(fresh.map(packImages));
@@ -110,11 +129,11 @@ export async function syncBook() {
     const { entries = [] } = await r.json();
     let added = 0;
     for (const e of entries.sort((a, b) => a.ts - b.ts)) {
-      if (all.some(m => m.id === e.id)) { st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0); continue; }
+      if (all.some(m => m.id === e.id || (wakeIdOf(e) && m.wakeId === wakeIdOf(e)))) { st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0); continue; }
       const atts = e.media?.length ? await fetchImages(base, e.media) : [];
       if (!atts) break; // 图还没拿到：这句和后面的下次再拿，别悄悄丢了
       st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0);
-      if (String(e.id).startsWith("wake-")) continue; // 自己醒来的：中转写进对话本的那份，栖所自己从信箱取过（别重复接一遍）
+      if (wakeIdOf(e)) continue; // 自己醒来的：中转写进对话本的那份，栖所自己从信箱取回聊天（带 wakeId）；一律不再接一遍
       if (e.kind === "memory") { applyMemoryTags(role, e.text); continue; } // 别处记下的记忆卡片
       const path = activePath(all, t.sel || {});
       const parentId = path.length ? path[path.length - 1].id : ROOT;
