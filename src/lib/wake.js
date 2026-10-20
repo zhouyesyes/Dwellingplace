@@ -6,7 +6,7 @@
 //   3. 订阅推送通知
 //   4. 聊天时 TA 写的 [定闹钟:…] / [取消闹钟:…]
 import { reactive, watch } from "vue";
-import { store, uid, roleById, threadsOf, mailThreadOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
+import { store, CRAB, uid, roleById, threadsOf, mailThreadOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
 import { relayCall, searchEnabled } from "./search.js";
 import { tail, chatTokens } from "./budget.js";
 import { serversFor, serversForMode, enabledTools, headerObj, toolDoc } from "./mcp.js";
@@ -408,11 +408,12 @@ async function ingest(item) {
   // 用工具、搜索的提示放在消息前面；定闹钟之类的放在后面
   const before = item.notes.filter(n => n.detail || n.sources).map(n => ({ ...n, before: true }));
   const after = item.notes.filter(n => !(n.detail || n.sources));
+  if (item.book && !item.book.ok) after.push({ text: `没能写进对话本：${item.book.error}` }); // 小螃蟹醒来的话写不进对话本时，说出原因
 
   if (!item.silent && item.text) {
     const parent = last ? last.id : ROOT;
     const msg = {
-      id: `w${item.id}`, parentId: parent, from: "ai", text: item.text, ts: item.ts, // 固定的 id：两台设备都取到了，同步时也只算一条
+      id: `w${item.id}`, parentId: parent, from: "ai", text: item.text, ts: item.ts, ...(role.id === CRAB ? { where: "wake" } : {}), // 小螃蟹的：标「自己醒来」，和对话本里一致； // 固定的 id：两台设备都取到了，同步时也只算一条
       notes: [{ text: item.direct ? `到点了 · ${item.reasons.join("；")}（直接发的，没有叫醒他）` : `${role.name} 醒来了 · ${item.reasons.join("；")}`, before: true, wakeId: item.id }, ...before],
       apiId: item.apiId, model: item.model, usage: item.usage, wakeId: item.id,
       ctx: item.usage?.ctx, ctx0: item.usage?.ctx0, // 上下文多大（usage.input 是用工具来回几次加起来的，不是上下文）

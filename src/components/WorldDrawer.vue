@@ -3,7 +3,7 @@
 // 上面是他（点卡片进他的设定）；下面是对话和背景、唤醒、语音和画画、信箱（平时收在右边，点一下整个抽出来、最近的信轮流冒头；再点一下进整个信箱）、邮箱、表情包
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { store, threadsOf, today, apiById } from "../store/index.js";
+import { store, threadsOf, today, apiById, CRAB } from "../store/index.js";
 import { stickersOf } from "../lib/stickers.js";
 import { lettersOf } from "../lib/letters.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
@@ -102,8 +102,8 @@ function tapRack() {
           <button class="row" @click="emit('summary')">
             <Icon name="memory" :size="20" /><span class="grow">摘要记忆<small>{{ summaryLine }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
-          <button class="row" @click="go('/settings/wake')">
-            <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ store.wake?.enabled ? "已开启：他会自己醒来" : "让他按时间自己醒来，给你发消息" }}</small></span><Icon name="right" :size="16" class="chev" />
+          <button class="row" @click="go(role.id === CRAB ? '/settings/wake/' + role.id : '/settings/wake')">
+            <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ store.wake?.enabled && role.wake?.enabled ? `已开启：${role.id === CRAB ? role.name : "他"}会自己醒来` : `让${role.id === CRAB ? role.name : "他"}按时间自己醒来，给你发消息` }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
           <button class="row" @click="go('/settings/media')">
             <Icon name="mic" :size="20" /><span class="grow">语音和画画<small>{{ mediaOn || "还没开：选好服务商再来填" }}</small></span><Icon name="right" :size="16" class="chev" />

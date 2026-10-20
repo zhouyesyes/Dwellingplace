@@ -838,10 +838,36 @@ async function getBusy(env) {
   return Object.fromEntries(Object.entries(busy).filter(([, b]) => now - b.at < 600_000));
 }
 
+// 小螃蟹醒来说的话、做的事，写进她的对话本（私人仓库 qisuo-memory，经过她服务器上的 …/claude/book/push）。
+// 来源标「自己醒来」（where: wake），Claude Code 那边的钩子读得到；id 以 wake- 开头，栖所自己取回来的那份不会再重复接一遍。
+// 连不上也不耽误醒来：记在 item.book 里，栖所会把原因显示出来
+async function bookWake(role, item) {
+  if (role.id !== "crab") return;
+  const base = String(role.api?.baseUrl || "").trim().replace(/\/+$/, "");
+  if (!/\/claude\/v1$/i.test(base)) { item.book = { ok: false, error: "小螃蟹的接口地址不是 …/claude/v1，不知道对话本在哪" }; return; }
+  const said = visible(item.text || "").trim();
+  const did = (item.notes || []).map(n => String(n.text || "").trim()).filter(Boolean);
+  const head = `（醒来了：${(item.reasons || []).join("；") || "没写原因"}${item.free?.label ? `；去了「${item.free.label}」` : item.free?.pick === "sleep" ? "；想了想接着睡了" : ""}${item.room?.text ? "；在那里留了话" : ""}）`;
+  const text = [head, said && `我说：${said}`, !said && !item.error ? "这次没有发消息。" : "", item.error ? `醒来时出错了：${String(item.error).slice(0, 200)}` : "", did.length ? `做了：${did.join("；")}` : ""].filter(Boolean).join("\n");
+  try {
+    const r = await fetch(base.replace(/\/v1$/i, "") + "/book/push", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entries: [{ id: "wake-" + item.id, ts: item.ts, where: "wake", from: "crab", text }] }),
+      signal: AbortSignal.timeout(15000),
+    });
+    item.book = r.ok ? { ok: true } : { ok: false, error: `服务器回 ${r.status}` };
+  } catch (e) {
+    item.book = { ok: false, error: `连不上服务器：${String(e.message || e).slice(0, 80)}` };
+  }
+}
+
 async function runWake(env, cfg, role, reasons, now = Date.now()) {
   await setBusy(env, role.id, reasons.map(r => r.text).join("；")).catch(() => {});
   try {
-    return await runWakeInner(env, cfg, role, reasons, now);
+    const item = await runWakeInner(env, cfg, role, reasons, now);
+    await bookWake(role, item);
+    if (item.book) await resave(env, item);
+    return item;
   } finally {
     await setBusy(env, role.id, "").catch(() => {});
   }
@@ -1095,6 +1121,7 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
     setBusy(env, role.id, "").catch(() => {});
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: why, silent: true, text: "",
       notes: [{ text: `自由时间：${role.name} 想了想，接着睡了` }], usage: { ...lobbyUsage, rounds: 1, ctx0: lobbyUsage.input }, apiId: role.api?.id || null, model: role.api?.model || "", free: { pick: "sleep" } };
+    await bookWake(role, item);
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
     await env.KV.put("boxlatest", String(item.ts));
     return item;
@@ -1128,6 +1155,7 @@ async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, outp
       notes: [], usage: { input: lobbyUsage.input + r1.usage.input, output: lobbyUsage.output + r1.usage.output, cached: lobbyUsage.cached + (r1.usage.cached || 0), rounds: lobbyUsage.input ? 2 : 1, ctx0: r1.usage.input },
       apiId: role.api?.id || null, model: role.api?.model || "", ...(free ? { free } : {}),
     };
+    await bookWake(role, item);
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
     await env.KV.put("boxlatest", String(item.ts));
     if (!silent) {
@@ -1359,6 +1387,7 @@ async function tick(env, now = Date.now()) {
     sched.last = { at: now, reasons: reasons.map(r => r.text), error: errText };
     // 出错也告诉栖所一声
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: reasons.map(r => r.text), silent: true, error: errText, text: "", notes: [], usage: { input: 0, output: 0 } };
+    await bookWake(role, item).catch(() => {});
     await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
     await env.KV.put("boxlatest", String(item.ts));
   }
@@ -1524,7 +1553,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 30, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 31, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

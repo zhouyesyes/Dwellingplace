@@ -106,7 +106,7 @@ export function newRole(over = {}) {
     lastThreadId: null,
     // 在这个角色面前的「我」
     me: { name: "", avatar: null, about: "" },
-    wake: newWake(),
+    wake: newWake(over.id),
     wakeAlarms: [], // TA 自己定的闹钟（中转上的副本）
     wakeLog: [], // 最近醒来的记录
     createdAt: Date.now(),
@@ -115,8 +115,10 @@ export function newRole(over = {}) {
 }
 
 // 唤醒设置：every 是分钟；unit 只是显示用（小时 / 分钟）
-export function newWake() {
-  return { enabled: false, intervalOn: true, every: 120, unit: "hour", jitter: 20, times: [], once: [], quiet: { enabled: true, from: "03:00", to: "10:00" } };
+// 小螃蟹用的是她的 Claude 订阅，额度紧：默认一天醒一两次（每 12 小时左右，免打扰时间里不醒）
+export function newWake(roleId) {
+  const crab = roleId === CRAB;
+  return { enabled: false, intervalOn: true, every: crab ? 720 : 120, unit: "hour", jitter: crab ? 120 : 20, times: [], once: [], quiet: { enabled: true, from: "03:00", to: "10:00" } };
 }
 
 export const store = reactive(defaults());
@@ -356,7 +358,9 @@ function migrate() {
     r.bubbleColor ??= DEFAULT_BUBBLE;
     if (r.id === MAIN) r.color = PALETTE[2];
     r.calPerDay ??= 3;
-    r.wake = { ...newWake(), ...(r.wake || {}) };
+    r.wake = { ...newWake(r.id), ...(r.wake || {}) };
+    // 小螃蟹还没开过、也没改过的唤醒：换成稀一点的默认（原来跟他一样是每 2 小时）
+    if (r.id === CRAB && !r.wake.enabled && r.wake.every === 120 && r.wake.jitter === 20 && !r.wake.times?.length) { r.wake.every = 720; r.wake.jitter = 120; }
     r.wakeAlarms ??= [];
     r.wakeLog ??= [];
     r.xinchao ??= { dashToken: "" }; // 心潮看板口令

@@ -114,6 +114,7 @@ export async function syncBook() {
       const atts = e.media?.length ? await fetchImages(base, e.media) : [];
       if (!atts) break; // 图还没拿到：这句和后面的下次再拿，别悄悄丢了
       st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0);
+      if (String(e.id).startsWith("wake-")) continue; // 自己醒来的：中转写进对话本的那份，栖所自己从信箱取过（别重复接一遍）
       if (e.kind === "memory") { applyMemoryTags(role, e.text); continue; } // 别处记下的记忆卡片
       const path = activePath(all, t.sel || {});
       const parentId = path.length ? path[path.length - 1].id : ROOT;
