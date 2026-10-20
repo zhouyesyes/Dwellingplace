@@ -1,6 +1,6 @@
 <script setup>
 // 潮汐表（日历）：日式，每格只有左边一竖、底下一横，像纸上压出来的印子。
-// 每格：日期、当天三个人的水温小图标、有没有记录（右上一个小点）。月初的空格放当月的「待续」
+// 每格：日期、当天挂待续的人（每人一个小圆点）、三个人的水温小图标、有没有记录（右上一个小点）。月初的空格放当月的「待续」
 import { computed } from "vue";
 import { todayYmd, MONTHS_EN } from "../../lib/dates.js";
 import { moodByKey, moodsOn, postsOf, monthPlansOf, plansOnDay, whoList, whoInfo } from "../../lib/meanwhile.js";
@@ -23,11 +23,16 @@ const recorded = computed(() => {
   for (const p of postsOf()) if (p.date.startsWith(props.month)) s.add(p.date);
   return s;
 });
+// 当天挂了待续的人，每人一个小圆点（按页面里的顺序，颜色是各自的标识色；这个人挂的全做完了就淡一点）
+const planDots = date => {
+  const ps = plansOnDay(date), order = whoList();
+  return order.filter(w => ps.some(p => p.who === w)).map(w => ({ who: w, color: whoInfo(w).color, done: ps.filter(p => p.who === w).every(p => p.doneAt) }));
+};
 const cells = computed(() => Array.from({ length: dayCount.value }, (_, i) => {
   const d = i + 1, date = `${props.month}-${pad(d)}`;
   const order = whoList();
   const moods = moodsOn(date).sort((a, b) => order.indexOf(a.who) - order.indexOf(b.who)).map(x => ({ ...x, mood: moodByKey(x.key) })).filter(x => x.mood);
-  return { d, date, moods, has: recorded.value.has(date), today: date === today, future: date > today, plans: plansOnDay(date), last: (lead.value + i + 1) % 7 === 0 };
+  return { d, date, moods, has: recorded.value.has(date), today: date === today, future: date > today, pdots: planDots(date), last: (lead.value + i + 1) % 7 === 0 };
 }));
 // 月末补满最后一周的空格，也画线，整张表四边都收口
 const tail = computed(() => Array.from({ length: (7 - (lead.value + dayCount.value) % 7) % 7 }, (_, i) => i));
@@ -37,7 +42,7 @@ const todo = computed(() => plans.value.slice(0, 3));
 const monthEn = computed(() => MONTHS_EN[m.value - 1]);
 const isThisMonth = computed(() => props.month === today.slice(0, 7));
 const nameOf = who => whoInfo(who).name;
-const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" + c.moods.map(x => `${nameOf(x.who)}${x.mood.name}`).join("、") : ""}${c.has ? "，有记录" : ""}`;
+const label = c => `${m.value} 月 ${c.d} 日${c.pdots.length ? "，待续：" + c.pdots.map(x => nameOf(x.who)).join("、") : ""}${c.moods.length ? "，水温：" + c.moods.map(x => `${nameOf(x.who)}${x.mood.name}`).join("、") : ""}${c.has ? "，有记录" : ""}`;
 </script>
 
 <template>
@@ -67,7 +72,7 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
       <button v-for="c in cells" :key="c.date" class="cell" :class="{ today: c.today, sel: c.date === selected, future: c.future, last: c.last }" :aria-label="label(c)" @click="emit('select', c.date)">
         <span class="d">{{ c.d }}</span>
         <i v-if="c.has" class="dot" />
-        <span v-if="c.plans.length" class="sticker" :class="{ done: c.plans.every(p => p.doneAt) }" :title="c.plans.map(p => p.text).join('、')"><b v-if="c.plans.length > 1">{{ c.plans.length }}</b></span>
+        <span v-if="c.pdots.length" class="pdots"><i v-for="x in c.pdots" :key="x.who" :class="{ done: x.done }" :style="{ background: x.color }" /></span>
         <span v-if="starsOf(c.date).length" class="stars"><i v-for="(col, j) in starsOf(c.date)" :key="j" :style="{ color: col }">✦</i></span>
         <span v-if="c.moods.length" class="ms" :class="`n${c.moods.length}`">
           <img v-for="x in c.moods" :key="x.id" :src="x.mood.img" :alt="`${nameOf(x.who)}：${x.mood.name}`" draggable="false" role="button" @click.stop="emit('mood', x)" />
@@ -112,10 +117,9 @@ const label = c => `${m.value} 月 ${c.d} 日${c.moods.length ? "，水温：" +
 :root[data-theme="dark"] .cell.today .d { background: #a9c1e2; color: #1b1e25; }
 .cell.sel { background-color: rgba(106, 163, 232, .13); border-radius: 6px; }
 .cell.future .d { opacity: .55; }
-.sticker { position: absolute; left: 7px; top: 21px; width: 15px; height: 12px; border-radius: 2px 2px 2px 5px; background: #f3dc8b; box-shadow: 0 1px 2px rgba(80, 70, 50, .25); transform: rotate(-4deg); display: grid; place-items: center; }
-.sticker b { font-size: 7px; font-weight: 700; color: #6b5a22; line-height: 1; }
-.sticker.done { opacity: .5; }
-:root[data-theme="dark"] .sticker { background: #cdb764; }
+.pdots { position: absolute; left: 7px; top: 22px; display: flex; gap: 2px; }
+.pdots i { width: 6px; height: 6px; border-radius: 50%; box-shadow: 0 0 0 .5px rgba(60, 50, 40, .18); }
+.pdots i.done { opacity: .45; }
 .dot { position: absolute; right: 7px; top: 6px; width: 5px; height: 5px; border-radius: 50%; background: #6f8fb8; opacity: .8; }
 /* 一个人、两个人、三个人，水滴一样大：按三颗刚好并排放得下的尺寸定，少于三颗就居中 */
 .ms { position: absolute; left: 0; right: 0; bottom: 5px; display: flex; justify-content: center; align-items: flex-end; padding: 0 3px; }
