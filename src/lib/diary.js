@@ -3,6 +3,8 @@
 import { store, uid } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 
+// 日记总开关（10/20）：先收起来。关着时页面不出现日记，也不教他们写；万一还是写了，照样存下、从显示文字里去掉。改成 true 就全接回来
+export const SHOW_DIARY = false;
 export const DIARY_RE = /\[日记[:：]([^\]]{2,6000})\]/g;
 export const diaryList = () => [...(store.diary || [])].sort((a, b) => a.ts - b.ts);
 
@@ -18,6 +20,7 @@ export function removeDiary(e) {
 }
 
 export function diaryForAI(role, who) {
+  if (!SHOW_DIARY) return "";
   const mine = (store.diary || []).filter(e => e.from === "ai").slice(-3);
   return [
     `\n# 日记本`,
