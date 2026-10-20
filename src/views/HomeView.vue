@@ -195,7 +195,8 @@ const rows = computed(() => [
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
 .meta { font-size: .8rem; color: var(--text-3); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row.chat + .row::before { display: none; }
+/* 最后一个聊天和下面的 Reading 之间，也是同样的一道细线（和聊天之间那条一样） */
+.row.chat + .row.plain::before { left: 24px; background: rgba(var(--tint-rgb), .05); }
 .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
 .txt b { font-size: .88rem; font-weight: 600; }
 .txt small { font-size: .82rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
