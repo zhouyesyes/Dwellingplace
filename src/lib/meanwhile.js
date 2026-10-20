@@ -110,12 +110,13 @@ export function shellData(date) {
   const posts = postsOn(date).slice().reverse();
   const planIds = new Set();
   const plans = [];
-  const addPlanLine = p => { if (planIds.has(p.id)) return; planIds.add(p.id); plans.push({ id: p.id, done: !!p.doneAt, text: oneLine(p.text, 18), color: whoInfo(p.who).color }); };
+  const addPlanLine = p => { if (planIds.has(p.id)) return; planIds.add(p.id); plans.push({ id: p.id, done: !!p.doneAt, text: oneLine(p.text, 18), full: oneLine(p.text, 9999), color: whoInfo(p.who).color }); };
   plansOnDay(date).forEach(addPlanLine);
   for (const post of posts) { const p = post.planId && ensureMeanwhile().plans.find(x => x.id === post.planId); if (p) addPlanLine(p); }
   const lines = posts.filter(p => !p.planId).map(p => {
     const st = p.status ? `${STATUSES.find(s => s.kind === p.status.kind)?.name || ""}${p.status.text ? " " + p.status.text : ""}` : "";
-    return { id: p.id, color: whoInfo(p.who).color, time: hhmm(p.ts), text: oneLine([st && `[${st}]`, p.text].filter(Boolean).join(" ") || (p.img ? "［照片］" : ""), 16) };
+    const all = [st && `[${st}]`, p.text].filter(Boolean).join(" ") || (p.img ? "［照片］" : "");
+    return { id: p.id, color: whoInfo(p.who).color, time: hhmm(p.ts), text: oneLine(all, 16), full: oneLine(all, 9999) };
   });
   const photo = posts.find(p => p.img)?.img || null;
   const total = temps.filter(t => t.mood).length + lines.length + plans.length;
