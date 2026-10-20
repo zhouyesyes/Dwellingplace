@@ -118,7 +118,9 @@ export function newRole(over = {}) {
 // 小螃蟹用的是她的 Claude 订阅，额度紧：默认一天醒一两次（每 12 小时左右，免打扰时间里不醒）
 export function newWake(roleId) {
   const crab = roleId === CRAB;
-  return { enabled: false, intervalOn: true, every: crab ? 720 : 120, unit: "hour", jitter: crab ? 120 : 20, times: [], once: [], quiet: { enabled: true, from: "03:00", to: "10:00" } };
+  return { enabled: false, intervalOn: true, every: crab ? 720 : 120, unit: "hour", jitter: crab ? 120 : 20, times: [], once: [], quiet: { enabled: true, from: "03:00", to: "10:00" },
+    // 自由时间 / 事件醒来时能进哪些屋子：共读（读书、书的讨论室）、共写。小螃蟹还没分到，默认不勾
+    rooms: { read: !crab, write: !crab } };
 }
 
 export const store = reactive(defaults());
@@ -361,12 +363,31 @@ function migrate() {
     r.wake = { ...newWake(r.id), ...(r.wake || {}) };
     // 小螃蟹还没开过、也没改过的唤醒：换成稀一点的默认（原来跟他一样是每 2 小时）
     if (r.id === CRAB && !r.wake.enabled && r.wake.every === 120 && r.wake.jitter === 20 && !r.wake.times?.length) { r.wake.every = 720; r.wake.jitter = 120; }
+    // 小螃蟹的共读 / 共写一律不勾（以前没有这一项，自由时间会把屋子全列给她）；她之后自己勾上的不动
+    if (r.id === CRAB && !r.wake.roomsFixed) { r.wake.rooms = { read: false, write: false }; r.wake.roomsFixed = true; }
     r.wakeAlarms ??= [];
     r.wakeLog ??= [];
     r.xinchao ??= { dashToken: "" }; // 心潮看板口令
     r.me ??= { name: store.profile.userName || "", avatar: null, about: "" };
     r.avatars ??= []; // 头像库：{ id, name, img }，他自己挑着换
     r.avatarAuto ??= true;
+  }
+  // 10/20 12:00 自由时间，小螃蟹误进了共读《渣攻的白月光和我HE了》：划线和读书笔记本来该是小章鱼那边的记录。
+  // 一次性处理：那 5 处划线开头标上说明，那条读书笔记从小螃蟹的记忆挪给小章鱼；进度不动（只记下来让她看）
+  if (!store.fixes?.crabReadMixup) {
+    const WAKE_AT = 1792468848000, TAG = "（这段是小螃蟹醒来时误读的）";
+    const book = (store.books || []).find(b => b.title?.includes("渣攻的白月光和我HE了"));
+    if (book) {
+      store.fixes = { ...(store.fixes || {}), crabReadMixup: true };
+      // 同一次醒来贴的批注是一批、时间挨得很近；取醒来之后的第一批
+      const mine = (store.bookNotes || []).filter(n => n.bookId === book.id && n.from === "ai" && n.ts >= WAKE_AT).sort((a, b) => a.ts - b.ts);
+      const batch = mine.filter(n => n.ts - mine[0].ts < 60_000);
+      if (batch.length === 5) for (const n of batch) if (!n.text.startsWith(TAG)) n.text = (TAG + n.text).slice(0, 1000);
+      const mem = (store.memories || []).find(m => m.roleId === CRAB && m.bookId === book.id && m.title?.includes("被比较与被看见"));
+      if (mem) { mem.roleId = MAIN; mem.author = MAIN; mem.content = TAG + mem.content; }
+      const moved = book.hisPos && book.hisPos.at >= WAKE_AT;
+      store.fixes.crabReadMixupInfo = { notes: batch.length, memory: !!mem, hisPosMoved: !!moved, hisPos: book.hisPos || null, alongTo: book.alongTo || null };
+    }
   }
   for (const a of store.apis) {
     a.favModels ??= [];
