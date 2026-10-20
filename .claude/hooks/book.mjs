@@ -2,16 +2,29 @@
 //   node book.mjs prompt   她每发一句：先拉最新的，把栖所那边（还有别处）新写的塞给我看，再把她这句记下
 //   node book.mjs stop     我回完一轮：把我这轮说的话记下，推上去
 //   node book.mjs say cloud < 报告.txt   直接写一段话进去并推上去（云端派活的窗口用它写完工报告；那边不一定装得上钩子）
+//   node book.mjs install  把钩子挂到这个容器的个人设置里（窗口开在两个仓库的上一层时，项目里的钩子不生效；她 10/20 同意过）
 // 找不到仓库、没网、没权限：什么都不做，不挡着干活。不想用：环境变量 QISUO_BOOK=off
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2];
 if (process.env.QISUO_BOOK === "off") process.exit(0);
+if (mode === "install") {
+  const me = fileURLToPath(import.meta.url);
+  const f = join(homedir(), ".claude", "settings.json");
+  let cfg = {}; try { cfg = JSON.parse(readFileSync(f, "utf8")); } catch { /* 还没有 */ }
+  if (JSON.stringify(cfg.hooks || {}).includes("book.mjs")) { console.log("对话本：钩子已经挂好了"); process.exit(0); }
+  const hook = (m, t) => [{ hooks: [{ type: "command", command: `node ${JSON.stringify(me)} ${m}`, timeout: t }] }];
+  cfg.hooks = { ...(cfg.hooks || {}), UserPromptSubmit: [...(cfg.hooks?.UserPromptSubmit || []), ...hook("prompt", 30)], Stop: [...(cfg.hooks?.Stop || []), ...hook("stop", 40)] };
+  mkdirSync(dirname(f), { recursive: true });
+  writeFileSync(f, JSON.stringify(cfg, null, 2) + "\n");
+  console.log("对话本：钩子挂好了，从她下一句开始自动记");
+  process.exit(0);
+}
 const RAW = (() => { try { return readFileSync(0, "utf8"); } catch { return ""; } })();
 const input = (() => { try { return JSON.parse(RAW); } catch { return {}; } })();
 const project = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
