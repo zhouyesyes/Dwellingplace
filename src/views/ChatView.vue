@@ -110,6 +110,18 @@ onMounted(async () => {
 
 // ---------- 消息分组：同一个人 5 分钟内连续的消息算一组 ----------
 // 他一边说话一边用工具：提示条（带 at）插在说到一半的地方，前后的话都留着
+// at 是流式时记下的位置；后面标记被去掉、文字变短，位置会偏。只在段落边界上切，不切进 [网址卡片:…] 这类方括号指令里面
+function safeCut(text, at) {
+  at = Math.max(0, Math.min(at, text.length));
+  const bounds = [0, text.length];
+  for (const m of text.matchAll(/\n[ \t]*\n\s*/g)) bounds.push(m.index, m.index + m[0].length);
+  const near = bounds.reduce((a, b) => (Math.abs(b - at) < Math.abs(a - at) ? b : a));
+  const line = text.lastIndexOf("\n", near - 1) + 1;
+  const open = text.lastIndexOf("[", near - 1);
+  // 落在 [ … ] 中间（括号里没有换行）：退到这一行的开头
+  if (open >= line && open < near && text.indexOf("]", open) >= near) return line;
+  return near;
+}
 const items = computed(() => {
   const out = [];
   let group = null;
@@ -133,7 +145,7 @@ const items = computed(() => {
       const text = m.text || "";
       let from = 0;
       mid.forEach(([n, i], k) => {
-        const at = Math.min(n.at, text.length);
+        const at = Math.max(from, safeCut(text, n.at));
         const part = text.slice(from, at);
         if (part.trim()) add({ ...m, text: part, pending: false, _src: m, _key: `${m.id}~${k}`, _first: from === 0 });
         event(m, n, i);

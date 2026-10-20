@@ -21,7 +21,8 @@ export const MAX_ALARMS = 5;
 export const wakeStatus = reactive({ syncedAt: 0, syncing: false, error: "", latest: 0, checking: false, busy: {} }); // busy：正在醒来的 TA
 
 const relayReady = () => !!(store.tools.relay?.url && store.tools.relay?.token);
-export const wakeReady = () => !!store.wake?.enabled && relayReady();
+// 没有总开关了：谁的开关开着谁醒（中转也是按每个人的开关判断）
+export const wakeReady = () => relayReady();
 export const wakeOn = role => wakeReady() && !!role?.wake?.enabled;
 
 const pad = n => String(n).padStart(2, "0");
@@ -271,7 +272,7 @@ export async function syncNow() {
   if (wakeStatus.syncing) { scheduleSync(2000); return; }
   wakeStatus.syncing = true;
   try {
-    const roles = store.wake.enabled ? await Promise.all(store.roles.filter(r => r.wake?.enabled).map(snapshotRole)) : [];
+    const roles = await Promise.all(awake.map(snapshotRole));
     const snap = {
       v: 1,
       appUrl: location.href.split("#")[0],
@@ -283,7 +284,7 @@ export async function syncNow() {
     if (body === lastSent) return;
     await relayCall("/wake/sync", snap);
     lastSent = body;
-    store.wake.synced = store.wake.enabled;
+    store.wake.synced = awake.length > 0;
     wakeStatus.syncedAt = Date.now();
     wakeStatus.error = "";
   } catch (e) {
@@ -526,7 +527,7 @@ export const testPush = () => relayCall("/push/test", {});
 export function startWake(router) {
   // 设定、记忆、聊天变了 → 过一会儿同步一次（中间再变就重新计时）
   watch(
-    () => [store.wake.enabled, store.roles, store.memories, store.events, store.settings, store.tools, store.mcpServers, store.apis, store.threads.map(t => t.updatedAt + ":" + t.id)],
+    () => [store.roles, store.memories, store.events, store.settings, store.tools, store.mcpServers, store.apis, store.threads.map(t => t.updatedAt + ":" + t.id)],
     () => scheduleSync(),
     { deep: true },
   );

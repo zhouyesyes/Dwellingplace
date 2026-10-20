@@ -22,7 +22,7 @@ const rid = ref(roleById(route.query.role) ? route.query.role : MAIN);
 const role = computed(() => roleById(rid.value));
 const letters = computed(() => lettersOf(rid.value));
 const others = computed(() => store.roles.filter(r => r.id !== rid.value));
-function switchRole() { rid.value = others.value[0]?.id || MAIN; opened.value = null; router.replace({ query: { role: rid.value } }); }
+function switchRole(id) { rid.value = id; opened.value = null; router.replace({ query: { role: id } }); }
 const opened = ref(null);
 function open(l) {
   opened.value = l;
@@ -71,7 +71,10 @@ async function send(callHim) {
         <p class="sub"><template v-if="others.length">{{ role?.name }} · </template>{{ letters.length ? `${letters.length} 封信` : "还没有信" }}<template v-if="letters.some(l => l.from !== 'me' && !l.readAt)"> · 有没拆的</template></p>
       </div>
       <div class="acts">
-        <button v-if="others.length" class="who-btn" :aria-label="`换到${others[0].name}的信箱`" @click="switchRole"><Avatar :img="others[0].avatar" :name="others[0].name" :color="others[0].color" :size="30" /></button>
+        <!-- 头像显示的是现在翻开的是谁的信箱（圈起来的那个）；另一个淡淡的，点它换过去 -->
+        <div v-if="others.length" class="who">
+          <button v-for="r in store.roles" :key="r.id" class="who-btn" :class="{ on: r.id === rid }" :aria-label="r.id === rid ? `现在是${r.name}的信箱` : `换到${r.name}的信箱`" :aria-pressed="r.id === rid" @click="r.id !== rid && switchRole(r.id)"><Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="30" /></button>
+        </div>
         <button class="btn small" @click="startWrite"><Icon name="edit" :size="16" /> 写信</button>
       </div>
     </header>
@@ -115,16 +118,18 @@ async function send(callHim) {
 
 <style scoped>
 .letters { min-height: 100%; padding: calc(var(--safe-top) + 16px) 18px calc(var(--safe-bottom) + 40px); max-width: 560px; margin: 0 auto; }
-.head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-bottom: 16px; }
+.head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin-bottom: 16px; }
 .head > :first-child { justify-self: start; }
 .head > :last-child { justify-self: end; }
 .head h1 { margin: 0; font-size: 2rem; font-weight: 300; letter-spacing: .14em; line-height: 1.2; }
 .title { text-align: center; }
 .sub { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-2); }
 .grow { flex: 1; }
-.head .btn { display: flex; align-items: center; gap: 4px; }
+.head .btn { white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 .acts { display: flex; align-items: center; gap: 8px; }
-.who-btn { padding: 0; border: 0; background: none; border-radius: 50%; }
+.who { display: flex; align-items: center; gap: 6px; }
+.who-btn { padding: 2px; border: 2px solid transparent; background: none; border-radius: 50%; opacity: .45; line-height: 0; }
+.who-btn.on { opacity: 1; border-color: var(--ink); }
 .empty { text-align: center; color: var(--text-3); font-size: 0.85rem; margin-top: 18px; }
 .legend { text-align: center; font-size: 0.75rem; color: var(--text-3); margin-top: 14px; }
 .legend .new { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #d4ad5a; box-shadow: 0 0 5px rgba(240, 205, 120, .9); vertical-align: 1px; }
