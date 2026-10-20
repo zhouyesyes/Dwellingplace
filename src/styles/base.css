@@ -31,9 +31,14 @@
   --on-ink: #ffffff;
   --glass-rgb: 255, 255, 255;
   --tint-rgb: 0, 0, 0;
-  --ask-bg: #fbf5e6; /* 提问卡：浅奶油色，不分人 */
-  --ask-line: #e8dcc0;
-  --ask-sel: #f1e2b8;
+  --ask-bg: #ffffff; /* 提问卡：白卡浅灰边，不分人 */
+  --ask-line: #e2e2e2;
+  --ask-opt: #ffffff;
+  --ask-sel: #5b5b5b; /* 选中：深灰底、白字 */
+  --ask-sel-tx: #ffffff;
+  --ask-mute: #8c8c8c; /* 「可多选」「其他…」说明小字、箭头 */
+  --ask-dot: #cfcfcf;
+  --ask-dot-on: #6b6b6b;
   --pastel: 100%;
   --ink-keep: 100%;
   --avatar-mix: #ffffff;
@@ -64,9 +69,14 @@
   --shadow-soft: 0 4px 16px rgba(0, 0, 0, .28);
   --glass-rgb: 38, 42, 51;
   --tint-rgb: 255, 255, 255;
-  --ask-bg: #3a362b;
-  --ask-line: #5b5440;
-  --ask-sel: #5a4f32;
+  --ask-bg: #2b2b2d;
+  --ask-line: #444447;
+  --ask-opt: #2b2b2d;
+  --ask-sel: #5a5a5e;
+  --ask-sel-tx: #f2f2f2;
+  --ask-mute: #9a9a9e;
+  --ask-dot: #55555a;
+  --ask-dot-on: #c4c4c8;
   --pastel: 20%;
   --ink-keep: 30%;
   --avatar-mix: #3a404c;
