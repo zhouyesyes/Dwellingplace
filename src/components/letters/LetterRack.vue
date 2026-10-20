@@ -5,8 +5,9 @@
 //   完整（信箱页）：从上往下看进盒子，一封叠一封只露出上沿，最新的在最前面、整封露出来；点哪封拆哪封
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { paperOf, asset } from "../../lib/stationery.js";
+import { CRAB } from "../../store/index.js";
 
-const props = defineProps({ letters: { type: Array, default: () => [] }, half: Boolean, active: Boolean });
+const props = defineProps({ letters: { type: Array, default: () => [] }, half: Boolean, active: Boolean, roleId: String });
 const emit = defineEmits(["open"]);
 const list = computed(() => [...props.letters].sort((a, b) => a.ts - b.ts).map(l => ({ l, p: paperOf(l) })));
 // 抽屉里最多露 7 封（最新的几封），最新的在最前面
@@ -22,7 +23,8 @@ watch(() => props.active, a => {
 }, { immediate: true });
 onBeforeUnmount(() => clearInterval(timer));
 const upLetter = computed(() => peek.value[up.value]?.l);
-const front = asset("box-front");
+// 小世界里的箱子：小螃蟹是橘色太阳那张，其他人还是原来的
+const front = computed(() => asset(props.roleId === CRAB ? "box-front-cc" : "box-front"));
 const boxIn = asset("box-in");
 const unread = l => l.from !== "me" && !l.readAt;
 const md = d => { const [, m, dd] = String(d || "").split("-"); return m ? `${Number(m)}.${Number(dd)}` : ""; };
