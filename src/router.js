@@ -11,7 +11,6 @@ import BackupView from "./views/BackupView.vue";
 import SyncView from "./views/SyncView.vue";
 import ToolsView from "./views/ToolsView.vue";
 import McpEditView from "./views/McpEditView.vue";
-import WakeView from "./views/WakeView.vue";
 import WakeRoleView from "./views/WakeRoleView.vue";
 
 
@@ -50,7 +49,7 @@ export const router = createRouter({
     { path: "/settings/apis", component: () => import("./views/BillingView.vue") },
     { path: "/settings/tools", component: ToolsView },
     { path: "/settings/mcp/:id", component: McpEditView },
-    { path: "/settings/wake", component: WakeView },
+    { path: "/settings/wake", redirect: "/settings/wake/main" },
     { path: "/settings/wake/:id", component: WakeRoleView },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],

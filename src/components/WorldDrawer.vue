@@ -102,7 +102,7 @@ function tapRack() {
           <button class="row" @click="emit('summary')">
             <Icon name="memory" :size="20" /><span class="grow">摘要记忆<small>{{ summaryLine }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
-          <button class="row" @click="go(role.id === CRAB ? '/settings/wake/' + role.id : '/settings/wake')">
+          <button class="row" @click="go('/settings/wake/' + role.id)">
             <Icon name="bell" :size="20" /><span class="grow">唤醒<small>{{ role.wake?.enabled ? `已开启：${role.id === CRAB ? role.name : "他"}会自己醒来` : `让${role.id === CRAB ? role.name : "他"}按时间自己醒来，给你发消息` }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
           <button class="row" @click="go('/settings/media')">
