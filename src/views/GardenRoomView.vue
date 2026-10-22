@@ -5,10 +5,9 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById } from "../store/index.js";
-import { roomOf, roomConnected } from "../lib/rooms.js";
+import { roomOf, roomConnected, roomIntro } from "../lib/rooms.js";
 import { loadGRoom, saveGRoom, roomSay, dropGMsg, regenGRoom, compressGRoom, clearGRoom, gSum, afterSum, roomTokens, roomScene, roomSystem } from "../lib/gardenTalk.js";
-import { INSIGHT_CATS, insightsOf, removeInsight } from "../lib/insights.js";
-import { momentsOf, removeMoment, ago } from "../lib/moment.js";
+import { INSIGHT_CATS, insightsOf, removeInsight, groupByGame } from "../lib/insights.js";
 import { wakeName } from "../lib/wake.js";
 import { describeError } from "../lib/chat.js";
 import { blockMd } from "../lib/inlineMd.js";
@@ -24,6 +23,7 @@ const router = useRouter();
 const role = computed(() => roleById(String(route.params.roleId)));
 const key = computed(() => String(route.params.room));
 const room = computed(() => roomOf(key.value));
+const intro = computed(() => (void store.roomIntros, role.value && room.value ? roomIntro(role.value, key.value) : ""));
 const who = computed(() => wakeName(role.value));
 const connected = computed(() => !!role.value && roomConnected(role.value, key.value));
 const owner = computed(() => (role.value ? gSum(role.value, key.value) : null));
@@ -108,7 +108,7 @@ async function showPeek() {
 const book = ref(false);
 const cat = computed(() => room.value?.cat);
 const insights = computed(() => (void store.memories.length, role.value ? insightsOf(role.value.id, cat.value) : []));
-const moments = computed(() => (void store.moments?.length, role.value ? momentsOf(role.value.id, key.value) : []));
+const groups = computed(() => (cat.value === "game" ? groupByGame(insights.value) : [{ game: "", list: insights.value }])); // 玩这一栏按游戏分组
 const md = d => String(d || "").slice(5).replace("-", "/");
 function dropInsight(m) { if (confirm("把这条心得删掉？总本里也会没有。")) removeInsight(m); }
 
@@ -137,7 +137,7 @@ onBeforeUnmount(() => ro?.disconnect());
     <main ref="scroller" class="list">
       <p v-if="!connected" class="off">{{ who }} 这边这间房还没接上工具，先空着。接好以后再来；心得本右上角还能翻。</p>
       <div v-if="!msgs.length && !busy" class="empty">
-        <p>坐下来，和{{ who }}在「{{ room.label }}」这间房里待一会儿。{{ room.hint }}——这间房的工具只在这里带着。</p>
+        <p>坐下来，和{{ who }}在「{{ room.label }}」这间房里待一会儿。{{ intro }}——这间房的工具只在这里带着。</p>
         <button v-for="q in connected ? ideas : []" :key="q" class="idea" @click="send(q)">{{ q }}</button>
       </div>
       <p v-if="owner?.talkSum?.text" class="sum-tip" @click="sumOpen = true">前面 {{ owner.talkSum.count }} 句已经整理成摘要了 · 点开看</p>
@@ -188,17 +188,14 @@ onBeforeUnmount(() => ro?.disconnect());
 
     <Sheet :open="book" :title="`「${room.label}」的心得本`" @close="book = false">
       <p class="info">{{ who }} 自己记的「{{ INSIGHT_CATS[cat] }}」，和记忆页 Drawers 里的心得本是同一本：这边删了，那边也没有。进这间房时他会先看最近几条。</p>
-      <article v-for="m in insights" :key="m.id" class="ins">
-        <div class="meta"><span>{{ md(m.date) }}</span><button aria-label="删掉" @click="dropInsight(m)"><Icon name="close" :size="14" /></button></div>
-        <p>{{ m.content }}</p>
-      </article>
+      <template v-for="g in groups" :key="g.game">
+        <h4 v-if="g.game" class="sub">{{ g.game }}<small>{{ g.list.length }}</small></h4>
+        <article v-for="m in g.list" :key="m.id" class="ins">
+          <div class="meta"><span>{{ md(m.date) }}</span><button aria-label="删掉" @click="dropInsight(m)"><Icon name="close" :size="14" /></button></div>
+          <p>{{ m.content }}</p>
+        </article>
+      </template>
       <p v-if="!insights.length" class="none">还没有心得</p>
-      <h4 class="sub">这间房的此刻<small>24 小时后自动忘，只在这间房里</small></h4>
-      <article v-for="m in moments" :key="m.id" class="ins">
-        <div class="meta"><span>{{ ago(m.ts) }}</span><button aria-label="忘掉" @click="removeMoment(m)"><Icon name="close" :size="14" /></button></div>
-        <p>{{ m.text }}</p>
-      </article>
-      <p v-if="!moments.length" class="none">现在没有</p>
     </Sheet>
 
     <Sheet :open="!!peek" title="这间房带给他的" @close="peek = null">

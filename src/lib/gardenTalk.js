@@ -3,19 +3,20 @@
 // 花园的工具只在对应那间房里带（通用的网页、搜索、浏览器哪里都能用）；主聊天里没有花园的工具。
 //
 // 每次给他看的（这间房自己的在前，全局的在后）：
-//   这间房自己的：这间房那一栏心得本最近几条（少量）→ 这间房对话的摘要 → 这间房自己的此刻（房间里最近 24 小时的小事）
-//   全局的：常驻的记忆卡片、按话想起的几张 → 主聊天的此刻 → 主聊天的摘要最后一小段、最近十来句原话
+//   这间房自己的：这间房的介绍、那一栏心得本最近几条 → 这间房对话的摘要 → 房间里的动静
+//   全局的：常驻的记忆卡片、按话想起的几张 → 板块记忆（含另外两间房的介绍和最新心得）→ 全局的此刻（只有一份）→ 主聊天的摘要最后一小段、最近十来句原话
 //   然后是摘要之后的房间对话
-//   这间房的心得、摘要、此刻只在这间房里出现，主聊天和别的房间都不带
+//   这间房的对话摘要只在这间房里出现；心得和介绍在别处只带一点点（见 insights.js 的 roomBoardText）
 import { reactive } from "vue";
 import { store, uid, apiFor, modelFor, recordUsage, loadMessages } from "../store/index.js";
 import { get, set } from "./kv.js";
-import { ROOMS, roomOf, roomServers, roomConnected, roomsOf } from "./rooms.js";
+import { ROOMS, roomOf, roomServers, roomConnected, roomsOf, roomIntro } from "./rooms.js";
 import { roomInsightForAI, applyInsightTags } from "./insights.js";
-import { momentsOf, applyMomentTags, momentParts, momentRule, ago, within } from "./moment.js";
+import { applyMomentTags, momentParts, momentRule, ago, within } from "./moment.js";
 import { applyTideTags } from "./meanwhile.js";
 import { pinnedOf, recallCards, recallCount, markUsed } from "./memoryTags.js";
 import { recallForAI } from "./recall.js";
+import { boardForAI } from "./board.js";
 import { searchEnabled, relaySearch, formatResults } from "./search.js";
 import { toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult } from "./mcp.js";
 import { streamChat } from "./providers.js";
@@ -63,9 +64,8 @@ export function afterSum(owner, list) {
   return i >= 0 ? list.slice(i + 1) : list;
 }
 
-// ---------- 这间房自己的此刻 ----------
+// ---------- 这间房里的动静（此刻只有全局一份，在 globalForRoom 里带） ----------
 export function roomMomentText(role, key, list = []) {
-  const mine = momentsOf(role.id, key).map(m => `- ${ago(m.ts)}：${m.text}`);
   const recent = list.filter(m => within(m.ts));
   const lines = [];
   if (recent.length) {
@@ -74,10 +74,7 @@ export function roomMomentText(role, key, list = []) {
     const visit = recent.filter(m => m.from === "ai" && m.notes?.some(n => /自由时间/.test(n.text || n))).length;
     if (visit) lines.push(`- 这期间你有 ${visit} 次是自由时间自己走进来的`);
   }
-  return [
-    lines.length ? `## 房间里的动静\n${lines.join("\n")}` : "",
-    mine.length ? `## 你自己记在这间房此刻的（24 小时后自动忘）\n${mine.join("\n")}` : "",
-  ].filter(Boolean).join("\n");
+  return lines.length ? `## 房间里的动静\n${lines.join("\n")}` : "";
 }
 
 // ---------- 全局的那部分 ----------
@@ -85,7 +82,7 @@ async function mainThreadOf(role) {
   const t = [...(store.threads || [])].filter(x => x.roleId === role.id && !x.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
   return t || null;
 }
-export async function globalForRoom(role, me, query = "") {
+export async function globalForRoom(role, me, query = "", skipRoom = "") {
   const pinned = pinnedOf(role.id);
   const recalled = recallCards(role.id, query, recallCount(), { exclude: pinned.map(m => m.id) });
   if (recalled.length) markUsed(recalled);
@@ -103,9 +100,11 @@ export async function globalForRoom(role, me, query = "") {
       return t ? `${m.from === "user" ? me : "你"}：${t.length > 200 ? t.slice(0, 200) + "…" : t}` : "";
     }).filter(Boolean).join("\n");
   }
+  const board = boardForAI(role, { skipRoom });
   const parts = [
     cards.length ? `记忆卡片（常驻的，和这次可能相关的）：\n${cards.map(line).join("\n")}` : "",
-    moment ? `主聊天的此刻（最近 24 小时）：\n${moment}` : "",
+    board ? `板块记忆（长期的进展）：\n${board}` : "",
+    moment ? `此刻（最近 24 小时，全局一份）：\n${moment}` : "",
     sumTail ? `平时聊天的摘要（最后一小段）：\n${sumTail}` : "",
     recent ? `平时聊天里最近说的（最近的在最后）：\n${recent}` : "",
   ].filter(Boolean);
@@ -122,7 +121,7 @@ export function roomSceneParts(role, key, list) {
   if (ins) out.push({ key: "insight", label: "这间房的心得本（最近几条，只带少量）", text: ins });
   if (owner?.talkSum?.text) out.push({ key: "talkSum", label: "这间房的对话摘要", text: `你们之前在这间房聊的摘要（你自己整理的）：\n${owner.talkSum.text}` });
   const mom = roomMomentText(role, key, list);
-  if (mom) out.push({ key: "moment", label: "这间房自己的此刻", text: `最近 24 小时（这间房的【此刻】）：\n${mom}` });
+  if (mom) out.push({ key: "moment", label: "这间房里的动静", text: `最近 24 小时（这间房里）：\n${mom}` });
   return out;
 }
 export function roomRules(role, key, { wake = false } = {}) {
@@ -130,7 +129,7 @@ export function roomRules(role, key, { wake = false } = {}) {
   return [
     `\n你可以在回复里顺手做这几件事（不是每次都要）：`,
     wake ? "" : `- 想不起以前的事（你们聊过什么、哪天说过什么），或者${me}问起以前的事：只回复一行 [翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录和记忆里找给你，你再回复`,
-    `- ${momentRule(me)}（写在这里的只记在这间房的此刻里，主聊天和别的房间看不到）`,
+    `- ${momentRule(me)}（写在这里的会记进全局的此刻，前面自动加上房间名）`,
   ].filter(Boolean).join("\n");
 }
 export function roomSystem(role, key, { wake = false } = {}) {
@@ -142,7 +141,7 @@ export function roomSystem(role, key, { wake = false } = {}) {
     `你是「${role.name}」。`,
     role.style?.trim() ? `\n# 我是谁（这是你自己写给自己的）\n${role.style.trim()}` : "",
     `\n# 这间房`,
-    `你和${me}在栖所的小世界里。现在你在「${room.label}」这间小房间${g ? `（${g.platform}）` : ""}：${room.hint}。`,
+    `你和${me}在栖所的小世界里。现在你在「${room.label}」这间小房间${g ? `（${g.platform}）` : ""}：${roomIntro(role, key)}。`,
     wake
       ? `这一次你是从自由时间自己走进来的，${me}现在不一定在。先看一眼上面你这间房的心得本，再决定做什么，做完就停，不用什么都做。做了什么、想说什么，留一段话在这间房的对话框里，${me}来了会看到。`
       : `这是这间房自己的对话框：你和${me}在这里一句一句聊，也可以直接动手（这间房的工具只在这里带着）。像平时说话那样，几段就好；说你真实的想法，做想做的事。`,
@@ -164,7 +163,7 @@ export async function roomScene(role, key, list, { query = "", withTalk = true }
   const rest = tail(afterSum(owner, list), roomTokens());
   return [
     own.length ? `# 这间房自己的记忆（只在这间房里，主聊天和别的房间都没有）\n${own.map(x => x.text).join("\n\n")}` : "",
-    await globalForRoom(role, me, query),
+    await globalForRoom(role, me, query, key),
     withTalk ? `\n# ${roomTitle(key)}这间房的对话（${owner?.talkSum?.text ? "摘要之后" : "刚才"}，${rest.length} 句）\n${rest.map(m => `${m.from === "me" ? me : "你"}：${m.text}`).join("\n") || "（刚坐下）"}` : "",
   ].filter(Boolean).join("\n");
 }

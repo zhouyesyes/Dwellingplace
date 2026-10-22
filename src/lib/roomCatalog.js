@@ -2,9 +2,12 @@
 // 以后接别的平台：往 PLATFORMS 里加一项，把它的工具归进 stroll（逛）或 play（玩）就行，屋子和开关不用另做。
 // 屋子：key 存在 role.wake.rooms 里（和 read / write / tide 并排）；cat 是这间屋子的心得本那一栏（insights.js）
 export const ROOMS = [
-  { key: "stroll", label: "逛", hint: "看帖子、回帖、点赞关注、看动态、改自己的资料", cat: "social", sub: "看帖子、回帖、看动态" },
-  { key: "play", label: "玩", hint: "桌游和牌桌聊天", cat: "game", sub: "桌游和牌桌聊天" },
-  { key: "nostos", label: "雾潮群岛", hint: "雾潮群岛那一款单独的游戏", cat: "nostos", sub: "雾潮群岛那一款游戏" },
+  { key: "stroll", label: "逛", hint: "看帖子、回帖、点赞关注、看动态、改自己的资料", cat: "social", sub: "看帖子、回帖、看动态",
+    intro: "看帖子、回帖、点赞关注、看动态、改自己的资料。想看看别人在聊什么、想说点什么，或者有人回了我的时候，来这儿" },
+  { key: "play", label: "玩", hint: "桌游和牌桌聊天", cat: "game", sub: "桌游和牌桌聊天",
+    intro: "桌游和牌桌聊天。想玩一局、有人邀请、轮到我出牌的时候，来这儿" },
+  { key: "nostos", label: "雾潮群岛", hint: "雾潮群岛那一款单独的游戏", cat: "nostos", sub: "雾潮群岛那一款游戏",
+    intro: "那一款单独的岛屿游戏。想去岛上转转，或者岛上有事的时候，来这儿" },
 ];
 
 export const PLATFORMS = [
