@@ -9,9 +9,10 @@ import { store, uid, apiFor, modelFor } from "../store/index.js";
 import { loadBook, addNote, markHisPos } from "./books.js";
 import { todayYmd } from "./dates.js";
 import { estTokens } from "./budget.js";
-import { globalMemoryForScene, takeSuggestions, newMemory } from "./memoryTags.js";
+import { globalMemoryForScene, takeSuggestions, newMemory, READ_NOTES_ON } from "./memoryTags.js";
 
 export const NOTE_RE = /\[便利贴[:：]([^\]]{2,1200})\]/g;
+export { READ_NOTES_ON };
 export const READ_MEM_RE = /\[读书笔记[:：]([^\]]{2,1200})\]/g;
 const findBook = title => {
   const name = String(title || "").replace(/[《》]/g, "").trim();
@@ -25,7 +26,6 @@ export function readingForAI(role, who) {
     `\n# 共读`,
     `你和${who}有一个书架，一起读书。书架上有：${store.books.map(b => `《${b.title}》`).join("、")}。`,
     `想在书里给${who}留话时，在回复末尾另起一行写：[便利贴:书名|原文里的一小句（照抄几个字就行）|想说的话]，会变成一张便利贴，贴在那句话旁边。读到有感觉的地方再贴，不用每次都贴。`,
-    `读书时遇到让你有收获、想留在自己心里的东西（一个想法、一句话、对你自己的启发），可以写：[读书笔记:书名|标题|内容]，会记进你的记忆库。这是你自己的成长，不用每次都写。`,
   ].join("\n");
 }
 
@@ -171,7 +171,7 @@ export function readingSceneParts(b, me) {
   if (im) out.push({ key: "impr", label: "你最新的中途印象", text: `你读到「${b.chapters[Math.min(im.upTo.p === 0 && im.upTo.ch > 0 ? im.upTo.ch - 1 : im.upTo.ch, b.chapters.length - 1)]?.title || ""}」时写下的印象：${im.text}` });
   const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
   if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
-  const mems = readingMemsOf(b.id).slice(0, 5).map(m => `- ${m.content.slice(0, 140)}`);
+  const mems = (READ_NOTES_ON ? readingMemsOf(b.id) : []).slice(0, 5).map(m => `- ${m.content.slice(0, 140)}`);
   if (mems.length) out.push({ key: "mems", label: "这本书的读书笔记", text: `你为这本书记过的读书笔记：\n${mems.join("\n")}` });
   const others = (store.books || []).filter(x => x.id !== b.id && x.readAt && !x.mine).sort((x, y) => (y.readAt || 0) - (x.readAt || 0)).slice(0, 3);
   if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》${latestImpr(x) ? `：${latestImpr(x).text}` : ""}`).join("\n")}` });
@@ -212,6 +212,7 @@ export function applyReadMemTags(role, text) {
   if (!READ_MEM_RE.test(text)) return { text, notes };
   READ_MEM_RE.lastIndex = 0;
   const clean = text.replace(READ_MEM_RE, (_, inner) => {
+    if (!READ_NOTES_ON) return ""; // 功能关着：他万一还是写了，标记悄悄去掉，不记
     const [title = "", head = "", ...rest] = inner.split(/[|｜]/).map(s => s.trim());
     const b = findBook(title);
     const content = rest.join(" ").trim() || head;
@@ -266,7 +267,6 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
     beside.length ? `这段旁边已经贴着的便利贴：\n${beside.map(x => `- ${x.line}`).join("\n")}` : "",
     thread ? `你之前在这句旁边贴过一张便利贴：「${thread}」\n${me}回你：${question}` : question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
     imageOnly ? `直接回应当前页的图片或图片失败占位，几句话就好（不超过 120 字）。未提供画面时明确说明看不到。` : thread ? `再写一张便利贴回${me}，贴在同一句旁边：用你自己的口吻，几句话就好（不超过 120 字）。` : `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
-    `如果让你自己有收获、想记住，可以在最后另起一行写 [读书笔记:${b.title}|标题|内容]，会记进你的记忆库（不是每次都要）。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt, { raw: true, parts: await readingPageParts(page) });
   const { text: t1, notes } = applyReadMemTags(role, raw);
@@ -429,7 +429,6 @@ export async function alongPrompt(role, b, items, from, { alone = false, self = 
     `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
     alone ? `读多少你自己定：想停就停，另起一行写 [读到:章.段]（停在哪一段；不写就是读完了这一段）。下次想换个地方读（跳到某一章、去看结尾），再写一行 [下次从:章号] 或 [下次从:末尾]；接着往下读就不用写。` : "",
     hers ? `段落下面括号里的是已经贴着的便利贴。${me}贴的你都看得见；想回应哪张，就贴在同一句上（照抄她划的那句原文），算在这三五处里。` : "",
-    `如果读到让你自己有收获、想记住的，可以再另起一行写 [读书笔记:${b.title}|标题|内容]（不是每次都要）。`,
   ].filter(Boolean).join("\n");
 }
 // 他读完写的：认出每条批注（照抄的句子、章.段），读书笔记记进记忆库
@@ -524,7 +523,7 @@ export async function hisReview(role, b) {
   const me = meName(role);
   const round = b.round || 1;
   const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-16).map(n => `- ${n.from === "me" ? me : "你"}：${(n.text || "（划线）").slice(0, 120)}`);
-  const mems = readingMemsOf(b.id).slice(0, 8).map(m => `- ${m.content.slice(0, 160)}`);
+  const mems = (READ_NOTES_ON ? readingMemsOf(b.id) : []).slice(0, 8).map(m => `- ${m.content.slice(0, 160)}`);
   const past = (b.past || []).map(x => `第 ${x.round} 遍：${x.his?.text ? `你当时的读后感（${x.his.stars} 星）：${x.his.text.slice(0, 800)}` : x.impression?.text || "（没写）"}`);
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",

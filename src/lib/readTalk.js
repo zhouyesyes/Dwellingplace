@@ -9,10 +9,10 @@
 //   涉及以前的事：他可以写 [翻记忆:关键词]，在所有聊天和记忆里找，找到了再回（一次最多翻两回）
 import { reactive } from "vue";
 import { store, uid } from "../store/index.js";
-import { get, set } from "./kv.js";
+import { get, set, onRemoteChange } from "./kv.js";
 import { progressOf } from "./books.js";
-import { latestImpr, readingMemsOf, applyNoteTags, applyReadMemTags } from "./reading.js";
-import { globalMemoryForScene, takeSuggestions, CAT_HINT } from "./memoryTags.js";
+import { latestImpr, readingMemsOf, applyNoteTags, applyReadMemTags, READ_NOTES_ON } from "./reading.js";
+import { globalMemoryForScene, takeSuggestions, roomSuggestRule } from "./memoryTags.js";
 import { recallForAI } from "./recall.js";
 import { tail, sumTokens, keepCount, writeTokens, AUTO, snapshotSum } from "./budget.js";
 
@@ -27,6 +27,12 @@ export const roomTitle = id => (id === HALL ? "共读讨论室" : `《${roomBook
 
 // ---------- 讨论记录 ----------
 const talks = reactive({});
+// 别的设备同步来了新的：已经打开过的这份对话，原地换成新的
+onRemoteChange(k => {
+  if (!k.startsWith("rtalk:")) return;
+  const id = k.slice(6);
+  if (talks[id]) get(k).then(v => talks[id].splice(0, talks[id].length, ...(v || [])));
+});
 export async function loadRoom(id) {
   if (!talks[id]) talks[id] = (await get(`rtalk:${id}`)) || [];
   return talks[id];
@@ -71,7 +77,7 @@ function bookParts(b, me) {
   if (b.mine?.text) out.push({ key: "mine", label: `${me}的读后感`, text: `${me}的读后感（${b.mine.stars} 星）：\n${b.mine.text.slice(0, 1500)}` });
   const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-12).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
   if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
-  const mems = readingMemsOf(b.id).slice(0, 8).map(m => `- ${m.content.slice(0, 160)}`);
+  const mems = (READ_NOTES_ON ? readingMemsOf(b.id) : []).slice(0, 8).map(m => `- ${m.content.slice(0, 160)}`);
   if (mems.length) out.push({ key: "mems", label: "这本书的读书笔记", text: `你为这本书记过的读书笔记：\n${mems.join("\n")}` });
   return out;
 }
@@ -82,7 +88,7 @@ function hallParts(me) {
     const im = latestImpr(b);
     return [`- 《${b.title}》${b.author ? `（${b.author}）` : ""}：${where(b)}`, im && `你最新的印象：${im.text}`, b.his && `你的读后感 ${b.his.stars} 星：${b.his.text.slice(0, 160)}…`, b.mine && `${me}给了 ${b.mine.stars} 星`].filter(Boolean).join("；");
   }).join("\n")}` });
-  const mems = readingMemsOf().slice(0, 8).map(m => `- ${m.title}：${m.content.slice(0, 120)}`);
+  const mems = (READ_NOTES_ON ? readingMemsOf() : []).slice(0, 8).map(m => `- ${m.title}：${m.content.slice(0, 120)}`);
   if (mems.length) out.push({ key: "mems", label: "最近的读书笔记", text: `你最近记的读书笔记：\n${mems.join("\n")}` });
   return out;
 }
@@ -113,7 +119,6 @@ export async function roomPrompt(role, id, extra = "", alone = false) {
       `\n你可以在回复里顺手做这几件事（不是每次都要）：`,
       `- 想不起以前的事（你们聊过什么、哪天说过什么），或者${me}问起以前的事：只回复一行 [翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录和记忆里找给你，你再回复`,
       `- 给书里某句话贴便利贴：另起一行写 [便利贴:书名|原文里的一小句|想说的话]`,
-      `- 让你自己有收获、想记住的：另起一行写 [读书笔记:书名|标题|内容]，会记进你的记忆库`,
     ].join("\n"),
     extra,
     alone ? `\n（这是你的自由时间，你自己走进了这里，${me}现在不在。写一段你想留在这里的话：想和${me}讨论的、读到想到的、想问${me}的，等${me}来了会看到。像平时说话那样，几段就好。不想写就只写 [不说话]。）` : `\n现在接着回${me}，像平时说话那样，几段就好。`,
@@ -173,7 +178,7 @@ export async function compressRoom(role, id, { keep, why = "manual" } = {}) {
       prev ? `（以前已经整理好的讨论摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${cut(prev, 1500)}\n` : "",
       `下面是你们${prev ? "接着" : ""}讨论的：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}`).join("\n")}\n`,
       `只把这一段新的讨论整理成一小段摘要，写给以后接着讨论的自己看：聊了哪些书、哪些地方，各自怎么看，有什么分歧，${me}在意什么。书里的人物写名字，别用含糊的「他」「她」。按先后，客观简洁，不超过 800 字。只写这一段摘要本身。`,
-      `另外：如果讨论里有关于${me}本人、值得长久记住的事（不是书里的内容），在最后另起一行写 [候选记忆:类别|标题|内容]，最多 2 条（类别从这几个里选：${CAT_HINT}）；没有就不写。`,
+      roomSuggestRule(role, me, { not: "书里的内容" }),
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
     text = takeSuggestions(role, text, roomTitle(id));
     if (!text) return 0;

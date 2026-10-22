@@ -9,7 +9,7 @@
 //   这间房的对话摘要只在这间房里出现；心得和介绍在别处只带一点点（见 insights.js 的 roomBoardText）
 import { reactive } from "vue";
 import { store, uid, apiFor, modelFor, recordUsage, loadMessages } from "../store/index.js";
-import { get, set } from "./kv.js";
+import { get, set, onRemoteChange } from "./kv.js";
 import { ROOMS, roomOf, roomServers, roomConnected, roomsOf, roomIntro } from "./rooms.js";
 import { roomInsightForAI, applyInsightTags } from "./insights.js";
 import { applyMomentTags, momentParts, momentRule, ago, within } from "./moment.js";
@@ -24,7 +24,7 @@ import { wakeName } from "./wake.js";
 import { logTurn } from "./quota.js";
 import { tail, sumTokens, keepCount, AUTO, snapshotSum } from "./budget.js";
 import { visibleText, findCmd, meName, helperApi, oneShot, sumSpanHead, pathOf, afterSummary, splitBubbles } from "./chat.js";
-import { CAT_HINT, takeSuggestions } from "./memoryTags.js";
+import { takeSuggestions, roomSuggestRule } from "./memoryTags.js";
 
 export const roomKeys = ROOMS.map(r => r.key);
 const idOf = (role, key) => `${role.id}:${key}`;
@@ -32,6 +32,12 @@ export const roomTitle = key => `「${roomOf(key)?.label || key}」`;
 
 // ---------- 对话记录（单独存，会同步）----------
 const talks = reactive({});
+// 别的设备同步来了新的：已经打开过的这份对话，原地换成新的
+onRemoteChange(k => {
+  if (!k.startsWith("gtalk:")) return;
+  const id = k.slice(6);
+  if (talks[id]) get(k).then(v => talks[id].splice(0, talks[id].length, ...(v || [])));
+});
 export async function loadGRoom(role, key) {
   const id = idOf(role, key);
   if (!talks[id]) talks[id] = (await get(`gtalk:${id}`)) || [];
@@ -350,7 +356,7 @@ export async function compressGRoom(role, key, { keep, why = "manual" } = {}) {
       prev ? `（以前已经整理好的摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${prev.length > 1500 ? "……" + prev.slice(-1500) : prev}\n` : "",
       `下面是你们${prev ? "接着" : ""}在这里的对话：\n${old.map(m => `${m.from === "me" ? me : "你"}：${(m.text || "").slice(0, 600)}${m.notes?.length ? `（${m.notes.map(n => n.text || n).join("；").slice(0, 200)}）` : ""}`).join("\n")}\n`,
       `只把这一段新的对话整理成一小段摘要，写给以后接着在这间房的自己看：做了什么、看到了什么、各自怎么想、说好了什么，${me}在意什么。按先后，客观简洁，不超过 800 字。只写这一段摘要本身。`,
-      `另外：如果里面有关于${me}本人、值得长久记住的事，在最后另起一行写 [候选记忆:类别|标题|内容]，最多 2 条（类别从这几个里选：${CAT_HINT}）；没有就不写。`,
+      roomSuggestRule(role, me, { not: "游戏的输赢、帖子的内容" }),
     ].filter(Boolean).join("\n"), { helper: true, raw: true })).trim();
     text = takeSuggestions(role, text, `小世界${room.label}`);
     if (!text) return 0;

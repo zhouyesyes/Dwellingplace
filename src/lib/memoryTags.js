@@ -49,9 +49,23 @@ export function setAccess(m, access) {
   touch(m);
   return "";
 }
-export function confirmMemory(m, access = "normal") { m.status = "valid"; return setAccess(m, access); }
+// 「建议修改原卡」（editOf 指向原卡）：同意就把新的标题、内容写到原卡上，这条建议用完就没了
+export function applyEditSuggestion(m) {
+  const orig = store.memories.find(x => x.id === m.editOf && x.status !== "deleted");
+  purgeMemory(m);
+  if (!orig) return "原来那张卡已经不在了，这条建议就算了";
+  orig.title = m.title;
+  orig.content = m.content;
+  touch(orig);
+  return "";
+}
+export function confirmMemory(m, access = "normal") {
+  if (m.editOf) return applyEditSuggestion(m);
+  m.status = "valid";
+  return setAccess(m, access);
+}
 export function markObsolete(m) { m.status = "obsolete"; touch(m); }
-export function trashMemory(m) { m.statusBefore = m.status; m.status = "deleted"; m.deletedAt = Date.now(); }
+export function trashMemory(m) { if (m.editOf) return purgeMemory(m); /* 改卡建议：删了就是不要，不进回收站 */ m.statusBefore = m.status; m.status = "deleted"; m.deletedAt = Date.now(); }
 export function restoreMemory(m) { m.status = m.statusBefore && m.statusBefore !== "deleted" ? m.statusBefore : "valid"; delete m.deletedAt; delete m.statusBefore; }
 export function purgeMemory(m) { const i = store.memories.indexOf(m); if (i >= 0) store.memories.splice(i, 1); }
 
@@ -109,7 +123,34 @@ export function lettersLog(role, meName, n = 5) {
 // 变成一张「待确认」的卡片：不发给他、不自动想起，你确认了才生效
 export const SUGGEST_RE = /\[候选记忆[:：]([^\]]{2,600})\]/g;
 export const suggestRule = me => `另外：如果这些里面有值得单独长久记住的事（${me}的喜好、经历、约定、重要的时刻），在最后另起一行写 [候选记忆:类别|标题|内容]，最多 3 条，一两句话；类别从这几个里选一个：${CAT_HINT}；没有就不写。`;
+// 讨论室压缩时整理出的建议：先对照已有的卡片，重复的不写；能改原卡的写 [候选改记忆:#编号|新的内容]，真新的才写 [候选记忆:类别|标题|内容]
+// 都只是建议，放进记忆页「待确认」，点同意才生效（chatgpt 和 CC 各管各的卡片）
+export const EDIT_SUGGEST_RE = /\[候选改记忆[:：]([^\]]{2,900})\]/g;
+const cardLine = m => `#${m.id.slice(0, 4)}${m.cat ? `[${m.cat}]` : ""} ${m.title}：${(m.content || "").replace(/\s+/g, " ").slice(0, 50)}`;
+export function roomSuggestRule(role, me, { not = "书里的内容", max = 3 } = {}) {
+  const cards = memoriesOf(role.id).filter(m => memKind(m) === "card" && !m.editOf && ["valid", "pending"].includes(m.status || "valid")).slice(0, 80);
+  return [
+    `另外：想一想这段里有没有关于${me}本人、值得长久记住的事（喜好、经历、约定、重要的时刻；${not}和这次具体做了什么不算）。先对照你已有的记忆卡片（列在下面）：`,
+    `- 已经记过的，别再写；`,
+    `- 和某张卡说的是同一件事、但有了新情况或更准确的说法：不要另写新卡，另起一行写 [候选改记忆:#编号|新的内容]，建议改那张原卡；`,
+    `- 真正新的事，才另起一行写 [候选记忆:类别|标题|内容]，类别从这几个里选一个：${CAT_HINT}。`,
+    `两种合起来最多 ${max} 条，一两句话；没有就不写。这些只是建议，要${me}点头才会生效。`,
+    `你已有的记忆卡片：\n${cards.length ? cards.map(cardLine).join("\n").slice(0, 5000) : "（还没有）"}`,
+  ].join("\n");
+}
 export function takeSuggestions(role, text, src) {
+  for (const [, inner] of text.matchAll(EDIT_SUGGEST_RE)) {
+    const parts = inner.split(/[|｜]/).map(x => x.trim());
+    const id = (parts.shift() || "").replace(/^#/, "");
+    const orig = id && store.memories.find(x => x.roleId === role.id && x.id.startsWith(id) && memKind(x) === "card" && !x.editOf && (x.status || "valid") !== "deleted");
+    const title = parts.length > 1 ? parts.shift().slice(0, 40) : orig?.title;
+    const content = parts.join(" ").trim();
+    if (!orig || !content || (content === orig.content && title === orig.title)) continue;
+    const old = store.memories.find(x => x.editOf === orig.id && x.status === "pending");
+    if (old) { old.title = title; old.content = content; old.updatedAt = Date.now(); continue; } // 同一张卡已经有一条改法在等了：换成新的
+    newMemory(role, { title, content, status: "pending", source: { type: "helper", by: "helper", label: src }, editOf: orig.id, ...(orig.cat ? { cat: orig.cat } : {}) });
+  }
+  text = text.replace(EDIT_SUGGEST_RE, "");
   for (const [, inner] of text.matchAll(SUGGEST_RE)) {
     const parts = inner.split(/[|｜]/).map(x => x.trim());
     const cat = takeCat(parts);
@@ -124,6 +165,8 @@ export const memoriesOf = roleId =>
   store.memories.filter(m => m.roleId === roleId).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
 
 // 记忆分几种：平时的记忆卡片；共读里记下的读书笔记（带 bookId）；共写的总结（带 writingId）；心得本里的一条（带 insight，见 insights.js，不进全局记忆）
+// 读书笔记（共读里他写 [读书笔记:…] 记进记忆库）整个关掉了：不再教他写、不再记、也不再带进提示词；已经记下的数据留着，只是不带
+export const READ_NOTES_ON = false;
 export const memKind = m => (m.insight ? "insight" : m.bookId ? "read" : m.writingId ? "write" : "card");
 const line = (m, n = 300) => `- #${m.id.slice(0, 4)} [${m.date}] ${m.title}：${(m.content.length > n ? m.content.slice(0, n) + "…" : m.content).replace(/\n+/g, " ")}`;
 
@@ -133,7 +176,7 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
   const all = memoriesOf(role.id).filter(isLive);
   const pinned = all.filter(m => memKind(m) === "card" && accessOf(m) === "pinned");
   const recent = wake ? all.filter(m => memKind(m) === "card" && accessOf(m) === "normal").slice(0, 10) : [];
-  const reads = all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5); // 共读的笔记、来往的信：他只记得最近 5 个
+  const reads = !READ_NOTES_ON ? [] : all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5); // 共读的笔记、来往的信：他只记得最近 5 个
   const writes = all.filter(m => memKind(m) === "write" && accessOf(m) !== "archived").slice(0, 6);
   const letters = lettersLog(role, meName);
   const board = boardForAI(role);
@@ -162,7 +205,7 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
   const all = memoriesOf(role.id).filter(isLive);
   const pinned = all.filter(m => memKind(m) === "card" && accessOf(m) === "pinned");
   const cards = [...pinned, ...recallCards(role.id, query, recallCount(), { exclude: pinned.map(m => m.id) })];
-  const reads = skip === "read" ? [] : all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5);
+  const reads = skip === "read" || !READ_NOTES_ON ? [] : all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5);
   const writes = skip === "write" ? [] : all.filter(m => memKind(m) === "write" && accessOf(m) !== "archived").slice(0, 3);
   const thread = [...(store.threads || [])].filter(t => t.roleId === role.id && !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
   let recent = "";

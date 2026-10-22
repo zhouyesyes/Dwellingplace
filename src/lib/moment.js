@@ -1,6 +1,6 @@
 // 【此刻】：最近 24 小时里发生的事，附在最新那条消息前面给他看（每次都现算，不进系统提示）
 //   信箱：24 小时里寄出、读过的信，一共最多 3 封（标题 + 第一句）；她新寄来的信他读一次全文；他寄出的信她还没拆，一直挂着直到拆开
-//   共读：24 小时里读过的每本书分开记——书名、进度、最新的印象、24 小时里来往的划线批注（每本最多 10 条）
+//   共读：24 小时里读过的每本书分开记——书名、进度、最新的印象、24 小时里来往的划线批注（每本最多 3 条）
 //   他自己记的：[此刻:…] 最多 3 条、每条 35 字以内，24 小时后自动忘
 // 存的都是准确的时间戳，「3 小时前」是给他看的那一刻才算出来的
 import { store, uid, solo } from "../store/index.js";
@@ -111,7 +111,7 @@ export function readingMoment(role, who, { peek = false } = {}) {
     const lines = [`《${b.title}》（${who} ${ago(b.readAt)}读过）：读到「${b.chapters[c]?.title || "开头"}」，第 ${c + 1} / ${b.chapters.length} 章。${b.hisPos ? `你一起读到第 ${b.hisPos.ch + 1} 章。` : ""}`];
     const im = (b.imprs || []).at(-1);
     if (im) lines.push(`  你最新的中途印象（${ago(im.at)}）：${im.text}`);
-    const notes = (store.bookNotes || []).filter(n => n.bookId === b.id && within(n.ts)).sort((x, y) => x.ts - y.ts).slice(-10);
+    const notes = (store.bookNotes || []).filter(n => n.bookId === b.id && within(n.ts)).sort((x, y) => x.ts - y.ts).slice(-3);
     if (notes.length) lines.push(`  24 小时里的划线和批注（${notes.length} 条，旧的在前）：`);
     for (const n of notes) {
       const where = b.chapters[n.ch]?.title ? `「${b.chapters[n.ch].title}」` : "";

@@ -67,7 +67,7 @@ const BUCKETS = {
   pinned: { label: "常驻", test: m => isLive(m) && accessOf(m) === "pinned", tip: `每次、每个房间都带着，最多 ${PIN_MAX} 张` },
   normal: { label: "普通", test: m => isLive(m) && accessOf(m) === "normal" && memKind(m) === "card", tip: "平时不全带：按你说的话，每次自动想起最相关的几张" },
   archived: { label: "归档", test: m => isLive(m) && accessOf(m) === "archived", tip: "还成立，但不常用了：不自动想起，只在搜索时出现" },
-  pending: { label: "待确认", test: m => m.status === "pending", tip: "整理时挑出来的：确认前不给他、不自动想起" },
+  pending: { label: "待确认", test: m => m.status === "pending", tip: "讨论室压缩时挑出来的：新的事，或者「建议修改」某张旧卡。你点同意才生效，不要的删掉；确认前不给他、不自动想起" },
   obsolete: { label: "已过时", test: m => m.status === "obsolete", tip: "以前成立、现在不是了：留作历史，不当成现在的事" },
   deleted: { label: "回收站", test: m => m.status === "deleted" && memKind(m) !== "insight", tip: "不再给他；可以恢复，也可以彻底删掉" },
 };
@@ -165,6 +165,7 @@ function whoOf(m) {
   if (t === "review") return "他整理时改的";
   return `${role.value?.name || "他"}自己记的`;
 }
+const origOf = m => (m.editOf ? store.memories.find(x => x.id === m.editOf && x.status !== "deleted") || null : null);
 const badge = m => (m.status === "pending" ? "待确认" : m.status === "obsolete" ? "已过时" : m.status === "deleted" ? "回收站" : ACCESS[accessOf(m)]);
 const srcLine = m => [SRC[m.source?.type] || "", m.source?.label || "", BY[m.source?.by] || (m.author === "me" ? "你写的" : "他自己记的")].filter(Boolean).join(" · ");
 const fmt = ts => (ts ? new Date(ts).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
@@ -204,7 +205,7 @@ async function sumNow() {
 // 临时带着的：附在新消息前面的【此刻】里，有的时候才有（只是看看，不会记成他看过了）
 const RULES = {
   letters: { label: "信箱", rule: "你新寄的信，他下一次聊天时读一次全文；他寄的信你还没拆，就一直挂着，直到你拆开；24 小时里寄出、读过的信，一共最多 3 封，只带标题和第一句。上了锁的只告诉他有几封。" },
-  read: { label: "共读：24 小时里读过的书", rule: "每本分开：书名、读到哪、他最新的印象、24 小时里你们来往的划线和批注（每本最多 10 条）。超过 24 小时就不带了。读后感他没看过的，看一次。" },
+  read: { label: "共读：24 小时里读过的书", rule: "每本分开：书名、读到哪、他最新的印象、24 小时里你们来往的划线和批注（每本最多 3 条）。超过 24 小时就不带了。读后感他没看过的，看一次。" },
   self: { label: `他自己记的（最多 ${MOMENT_MAX} 条）`, rule: "他回复时写 [此刻:…] 记下的小事（心情、待会儿要做的），35 字以内，24 小时后自动忘。不想他记着的可以点 × 删掉。" },
 };
 const now = ref(Date.now());
@@ -383,6 +384,7 @@ function remove() {
           <p>{{ m.content }}</p>
           <div class="tg">
             <span v-if="badge(m) !== '普通'" class="bdg" :class="[m.status || 'valid', accessOf(m)]">{{ badge(m) }}</span>
+            <span v-if="m.editOf" class="bdg edit">建议修改原卡</span>
             <span v-if="m.cat">{{ m.cat }}</span>
             <span>{{ whoOf(m) }}</span>
           </div>
@@ -510,13 +512,21 @@ function remove() {
       <template v-if="viewing">
         <img v-if="imgOf(viewing)" :src="imgOf(viewing)" alt="" class="view-pic" />
         <div class="view-meta">{{ viewing.date }} · {{ viewing.source?.by === "helper" ? "整理模型建议的" : viewing.author === "me" ? "我写的" : `${roleById(viewing.roleId)?.name} 写的` }}{{ viewing.tags?.length ? ` · #${viewing.tags.join(" #")}` : "" }}{{ viewing.importance && viewing.importance !== 3 ? ` · ${"★".repeat(viewing.importance)}` : "" }}</div>
+        <div v-if="viewing.editOf" class="edit-tag">建议修改这张卡 · 同意后才会改</div>
         <h2 class="view-title">{{ viewing.title }}</h2>
         <p class="view-body">{{ viewing.content }}</p>
+        <div v-if="viewing.editOf" class="orig">
+          <small>原来的{{ origOf(viewing) ? `「${origOf(viewing).title}」` : "（原卡已经不在了）" }}</small>
+          <p v-if="origOf(viewing)">{{ origOf(viewing).content }}</p>
+        </div>
         <p class="src">来源：{{ srcLine(viewing) }}<br />现在：{{ badge(viewing) }}{{ viewing.status === "valid" ? `（${ACCESS[accessOf(viewing)]}）` : "" }} · 创建 {{ fmt(viewing.createdAt || viewing.ts) }}{{ viewing.updatedAt && viewing.updatedAt !== viewing.createdAt ? ` · 更新 ${fmt(viewing.updatedAt)}` : "" }}</p>
         <div class="mem-acts">
-          <template v-if="viewing.status === 'pending'">
-            <button class="btn small" @click="act(viewing, 'confirm')">确认（放进普通）</button>
-            <button class="btn soft small" @click="act(viewing, 'confirmPin')">确认并设为常驻</button>
+          <template v-if="viewing.status === 'pending' && viewing.editOf">
+            <button class="btn small" :disabled="!origOf(viewing)" @click="act(viewing, 'confirm')">同意修改</button>
+          </template>
+          <template v-else-if="viewing.status === 'pending'">
+            <button class="btn small" @click="act(viewing, 'confirm')">同意（放进普通）</button>
+            <button class="btn soft small" @click="act(viewing, 'confirmPin')">同意并设为常驻</button>
           </template>
           <template v-else-if="viewing.status === 'deleted'">
             <button class="btn small" @click="act(viewing, 'restore')">恢复</button>
@@ -531,8 +541,8 @@ function remove() {
             <button v-if="accessOf(viewing) !== 'archived'" class="btn soft small" @click="act(viewing, 'archive')">归档</button>
             <button class="btn soft small" @click="act(viewing, 'obsolete')">标记为已过时</button>
           </template>
-          <button v-if="viewing.status !== 'deleted'" class="btn soft small" @click="editCard(viewing)"><Icon name="edit" :size="15" /> 编辑</button>
-          <button v-if="viewing.status !== 'deleted'" class="btn soft small danger" @click="act(viewing, 'trash')">删除</button>
+          <button v-if="viewing.status !== 'deleted' && !viewing.editOf" class="btn soft small" @click="editCard(viewing)"><Icon name="edit" :size="15" /> 编辑</button>
+          <button v-if="viewing.status !== 'deleted'" class="btn soft small danger" @click="act(viewing, 'trash')">{{ viewing.editOf ? "不要这条建议" : "删除" }}</button>
         </div>
       </template>
     </Sheet>
@@ -696,9 +706,15 @@ function remove() {
 .btip { margin: 0 4px 10px; font-size: .74rem; color: var(--text-3); line-height: 1.6; }
 .stoggles { display: flex; gap: 14px; margin: -8px 6px 12px; font-size: .78rem; color: var(--text-2); }
 .stoggles input { accent-color: var(--ink); }
-.bdg { font-size: .66rem; padding: 1px 8px; border-radius: 999px; background: rgba(var(--glass-rgb), .7); }
+.bdg { white-space: nowrap; font-size: .66rem; padding: 1px 8px; border-radius: 999px; background: rgba(var(--glass-rgb), .7); }
 .bdg.pending { background: color-mix(in srgb, #fde3ea var(--pastel), var(--card)); color: #c9304c; }
 .bdg.obsolete, .bdg.deleted { background: var(--bg-deep); color: var(--text-3); }
+.edit-tag { display: inline-block; font-size: .72rem; padding: 2px 9px; border-radius: 99px; background: color-mix(in srgb, #fde3ea var(--pastel), var(--card)); color: #c9304c; margin-bottom: 6px; }
+:root[data-theme="dark"] .edit-tag, :root[data-theme="dark"] .bdg.edit { background: #3d2f33; color: #f0a7b4; }
+.orig { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg-soft, rgba(128,128,128,.1)); }
+.orig small { color: var(--text-3); font-size: .72rem; }
+.orig p { margin: 4px 0 0; white-space: pre-wrap; line-height: 1.65; font-size: .88rem; color: var(--text-2); }
+.bdg.edit { background: color-mix(in srgb, #fde3ea var(--pastel), var(--card)); color: #c9304c; }
 .src { font-size: .74rem; line-height: 1.7; color: var(--text-3); margin: 12px 0 0; }
 .field.two { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
 .field.two label { display: flex; flex-direction: column; gap: 6px; }

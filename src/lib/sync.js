@@ -106,6 +106,8 @@ function mergeMsgs(mine, theirs) {
 
 // ---------- 把取回来的东西换上 ----------
 const threadOf = k => (k.startsWith("msgs:") ? k.slice(5) : null);
+// 一条一条往下接的对话记录（聊天、各种讨论室、小房间）：两边都改了按 id 合在一起，不整份覆盖
+const listKey = k => /^(msgs|gtalk|rtalk|wtalk):/.test(k);
 const busyKey = k => { const t = threadOf(k); return (k === "meta" && hasPendingMeta()) || !!(t && (generating[t] || hasPendingMessages(t))); }; // 正在回的对话先不动
 
 async function applyLocal(k, val, generation = edits.get(k) || 0) {
@@ -159,7 +161,7 @@ async function pushOne(k) {
   if (r.ok) {
     const { rev } = await r.json();
     known[k] = { rev, h };
-    if (threadOf(k)) await idbSet(`sync:base:${k}`, val);
+    if (listKey(k)) await idbSet(`sync:base:${k}`, val);
     if (k === "meta") await idbSet("sync:base", val);
     // 请求发出后仍可编辑；只确认刚刚发出去的那一版。
     const current = await idbGet(k);
@@ -176,14 +178,14 @@ async function pushOne(k) {
   let merged;
   if (val === undefined || remote.val === undefined) merged = val ?? remote.val; // 一边删了一边改了：留着改了的
   else if (k === "meta") merged = merge3(await idbGet("sync:base"), val, remote.val);
-  else if (threadOf(k) && Array.isArray(val) && Array.isArray(remote.val)) merged = (await idbGet(`sync:base:${k}`)) === undefined
+  else if (listKey(k) && Array.isArray(val) && Array.isArray(remote.val)) merged = (await idbGet(`sync:base:${k}`)) === undefined
     ? mergeMsgs(remote.val, val) : merge3(await idbGet(`sync:base:${k}`), val, remote.val);
   else merged = val; // 图片、文件：同一个 id 内容是一样的
   const remoteHash = remote.val === undefined ? "del" : await fingerprint(remote.val);
   if ((edits.get(k) || 0) !== generation) return;
   if (!same(merged, val) && !await applyLocal(k, merged, generation)) return;
   if (k === "meta" && remote.val !== undefined) await idbSet("sync:base", remote.val);
-  if (threadOf(k)) await idbSet(`sync:base:${k}`, remote.val);
+  if (listKey(k)) await idbSet(`sync:base:${k}`, remote.val);
   known[k] = { rev: remote.rev, h: remoteHash };
 }
 
@@ -207,7 +209,7 @@ async function pull() {
       if (val !== undefined) {
         if (!await applyLocal(it.k, val, generation)) { stopped = true; break; }
         known[it.k] = { rev, h: await fingerprint(val) };
-        if (threadOf(it.k)) await idbSet(`sync:base:${it.k}`, val);
+        if (listKey(it.k)) await idbSet(`sync:base:${it.k}`, val);
         if (it.k === "meta") await idbSet("sync:base", val);
       }
     }

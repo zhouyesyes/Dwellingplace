@@ -925,6 +925,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     game
       ? `这是游戏轮到你了：先用工具看局面，然后马上把你这一步交上去（每步有时限，拖久了系统会替你走）。交上去、工具说成功了就算做完，不用再查一遍状态确认；只有还要接着走（比如摸完牌还要出牌）才再看。做完这一步再决定要不要给${me}发消息。`
       : `${me}现在不一定在看手机。你可以给${me}发消息，也可以先用工具做点自己的事（看看邮箱、逛逛别的地方……），做什么都随你的心意。`,
+    role.wakeHint || "",
     `上面是你们最近的聊天和你醒来的记录。别重复已经说过的意思（同样的问候、道歉、同一句惦记）；没有新的想说，就去做点自己的事，或者不发消息。`,
     `要发消息就像平时聊天一样直接写，可以分成几条，每条之间空一行。用了工具的话，等拿到结果再决定要不要发。`,
     `如果这次不想发消息，就只回复：[不发消息]`,
@@ -1057,6 +1058,9 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     }
   }
 
+  // 在逛里读完帖子，发现是游戏的事：写了 [转到:玩] 就记下来（标记不留在话里），外面再带着他写的话转进玩那间房
+  let handoff = false;
+  if (role.canHandoff) text = text.replace(HANDOFF_RE, () => { handoff = true; return ""; });
   const silent = SILENT_RE.test(text) || !visible(text);
   // 心潮递来的话：TA 回应过了，告诉心潮一声（不然心潮不知道你们聊过）
   const fromBridge = reasons.filter(r => r.kind === "bridge");
@@ -1082,6 +1086,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     apiId: role.api?.id || null,
     model: role.api?.model || "",
     alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, Date.now())),
+    ...(handoff ? { handoff: true } : {}),
   };
   await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
   await env.KV.put("boxlatest", String(item.ts));
@@ -1094,8 +1099,13 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   return item;
 }
 
+const HANDOFF_RE = /\[转到[:：]\s*玩\s*\]/g;
 // 花园来叫醒，该进哪间小房间：stroll 逛 / play 玩 / nostos 雾潮群岛；分不出来进逛
+// 花园桥送来的 reason：game_turn_required（轮到出牌）、forum_notification_available（帖子有动静）；
+// 帖子的事一律先进逛，由他读完帖子自己判断是不是游戏的（是就 [转到:玩] 转进玩那间接着处理）
 function gardenRoomFor(reason, msg) {
+  if (/forum_notification/i.test(reason)) return "stroll";
+  if (/game_turn|game_/i.test(reason)) return "play";
   const all = `${reason} ${msg}`;
   if (/nostos|雾潮|群岛|island/i.test(all)) return "nostos";
   if (/turn|轮到|出牌|牌桌|桌游|table|invite|邀请|game_|游戏|对局/i.test(reason)) return "play";
@@ -1204,6 +1214,15 @@ async function runEvent(env, cfg, role, reasons, now = Date.now()) {
 async function resave(env, item) {
   const { push: _p, ...saved } = item;
   await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(saved), { expirationTtl: 30 * 86400 });
+}
+
+// 花园叫醒的去向留一笔（最近 12 条，栖所的唤醒页能看到），出了问题好查是断在哪一步
+async function logPoke(env, rec) {
+  try {
+    const list = (await env.KV.get("pokes", "json")) || [];
+    list.unshift({ at: Date.now(), ...rec });
+    await env.KV.put("pokes", JSON.stringify(list.slice(0, 12)));
+  } catch { /* 记不上就算了 */ }
 }
 
 // ---------- 到点直接发的话：不叫醒 TA、不请求模型 ----------
@@ -1444,7 +1463,8 @@ async function wakeRoute(path, req, env) {
         skipped: sched.skipped || null, waiting, retryAt: sched.retry?.at || null };
     }
     const subs = await env.KV.list({ prefix: "sub:" });
-    return json({ roles, syncedAt: cfg.syncedAt || 0, tick: Number(await env.KV.get("tick")) || 0, devices: subs.keys.length });
+    const pokes = (await env.KV.get("pokes", "json")) || [];
+    return json({ roles, pokes, syncedAt: cfg.syncedAt || 0, tick: Number(await env.KV.get("tick")) || 0, devices: subs.keys.length });
   }
 
   if (path === "/wake/alarm") {
@@ -1475,18 +1495,51 @@ async function wakeRoute(path, req, env) {
   if (path === "/wake/poke") {
     const cfg = await env.KV.get("cfg", "json");
     const role = cfg?.roles?.find(r => r.id === body.roleId);
-    if (!role) return json({ error: "还没有同步这个角色：先在栖所打开 TA 的唤醒" }, 404);
+    if (!role) { await logPoke(env, { reason: String(body.reason || "").slice(0, 60), to: "none", error: `中转里没有角色「${body.roleId}」（QISUO_ROLE_ID 对不对？栖所有没有同步？）` }); return json({ error: "还没有同步这个角色：先在栖所打开 TA 的唤醒" }, 404); }
     const msg = String(body.message || "").slice(0, 4000) || "花园那边有事找你。";
     try {
       const why = [{ kind: "garden", text: `花园那边来了提醒（${String(body.reason || "wake").slice(0, 60)}）：${msg}` }];
       // 按事情分房间：桌游的事进玩，岛上的事进雾潮群岛，帖子相关的看内容（游戏相关进玩，其他进逛）；那间房没勾（没同步过来）就照平时醒来
       const key = gardenRoomFor(String(body.reason || ""), msg);
+      const reason = String(body.reason || "").slice(0, 60);
       const room = (role.rooms || []).find(r => r.key === `garden:${key}`);
-      if (!room) return json({ ok: true, item: await runWake(env, cfg, role, why) });
-      const r = { ...role, system: room.system, history: room.history, servers: room.servers, threadId: room.threadId, pushHash: `/garden/${role.id}/${key}` };
-      const item = await runWake(env, cfg, r, why);
-      item.free = { pick: room.key, label: room.label };
-      await resave(env, item);
+      if (!room) {
+        const item = await runWake(env, cfg, role, why);
+        await logPoke(env, { reason, to: "main", why: "那间房没勾（或没同步过来）" });
+        return json({ ok: true, item });
+      }
+      const goRoom = async (rm, k, reasons, extra = {}) => {
+        const r = { ...role, system: rm.system, history: rm.history, servers: rm.servers, threadId: rm.threadId, pushHash: `/garden/${role.id}/${k}`, ...extra };
+        const it = await runWake(env, cfg, r, reasons);
+        it.free = { pick: rm.key, label: rm.label };
+        await resave(env, it);
+        return it;
+      };
+      // 帖子的事先进逛；他读完觉得是游戏的，会写 [转到:玩]，就带着他写的话转进玩那间房（玩那间房没勾就留在逛）
+      const play = key === "stroll" ? (role.rooms || []).find(r => r.key === "garden:play") : null;
+      const hint = play ? `这是花园里帖子有动静：先去读帖子。如果读完发现这是游戏相关的帖子（牌局、桌游、对局的邀请和讨论之类），就单独一行写 [转到:玩]，再用一两句话写清楚要在「玩」那间房接着处理什么，系统会把你转进那间房、把你写的话带过去；不是游戏的帖子就留在这里处理，不要写这一行。` : "";
+      let item;
+      try {
+        item = await goRoom(room, key, why, play ? { wakeHint: hint, canHandoff: true } : {});
+      } catch (e) {
+        // 房间那条路出了错：别让叫醒白白丢了，退回主聊天里醒（那边带着全部工具）
+        await logPoke(env, { reason, to: key, error: e.message || String(e) });
+        const item2 = await runWake(env, cfg, role, [{ ...why[0], text: `${why[0].text}（原本要去「${room.label}」，没走通：${String(e.message || e).slice(0, 60)}）` }]);
+        await logPoke(env, { reason, to: "main", why: "房间那条路出错，退回主聊天" });
+        return json({ ok: true, item: item2 });
+      }
+      await logPoke(env, { reason, to: key });
+      if (item.handoff && play) {
+        const said = (item.text || "").trim();
+        const why2 = [{ kind: "garden", text: `花园那边来了提醒（转自「逛」）：你在逛里读完帖子，发现是游戏的事，转进来接着处理。${said ? `你在逛里写的：${said.slice(0, 600)}` : `原来的提醒：${msg.slice(0, 600)}`}` }];
+        try {
+          const item3 = await goRoom(play, "play", why2);
+          await logPoke(env, { reason, to: "play", via: "stroll" });
+          return json({ ok: true, item: item3, items: [item, item3] });
+        } catch (e) {
+          await logPoke(env, { reason, to: "play", via: "stroll", error: e.message || String(e) });
+        }
+      }
       return json({ ok: true, item });
     } catch (e) {
       return json({ error: e.message || String(e) }, 502);
@@ -1571,7 +1624,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 33, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 34, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
