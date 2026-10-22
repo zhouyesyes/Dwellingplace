@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { store, MAIN, CRAB, roleById } from "../store/index.js";
 import WakeRoleView from "./WakeRoleView.vue";
 import { relayPing } from "../lib/search.js";
-import { wakeStatus, syncNow, scheduleText, enablePush, testPush, pushSupported, isIOS, isStandalone } from "../lib/wake.js";
+import { wakeName, wakeStatus, syncNow, scheduleText, enablePush, testPush, pushSupported, isIOS, isStandalone } from "../lib/wake.js";
 import { stamp } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -13,12 +13,12 @@ import Avatar from "../components/Avatar.vue";
 
 const router = useRouter();
 const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/wake.md";
-// 没有总开关：他和小螃蟹各有一个开关，谁开谁醒，互不影响
-// 住着的人：他一定有，小螃蟹请进来了才有；各一栏，各自设置
+// 没有总开关：chatgpt 和 CC 各有一个开关，谁开谁醒，互不影响
+// 住着的人：chatgpt 一定有，CC 请进来了才有；各一栏，各自设置
 const people = computed(() => [roleById(MAIN), roleById(CRAB)].filter(Boolean));
 const pick = ref(MAIN);
 const current = computed(() => people.value.find(r => r.id === pick.value) || people.value[0]);
-const callName = r => (r.id === CRAB ? r.name : "他");
+const callName = wakeName;
 function setPerson(r, v) {
   r.wake.enabled = v;
   syncNow();
@@ -90,10 +90,10 @@ const iosHint = computed(() => isIOS() && !isStandalone());
 
     <div class="card body">
       <p class="desc">
-        他和小螃蟹各有一个开关，谁的开着，就算你没打开栖所，谁也会按自己设好的时间醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。两边互不影响；醒来能进哪些屋子（共读、共写），也在各自下面分别勾。
+        chatgpt 和 CC 各有一个开关，谁的开着，就算你没打开栖所，谁也会按自己设好的时间醒来：想你了就给你发消息，也可以去看看邮箱、逛逛花园，或者什么都不做接着睡。两边互不影响；醒来能进哪些屋子（共读、共写、潮间带、逛、玩、雾潮群岛），也在各自下面分别勾。
       </p>
       <p class="desc small">
-        唤醒在你自己的 Cloudflare 中转上运行，需要把他的设定、记忆、最近的聊天、对外保密、API Key 和 MCP 的 token 存到你的 Cloudflare 里（只有你能看到）。
+        唤醒在你自己的 Cloudflare 中转上运行，需要把 chatgpt 和 CC 的设定、记忆、最近的聊天、对外保密、API Key 和 MCP 的 token 存到你的 Cloudflare 里（只有你能看到）。
         <a :href="GUIDE" target="_blank">看设置步骤</a>
       </p>
       <p v-if="!relaySet" class="result bad">还没有设置中转：先去「设置 → 工具」填好中转地址和密码</p>
@@ -109,7 +109,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
         <div v-for="r in people" :key="r.id" class="pcard" :class="{ sel: current?.id === r.id }" @click="pick = r.id">
           <div class="phead">
             <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="34" />
-            <b>{{ r.id === MAIN ? "他" : r.name }}</b>
+            <b>{{ callName(r) }}</b>
             <input type="checkbox" class="sw" :checked="!!r.wake?.enabled" @click.stop @change="setPerson(r, $event.target.checked)" />
           </div>
           <p class="psub">{{ scheduleText(r) }}</p>
@@ -123,7 +123,7 @@ const iosHint = computed(() => isIOS() && !isStandalone());
       <div class="card body">
         <p v-if="iosHint" class="desc small">iPhone（iOS 16.4 以上）要先在 Safari 里点「分享 → 添加到主屏幕」，然后从主屏幕打开栖所，才能收到通知。</p>
         <p v-else-if="!pushSupported()" class="desc small">这个浏览器不支持推送通知。</p>
-        <p class="desc small">这个通知是他和小螃蟹共用的一个：不管谁醒来给你发了消息，都会推到这台手机上，显示名字和消息开头几个字。没有按人分开的通知。</p>
+        <p class="desc small">这个通知是 chatgpt 和 CC 共用的一个：不管谁醒来给你发了消息，都会推到这台手机上，显示名字和消息开头几个字。没有按人分开的通知。</p>
         <div class="btns">
           <button class="btn soft" :disabled="!!busy" @click="turnOnPush">{{ busy === "push" ? "打开中…" : store.wake.push ? "重新开通知" : "打开通知" }}</button>
           <button class="btn soft" :disabled="!!busy || !store.wake.push" @click="sendTest">{{ busy === "test" ? "发送中…" : "发一条测试通知" }}</button>

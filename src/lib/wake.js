@@ -278,6 +278,9 @@ async function snapshotRole(role) {
 let lastSent = "";
 let syncTimer = null;
 
+// 唤醒页上叫的名字：chatgpt / CC
+export const wakeName = r => (r?.id === CRAB ? "CC" : "chatgpt");
+
 export async function syncNow() {
   clearTimeout(syncTimer);
   if (!relayReady()) return;
