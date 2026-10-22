@@ -238,6 +238,15 @@ async function roomsOf(role, thread, path, extra = []) {
     const T = await import("./meanwhile.js");
     rooms.push({ key: "tide", kind: "talk", room: "tide", id: "tide", label: "潮间带", status: T.tideRoomStatus(role), prompt: T.tideRoomPrompt(role) });
   }
+  // 花园的三间屋子（逛 / 玩 / 雾潮群岛）：像信箱一样按平时醒来走，只是工具只带这间屋子的；按人勾，小章鱼默认勾、小螃蟹默认不勾
+  if (thread) {
+    const G = await import("./gardenRooms.js");
+    for (const g of G.gardenRoomsOf(role)) {
+      if (!G.gardenRoomOn(role, g.key)) continue;
+      rooms.push({ key: `garden:${g.key}`, kind: "thread", label: `${g.label}（${g.platform}）`, status: g.hint, threadId: thread.id,
+        system: buildSystem(role, path, { wake: true }) + G.roomNote(g), history: historyOf(thread, path), servers: serverPack(g.servers) });
+    }
+  }
   return rooms;
 }
 

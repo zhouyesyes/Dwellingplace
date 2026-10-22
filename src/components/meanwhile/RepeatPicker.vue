@@ -53,7 +53,8 @@ const toggleDay = d => { const w = f.value.wd; const i = w.indexOf(d); if (i >= 
         <input v-if="f.untilMode === 'date'" v-model="f.until" class="input date" type="date" :min="f.start" />
         <template v-else><input v-model.number="f.days" class="input num" type="number" min="1" max="3650" inputmode="numeric" /><span class="lab">天</span></template>
       </div>
-      <p v-if="f.stop === 'whole'" class="note">一直出现，直到你在这件待续的小卡里点「整件停掉」。</p>
+      <p v-if="f.stop === 'forever'" class="note">一直重复的，想不做了就在小卡里点「停掉」，不会留记录。</p>
+      <p v-if="f.stop === 'whole'" class="note">一直出现，直到你在这件待续的小卡里点「整件做完了」，潮间带那天会留一条「整件完成了」。</p>
     </template>
   </div>
 </template>

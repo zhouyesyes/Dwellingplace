@@ -9,6 +9,7 @@ import { openEditor } from "../lib/editor.js";
 import SubHeader from "../components/SubHeader.vue";
 import Avatar from "../components/Avatar.vue";
 import Icon from "../components/Icon.vue";
+import { groupTools } from "../lib/gardenRooms.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -27,6 +28,7 @@ function toggleTool(name) {
 function setAll(on) {
   form.disabledTools = on ? [] : form.tools.map(t => t.name);
 }
+const rooms = computed(() => groupTools(form.tools)); // 花园这类：按屋子（逛 / 玩 / 雾潮群岛）分开摆；别的 MCP 还是平铺
 const testing = ref(false);
 const testMsg = ref(null); // { ok, text }
 const showSecrets = ref(false);
@@ -123,12 +125,15 @@ function remove() {
           <button class="link-btn" @click="setAll(true)">全开</button>
           <button class="link-btn" @click="setAll(false)">全关</button>
         </div>
-        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。</p>
+        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。<template v-if="rooms">花园的工具按用处分成几间屋子，醒来时按屋子进（在「醒来」设置里勾）；查参数用的工具留在后台，不在这里列。</template></p>
         <div class="tools">
-          <label v-for="t in form.tools" :key="t.name" class="tool" :class="{ off: form.disabledTools.includes(t.name) }">
-            <span class="tinfo"><b>{{ t.name }}</b><span>{{ t.description }}</span></span>
-            <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
-          </label>
+          <template v-for="g in rooms || [{ key: 'all', label: '', platform: '', tools: form.tools }]" :key="g.key">
+            <p v-if="rooms" class="room-head"><b>{{ g.label }}</b><small>{{ g.hint }}</small></p>
+            <label v-for="t in g.tools" :key="t.name" class="tool" :class="{ off: form.disabledTools.includes(t.name) }">
+              <span class="tinfo"><b>{{ t.name }}<em v-if="g.platform" class="plat">{{ g.platform }}</em></b><span>{{ t.description }}</span></span>
+              <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
+            </label>
+          </template>
         </div>
       </template>
     </div>
@@ -160,6 +165,9 @@ function remove() {
 .tools-head span { flex: 1; }
 .tools-head .link-btn { padding: 0; }
 .tool { background: var(--bg); border-radius: 12px; padding: 8px 10px; font-size: 0.8rem; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.room-head { margin: 8px 2px 0; font-size: 0.84rem; display: flex; align-items: baseline; gap: 8px; }
+.room-head small { color: var(--text-3); font-size: 0.72rem; }
+.plat { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--card); color: var(--text-3); font-size: 0.66rem; font-style: normal; font-weight: 400; opacity: .8; }
 .tool.off { opacity: .5; }
 .tool input { width: 20px; height: 20px; accent-color: var(--ink); flex: none; }
 .tinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

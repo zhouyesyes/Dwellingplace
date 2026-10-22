@@ -7,7 +7,7 @@ import { store } from "../../store/index.js";
 import { todayYmd } from "../../lib/dates.js";
 import { pickFile, saveImage, deleteImage } from "../../lib/images.js";
 import {
-  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf, planItemsOn, occursOn, planItemOf, recurringPlans, planAlive, stopPlan, repeatLabel, emptyRepeatForm, repeatFormOf, repeatFromForm, updatePlan,
+  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf, planItemsOn, occursOn, planItemOf, recurringPlans, planAlive, stopPlan, finishWholePlan, repeatLabel, emptyRepeatForm, repeatFormOf, repeatFromForm, updatePlan,
   setMood, clearMood, addPost, removePost, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
 } from "../../lib/meanwhile.js";
 import Icon from "../Icon.vue";
@@ -189,11 +189,17 @@ function finishEdit() {
   if (!editing.value.doneAt) togglePlan(editing.value, ME);
   editing.value = null;
 }
-// 周期待续：「这次做完了」只算点进来的那一天；「整件停掉」之后的日子不再出现，勾过的留着
+// 周期待续：「这次做完了」只算点进来的那一天。一直重复的点「停掉」：之后的日子不再出现，不留记录；整件做完才停的点「整件做完了」：同样不再出现，潮间带当天留一条「整件完成了」。勾过的都留着
 function finishOnce() { togglePlan(editing.value, ME, editDate.value); editing.value = null; }
+const wholeStop = computed(() => editing.value?.repeat?.stop === "whole");
 function stopWhole() {
-  if (!confirm("整件停掉？之后的日子不再出现，已经勾过的记录会留着。")) return;
-  stopPlan(editing.value);
+  if (wholeStop.value) {
+    if (!confirm("整件做完了？之后的日子不再出现，潮间带今天会留一条「整件完成了」，已经勾过的记录会留着。")) return;
+    finishWholePlan(editing.value, ME);
+  } else {
+    if (!confirm("停掉这件？之后的日子不再出现，已经勾过的记录会留着。")) return;
+    stopPlan(editing.value);
+  }
   editing.value = null;
 }
 function dropEdit() {
@@ -255,7 +261,7 @@ function dropEdit() {
         </header>
         <button v-if="p.img" class="pic" @click="openImg(p)"><TideImg :id="p.img" /></button>
         <p v-if="p.status" class="st"><span>{{ statusName(p.status.kind) }}</span>{{ p.status.text }}</p>
-        <p v-if="p.planId" class="done">✓ 待续完成了</p>
+        <p v-if="p.planId" class="done">{{ p.whole ? "✓ 整件完成了" : "✓ 待续完成了" }}</p>
         <p v-if="p.text" class="body" :class="{ cap: p.img }">{{ p.text }}</p>
         <ul v-if="p.replies.length" class="replies">
           <li v-for="r in p.replies" :key="r.id"><b :style="{ color: `color-mix(in srgb, ${info(r.who).color} 70%, var(--text))` }">{{ info(r.who).name }}</b>{{ r.text }}</li>
@@ -368,7 +374,7 @@ function dropEdit() {
         <p v-if="editing.repeat" class="hint sub">改文字或改周期是整串一起改，已经勾过的那几天不受影响。{{ editStopped ? "这件已经停掉了。" : "" }}</p>
         <div v-if="editing.repeat" class="sheet-act once">
           <button v-if="editDate" class="btn soft" @click="finishOnce">{{ editDone ? "撤回这次的勾" : "这次做完了" }}</button>
-          <button v-if="!editStopped" class="btn soft" @click="stopWhole">整件停掉</button>
+          <button v-if="!editStopped" class="btn soft" @click="stopWhole">{{ wholeStop ? "整件做完了" : "停掉" }}</button>
         </div>
         <div class="sheet-act">
           <button class="btn soft" @click="dropEdit">删掉</button>

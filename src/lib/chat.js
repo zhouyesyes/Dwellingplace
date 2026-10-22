@@ -23,6 +23,7 @@ import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSu
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
 import { ASK_RE, applyAskTags, askForAI } from "./ask.js";
+import { applyInsightTags, insightForAI, INSIGHT_RE } from "./insights.js";
 import { DIARY_RE, applyDiaryTags, diaryForAI } from "./diary.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
@@ -83,6 +84,7 @@ export function visibleText(text) {
     .replace(NOTE_RE, "")
     .replace(DIARY_RE, "")
     .replace(ASK_RE, "")
+    .replace(INSIGHT_RE, "")
     .replace(POKE_EDIT_RE, "")
     .replace(READ_MEM_RE, "")
     .replace(CAL_TAG_RE, "")
@@ -187,6 +189,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     mail || (wake && !role.wake?.rooms?.tide) ? "" : tideForAI(role, who), // 醒来时只有她在「醒来能进哪些屋子」里勾了潮间带才说
     solo(role) ? "" : readingForAI(role, who),
     mail || solo(role) ? "" : diaryForAI(role, who),
+    mail ? "" : insightForAI(role, who, { wake }),
     mail || wake ? "" : askForAI(who),
     solo(role) ? "" : writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
@@ -951,9 +954,10 @@ export function applyReplyTags(role, msg) {
   const brd = applyBoardTags(role, mom.text);
   const dia = applyDiaryTags(role, brd.text);
   const tide = applyTideTags(role, dia.text);
-  msg.text = applyPokeTags(role, tide.text).text;
+  const ins = applyInsightTags(role, tide.text);
+  msg.text = applyPokeTags(role, ins.text).text;
   applyAskTags(msg);
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes, ...tide.notes];
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes, ...tide.notes, ...ins.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();

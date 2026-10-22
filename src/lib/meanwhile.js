@@ -5,7 +5,7 @@
 //   posts   { id, n, who, ts, date, text, img, status: {kind, text}|null, planId, src, replies: [{id, who, text, ts}], reacts: [{id, who, kind, ts}] }
 //   moods   { id: "日期:谁", date, who, key, text, ts }
 //   plans   { id, month: "YYYY-MM", date: "YYYY-MM-DD"|null（挂在某一天；null 就是挂在这个月）, who, text, ts, doneAt, postId }
-//           周期待续多三样：repeat { type, wd, dom, n, mo, day, start, stop, until, days }、dones [{ id: 日期, date, doneAt, postId }]（每次单独打勾）、stoppedAt（整件停掉的那天）；
+//           周期待续多三样：repeat { type, wd, dom, n, mo, day, start, stop, until, days }、dones [{ id: 日期, date, doneAt, postId }]（每次单独打勾）、stoppedAt（停掉或整件做完的那天）、wholePostId（整件做完时留的那条记录）；
 //           周期待续的 date / month 跟着开始日，不算「某一天的待续」，每天要做的由 planItemsOn 现算
 //   shells  { id: 日期, date, ts, n }  拾贝（今日小报）：哪天打印过、打了几次；小票内容每次按当天的数据现生成，不存
 //   diaries：第二版的日记，先留着位置
@@ -95,7 +95,7 @@ export const plansOnDay = date => ensureMeanwhile().plans.filter(p => p.date ===
 
 // ---------- 周期待续 ----------
 // repeat：type = daily 每天 / weekly 每周几（wd，0 是周日）/ monthly 每月几号（dom，小月没有就挂在最后一天）/ interval 每隔 n 天（从 start 起算）/ yearly 每年 mo 月 day 日
-// start 开始日；stop = forever 一直重复 / until 到 until 为止（days 是「持续 N 天」时填的）/ whole 整件做完才停（点「整件停掉」）
+// start 开始日；stop = forever 一直重复 / until 到 until 为止（days 是「持续 N 天」时填的）/ whole 整件做完才停（小卡里按钮叫「整件做完了」，会留一条记录；其余叫「停掉」，不留）
 export const REPEAT_TYPES = ["daily", "weekly", "monthly", "interval", "yearly"];
 const WEEK_CN = ["日", "一", "二", "三", "四", "五", "六"];
 const parseYmd = str => { const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); };
@@ -318,14 +318,21 @@ export function togglePlan(plan, who = ME, date = todayYmd()) {
   plan.doneAt = Date.now();
   plan.postId = post?.id || null;
 }
-// 整件停掉：从明天起不再出现，勾过的记录留着
+// 停掉（一直重复的）：从明天起不再出现，勾过的记录留着，潮间带里不留新的记录
 export function stopPlan(plan) { plan.stoppedAt = todayYmd(); }
+// 整件做完了（做完才停的）：同样从明天起不再出现，另外在潮间带当天留一条「整件完成了」（记录挂在 plan.wholePostId 上，删这件待续时一起拿掉）
+export function finishWholePlan(plan, who = ME) {
+  plan.stoppedAt = todayYmd();
+  if (plan.wholePostId && ensureMeanwhile().posts.some(x => x.id === plan.wholePostId)) return;
+  const post = addPost(who, { text: plan.text, planId: plan.id, src: "plan" });
+  if (post) { post.whole = true; plan.wholePostId = post.id; }
+}
 export function removePlan(plan) {
   const m = ensureMeanwhile();
   const i = m.plans.indexOf(plan);
   if (i < 0) return;
   m.plans.splice(i, 1);
-  const ids = new Set([plan.postId, ...(plan.dones || []).map(x => x.postId)].filter(Boolean));
+  const ids = new Set([plan.postId, plan.wholePostId, ...(plan.dones || []).map(x => x.postId)].filter(Boolean));
   for (let k = m.posts.length - 1; k >= 0; k--) if (ids.has(m.posts[k].id)) m.posts.splice(k, 1);
 }
 
