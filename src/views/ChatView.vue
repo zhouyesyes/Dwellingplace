@@ -783,7 +783,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                   <template v-if="!m._src || m._last">
                     <div v-if="src(m).pending && (src(m).paused || src(m).typing) && splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                     <AskCard v-if="src(m).ask && !src(m).pending" :ask="src(m).ask" :disabled="busy" @submit="a => answerAsk(src(m), a)" />
-                    <GardenRoomCard v-if="src(m).rooms?.length && !src(m).pending" :rooms="src(m).rooms" :role="role" />
+                    <GardenRoomCard v-if="src(m).rooms?.length && !src(m).pending" :rooms="src(m).rooms" :run="src(m).roomRun" :role="role" />
                     <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
                     <div v-if="imgsOf(src(m)).length" class="att one" @click="viewImgs(src(m))"><ImgThumb :id="imgsOf(src(m))[0].img" /></div>
                   </template>

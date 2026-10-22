@@ -823,6 +823,14 @@ export async function generate(thread, parentId) {
     touchThread(thread, all);
     saveMessages(thread.id);
   }
+  // 发了房间卡片：马上在那间房里开一轮，把她在主聊天说的那句带进去当开头；卡片底下的小字跟着进度变
+  if (!msg.error && msg.rooms?.length && !msg.wakeId && !thread.mail && !ctrl.signal.aborted) {
+    const said = [...history].reverse().find(m => m.from === "user");
+    const mine = said?.text || (said?.attachments?.length ? "[图片/文件]" : "");
+    const his = splitBubbles(visibleText(msg.text)).join(" ");
+    const me = meName(role);
+    import("./gardenTalk.js").then(m => m.runRoomFromChat(role, thread, msg, `（这是从主聊天里过来的，请你在这间房里照着做）\n${me}在主聊天里说：${mine || "（没说什么，只是想和你一起去）"}${his ? `\n你回了：${his.slice(0, 300)}` : ""}`)).catch(e => console.warn("房间没开成", e));
+  }
   if (msg.rounds) logTurn(api, model, msg); // 这一轮请求了几次、花了多少（用量页里看）
   if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
   if (!thread.mail) petAfterReply(msg); // 桌宠：写了信、用工具做成了，播一下
@@ -965,10 +973,11 @@ export function applyReplyTags(role, msg) {
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();
     msg.text = msg.text.replace(SIG_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+    // 锁着（或还在冷却）时标记悄悄吞掉；只有真的存进设定了才出小记
     if (canChangeSignature(role) && newSig && newSig !== role.signature) {
       role.signature = newSig;
       role.sigUpdatedAt = Date.now();
-      notes.push(`${role.name} 把签名改成了「${role.signature}」`);
+      if ((roleById(role.id) || role).signature === newSig) notes.push(`${role.name} 把签名改成了「${newSig}」`);
     }
   }
   const avs = [...msg.text.matchAll(AVATAR_RE)];
