@@ -1,7 +1,7 @@
 // 小房间：房间是容器（逛 / 玩 / 雾潮群岛……），每间房装着一组工具；工具从哪来是「来源」（roomCatalog.js 的 PLATFORMS，现在只有花园 MCP）。
 // 每间房是小世界里一间自己的对话房（见 gardenTalk.js），房间的工具只在对应那间里带，主聊天里没有。
 // 以后往房间里放别的平台、别的工具：往 PLATFORMS 里加一项，把它的工具归进某间房就行，房间和开关不用另做。
-import { CRAB } from "../store/index.js";
+import { CRAB, store } from "../store/index.js";
 import { serversFor, serversForMode } from "./mcp.js";
 import { ROOMS, PLATFORMS } from "./roomCatalog.js";
 
@@ -38,6 +38,16 @@ export const hasRoomTools = role => PLATFORMS.some(p => platformServers(role, p)
 
 export const roomOf = key => ROOMS.find(r => r.key === key);
 
+// 房间介绍：每个人每间房一段固定的话（记忆页「板块记忆」里改），平时进房间、主聊天里都带；没改过就用默认的
+export const ROOM_INTRO_MAX = 200;
+export const roomIntro = (role, key) => (store.roomIntros?.[`${role.id}:${key}`] || "").trim() || roomOf(key)?.intro || "";
+export function setRoomIntro(role, key, text) {
+  const t = String(text || "").replace(/\s+/g, " ").trim().slice(0, ROOM_INTRO_MAX);
+  store.roomIntros ??= {};
+  if (!t || t === roomOf(key)?.intro) delete store.roomIntros[`${role.id}:${key}`]; // 清空 = 回到默认
+  else store.roomIntros[`${role.id}:${key}`] = t;
+}
+
 // 这个人这间房接上工具没有（没接：房间照样摆着，里面写一句还没接工具）
 export const roomConnected = (role, key) => roomsOf(role).some(g => g.key === key);
 
@@ -73,7 +83,7 @@ export function roomsForAI(role, who) {
   const ok = ROOMS.filter(r => roomConnected(role, r.key));
   return [
     `\n# 小世界里的三间小房间`,
-    `小世界里有三间小房间：「逛」（${ROOMS[0].hint}）、「玩」（${ROOMS[1].hint}）、「雾潮群岛」（${ROOMS[2].hint}）。每间房有你和${who}自己的对话框，房间的工具只在对应那间房里才有，平时聊天里没有。`,
+    `小世界里有三间小房间：${ROOMS.map(r => `「${r.label}」（${roomIntro(role, r.key)}）`).join("、")}。每间房有你和${who}自己的对话框，房间的工具只在对应那间房里才有，平时聊天里没有。`,
     ok.length
       ? `想和${who}一起去逛、去玩，或者${who}让你去，别在这里直接做：单独一行写 [房间:逛]、[房间:玩] 或 [房间:雾潮群岛]，消息底下会出一张房间卡片，${who}点一下就进你的那间房。一次回复最多一张。`
       : `你这边的小房间还没接上工具，暂时用不了，先别发房间卡片。`,

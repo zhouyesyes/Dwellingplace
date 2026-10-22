@@ -1,10 +1,12 @@
 // 板块记忆：每个板块一小段长期的状态，不像【此刻】那样过 24 小时就忘，放在全局记忆里一直带着
 //   共写：没归档的书，每本「现在到哪了 / 下一步」（p.board = { progress, next, at, by }），直到你把那本书归档
 //   共读：在读的书读到哪；读完的书一句印象（b.impression = { text, at, by }，100 字以内），读第二遍起书名后面标「第 N 次」
+//   小房间：逛 / 玩 / 雾潮群岛的介绍（每人每间一段）和最近的心得，见 insights.js 的 roomBoardText
 //   笔友：他邮箱里的笔友，每人一句话（store.penpals [{ id, roleId, email, name, note, at, by }]，50 字以内）
 // 他可以自己写 [写书进度:书名|现在到哪了|下一步]、[笔友:名字或邮箱|一句话]；整理讨论、读完一本书时整理模型也会顺手更新；你在记忆库里也能改
 import { store, uid, solo } from "../store/index.js";
 import { projects, ideaBoard } from "./writing.js";
+import { roomBoardText } from "./insights.js";
 
 export const PROGRESS_MAX = 80;
 export const IMPRESSION_MAX = 100;
@@ -93,13 +95,16 @@ export function palBoard(role) {
 }
 
 // ---------- 合起来 ----------
-export function boardParts(role, { skip } = {}) {
-  if (solo(role)) return [{ key: "pals", title: "邮箱：笔友", text: palBoard(role) }]; // 共读共写还没给小螃蟹接，只有它自己的笔友
+export function boardParts(role, { skip, skipRoom } = {}) {
+  // 小房间：三间的介绍 + 每间一点点最近的心得（两个人都有；在某间房里时，这间房自己带全，这里跳过）
+  const rooms = { key: "rooms", title: "小房间：逛 / 玩 / 雾潮群岛", text: roomBoardText(role, { skip: skipRoom }) };
+  if (solo(role)) return [{ key: "pals", title: "邮箱：笔友", text: palBoard(role) }, rooms]; // 共读共写还没给小螃蟹接，只有它自己的笔友
   return [
     { key: "write", title: "共写：在写的书", text: skip === "write" ? "" : writingBoard() },
     { key: "ideas", title: "共写：灵感抽屉（大概的样子）", text: skip === "write" ? "" : ideaBoard() },
     { key: "read", title: "共读：在读和读完的书", text: skip === "read" ? "" : readingBoard() },
     { key: "pals", title: "邮箱：笔友", text: palBoard(role) },
+    rooms,
   ];
 }
 export function boardForAI(role, opt) {

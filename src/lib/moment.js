@@ -6,6 +6,7 @@
 import { store, uid, solo } from "../store/index.js";
 import { lettersOf } from "./letters.js";
 import { tideMoment } from "./meanwhile.js";
+import { ROOMS } from "./roomCatalog.js";
 
 export const DAY = 86400_000;
 export const MOMENT_MAX = 3;
@@ -29,21 +30,28 @@ const first = s => {
 };
 
 // ---------- 他自己记在此刻的 ----------
-// room：小世界里某间房自己记的（"stroll" 等），和主聊天的此刻分开；不写就是主聊天的
-export const momentsOf = (roleId, room = "") => (store.moments || []).filter(x => x.roleId === roleId && (x.room || "") === room && within(x.ts)).sort((a, b) => a.ts - b.ts);
+// 此刻只有一份全局的：主聊天、各间小房间、共读共写、醒来都带这一份。
+// 在房间里记的，内容前面加房间名（「逛：……」）；以前每间房自己记的（带 room 字段）并回这一份
+const roomLabel = key => ROOMS.find(r => r.key === key)?.label || "";
+export const momentText = m => (m.room && roomLabel(m.room) && !m.text.startsWith(`${roomLabel(m.room)}：`) ? `${roomLabel(m.room)}：${m.text}` : m.text);
+export const momentsOf = roleId => (store.moments || []).filter(x => x.roleId === roleId && within(x.ts)).sort((a, b) => a.ts - b.ts);
 export function pruneMoments() {
   if (store.moments?.some(x => !within(x.ts))) store.moments = store.moments.filter(x => within(x.ts));
+  // 旧的房间此刻：名字写进内容，并回全局
+  for (const x of store.moments || []) if (x.room) { x.text = momentText(x); delete x.room; }
 }
+// room：在小房间里记的（"stroll" 等），内容前面加房间名；不写就是主聊天里记的
 export function addMoment(role, text, room = "") {
+  pruneMoments();
   const t = String(text || "").replace(/\s+/g, " ").trim().slice(0, MOMENT_LEN);
   if (!t) return null;
-  pruneMoments();
+  const full = room && roomLabel(room) ? `${roomLabel(room)}：${t}` : t;
   store.moments ??= [];
-  const mine = momentsOf(role.id, room);
-  if (mine.some(x => x.text === t)) return null;
+  const mine = momentsOf(role.id);
+  if (mine.some(x => x.text === full)) return null;
   // 满了：最早的那条让位
   for (const old of mine.slice(0, Math.max(0, mine.length - MOMENT_MAX + 1))) store.moments.splice(store.moments.indexOf(old), 1);
-  const m = { id: uid(), roleId: role.id, text: t, ts: Date.now(), ...(room ? { room } : {}) };
+  const m = { id: uid(), roleId: role.id, text: full, ts: Date.now() };
   store.moments.push(m);
   return m;
 }
@@ -61,7 +69,7 @@ export function applyMomentTags(role, text, room = "") {
   return { text: clean.replace(/\n{3,}/g, "\n\n").trim(), notes };
 }
 export const momentRule = me =>
-  `接下来 24 小时里想一直记着的小事（比如因为什么有了什么心情、答应了${me}待会儿要做的事），可以在回复末尾另起一行写：[此刻:内容]，${MOMENT_LEN} 字以内，最多同时记 ${MOMENT_MAX} 条，24 小时后自动忘。要长久记住的还是写进记忆卡片。`;
+  `接下来 24 小时里想一直记着的小事（比如因为什么有了什么心情、答应了${me}待会儿要做的事），可以在回复末尾另起一行写：[此刻:内容]，${MOMENT_LEN} 字以内，最多同时记 ${MOMENT_MAX} 条，24 小时后自动忘。此刻只有一份，主聊天、各间小房间、共读共写、醒来都看得到这一份（在小房间里记的，系统会自动在前面加上房间名）。要长久记住的还是写进记忆卡片。`;
 
 // ---------- 信箱 ----------
 // peek：只是看看（记忆库、场景里用），不把信记成他读过了；brief：新来的信也只给标题和第一句
@@ -132,7 +140,7 @@ export function momentParts(role, who, opt = {}) {
     { key: "letters", title: "信箱", text: lettersMoment(role, who, opt) },
     ...(solo(role) ? [] : [{ key: "read", title: "共读", text: readingMoment(role, who, opt) }]), // 共读还没给小螃蟹接
     { key: "tide", title: "潮间带（你们三个人共用的生活记录页）", text: tideMoment(role) },
-    { key: "self", title: "你自己记在此刻的（24 小时后自动忘）", text: mine.map(m => `- ${ago(m.ts)}：${m.text}`).join("\n") },
+    { key: "self", title: "你自己记在此刻的（24 小时后自动忘）", text: mine.map(m => `- ${ago(m.ts)}：${momentText(m)}`).join("\n") },
   ];
 }
 export function momentForAI(role, who, opt = {}) {
