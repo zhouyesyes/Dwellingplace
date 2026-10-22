@@ -238,13 +238,16 @@ async function roomsOf(role, thread, path, extra = []) {
     const T = await import("./meanwhile.js");
     rooms.push({ key: "tide", kind: "talk", room: "tide", id: "tide", label: "潮间带", status: T.tideRoomStatus(role), prompt: T.tideRoomPrompt(role) });
   }
-  // 花园的三间屋子（逛 / 玩 / 雾潮群岛）：像信箱一样按平时醒来走，只是工具只带这间屋子的；按人勾，小章鱼默认勾、小螃蟹默认不勾
+  // 花园的三间屋子（逛 / 玩 / 雾潮群岛）：醒来走进这间房的对话框（这间房的设定、记忆、房间对话、这间房的工具），不在主聊天里逛；按人勾，小章鱼默认勾、小螃蟹默认不勾
   if (thread) {
-    const G = await import("./gardenRooms.js");
-    for (const g of G.gardenRoomsOf(role)) {
-      if (!G.gardenRoomOn(role, g.key)) continue;
-      rooms.push({ key: `garden:${g.key}`, kind: "thread", label: `${g.label}（${g.platform}）`, status: g.hint, threadId: thread.id,
-        system: buildSystem(role, path, { wake: true }) + G.roomNote(g), history: historyOf(thread, path), servers: serverPack(g.servers) });
+    const G = await import("./rooms.js");
+    const T = await import("./gardenTalk.js");
+    for (const g of G.roomsOf(role)) {
+      if (!G.roomOn(role, g.key)) continue;
+      const w = await T.wakeRoom(role, g.key);
+      rooms.push({ key: `garden:${g.key}`, kind: "thread", label: g.label, threadId: thread.id,
+        status: `${g.hint}${w.last ? `；上次在这间房聊到「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : "；还没在这间房聊过"}`,
+        system: w.system, history: w.history, servers: serverPack(w.servers) });
     }
   }
   return rooms;
@@ -269,7 +272,7 @@ async function snapshotRole(role) {
     history,
     style: (role.style || "").trim().slice(0, 1500), // 门厅里只带这个（他是谁）
     events,
-    rooms: role.wake?.freeTimes?.length || events.length ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
+    rooms: role.wake?.freeTimes?.length || events.length || Object.keys(role.wake?.rooms || {}).some(k => role.wake.rooms[k] && ["stroll", "play", "nostos"].includes(k)) ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
     servers: serverPack(serversFor(role.id)),
   };
@@ -351,6 +354,29 @@ function shortError(err) {
   return s.length > 40 ? s.slice(0, 40) + "…" : s;
 }
 
+// 自由时间走进了花园的一间房（逛 / 玩 / 雾潮群岛）：他说的、用工具做的都放进那间房的对话框，主聊天里只留一条小记
+async function ingestGardenWake(role, item, key) {
+  if ((role.wakeLog || []).some(x => x.id === item.id)) return; // 已经取过了
+  logWake(role, item);
+  if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
+  const T = await import("./gardenTalk.js");
+  let what = "";
+  try {
+    const r = await T.ingestWakeRoom(role, item, key);
+    what = item.error ? "，但出错了" : r?.said ? "，在房间里留了话" : r?.notes?.length > 1 ? "，做了点事" : "，坐了一会儿，没写什么";
+  } catch (e) {
+    what = `，但没放进去：${e.message}`;
+  }
+  const thread = threadFor(role);
+  if (!thread) return;
+  const all = await loadMessages(thread.id);
+  const last = pathOf(thread, all).at(-1);
+  if (last) {
+    last.notes = [...(last.notes || []), { text: `${(item.reasons || []).some(r => /花园那边来了提醒/.test(r)) ? "花园叫醒" : "自由时间"}：${wakeName(role)} 去了「${item.free.label}」${what}`, wakeId: item.id }];
+    saveMessages(thread.id);
+  }
+}
+
 // 自由时间去了一间屋子：他写的放进那间屋子（书里的批注、讨论室、共写的讨论），主聊天里留一条小记
 async function ingestRoom(role, item) {
   if ((role.wakeLog || []).some(x => x.id === item.id)) return; // 已经取过了
@@ -429,6 +455,8 @@ async function ingest(item) {
     for (const id of item.events.letters || []) { const l = (store.letters || []).find(x => x.id === id); if (l && !l.readAt) l.readAt = item.ts; }
   }
   if (item.room) return ingestRoom(role, item);
+  const gardenKey = /^garden:(\w+)$/.exec(item.free?.pick || "")?.[1]; // 自由时间走进了花园的一间房：话放进那间房的对话框
+  if (gardenKey) return ingestGardenWake(role, item, gardenKey);
   if (item.alarms) role.wakeAlarms = item.alarms;
   const thread = store.threads.find(t => t.id === item.threadId && t.roleId === role.id) || threadFor(role) || createThread(role.id);
   const all = await loadMessages(thread.id);

@@ -325,7 +325,8 @@ function migrate() {
   for (const k of ["posts", "moods", "plans", "shells", "diaries"]) store.meanwhile[k] ??= [];
   store.books ??= []; // 共读的书架
   store.bookNotes ??= []; // 书里的便利贴
-  store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）
+  store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）；带 room 的是小世界某间房自己的此刻
+  store.gardenTalk ??= {}; // 小世界花园三间房的对话摘要等（每人每间一份，见 lib/gardenTalk.js）
   store.penpals ??= []; // 板块记忆：他记着的笔友，每人一句话
   store.readingLog ??= {}; // 每天读了多久（秒）
   store.writings ??= []; // 共写：书桌上的书

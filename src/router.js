@@ -39,6 +39,7 @@ export const router = createRouter({
     { path: "/letters", component: () => import("./views/LettersView.vue") },
     { path: "/books", component: () => import("./views/BooksView.vue") },
     { path: "/books/talk/:id", component: () => import("./views/ReadTalkView.vue") },
+    { path: "/garden/:roleId/:room", component: () => import("./views/GardenRoomView.vue") }, // 小世界里花园的一间房（逛 / 玩 / 雾潮群岛）
     { path: "/read/:id", component: () => import("./views/ReaderView.vue") },
     { path: "/write", component: () => import("./views/WriteView.vue") },
     { path: "/write/desk", component: () => import("./views/DeskPreviewView.vue") }, // 像素书桌：还在做，先这样看看

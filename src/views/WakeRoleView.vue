@@ -9,7 +9,8 @@ import { hasXinchao, xinchaoBase } from "../lib/xinchao.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
-import { GARDEN_ROOMS, PLATFORMS, hasGarden } from "../lib/gardenRooms.js";
+import { fmtTok } from "../lib/budget.js";
+import { ROOMS, hasRoomTools } from "../lib/rooms.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -130,14 +131,15 @@ async function tryFree() {
     freeing.value = false;
   }
 }
-const gardenName = PLATFORMS[0].name;
-const gardenOn = computed(() => (role.value ? hasGarden(role.value) : false)); // 这个人身上有没有接花园：没接的话勾了也进不去，下面提示一句
+const WAKE_TOKENS = [2000, 4000, 8000, 15000]; // 醒来进小房间带多少原文（token）
+if (role.value) w.value.roomTokens ??= 4000;
+const gardenOn = computed(() => (role.value ? hasRoomTools(role.value) : false)); // 这个人身上有没有接花园：没接的话勾了也进不去，下面提示一句
 // 他自己来找你：事件（你离开以后）、陪伴（很久没来）
 if (role.value) {
   w.value.events ??= { letter: false, note: false, write: false };
   w.value.rooms ??= { read: role.value.id !== CRAB, write: role.value.id !== CRAB };
   w.value.rooms.tide ??= false;
-  for (const g of GARDEN_ROOMS) w.value.rooms[g.key] ??= role.value.id !== CRAB; // 花园的屋子：小章鱼默认勾、小螃蟹默认不勾
+  for (const g of ROOMS) w.value.rooms[g.key] ??= role.value.id !== CRAB; // 花园的屋子：小章鱼默认勾、小螃蟹默认不勾
   w.value.companion ??= { on: false, hours: 24 };
 }
 // 响过一小时以上的，自己清掉
@@ -357,9 +359,14 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <label class="row"><span class="grow">共读（接着读书、书的讨论室）</span><input v-model="w.rooms.read" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">共写（共写的讨论）</span><input v-model="w.rooms.write" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">潮间带（Meanwhile，贴一条、记水温、回一句）</span><input v-model="w.rooms.tide" type="checkbox" class="sw" /></label>
-        <label v-for="g in GARDEN_ROOMS" :key="g.key" class="row"><span class="grow">{{ g.label }}<em class="plat">{{ gardenName }}</em>（{{ g.hint }}）</span><input v-model="w.rooms[g.key]" type="checkbox" class="sw" /></label>
-        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。花园的几间屋子，chatgpt 默认勾、CC 默认不勾；进去以后只带那间屋子的工具。</p>
-        <p v-if="!gardenOn" class="hint">{{ who }}身上还没接花园的工具（MCP），所以花园这几间现在勾了也不会出现在小清单里；接上以后才算数。</p>
+        <label v-for="g in ROOMS" :key="g.key" class="row"><span class="grow">{{ g.label }}（{{ g.hint }}）</span><input v-model="w.rooms[g.key]" type="checkbox" class="sw" /></label>
+        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。小房间（逛 / 玩 / 雾潮群岛），chatgpt 默认勾、CC 默认不勾；勾了哪间，醒来就进那间房的对话框（小世界里），只带那间房的记忆和工具，不在主聊天里逛。</p>
+        <p v-if="!gardenOn" class="hint">{{ who }}身上还没给小房间接工具，所以小房间现在勾了也不会出现在小清单里；接上以后才算数。</p>
+        <div class="lim">
+          <b>醒来进小房间，带多少字</b>
+          <div class="seg"><button v-for="n in WAKE_TOKENS" :key="n" type="button" :class="{ on: w.roomTokens === n }" @click="w.roomTokens = n">{{ fmtTok(n) }}</button></div>
+          <small>按 token 算，只管 {{ who }}醒来时带进房间的原文，和房间平时聊天的字数分开；两人各设各的。</small>
+        </div>
       </div>
 
       <div class="section-label">自由时间（{{ who }}自己挑想做什么）</div>
@@ -553,6 +560,8 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 .note-box { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.6; box-sizing: border-box; }
 .rid { font-size: 0.85rem; user-select: all; word-break: break-all; }
 .hint a { color: var(--accent); }
+.lim { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
+.lim small { color: var(--text-3); font-size: 0.75rem; line-height: 1.5; }
 .plat { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--bg); color: var(--text-3); font-size: 0.68rem; font-style: normal; opacity: .8; }
 .more { justify-content: center; color: var(--text-2); font-size: 0.85rem; }
 .time { flex: 1; min-width: 0; }
