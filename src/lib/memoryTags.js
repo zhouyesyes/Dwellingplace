@@ -123,8 +123,8 @@ export function takeSuggestions(role, text, src) {
 export const memoriesOf = roleId =>
   store.memories.filter(m => m.roleId === roleId).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
 
-// 记忆分三种：平时的记忆卡片；共读里记下的读书笔记（带 bookId）；共写的总结（带 writingId）
-export const memKind = m => (m.bookId ? "read" : m.writingId ? "write" : "card");
+// 记忆分几种：平时的记忆卡片；共读里记下的读书笔记（带 bookId）；共写的总结（带 writingId）；心得本里的一条（带 insight，见 insights.js，不进全局记忆）
+export const memKind = m => (m.insight ? "insight" : m.bookId ? "read" : m.writingId ? "write" : "card");
 const line = (m, n = 300) => `- #${m.id.slice(0, 4)} [${m.date}] ${m.title}：${(m.content.length > n ? m.content.slice(0, n) + "…" : m.content).replace(/\n+/g, " ")}`;
 
 // 给 AI 看的全局记忆（同一个角色的所有对话共用，放在系统提示里）：常驻的卡片 → 来往的信 → 共读、共写整理过来的（分开标好）。

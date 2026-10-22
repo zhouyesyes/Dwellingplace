@@ -49,7 +49,7 @@ export async function healthOf(role, me) {
     pending: cards.filter(m => m.status === "pending").length,
     obsolete: cards.filter(m => m.status === "obsolete").length,
     trash: cards.filter(m => m.status === "deleted").length,
-    derived: all.filter(m => memKind(m) !== "card" && isLive(m)).length,
+    derived: all.filter(m => memKind(m) !== "card" && memKind(m) !== "insight" && isLive(m)).length,
   };
   // 可能重复或打架：有效的卡两两比一比
   const pairs = similarPairs(live.filter(m => m.status === "valid" || !m.status));

@@ -18,6 +18,7 @@ import TryRecall from "../components/memory/TryRecall.vue";
 import MemoryHealth from "../components/memory/MemoryHealth.vue";
 import ReviewSheet from "../components/memory/ReviewSheet.vue";
 import { openItems } from "../lib/review.js";
+import { INSIGHT_CATS, insightsOf, removeInsight } from "../lib/insights.js";
 import { snapshotSum } from "../lib/budget.js";
 import MemorySettings from "../components/memory/MemorySettings.vue";
 import { classifyMemories, CATS, lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
@@ -66,7 +67,7 @@ const BUCKETS = {
   archived: { label: "归档", test: m => isLive(m) && accessOf(m) === "archived", tip: "还成立，但不常用了：不自动想起，只在搜索时出现" },
   pending: { label: "待确认", test: m => m.status === "pending", tip: "整理时挑出来的：确认前不给他、不自动想起" },
   obsolete: { label: "已过时", test: m => m.status === "obsolete", tip: "以前成立、现在不是了：留作历史，不当成现在的事" },
-  deleted: { label: "回收站", test: m => m.status === "deleted", tip: "不再给他；可以恢复，也可以彻底删掉" },
+  deleted: { label: "回收站", test: m => m.status === "deleted" && memKind(m) !== "insight", tip: "不再给他；可以恢复，也可以彻底删掉" },
 };
 const bucket = ref("all");
 const countOf = k => all.value.filter(BUCKETS[k].test).length;
@@ -80,7 +81,7 @@ const cards = computed(() => {
   return all.value.filter(BUCKETS[bucket.value].test);
 });
 // 从共读、共写整理过来的（也在全局记忆里，排在常驻卡片后面）
-const derived = computed(() => all.value.filter(m => memKind(m) !== "card" && isLive(m) && accessOf(m) !== "archived" && hit(m)));
+const derived = computed(() => all.value.filter(m => memKind(m) !== "card" && memKind(m) !== "insight" && isLive(m) && accessOf(m) !== "archived" && hit(m)));
 // 时间轴：新的在上，按月份分段
 const MONTHS = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
 const timeline = computed(() => {
@@ -121,16 +122,24 @@ const DRAWERS = [
   { key: "now", en: "NOW", title: "此刻", sub: "最近 24 小时" },
   { key: "board", en: "BOARD", title: "板块记忆", sub: "长期的进展" },
   { key: "letters", en: "LETTERS", title: "来往的信", sub: "他记得最近 5 封" },
+  { key: "insight", en: "NOTEBOOK", title: "心得本", sub: "游戏经验 · 社交感悟" },
   { key: "rw", en: "READ · WRITE", title: "共读和共写", sub: "整理来的笔记和总结" },
 ];
 // 共读共写还没给小螃蟹接：没有「共读和共写」抽屉，板块记忆里只有笔友；场景记忆也是共读共写里的，不给它看
 const drawers = computed(() => (solo(role.value) ? DRAWERS.filter(d => d.key !== "rw") : DRAWERS));
 watch(role, r => { if (solo(r) && view.value === "scene") view.value = "timeline"; });
 const openDrawer = ref(null);
+// 心得本：他自己记的，分两栏；点 × 删掉（同步时不会又冒出来）
+const insights = computed(() => (void store.memories.length, tab.value ? insightsOf(tab.value) : []));
+const insightCols = computed(() => Object.entries(INSIGHT_CATS).map(([k, label]) => ({ k, label, list: insights.value.filter(m => m.insight === k) })));
+function dropInsight(m) {
+  if (confirm("把这条心得删掉？")) removeInsight(m);
+}
 function drawerCount(k) {
   if (k === "sum") return `${sums.value.length} 份`;
   if (k === "now") return `${moment.value.filter(x => x.text).length} 条`;
   if (k === "board") return `${boardWrite.value.length + boardRead.value.length + boardPals.value.length} 项`;
+  if (k === "insight") return `${insights.value.length} 条`;
   if (k === "letters") return `${letterLines.value ? letterLines.value.split("\n").length : 0} 封`;
   return `${derived.value.length} 条`;
 }
@@ -422,6 +431,19 @@ function remove() {
       </article>
 
           </template>
+          <template v-else-if="d.key === 'insight'">
+            <p class="ins-note">这是{{ role.name }}自己的一本。进花园的几间屋子前他会先看最近的几条；看完通知、玩完一局、聊出想法后，他会自己往里记。</p>
+            <div class="ins-cols">
+              <section v-for="c in insightCols" :key="c.k" class="ins-col">
+                <h4>{{ c.label }}<small>{{ c.list.length }}</small></h4>
+                <article v-for="m in c.list" :key="m.id" class="sum tmp ins">
+                  <div class="meta"><span>{{ md(m.date) }}</span><button aria-label="删掉" @click="dropInsight(m)"><Icon name="close" :size="14" /></button></div>
+                  <p>{{ m.content }}</p>
+                </article>
+                <p v-if="!c.list.length" class="none">还没有</p>
+              </section>
+            </div>
+          </template>
           <template v-else-if="d.key === 'letters'">
             <article class="sum tmp"><p class="pre">{{ letterLines || "还没有来往的信。" }}</p></article>
           </template>
@@ -590,6 +612,7 @@ function remove() {
 .drw.k-now { --c: #eed5d6; }
 .drw.k-board { --c: #e6d4cf; }
 .drw.k-letters { --c: #dce0d4; }
+.drw.k-insight { --c: #e3dcc8; }
 .drw.k-rw { --c: #ced9d1; }
 .drw:last-child, .drw.open { border-radius: 6px; padding-bottom: 6px; }
 .drw.open { margin-bottom: 22px; }
@@ -597,6 +620,7 @@ function remove() {
 :root[data-theme="dark"] .drw.k-now { --c: #3d2f33; }
 :root[data-theme="dark"] .drw.k-board { --c: #3b3230; }
 :root[data-theme="dark"] .drw.k-letters { --c: #33362f; }
+:root[data-theme="dark"] .drw.k-insight { --c: #38352b; }
 :root[data-theme="dark"] .drw.k-rw { --c: #2e3632; }
 .lab { position: absolute; top: -13px; height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: "Poppins", var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 16px; color: var(--text-2); }
 .drw-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 16px 16px 38px; text-align: left; color: var(--text); border-radius: 0; }
@@ -612,6 +636,15 @@ function remove() {
 .sec { margin: 18px 4px 10px; font-size: .92rem; font-weight: 600; }
 .sec small { margin-left: 8px; font-weight: 400; font-size: .72rem; color: var(--text-3); }
 .sum { background: var(--card); border-radius: 18px; padding: 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); cursor: pointer; }
+.ins-note { margin: 0 4px 10px; font-size: .76rem; line-height: 1.6; color: var(--text-3); }
+.ins-cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 640px) { .ins-cols { grid-template-columns: 1fr 1fr; align-items: start; } }
+.ins-col h4 { margin: 2px 4px 6px; font-size: .84rem; font-weight: 500; color: var(--text-2); }
+.ins-col h4 small { margin-left: 6px; color: var(--text-3); }
+.ins-col .none { margin: 0 4px; font-size: .78rem; color: var(--text-3); }
+.sum.ins { cursor: default; padding: 10px 14px; }
+.sum.ins .meta button { border: 0; background: none; padding: 0; color: var(--text-3); display: grid; place-items: center; }
+.sum.ins p { -webkit-line-clamp: unset; display: block; }
 .sum h3 { margin: 0 0 4px; font-size: .95rem; }
 .sum p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .empty-hint.small { font-size: .8rem; }
