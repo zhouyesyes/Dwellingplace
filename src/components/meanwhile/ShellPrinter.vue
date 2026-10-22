@@ -37,7 +37,7 @@ async function build() {
     if (c) photo.value = c.toDataURL("image/png");
   }
   // 先把用到的像素字块下载好，再排版，免得量好高度以后字又换了
-  const text = [d.label, d.quiet ? "今天的海很安静这一天的" : "", ...d.temps.map(t => t.name + (t.text || "还没选")), ...d.lines.map(l => l.full), ...d.plans.map(p => p.full), "拾贝小票水温潮间带待续合计条✓周一二三四五六日年月号"].join("");
+  const text = [d.label, d.quiet ? "今天的海很安静这一天的" : "", ...d.temps.map(t => t.name + (t.text || "还没选")), ...d.lines.map(l => l.full), ...d.plans.map(p => p.full + p.label), "拾贝小票水温潮间带待续合计条✓周一二三四五六日年月号每隔天、"].join("");
   try { await Promise.race([document.fonts.load('10px "Pixel"', text), sleep(1500)]); } catch { /* 字体没下来就先用备用字 */ }
   data.value = d;
   measureCut();

@@ -216,6 +216,8 @@ export function applyReadMemTags(role, text) {
     const b = findBook(title);
     const content = rest.join(" ").trim() || head;
     if (!b || !content) return "";
+    // 同一次醒来的结果被两台设备各记一遍时，不要记出两张一模一样的
+    if ((store.memories || []).some(m => m.roleId === role.id && m.bookId === b.id && m.status !== "deleted" && m.content === content)) return "";
     newMemory(role, { bookId: b.id, title: `《${b.title}》${rest.length ? "：" + head : ""}`.slice(0, 40), content, source: { type: "read", by: "ai", id: b.id, label: `《${b.title}》` } });
     notes.push(`${role.name} 记下了一条读书笔记：《${b.title}》`);
     return "";

@@ -3,7 +3,7 @@
 // 每格：日期、当天挂待续的人（每人一个小圆点）、三个人的水温小图标、有没有记录（右上一个小点）。月初的空格放当月的「待续」
 import { computed } from "vue";
 import { todayYmd, MONTHS_EN } from "../../lib/dates.js";
-import { moodByKey, moodsOn, postsOf, monthPlansOf, plansOnDay, whoList, whoInfo } from "../../lib/meanwhile.js";
+import { moodByKey, moodsOn, postsOf, monthPlansOf, planItemsOn, whoList, whoInfo } from "../../lib/meanwhile.js";
 import { useDayMemories } from "../../lib/dayMemories.js";
 
 const props = defineProps({ month: String, selected: String });
@@ -25,7 +25,7 @@ const recorded = computed(() => {
 });
 // 当天挂了待续的人，每人一个小圆点（按页面里的顺序，颜色是各自的标识色；这个人挂的全做完了就淡一点）
 const planDots = date => {
-  const ps = plansOnDay(date), order = whoList();
+  const ps = planItemsOn(date), order = whoList();
   return order.filter(w => ps.some(p => p.who === w)).map(w => ({ who: w, color: whoInfo(w).color, done: ps.filter(p => p.who === w).every(p => p.doneAt) }));
 };
 const cells = computed(() => Array.from({ length: dayCount.value }, (_, i) => {

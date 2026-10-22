@@ -58,7 +58,7 @@ const bars = computed(() => {
         <template v-if="data.plans.length">
           <div data-ln class="ln tag"><span>待续</span></div>
           <div v-for="p in data.plans" :key="p.id" data-ln class="ln plan" :class="{ done: p.done }">
-            <span class="box">{{ p.done ? "✓" : "" }}</span><em>{{ big ? p.full : p.text }}</em>
+            <span class="box">{{ p.done ? "✓" : "" }}</span><em>{{ big ? p.full : p.text }}</em><small v-if="p.label" class="cyc">{{ p.label }}</small>
           </div>
         </template>
       </template>
@@ -114,6 +114,7 @@ const bars = computed(() => {
 .plan { display: flex; align-items: center; gap: calc(var(--u) * .7); }
 .plan .box { width: calc(var(--u) * 1.1); height: calc(var(--u) * 1.1); border: 1px solid var(--ink-line); box-sizing: border-box; border-radius: 2px; flex: none; font-size: calc(var(--u) * .9); line-height: calc(var(--u) * .9); text-align: center; }
 .plan.done em { opacity: .55; }
+.plan .cyc { flex: none; font-size: calc(var(--u) * .8); opacity: .6; }
 .quiet { text-align: center; padding: var(--u) 0 calc(var(--u) * .2); }
 .wave { text-align: center; letter-spacing: 2px; opacity: .5; }
 .sum { display: flex; justify-content: space-between; align-items: baseline; }
