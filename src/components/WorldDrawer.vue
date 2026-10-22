@@ -7,6 +7,7 @@ import { store, threadsOf, today, apiById, CRAB } from "../store/index.js";
 import { stickersOf } from "../lib/stickers.js";
 import { lettersOf } from "../lib/letters.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
+import { GARDEN_ROOMS, roomConnected } from "../lib/gardenRooms.js";
 import Avatar from "./Avatar.vue";
 import Icon from "./Icon.vue";
 import LetterRack from "./letters/LetterRack.vue";
@@ -26,6 +27,8 @@ const summaryLine = computed(() => {
   if (!t?.summary?.text) return "聊久了，前面的聊天会整理成一份摘要；也可以现在整理";
   return `${t.summary.count || 0} 条聊天整理成的一份${t.summary.from ? `（从「${t.summary.from}」带过来）` : ""}`;
 });
+const roomIcon = { stroll: "globe", play: "smile", nostos: "box" };
+const gardenRows = computed(() => (props.role ? GARDEN_ROOMS.map(r => ({ ...r, on: roomConnected(props.role, r.key) })) : []));
 const go = path => { emit("close"); router.push(path); };
 
 // 小螃蟹的工作室：小世界里只放仓库连没连上、对话（背景气泡）、摘要和记忆
@@ -109,6 +112,10 @@ function tapRack() {
             <Icon name="mic" :size="20" /><span class="grow">语音和画画<small>{{ mediaOn || "还没开：选好服务商再来填" }}</small></span><Icon name="right" :size="16" class="chev" />
           </button>
 
+          <p class="sec">花园 <em>garden</em></p>
+          <button v-for="r in gardenRows" :key="r.key" class="row" :class="{ dim: !r.on }" @click="go(`/garden/${role.id}/${r.key}`)">
+            <Icon :name="roomIcon[r.key]" :size="20" /><span class="grow">{{ r.label }}<small>{{ r.on ? r.sub : "还没接花园" }}</small></span><Icon name="right" :size="16" class="chev" />
+          </button>
 
           <p class="sec">信箱 <em>letters</em></p>
           <div class="rack-card" :class="{ out: rackOut }" @click="tapRack">

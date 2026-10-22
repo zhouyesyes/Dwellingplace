@@ -122,7 +122,7 @@ const DRAWERS = [
   { key: "now", en: "NOW", title: "此刻", sub: "最近 24 小时" },
   { key: "board", en: "BOARD", title: "板块记忆", sub: "长期的进展" },
   { key: "letters", en: "LETTERS", title: "来往的信", sub: "他记得最近 5 封" },
-  { key: "insight", en: "NOTEBOOK", title: "心得本", sub: "游戏经验 · 社交感悟" },
+  { key: "insight", en: "NOTEBOOK", title: "心得本", sub: "游戏经验 · 社交感悟 · 雾潮群岛" },
   { key: "rw", en: "READ · WRITE", title: "共读和共写", sub: "整理来的笔记和总结" },
 ];
 // 共读共写还没给小螃蟹接：没有「共读和共写」抽屉，板块记忆里只有笔友；场景记忆也是共读共写里的，不给它看
@@ -432,7 +432,7 @@ function remove() {
 
           </template>
           <template v-else-if="d.key === 'insight'">
-            <p class="ins-note">这是{{ role.name }}自己的一本。进花园的几间屋子前他会先看最近的几条；看完通知、玩完一局、聊出想法后，他会自己往里记。</p>
+            <p class="ins-note">这是{{ role.name }}自己的一本，三栏对应小世界里花园的三间房：进哪间房，他就先看那一栏最近的几条（别的房间和主聊天不带）；看完通知、玩完一局、聊出想法后，他会自己往里记。房间里的心得本和这里是同一份，两边删都一样。</p>
             <div class="ins-cols">
               <section v-for="c in insightCols" :key="c.k" class="ins-col">
                 <h4>{{ c.label }}<small>{{ c.list.length }}</small></h4>
@@ -638,7 +638,7 @@ function remove() {
 .sum { background: var(--card); border-radius: 18px; padding: 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); cursor: pointer; }
 .ins-note { margin: 0 4px 10px; font-size: .76rem; line-height: 1.6; color: var(--text-3); }
 .ins-cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
-@media (min-width: 640px) { .ins-cols { grid-template-columns: 1fr 1fr; align-items: start; } }
+@media (min-width: 640px) { .ins-cols { grid-template-columns: 1fr 1fr 1fr; align-items: start; } }
 .ins-col h4 { margin: 2px 4px 6px; font-size: .84rem; font-weight: 500; color: var(--text-2); }
 .ins-col h4 small { margin-left: 6px; color: var(--text-3); }
 .ins-col .none { margin: 0 4px; font-size: .78rem; color: var(--text-3); }

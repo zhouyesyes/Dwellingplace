@@ -358,7 +358,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <label class="row"><span class="grow">共写（共写的讨论）</span><input v-model="w.rooms.write" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">潮间带（Meanwhile，贴一条、记水温、回一句）</span><input v-model="w.rooms.tide" type="checkbox" class="sw" /></label>
         <label v-for="g in GARDEN_ROOMS" :key="g.key" class="row"><span class="grow">{{ g.label }}<em class="plat">{{ gardenName }}</em>（{{ g.hint }}）</span><input v-model="w.rooms[g.key]" type="checkbox" class="sw" /></label>
-        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。花园的几间屋子，chatgpt 默认勾、CC 默认不勾；进去以后只带那间屋子的工具。</p>
+        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。花园的几间屋子，chatgpt 默认勾、CC 默认不勾；勾了哪间，醒来就进那间房的对话框（小世界里），只带那间房的记忆和工具，不在主聊天里逛。</p>
         <p v-if="!gardenOn" class="hint">{{ who }}身上还没接花园的工具（MCP），所以花园这几间现在勾了也不会出现在小清单里；接上以后才算数。</p>
       </div>
 

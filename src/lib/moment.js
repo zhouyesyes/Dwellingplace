@@ -29,20 +29,21 @@ const first = s => {
 };
 
 // ---------- 他自己记在此刻的 ----------
-export const momentsOf = roleId => (store.moments || []).filter(x => x.roleId === roleId && within(x.ts)).sort((a, b) => a.ts - b.ts);
+// room：小世界里某间房自己记的（"stroll" 等），和主聊天的此刻分开；不写就是主聊天的
+export const momentsOf = (roleId, room = "") => (store.moments || []).filter(x => x.roleId === roleId && (x.room || "") === room && within(x.ts)).sort((a, b) => a.ts - b.ts);
 export function pruneMoments() {
   if (store.moments?.some(x => !within(x.ts))) store.moments = store.moments.filter(x => within(x.ts));
 }
-export function addMoment(role, text) {
+export function addMoment(role, text, room = "") {
   const t = String(text || "").replace(/\s+/g, " ").trim().slice(0, MOMENT_LEN);
   if (!t) return null;
   pruneMoments();
   store.moments ??= [];
-  const mine = momentsOf(role.id);
+  const mine = momentsOf(role.id, room);
   if (mine.some(x => x.text === t)) return null;
   // 满了：最早的那条让位
   for (const old of mine.slice(0, Math.max(0, mine.length - MOMENT_MAX + 1))) store.moments.splice(store.moments.indexOf(old), 1);
-  const m = { id: uid(), roleId: role.id, text: t, ts: Date.now() };
+  const m = { id: uid(), roleId: role.id, text: t, ts: Date.now(), ...(room ? { room } : {}) };
   store.moments.push(m);
   return m;
 }
@@ -50,10 +51,10 @@ export function removeMoment(m) {
   const i = (store.moments || []).indexOf(m);
   if (i >= 0) store.moments.splice(i, 1);
 }
-export function applyMomentTags(role, text) {
+export function applyMomentTags(role, text, room = "") {
   const notes = [];
   const clean = text.replace(MOMENT_RE, (_, body) => {
-    const m = addMoment(role, body);
+    const m = addMoment(role, body, room);
     if (m) notes.push(`${role.name} 在此刻里记下：${m.text}`);
     return "";
   });
