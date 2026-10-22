@@ -44,13 +44,13 @@ const withoutGarden = list => list.flatMap(s => {
   const tools = s.tools.filter(t => !GARDEN_TOOLS.has(t.name));
   return tools.length ? [{ ...s, tools }] : []; // 只剩花园的工具：整条不带
 });
-// 不同地方能用哪些工具：平时聊天不碰邮箱、也没有花园的工具（花园在小世界的房间里）；邮箱页只有邮箱和记忆；醒来全都能用（花园叫醒、轮到我了也要用）
+// 不同地方能用哪些工具：平时聊天不碰邮箱、也没有花园的工具（花园在小世界的房间里）；邮箱页只有邮箱和记忆；醒来能用邮箱，但也没有花园的工具（花园叫醒只进小房间）
 // garden: true 是房间自己挑工具用的，先不去掉花园的（见 rooms.js 的 roomServers）
 export function serversForMode(roleId, mode = "chat", { garden = false } = {}) {
   const all = serversFor(roleId);
   if (mode === "mail") return all.filter(s => isMailServer(s) || isMemoryServer(s));
   if (mode === "chat") return (garden ? all : withoutGarden(all)).filter(s => !isMailServer(s));
-  return all;
+  return garden ? all : withoutGarden(all); // 醒来（含读书、共写）也不带花园的工具
 }
 
 // 这个服务器里开着的工具

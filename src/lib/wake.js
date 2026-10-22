@@ -278,7 +278,7 @@ async function snapshotRole(role) {
     events,
     rooms: role.wake?.freeTimes?.length || events.length || Object.keys(role.wake?.rooms || {}).some(k => role.wake.rooms[k] && ["stroll", "play", "nostos"].includes(k)) ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
-    servers: serverPack(serversFor(role.id)),
+    servers: serverPack(serversForMode(role.id, "all")), // 醒来的工具里也不带花园的（只在三间小房间里带）
   };
 }
 
@@ -495,7 +495,9 @@ async function ingest(item) {
     const xm = await applyXinchaoMemoryTags(role, tmp.text);
     tmp.text = xm.text;
     const tagNotes = [...applyReplyTags(role, tmp), ...xm.notes.map(text => ({ text }))];
-    const head = item.error
+    const head = item.note
+      ? item.note
+      : item.error
       ? `${role.name} 醒来时出错了：${shortError(item.error)}`
       : `${role.name} 醒来过（${item.reasons.join("；")}），没有打扰你`;
     last.notes = [...(last.notes || []), { text: head, wakeId: item.id, ...(item.error ? { detail: item.error } : {}) }, ...before.map(({ at, ...n }) => ({ ...n, before: false })), ...after, ...tagNotes];
