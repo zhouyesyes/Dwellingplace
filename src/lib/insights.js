@@ -5,7 +5,7 @@
 //   写错的（没写栏目、没内容）悄悄丢掉，不露原始标记；删掉的放进回收站状态（status: deleted），同步时不会又冒出来
 import { store, uid } from "../store/index.js";
 import { todayYmd } from "./dates.js";
-import { roomOf } from "./gardenRooms.js";
+import { roomOf } from "./rooms.js";
 
 export const INSIGHT_CATS = { game: "游戏经验", social: "社交感悟", nostos: "雾潮群岛" };
 export const INSIGHT_RE = /\[心得[:：]([^\]]{0,700})\]/g; // 写成什么样都先拿掉，写错的不露出来

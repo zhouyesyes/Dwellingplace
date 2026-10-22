@@ -1088,10 +1088,20 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
 
   if (!silent) {
     const first = visible(text).split(/\n\s*\n/)[0] || "";
-    const url = cfg.appUrl ? `${cfg.appUrl}#/chat/${role.id}${role.threadId ? "/" + role.threadId : ""}` : undefined;
+    const url = cfg.appUrl ? `${cfg.appUrl}#${role.pushHash || `/chat/${role.id}${role.threadId ? "/" + role.threadId : ""}`}` : undefined; // pushHash：在小房间里醒的，点通知直接进那间房
     item.push = await pushAll(env, { title: role.name, body: first.length > 40 ? first.slice(0, 40) + "…" : first, url, tag: "wake-" + role.id });
   }
   return item;
+}
+
+// 花园来叫醒，该进哪间小房间：stroll 逛 / play 玩 / nostos 雾潮群岛；分不出来进逛
+function gardenRoomFor(reason, msg) {
+  const all = `${reason} ${msg}`;
+  if (/nostos|雾潮|群岛|island/i.test(all)) return "nostos";
+  if (/turn|轮到|出牌|牌桌|桌游|table|invite|邀请|game_|游戏|对局/i.test(reason)) return "play";
+  if (/reply|mention|like|follow|回复|提到|点赞|关注|帖/i.test(reason) && /游戏|桌游|牌|棋|game|board|版块[:：]?\s*(玩|游戏)/i.test(msg)) return "play";
+  if (/游戏|桌游|牌桌|game/i.test(msg) && !/reply|mention|like|follow|回复|提到|点赞|关注|帖/i.test(reason)) return "play";
+  return "stroll";
 }
 
 // ---------- 自由时间：门厅 → 屋子 ----------
@@ -1468,7 +1478,15 @@ async function wakeRoute(path, req, env) {
     if (!role) return json({ error: "还没有同步这个角色：先在栖所打开 TA 的唤醒" }, 404);
     const msg = String(body.message || "").slice(0, 4000) || "花园那边有事找你。";
     try {
-      const item = await runWake(env, cfg, role, [{ kind: "garden", text: `花园那边来了提醒（${String(body.reason || "wake").slice(0, 60)}）：${msg}` }]);
+      const why = [{ kind: "garden", text: `花园那边来了提醒（${String(body.reason || "wake").slice(0, 60)}）：${msg}` }];
+      // 按事情分房间：桌游的事进玩，岛上的事进雾潮群岛，帖子相关的看内容（游戏相关进玩，其他进逛）；那间房没勾（没同步过来）就照平时醒来
+      const key = gardenRoomFor(String(body.reason || ""), msg);
+      const room = (role.rooms || []).find(r => r.key === `garden:${key}`);
+      if (!room) return json({ ok: true, item: await runWake(env, cfg, role, why) });
+      const r = { ...role, system: room.system, history: room.history, servers: room.servers, threadId: room.threadId, pushHash: `/garden/${role.id}/${key}` };
+      const item = await runWake(env, cfg, r, why);
+      item.free = { pick: room.key, label: room.label };
+      await resave(env, item);
       return json({ ok: true, item });
     } catch (e) {
       return json({ error: e.message || String(e) }, 502);
@@ -1553,7 +1571,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 32, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 33, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

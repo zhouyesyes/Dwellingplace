@@ -5,7 +5,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById } from "../store/index.js";
-import { roomOf, roomConnected } from "../lib/gardenRooms.js";
+import { roomOf, roomConnected } from "../lib/rooms.js";
 import { loadGRoom, saveGRoom, roomSay, dropGMsg, regenGRoom, compressGRoom, clearGRoom, gSum, afterSum, roomTokens, roomScene, roomSystem } from "../lib/gardenTalk.js";
 import { INSIGHT_CATS, insightsOf, removeInsight } from "../lib/insights.js";
 import { momentsOf, removeMoment, ago } from "../lib/moment.js";
@@ -135,9 +135,9 @@ onBeforeUnmount(() => ro?.disconnect());
     </header>
 
     <main ref="scroller" class="list">
-      <p v-if="!connected" class="off">{{ who }} 这边的花园还没接上，这间房先空着。接好以后再来；心得本右上角还能翻。</p>
+      <p v-if="!connected" class="off">{{ who }} 这边这间房还没接上工具，先空着。接好以后再来；心得本右上角还能翻。</p>
       <div v-if="!msgs.length && !busy" class="empty">
-        <p>坐下来，和{{ who }}在「{{ room.label }}」这间房里待一会儿。{{ room.hint }}——花园的工具只在这里带着。</p>
+        <p>坐下来，和{{ who }}在「{{ room.label }}」这间房里待一会儿。{{ room.hint }}——这间房的工具只在这里带着。</p>
         <button v-for="q in connected ? ideas : []" :key="q" class="idea" @click="send(q)">{{ q }}</button>
       </div>
       <p v-if="owner?.talkSum?.text" class="sum-tip" @click="sumOpen = true">前面 {{ owner.talkSum.count }} 句已经整理成摘要了 · 点开看</p>
@@ -155,7 +155,7 @@ onBeforeUnmount(() => ro?.disconnect());
     </main>
 
     <footer ref="dock" class="dock">
-      <textarea v-model="draft" v-auto-grow rows="1" class="input" :disabled="!connected" :placeholder="connected ? `和${who}说…` : '还没接花园'" @keydown="onKey" />
+      <textarea v-model="draft" v-auto-grow rows="1" class="input" :disabled="!connected" :placeholder="connected ? `和${who}说…` : '这间房还没接上工具'" @keydown="onKey" />
       <button class="send" :class="{ on: draft.trim() && connected }" :disabled="busy || !connected" aria-label="发送" @click="send()"><Icon name="send" :size="20" /></button>
     </footer>
 

@@ -4,7 +4,7 @@
 //   { id, name, url, headers: [{ key, value }], viaRelay, roleIds: [], tools: [], toolsAt, enabled }
 import { store, uid } from "../store/index.js";
 import { relayFetch } from "./search.js";
-import { PLATFORMS } from "./gardenCatalog.js";
+import { PLATFORMS } from "./roomCatalog.js";
 
 const PROTOCOL = "2025-06-18";
 const sessions = new Map(); // serverId -> { sessionId, protocolVersion }
@@ -45,7 +45,7 @@ const withoutGarden = list => list.flatMap(s => {
   return tools.length ? [{ ...s, tools }] : []; // 只剩花园的工具：整条不带
 });
 // 不同地方能用哪些工具：平时聊天不碰邮箱、也没有花园的工具（花园在小世界的房间里）；邮箱页只有邮箱和记忆；醒来全都能用（花园叫醒、轮到我了也要用）
-// garden: true 是房间自己挑工具用的，先不去掉花园的（见 gardenRooms.js 的 roomServers）
+// garden: true 是房间自己挑工具用的，先不去掉花园的（见 rooms.js 的 roomServers）
 export function serversForMode(roleId, mode = "chat", { garden = false } = {}) {
   const all = serversFor(roleId);
   if (mode === "mail") return all.filter(s => isMailServer(s) || isMemoryServer(s));

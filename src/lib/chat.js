@@ -24,7 +24,7 @@ import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
 import { ASK_RE, applyAskTags, askForAI } from "./ask.js";
 import { applyInsightTags, INSIGHT_RE } from "./insights.js";
-import { ROOM_RE, applyRoomCardTags, gardenRoomsForAI } from "./gardenRooms.js";
+import { ROOM_RE, applyRoomCardTags, roomsForAI } from "./rooms.js";
 import { DIARY_RE, applyDiaryTags, diaryForAI } from "./diary.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
@@ -191,7 +191,7 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
     mail || (wake && !role.wake?.rooms?.tide) ? "" : tideForAI(role, who), // 醒来时只有她在「醒来能进哪些屋子」里勾了潮间带才说
     solo(role) ? "" : readingForAI(role, who),
     mail || solo(role) ? "" : diaryForAI(role, who),
-    mail || wake ? "" : gardenRoomsForAI(role, who), // 花园的工具和心得本都在小世界的房间里，主聊天只说一声怎么带她去
+    mail || wake ? "" : roomsForAI(role, who), // 花园的工具和心得本都在小世界的房间里，主聊天只说一声怎么带她去
     mail || wake ? "" : askForAI(who),
     solo(role) ? "" : writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",

@@ -240,12 +240,12 @@ async function roomsOf(role, thread, path, extra = []) {
   }
   // 花园的三间屋子（逛 / 玩 / 雾潮群岛）：醒来走进这间房的对话框（这间房的设定、记忆、房间对话、这间房的工具），不在主聊天里逛；按人勾，小章鱼默认勾、小螃蟹默认不勾
   if (thread) {
-    const G = await import("./gardenRooms.js");
+    const G = await import("./rooms.js");
     const T = await import("./gardenTalk.js");
-    for (const g of G.gardenRoomsOf(role)) {
-      if (!G.gardenRoomOn(role, g.key)) continue;
+    for (const g of G.roomsOf(role)) {
+      if (!G.roomOn(role, g.key)) continue;
       const w = await T.wakeRoom(role, g.key);
-      rooms.push({ key: `garden:${g.key}`, kind: "thread", label: `${g.label}（${g.platform}）`, threadId: thread.id,
+      rooms.push({ key: `garden:${g.key}`, kind: "thread", label: g.label, threadId: thread.id,
         status: `${g.hint}${w.last ? `；上次在这间房聊到「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : "；还没在这间房聊过"}`,
         system: w.system, history: w.history, servers: serverPack(w.servers) });
     }
@@ -272,7 +272,7 @@ async function snapshotRole(role) {
     history,
     style: (role.style || "").trim().slice(0, 1500), // 门厅里只带这个（他是谁）
     events,
-    rooms: role.wake?.freeTimes?.length || events.length ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
+    rooms: role.wake?.freeTimes?.length || events.length || Object.keys(role.wake?.rooms || {}).some(k => role.wake.rooms[k] && ["stroll", "play", "nostos"].includes(k)) ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
     servers: serverPack(serversFor(role.id)),
   };
@@ -372,7 +372,7 @@ async function ingestGardenWake(role, item, key) {
   const all = await loadMessages(thread.id);
   const last = pathOf(thread, all).at(-1);
   if (last) {
-    last.notes = [...(last.notes || []), { text: `自由时间：${wakeName(role)} 去了「${item.free.label}」${what}`, wakeId: item.id }];
+    last.notes = [...(last.notes || []), { text: `${(item.reasons || []).some(r => /花园那边来了提醒/.test(r)) ? "花园叫醒" : "自由时间"}：${wakeName(role)} 去了「${item.free.label}」${what}`, wakeId: item.id }];
     saveMessages(thread.id);
   }
 }

@@ -10,7 +10,7 @@
 import { reactive } from "vue";
 import { store, uid, apiFor, modelFor, recordUsage, loadMessages } from "../store/index.js";
 import { get, set } from "./kv.js";
-import { GARDEN_ROOMS, roomOf, roomServers, roomConnected, gardenRoomsOf } from "./gardenRooms.js";
+import { ROOMS, roomOf, roomServers, roomConnected, roomsOf } from "./rooms.js";
 import { roomInsightForAI, applyInsightTags } from "./insights.js";
 import { momentsOf, applyMomentTags, momentParts, momentRule, ago, within } from "./moment.js";
 import { applyTideTags } from "./meanwhile.js";
@@ -25,7 +25,7 @@ import { tail, sumTokens, keepCount, AUTO, snapshotSum } from "./budget.js";
 import { visibleText, findCmd, meName, helperApi, oneShot, sumSpanHead, pathOf, afterSummary, splitBubbles } from "./chat.js";
 import { CAT_HINT, takeSuggestions } from "./memoryTags.js";
 
-export const roomKeys = GARDEN_ROOMS.map(r => r.key);
+export const roomKeys = ROOMS.map(r => r.key);
 const idOf = (role, key) => `${role.id}:${key}`;
 export const roomTitle = key => `「${roomOf(key)?.label || key}」`;
 
@@ -55,6 +55,8 @@ export const gSum = (role, key) => store.gardenTalk?.[idOf(role, key)] || null;
 const gOwner = (role, key) => ((store.gardenTalk ??= {})[idOf(role, key)] ??= {});
 
 export const roomTokens = () => Math.max(2000, Number(store.settings.roomTokens) || 20000);
+// 醒来进房间带多少原文：每个人自己设（唤醒设置里），和房间平时聊天的 roomTokens 分开
+export const wakeRoomTokens = role => Math.max(1000, Number(role.wake?.roomTokens) || 4000);
 export const roomAutoAt = () => Math.round(roomTokens() * AUTO);
 export function afterSum(owner, list) {
   const i = owner?.talkSum?.upTo ? list.findIndex(m => m.id === owner.talkSum.upTo) : -1;
@@ -135,7 +137,7 @@ export function roomSystem(role, key, { wake = false } = {}) {
   const me = meName(role);
   const room = roomOf(key);
   const servers = roomServers(role, key);
-  const g = gardenRoomsOf(role).find(x => x.key === key);
+  const g = roomsOf(role).find(x => x.key === key);
   return [
     `你是「${role.name}」。`,
     role.style?.trim() ? `\n# 我是谁（这是你自己写给自己的）\n${role.style.trim()}` : "",
@@ -143,7 +145,7 @@ export function roomSystem(role, key, { wake = false } = {}) {
     `你和${me}在栖所的小世界里。现在你在「${room.label}」这间小房间${g ? `（${g.platform}）` : ""}：${room.hint}。`,
     wake
       ? `这一次你是从自由时间自己走进来的，${me}现在不一定在。先看一眼上面你这间房的心得本，再决定做什么，做完就停，不用什么都做。做了什么、想说什么，留一段话在这间房的对话框里，${me}来了会看到。`
-      : `这是这间房自己的对话框：你和${me}在这里一句一句聊，也可以直接动手（花园的工具只在这里带着）。像平时说话那样，几段就好；说你真实的想法，做想做的事。`,
+      : `这是这间房自己的对话框：你和${me}在这里一句一句聊，也可以直接动手（这间房的工具只在这里带着）。像平时说话那样，几段就好；说你真实的想法，做想做的事。`,
     wake ? `\n# 现在\n{{NOW}}` : "",
     roomRules(role, key, { wake }),
     toolsForAI(servers),
@@ -371,7 +373,7 @@ export async function wakeRoom(role, key) {
   const me = meName(role);
   const scene = await roomScene(role, key, list, { withTalk: false });
   const owner = gSum(role, key);
-  const rest = tail(afterSum(owner, list), roomTokens());
+  const rest = tail(afterSum(owner, list), wakeRoomTokens(role));
   const history = [{ from: "user", text: `（${me}不在，这是你在这间房的小背包，不是${me}说的话）\n${scene}`, ts: rest[0]?.ts || Date.now() },
     ...rest.map(m => ({ from: m.from === "me" ? "user" : "ai", text: m.text, ts: m.ts })).filter(x => x.text)];
   const lastTalk = list.at(-1);
@@ -395,4 +397,4 @@ export async function ingestWakeRoom(role, item, key) {
   return { quiet, said: t.text, notes };
 }
 
-export { roomConnected, GARDEN_ROOMS, roomOf };
+export { roomConnected, ROOMS, roomOf };

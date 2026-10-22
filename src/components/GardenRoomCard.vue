@@ -1,8 +1,8 @@
 <script setup>
-// 主聊天里的房间卡片：他说「我们去逛逛」，消息底下出一张，点一下进到他的那间房（见 lib/gardenRooms.js 的 [房间:逛]）
+// 主聊天里的房间卡片：他说「我们去逛逛」，消息底下出一张，点一下进到他的那间房（见 lib/rooms.js 的 [房间:逛]）
 import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { roomOf, roomConnected } from "../lib/gardenRooms.js";
+import { roomOf, roomConnected } from "../lib/rooms.js";
 import { wakeName } from "../lib/wake.js";
 import Icon from "./Icon.vue";
 
@@ -15,7 +15,7 @@ const list = computed(() => (props.rooms || []).map(roomOf).filter(Boolean));
 <template>
   <button v-for="r in list" :key="r.key" class="rcard" @click="router.push(`/garden/${role.id}/${r.key}`)">
     <span class="ico"><Icon :name="icon[r.key]" :size="22" /></span>
-    <span class="txt"><b>{{ wakeName(role) }} 的「{{ r.label }}」</b><small>{{ roomConnected(role, r.key) ? r.sub : "还没接花园" }}</small></span>
+    <span class="txt"><b>{{ wakeName(role) }} 的「{{ r.label }}」</b><small>{{ roomConnected(role, r.key) ? r.sub : "这间房还没接上工具" }}</small></span>
     <span class="go">进去<Icon name="right" :size="14" /></span>
   </button>
 </template>

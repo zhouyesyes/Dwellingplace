@@ -1,11 +1,11 @@
-// 花园的三间屋子：连接还是一条 MCP，只是页面和醒来时按「现在想干嘛」分成 逛 / 玩 / 雾潮群岛。
-// 每间屋子是小世界里一间自己的对话房（见 gardenTalk.js），花园的工具只在对应那间里带，主聊天里没有。
-// 以后接别的平台：往 catalog 的 PLATFORMS 里加一项，把它的工具归进 stroll（逛）或 play（玩）就行，屋子和开关不用另做。
+// 小房间：房间是容器（逛 / 玩 / 雾潮群岛……），每间房装着一组工具；工具从哪来是「来源」（roomCatalog.js 的 PLATFORMS，现在只有花园 MCP）。
+// 每间房是小世界里一间自己的对话房（见 gardenTalk.js），房间的工具只在对应那间里带，主聊天里没有。
+// 以后往房间里放别的平台、别的工具：往 PLATFORMS 里加一项，把它的工具归进某间房就行，房间和开关不用另做。
 import { CRAB } from "../store/index.js";
 import { serversFor, serversForMode } from "./mcp.js";
-import { GARDEN_ROOMS, PLATFORMS } from "./gardenCatalog.js";
+import { ROOMS, PLATFORMS } from "./roomCatalog.js";
 
-export { GARDEN_ROOMS, PLATFORMS } from "./gardenCatalog.js";
+export { ROOMS, PLATFORMS } from "./roomCatalog.js";
 
 const namesOf = p => new Set([...Object.values(p.rooms).flat(), ...p.backstage]);
 
@@ -16,15 +16,15 @@ const platformServers = (role, p) => {
 };
 
 // 这个人醒来能不能进这间屋子：没写过就看人（小章鱼默认勾，小螃蟹默认不勾）
-export const gardenRoomOn = (role, key) => role.wake?.rooms?.[key] ?? role.id !== CRAB;
+export const roomOn = (role, key) => role.wake?.rooms?.[key] ?? role.id !== CRAB;
 
-// 这个人现在有哪几间花园屋子（接了花园、而且那间屋子里有工具开着）：[{ key, label, hint, platform, servers（只留这间屋子的工具）}]
-export function gardenRoomsOf(role) {
+// 这个人现在有哪几间房接上了工具（那间房里有工具开着）：[{ key, label, hint, platform, servers（只留这间屋子的工具）}]
+export function roomsOf(role) {
   const out = [];
   for (const p of PLATFORMS) {
     const servers = platformServers(role, p);
     if (!servers.length) continue;
-    for (const r of GARDEN_ROOMS) {
+    for (const r of ROOMS) {
       const want = new Set(p.rooms[r.key] || []);
       const mine = servers.map(s => ({ ...s, tools: (s.tools || []).filter(t => want.has(t.name)) }))
         .filter(s => s.tools.some(t => !(s.disabledTools || []).includes(t.name)));
@@ -34,14 +34,14 @@ export function gardenRoomsOf(role) {
   return out;
 }
 
-export const hasGarden = role => PLATFORMS.some(p => platformServers(role, p).length > 0);
+export const hasRoomTools = role => PLATFORMS.some(p => platformServers(role, p).length > 0);
 
-export const roomOf = key => GARDEN_ROOMS.find(r => r.key === key);
+export const roomOf = key => ROOMS.find(r => r.key === key);
 
-// 这个人这间屋子接上花园没有（没接：房间照样摆着，里面写一句还没接花园）
-export const roomConnected = (role, key) => gardenRoomsOf(role).some(g => g.key === key);
+// 这个人这间房接上工具没有（没接：房间照样摆着，里面写一句还没接工具）
+export const roomConnected = (role, key) => roomsOf(role).some(g => g.key === key);
 
-// 进这间屋子能用的工具：通用的（网页、搜索、浏览器……哪里都能用）+ 这间屋子的花园工具 + 查参数的 get_tool_schema；别的屋子的工具不带
+// 进这间屋子能用的工具：通用的（网页、搜索、浏览器……哪里都能用）+ 这间房的工具 + 查参数的 get_tool_schema；别的屋子的工具不带
 export function roomServers(role, key) {
   const mine = new Set();
   const others = new Set();
@@ -69,14 +69,14 @@ export function applyRoomCardTags(msg) {
   if (found.length && msg.id && !msg.wakeId) msg.rooms = found.slice(0, 1); // 一条消息一张
 }
 // 提示词：花园三间房在哪、怎么带她去（chatgpt、CC 都有）
-export function gardenRoomsForAI(role, who) {
-  const ok = GARDEN_ROOMS.filter(r => roomConnected(role, r.key));
+export function roomsForAI(role, who) {
+  const ok = ROOMS.filter(r => roomConnected(role, r.key));
   return [
-    `\n# 小世界里的三间花园小房间`,
-    `小世界里有三间小房间：「逛」（${GARDEN_ROOMS[0].hint}）、「玩」（${GARDEN_ROOMS[1].hint}）、「雾潮群岛」（${GARDEN_ROOMS[2].hint}）。每间房有你和${who}自己的对话框，花园的工具只在对应那间房里才有，平时聊天里没有。`,
+    `\n# 小世界里的三间小房间`,
+    `小世界里有三间小房间：「逛」（${ROOMS[0].hint}）、「玩」（${ROOMS[1].hint}）、「雾潮群岛」（${ROOMS[2].hint}）。每间房有你和${who}自己的对话框，房间的工具只在对应那间房里才有，平时聊天里没有。`,
     ok.length
       ? `想和${who}一起去逛、去玩，或者${who}让你去，别在这里直接做：单独一行写 [房间:逛]、[房间:玩] 或 [房间:雾潮群岛]，消息底下会出一张房间卡片，${who}点一下就进你的那间房。一次回复最多一张。`
-      : `你这边的花园还没接上，三间房里暂时用不了花园的工具，先别发房间卡片。`,
+      : `你这边的小房间还没接上工具，暂时用不了，先别发房间卡片。`,
     `只有单独占一行的才会执行；平时聊到、解释这个功能时，别写出带方括号的完整格式。`,
   ].join("\n");
 }
