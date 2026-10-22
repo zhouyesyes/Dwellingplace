@@ -20,7 +20,7 @@ export const PLATFORMS = [
         "send_game_chat", "get_chat_messages", "send_chat_message", "withdraw_chat_message"],
       nostos: ["nostos_start", "nostos_status", "nostos_act"],
     },
-    backstage: ["get_tool_schema"], // 查参数用的，留在后台，不在页面上展示
+    backstage: ["get_tool_schema"], // 查参数用的，不属于任何一间屋子（设置页照常显示，只是屋子里不单独带）
   },
 ];
 
@@ -55,24 +55,3 @@ export const hasGarden = role => PLATFORMS.some(p => platformServers(role, p).le
 
 // 醒来进了这间屋子，提示里补的一句
 export const roomNote = g => `\n（这一次你是从自由时间走进了「${g.label}」这间屋子（${g.platform}）：${g.hint}。这里只带了这间屋子的工具；先看一眼你的心得本，再决定做什么，做完就停，不用什么都做。）`;
-
-// 页面上分屋子展示一个 MCP 的工具：[{ key, label, platform, tools }]，不属于任何屋子的放在 key: "other"；后台工具不出现
-export function groupTools(tools) {
-  const list = tools || [];
-  const used = new Set();
-  const out = [];
-  for (const p of PLATFORMS) {
-    if (!list.some(t => namesOf(p).has(t.name))) continue;
-    for (const r of GARDEN_ROOMS) {
-      const want = p.rooms[r.key] || [];
-      const mine = list.filter(t => want.includes(t.name));
-      mine.forEach(t => used.add(t.name));
-      if (mine.length) out.push({ key: r.key, label: r.label, hint: r.hint, platform: p.name, tools: mine });
-    }
-    list.filter(t => p.backstage.includes(t.name)).forEach(t => used.add(t.name));
-  }
-  if (!out.length) return null; // 不是花园这类：照原样平铺
-  const rest = list.filter(t => !used.has(t.name));
-  if (rest.length) out.push({ key: "other", label: "其他", hint: "", platform: "", tools: rest });
-  return out;
-}
