@@ -8,7 +8,7 @@
 //   然后是摘要之后的房间对话
 //   这间房的对话摘要只在这间房里出现；心得和介绍在别处只带一点点（见 insights.js 的 roomBoardText）
 import { reactive } from "vue";
-import { store, uid, apiFor, modelFor, recordUsage, loadMessages } from "../store/index.js";
+import { store, uid, apiFor, modelFor, recordUsage, loadMessages, saveMessages } from "../store/index.js";
 import { get, set, onRemoteChange } from "./kv.js";
 import { ROOMS, roomOf, roomServers, roomConnected, roomsOf, roomIntro } from "./rooms.js";
 import { roomInsightForAI, applyInsightTags } from "./insights.js";
@@ -314,9 +314,9 @@ export function applyRoomTags(role, key, text) {
 }
 
 // ---------- 说一句，他回一句 ----------
-export async function roomSay(role, key, text) {
+export async function roomSay(role, key, text, { fromMain = false } = {}) {
   const list = await loadGRoom(role, key);
-  if (text.trim()) list.push({ id: uid(), from: "me", text: text.trim(), ts: Date.now() });
+  if (text.trim()) list.push({ id: uid(), from: "me", text: text.trim(), ts: Date.now(), ...(fromMain ? { fromMain: true } : {}) });
   const last = [...list].reverse().find(m => m.from === "me")?.text || "";
   const out = await toolLoop(role, roomSystem(role, key), await roomScene(role, key, list, { query: last }), roomServers(role, key));
   const t = applyRoomTags(role, key, out.text);
@@ -327,6 +327,30 @@ export async function roomSay(role, key, text) {
   owner.talkAt = Date.now();
   if (sumTokens(afterSum(owner, list)) >= roomAutoAt()) compressGRoom(role, key, { why: "limit" }).catch(e => console.warn("房间摘要没整理成", e));
   return { reply: t.text, notes };
+}
+// ---------- 主聊天里发了房间卡片：直接在那间房里开一轮 ----------
+// 卡片只是看进度的窗口。进度记在发卡片的那条消息上（msg.roomRun = { key, state, at, err }），两台设备都看得到：
+// running 正在做 / done 做完了 / error 出错了 / notools 这间房没接工具（不借别人的账号，也不动手）
+const running = reactive({}); // 这台设备上正在跑的房间
+export const roomRunning = (role, key) => !!running[idOf(role, key)];
+export const RUN_STALE = 10 * 60_000; // running 超过这么久、这台设备又没在跑：当成中断了
+export async function runRoomFromChat(role, thread, msg, opening) {
+  const key = msg.rooms?.[0];
+  if (!key || !roomOf(key)) return;
+  const id = idOf(role, key);
+  if (running[id]) return;
+  const set = patch => { msg.roomRun = { key, at: Date.now(), ...patch }; saveMessages(thread.id); };
+  if (!roomConnected(role, key)) return set({ state: "notools" });
+  set({ state: "running" });
+  running[id] = true;
+  try {
+    await roomSay(role, key, opening, { fromMain: true });
+    set({ state: "done" });
+  } catch (e) {
+    set({ state: "error", err: String(e?.message || e).slice(0, 80) });
+  } finally {
+    delete running[id];
+  }
 }
 export async function regenGRoom(role, key, mid) {
   const list = await loadGRoom(role, key);

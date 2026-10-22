@@ -6,7 +6,7 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue"
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById } from "../store/index.js";
 import { roomOf, roomConnected, roomIntro } from "../lib/rooms.js";
-import { loadGRoom, saveGRoom, roomSay, dropGMsg, regenGRoom, compressGRoom, clearGRoom, gSum, afterSum, roomTokens, roomScene, roomSystem } from "../lib/gardenTalk.js";
+import { loadGRoom, saveGRoom, roomSay, roomRunning, dropGMsg, regenGRoom, compressGRoom, clearGRoom, gSum, afterSum, roomTokens, roomScene, roomSystem } from "../lib/gardenTalk.js";
 import { INSIGHT_CATS, insightsOf, removeInsight, groupByGame } from "../lib/insights.js";
 import { wakeName } from "../lib/wake.js";
 import { describeError } from "../lib/chat.js";
@@ -30,6 +30,7 @@ const owner = computed(() => (role.value ? gSum(role.value, key.value) : null));
 const msgs = ref([]);
 const draft = ref("");
 const busy = ref(false);
+const running = computed(() => !!role.value && roomRunning(role.value, key.value)); // 主聊天里发了卡片，他正在这间房里做
 const scroller = ref(null);
 const stick = () => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; };
 const down = () => nextTick(() => { stick(); requestAnimationFrame(stick); });
@@ -136,7 +137,7 @@ onBeforeUnmount(() => ro?.disconnect());
 
     <main ref="scroller" class="list">
       <p v-if="!connected" class="off">{{ who }} 这边这间房还没接上工具，先空着。接好以后再来；心得本右上角还能翻。</p>
-      <div v-if="!msgs.length && !busy" class="empty">
+      <div v-if="!msgs.length && !busy && !running" class="empty">
         <p>坐下来，和{{ who }}在「{{ room.label }}」这间房里待一会儿。{{ intro }}——这间房的工具只在这里带着。</p>
         <button v-for="q in connected ? ideas : []" :key="q" class="idea" @click="send(q)">{{ q }}</button>
       </div>
@@ -151,7 +152,7 @@ onBeforeUnmount(() => ro?.disconnect());
           </template>
         </div>
       </template>
-      <div v-if="busy" class="m ai"><span class="dots"><i /><i /><i /></span></div>
+      <div v-if="busy || running" class="m ai"><span class="dots"><i /><i /><i /></span></div>
     </main>
 
     <footer ref="dock" class="dock">
