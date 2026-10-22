@@ -18,7 +18,7 @@ export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
 export const MAX_ALARMS = 5;
 
 // 同步、收件箱的状态（不存）
-export const wakeStatus = reactive({ syncedAt: 0, syncing: false, error: "", latest: 0, checking: false, busy: {} }); // busy：正在醒来的 TA
+export const wakeStatus = reactive({ skipped: [], syncedAt: 0, syncing: false, error: "", latest: 0, checking: false, busy: {} }); // busy：正在醒来的 TA
 
 const relayReady = () => !!(store.tools.relay?.url && store.tools.relay?.token);
 // 没有总开关了：谁的开关开着谁醒（中转也是按每个人的开关判断）
@@ -244,10 +244,14 @@ async function roomsOf(role, thread, path, extra = []) {
     const T = await import("./gardenTalk.js");
     for (const g of G.roomsOf(role)) {
       if (!G.roomOn(role, g.key)) continue;
-      const w = await T.wakeRoom(role, g.key);
-      rooms.push({ key: `garden:${g.key}`, kind: "thread", label: g.label, threadId: thread.id,
-        status: `${g.hint}${w.last ? `；上次在这间房聊到「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : "；还没在这间房聊过"}`,
-        system: w.system, history: w.history, servers: serverPack(w.servers) });
+      try { // 一间房出错只跳过那间，不让整包同步失败
+        const w = await T.wakeRoom(role, g.key);
+        rooms.push({ key: `garden:${g.key}`, kind: "thread", label: g.label, threadId: thread.id,
+          status: `${g.hint}${w.last ? `；上次在这间房聊到「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : "；还没在这间房聊过"}`,
+          system: w.system, history: w.history, servers: serverPack(w.servers) });
+      } catch (e) {
+        wakeStatus.skipped.push(`${wakeName(role)}的「${g.label}」房（${e.message}）`);
+      }
     }
   }
   return rooms;
@@ -288,9 +292,11 @@ export async function syncNow() {
   clearTimeout(syncTimer);
   if (!relayReady()) return;
   // 从来没开过唤醒，就不用同步；关掉以后同步一次空的，让中转不再叫醒
-  if (!store.wake.enabled && !store.wake.synced) return;
+  const awake = store.roles.filter(r => r.wake?.enabled); // 开关开着的才醒
+  if (!awake.length && !store.wake.synced) return;
   if (wakeStatus.syncing) { scheduleSync(2000); return; }
   wakeStatus.syncing = true;
+  wakeStatus.skipped = [];
   try {
     const roles = await Promise.all(awake.map(snapshotRole));
     const snap = {

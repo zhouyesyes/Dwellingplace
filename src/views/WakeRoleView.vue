@@ -526,7 +526,7 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <Icon name="refresh" :size="20" />
         <span class="grow">
           {{ wakeStatus.syncing ? "同步中…" : wakeStatus.syncedAt ? `上次同步：${stamp(wakeStatus.syncedAt)}` : "这次打开还没同步过" }}
-          <span class="sub" :class="{ bad: wakeStatus.error }">{{ wakeStatus.error || "设定、记忆、聊天有变化时会自动同步" }}</span>
+          <span class="sub" :class="{ bad: wakeStatus.error }">{{ wakeStatus.error || (wakeStatus.skipped?.length ? `有房间没带上：${wakeStatus.skipped.join("；")}` : "设定、记忆、聊天有变化时会自动同步") }}</span>
         </span>
         <button class="btn soft small" :disabled="wakeStatus.syncing" @click="syncNowClick">立即同步</button>
       </div>
