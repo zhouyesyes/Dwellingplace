@@ -1216,6 +1216,19 @@ async function resave(env, item) {
   await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(saved), { expirationTtl: 30 * 86400 });
 }
 
+// 花园叫醒没能进到小房间：不在主聊天里带工具醒（主聊天没有花园的工具），只放一个不请求模型的空条目，栖所收到后在主聊天留一条小记
+async function gardenMissItem(env, role, why) {
+  const item = {
+    id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(),
+    reasons: ["花园叫醒"], silent: true, text: "", notes: [],
+    note: `花园叫醒：${role.id === "crab" ? "CC" : "chatgpt"} 有一手没接上（${why}）`,
+    usage: { input: 0, output: 0, rounds: 0 }, apiId: null, model: "", alarms: [],
+  };
+  await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
+  await env.KV.put("boxlatest", String(item.ts));
+  return item;
+}
+
 // 花园叫醒的去向留一笔（最近 12 条，栖所的唤醒页能看到），出了问题好查是断在哪一步
 async function logPoke(env, rec) {
   try {
@@ -1504,8 +1517,8 @@ async function wakeRoute(path, req, env) {
       const reason = String(body.reason || "").slice(0, 60);
       const room = (role.rooms || []).find(r => r.key === `garden:${key}`);
       if (!room) {
-        const item = await runWake(env, cfg, role, why);
-        await logPoke(env, { reason, to: "main", why: "那间房没勾（或没同步过来）" });
+        const item = await gardenMissItem(env, role, "那间房没勾（或没同步过来）");
+        await logPoke(env, { reason, to: "main", why: "那间房没勾（或没同步过来），只留小记没醒" });
         return json({ ok: true, item });
       }
       const goRoom = async (rm, k, reasons, extra = {}) => {
@@ -1522,10 +1535,10 @@ async function wakeRoute(path, req, env) {
       try {
         item = await goRoom(room, key, why, play ? { wakeHint: hint, canHandoff: true } : {});
       } catch (e) {
-        // 房间那条路出了错：别让叫醒白白丢了，退回主聊天里醒（那边带着全部工具）
+        // 房间那条路出了错：主聊天不带花园的工具，所以不退回去醒，只在主聊天留一条小记
         await logPoke(env, { reason, to: key, error: e.message || String(e) });
-        const item2 = await runWake(env, cfg, role, [{ ...why[0], text: `${why[0].text}（原本要去「${room.label}」，没走通：${String(e.message || e).slice(0, 60)}）` }]);
-        await logPoke(env, { reason, to: "main", why: "房间那条路出错，退回主聊天" });
+        const item2 = await gardenMissItem(env, role, `进「${room.label}」出错：${String(e.message || e).slice(0, 60)}`);
+        await logPoke(env, { reason, to: "main", why: "房间那条路出错，只留小记没醒" });
         return json({ ok: true, item: item2 });
       }
       await logPoke(env, { reason, to: key });
@@ -1624,7 +1637,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 34, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 35, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
