@@ -151,11 +151,13 @@ const logOpen = ref(false);
 // 中转上的情况
 const state = ref(null);
 const stateErr = ref("");
+const pokes = ref([]); // 花园叫醒最近送到中转的几次（去了哪间房、有没有出错）
 async function loadState() {
   stateErr.value = "";
   try {
     const r = await fetchState();
     state.value = r.roles?.[role.value.id] || null;
+    pokes.value = r.pokes || [];
   } catch (e) {
     stateErr.value = e.message;
   }
@@ -484,6 +486,10 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <button class="btn soft small" @click="copyId">复制</button>
         </div>
         <p class="hint">花园里游戏轮到 {{ who }} 时，装在服务器上的唤醒桥会马上叫醒{{ who }}，不用等。装法见 <a :href="GARDEN_GUIDE" target="_blank">花园唤醒桥说明</a>。</p>
+        <template v-if="pokes.length">
+          <p class="hint">中转最近收到的花园叫醒（没有记录 = 叫醒压根没送到中转，先看服务器上的唤醒桥还在不在跑）：</p>
+          <p v-for="(k, i) in pokes.slice(0, 5)" :key="i" class="hint poke" :class="{ bad: k.error }">{{ new Date(k.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) }} · {{ k.reason || "?" }} → {{ { stroll: "逛", play: "玩", nostos: "雾潮群岛", main: "主聊天", none: "没找到角色" }[k.to] || k.to }}{{ k.via ? "（从逛转来）" : "" }}{{ k.why ? `，${k.why}` : "" }}{{ k.error ? `，出错：${k.error}` : "" }}</p>
+        </template>
       </div>
 
       <template v-if="role.wakeLog?.length">
@@ -560,6 +566,8 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 .note-box { width: 100%; margin-top: 8px; resize: vertical; line-height: 1.6; box-sizing: border-box; }
 .rid { font-size: 0.85rem; user-select: all; word-break: break-all; }
 .hint a { color: var(--accent); }
+.hint.poke { margin-top: 4px; font-size: 0.76rem; }
+.hint.bad { color: var(--danger); }
 .lim { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
 .lim small { color: var(--text-3); font-size: 0.75rem; line-height: 1.5; }
 .plat { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--bg); color: var(--text-3); font-size: 0.68rem; font-style: normal; opacity: .8; }

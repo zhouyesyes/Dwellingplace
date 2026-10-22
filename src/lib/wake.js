@@ -359,20 +359,20 @@ async function ingestGardenWake(role, item, key) {
   if ((role.wakeLog || []).some(x => x.id === item.id)) return; // 已经取过了
   logWake(role, item);
   if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
-  const T = await import("./gardenTalk.js");
   let what = "";
   try {
+    const T = await import("./gardenTalk.js");
     const r = await T.ingestWakeRoom(role, item, key);
     what = item.error ? "，但出错了" : r?.said ? "，在房间里留了话" : r?.notes?.length > 1 ? "，做了点事" : "，坐了一会儿，没写什么";
   } catch (e) {
     what = `，但没放进去：${e.message}`;
   }
-  const thread = threadFor(role);
-  if (!thread) return;
+  // 不管进了哪间房、房间里有没有放成，主聊天里都留这一条小记
+  const thread = threadFor(role) || createThread(role.id);
   const all = await loadMessages(thread.id);
   const last = pathOf(thread, all).at(-1);
   if (last) {
-    last.notes = [...(last.notes || []), { text: `${(item.reasons || []).some(r => /花园那边来了提醒/.test(r)) ? "花园叫醒" : "自由时间"}：${wakeName(role)} 去了「${item.free.label}」${what}`, wakeId: item.id }];
+    last.notes = [...(last.notes || []), { text: `${(item.reasons || []).some(r => /花园那边来了提醒/.test(r)) ? "花园叫醒" : "自由时间"}：${wakeName(role)} 去了「${item.free?.label || key}」${what}${item.handoff ? "，读完帖子觉得是游戏的事，转去「玩」了" : ""}`, wakeId: item.id }];
     saveMessages(thread.id);
   }
 }
