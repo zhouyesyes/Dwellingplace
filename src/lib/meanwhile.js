@@ -5,6 +5,8 @@
 //   posts   { id, n, who, ts, date, text, img, status: {kind, text}|null, planId, src, replies: [{id, who, text, ts}], reacts: [{id, who, kind, ts}] }
 //   moods   { id: "日期:谁", date, who, key, text, ts }
 //   plans   { id, month: "YYYY-MM", date: "YYYY-MM-DD"|null（挂在某一天；null 就是挂在这个月）, who, text, ts, doneAt, postId }
+//           周期待续多三样：repeat { type, wd, dom, n, mo, day, start, stop, until, days }、dones [{ id: 日期, date, doneAt, postId }]（每次单独打勾）、stoppedAt（整件停掉的那天）；
+//           周期待续的 date / month 跟着开始日，不算「某一天的待续」，每天要做的由 planItemsOn 现算
 //   shells  { id: 日期, date, ts, n }  拾贝（今日小报）：哪天打印过、打了几次；小票内容每次按当天的数据现生成，不存
 //   diaries：第二版的日记，先留着位置
 // who：她是 "me"，他是 MAIN，小螃蟹是 CRAB
@@ -87,9 +89,87 @@ export const postsOf = () => ensureMeanwhile().posts;
 export const postsOn = date => postsOf().filter(p => p.date === date).sort((a, b) => b.ts - a.ts);
 export const moodsOn = date => ensureMeanwhile().moods.filter(m => m.date === date);
 export const moodOf = (who, date = todayYmd()) => ensureMeanwhile().moods.find(m => m.id === `${date}:${who}`) || null;
-export const plansOf = month => ensureMeanwhile().plans.filter(p => p.month === month).sort((a, b) => a.ts - b.ts);
+export const plansOf = month => ensureMeanwhile().plans.filter(p => p.month === month && !p.repeat).sort((a, b) => a.ts - b.ts);
 export const monthPlansOf = month => plansOf(month).filter(p => !p.date);
-export const plansOnDay = date => ensureMeanwhile().plans.filter(p => p.date === date).sort((a, b) => a.ts - b.ts);
+export const plansOnDay = date => ensureMeanwhile().plans.filter(p => p.date === date && !p.repeat).sort((a, b) => a.ts - b.ts);
+
+// ---------- 周期待续 ----------
+// repeat：type = daily 每天 / weekly 每周几（wd，0 是周日）/ monthly 每月几号（dom，小月没有就挂在最后一天）/ interval 每隔 n 天（从 start 起算）/ yearly 每年 mo 月 day 日
+// start 开始日；stop = forever 一直重复 / until 到 until 为止（days 是「持续 N 天」时填的）/ whole 整件做完才停（点「整件停掉」）
+export const REPEAT_TYPES = ["daily", "weekly", "monthly", "interval", "yearly"];
+const WEEK_CN = ["日", "一", "二", "三", "四", "五", "六"];
+const parseYmd = str => { const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); };
+const dayDiff = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 86400_000);
+const monthDays = (y, m) => new Date(y, m, 0).getDate();
+const clampInt = (v, lo, hi, def) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def; };
+// 把各种来源（界面、同步回来的、他们写的）的周期整理成固定样子；不对就返回 null（当成普通待续）
+export function normalizeRepeat(r) {
+  if (!r || !REPEAT_TYPES.includes(r.type)) return null;
+  const start = YMD_RE.test(r.start || "") ? r.start : todayYmd();
+  const out = { type: r.type, start, stop: "forever", until: null, days: null };
+  if (r.type === "weekly") {
+    out.wd = [...new Set((r.wd || []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+    if (!out.wd.length) return null;
+  }
+  if (r.type === "monthly") out.dom = clampInt(r.dom, 1, 31, 1);
+  if (r.type === "interval") out.n = clampInt(r.n, 1, 365, 2);
+  if (r.type === "yearly") { out.mo = clampInt(r.mo, 1, 12, 1); out.day = clampInt(r.day, 1, 31, 1); }
+  if (r.stop === "whole") out.stop = "whole";
+  else if (r.stop === "until") {
+    const days = r.days ? clampInt(r.days, 1, 3650, 0) : 0;
+    if (days) { out.stop = "until"; out.days = days; out.until = ymdAdd(start, days - 1); }
+    else if (YMD_RE.test(r.until || "") && r.until >= start) { out.stop = "until"; out.until = r.until; }
+  }
+  return out;
+}
+export function repeatLabel(r) {
+  if (!r) return "";
+  if (r.type === "daily") return "每天";
+  if (r.type === "weekly") {
+    const order = [1, 2, 3, 4, 5, 6, 0].filter(d => r.wd.includes(d));
+    return `每周${order.map(d => WEEK_CN[d]).join(order.length > 1 ? "、" : "")}`;
+  }
+  if (r.type === "monthly") return `每月${r.dom}号`;
+  if (r.type === "interval") return `每${r.n}天`;
+  return `每年${r.mo}月${r.day}日`;
+}
+// 这件待续在这一天要不要做
+export function occursOn(p, date) {
+  const r = p.repeat;
+  if (!r) return p.date === date;
+  if (date < r.start || (r.until && date > r.until) || (p.stoppedAt && date > p.stoppedAt)) return false;
+  const [y, mo, d] = date.split("-").map(Number);
+  if (r.type === "daily") return true;
+  if (r.type === "weekly") return r.wd.includes(parseYmd(date).getDay());
+  if (r.type === "monthly") return d === Math.min(r.dom, monthDays(y, mo));
+  if (r.type === "interval") return dayDiff(r.start, date) % r.n === 0;
+  if (r.type === "yearly") return mo === r.mo && d === Math.min(r.day, monthDays(y, mo));
+  return false;
+}
+// 周期待续还会不会再出现（没停、没到期）
+export const planAlive = (p, today = todayYmd()) => !p.repeat || (!(p.stoppedAt && p.stoppedAt < today) && !(p.repeat.until && p.repeat.until < today));
+// 一件待续在某一天的样子：单次的就是它自己，周期的按这一天有没有勾过
+function itemOf(p, date) {
+  const d = p.repeat && (p.dones || []).find(x => x.id === date);
+  return { key: p.repeat ? `${p.id}@${date}` : p.id, plan: p, date, who: p.who, text: p.text, doneAt: p.repeat ? (d?.doneAt || null) : p.doneAt, label: p.repeat ? repeatLabel(p.repeat) : "" };
+}
+// 这一天要做的待续（单次挂在这天的 + 周期的）
+export const planItemsOn = date => ensureMeanwhile().plans.filter(p => occursOn(p, date)).sort((a, b) => a.ts - b.ts).map(p => itemOf(p, date));
+export const recurringPlans = () => ensureMeanwhile().plans.filter(p => p.repeat).sort((a, b) => a.ts - b.ts);
+export { itemOf as planItemOf };
+
+// 界面上的表单 ←→ repeat
+export const emptyRepeatForm = (start = todayYmd()) => ({ type: "none", wd: [], dom: Number(start.slice(8)), n: 2, mo: Number(start.slice(5, 7)), day: Number(start.slice(8)), start, stop: "forever", untilMode: "days", days: 7, until: start });
+export function repeatFormOf(r, start) {
+  const f = emptyRepeatForm(r?.start || start);
+  if (!r) return f;
+  return { ...f, type: r.type, wd: [...(r.wd || [])], dom: r.dom ?? f.dom, n: r.n ?? f.n, mo: r.mo ?? f.mo, day: r.day ?? f.day, stop: r.stop, untilMode: r.days ? "days" : (r.until ? "date" : "days"), days: r.days || f.days, until: r.until || f.until };
+}
+export function repeatFromForm(f) {
+  if (!f || f.type === "none") return null;
+  return normalizeRepeat({ type: f.type, wd: f.wd, dom: f.dom, n: f.n, mo: f.mo, day: f.day, start: f.start, stop: f.stop === "until" ? "until" : f.stop, days: f.stop === "until" && f.untilMode === "days" ? f.days : 0, until: f.stop === "until" && f.untilMode === "date" ? f.until : "" });
+}
+
 
 // ---------- 拾贝（小票）----------
 export const shellOf = date => ensureMeanwhile().shells.find(s => s.id === date) || null;
@@ -110,9 +190,10 @@ export function shellData(date) {
   const posts = postsOn(date).slice().reverse();
   const planIds = new Set();
   const plans = [];
-  const addPlanLine = p => { if (planIds.has(p.id)) return; planIds.add(p.id); plans.push({ id: p.id, done: !!p.doneAt, text: oneLine(p.text, 18), full: oneLine(p.text, 9999), color: whoInfo(p.who).color }); };
-  plansOnDay(date).forEach(addPlanLine);
-  for (const post of posts) { const p = post.planId && ensureMeanwhile().plans.find(x => x.id === post.planId); if (p) addPlanLine(p); }
+  const addPlanLine = it => { if (planIds.has(it.key)) return; planIds.add(it.key); plans.push({ id: it.key, done: !!it.doneAt, text: oneLine(it.text, 18), full: oneLine(it.text, 9999), label: it.label, color: whoInfo(it.who).color }); };
+  planItemsOn(date).forEach(addPlanLine);
+  // 勾过的记录还在，但周期后来改了、这天不再算的：照样留在这天的小票上
+  for (const post of posts) { const p = post.planId && ensureMeanwhile().plans.find(x => x.id === post.planId); if (p) addPlanLine(p.repeat ? { ...itemOf(p, date), doneAt: post.ts } : itemOf(p, date)); }
   const lines = posts.filter(p => !p.planId).map(p => {
     const st = p.status ? `${STATUSES.find(s => s.kind === p.status.kind)?.name || ""}${p.status.text ? " " + p.status.text : ""}` : "";
     const all = [st && `[${st}]`, p.text].filter(Boolean).join(" ") || (p.img ? "［照片］" : "");
@@ -154,7 +235,8 @@ export function removePost(post) {
   if (i < 0) return;
   m.posts.splice(i, 1);
   const plan = m.plans.find(x => x.id === post.planId);
-  if (plan) { plan.doneAt = null; plan.postId = null; }
+  if (plan?.repeat) plan.dones = (plan.dones || []).filter(x => x.postId !== post.id); // 周期的只收回那一天的勾
+  else if (plan) { plan.doneAt = null; plan.postId = null; }
 }
 export function addReply(post, who, text) {
   const t = String(text || "").trim().slice(0, 300);
@@ -172,29 +254,60 @@ export const reactorsOf = (post, kind) => post.reacts.filter(r => r.kind === kin
 
 // 待续：完成了就在当天落成一条记录；没完成就那样放着，不标红、不催
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
-// date 有值就挂在那一天（月份跟着日期走），没有就挂在 month 这个月
-export function addPlan(who, text, month, date = null) {
+// date 有值就挂在那一天（月份跟着日期走），没有就挂在 month 这个月；repeat 有值就是周期待续（开始日取 repeat.start）
+export function addPlan(who, text, month, date = null, repeat = null) {
   const t = String(text || "").trim().slice(0, 60);
   if (!t) return null;
-  const d = YMD_RE.test(date || "") ? date : null;
+  const rep = repeat ? normalizeRepeat(repeat) : null;
+  const d = rep ? rep.start : (YMD_RE.test(date || "") ? date : null);
   const p = { id: uid(), month: d ? d.slice(0, 7) : month, date: d, who, text: t, ts: Date.now(), doneAt: null, postId: null };
+  if (rep) { p.repeat = rep; p.dones = []; p.stoppedAt = null; }
   ensureMeanwhile().plans.push(p);
   return p;
 }
 // 改文字、改日期（日期留空 = 挂回这个月，month 是要挂的月份；月和日之间可以互相换）
-export function updatePlan(plan, { text, date, month }) {
+// 周期待续：repeat 是新的周期，整串一起改，已经勾过的那几天不动；单次的待续给了 repeat 就变成周期的（已经勾过的那次留在它那天）
+export function updatePlan(plan, { text, date, month, repeat }) {
   const t = String(text ?? plan.text).trim().slice(0, 60);
   if (!t) return false;
+  const m = ensureMeanwhile();
+  if (plan.repeat || repeat) {
+    const rep = normalizeRepeat(repeat || plan.repeat);
+    if (!rep) return false;
+    if (!plan.repeat) {
+      const post = m.posts.find(x => x.id === plan.postId);
+      plan.dones = post ? [{ id: post.date, date: post.date, doneAt: plan.doneAt || post.ts, postId: post.id }] : [];
+      plan.doneAt = null; plan.postId = null; plan.stoppedAt = null;
+    }
+    plan.text = t; plan.repeat = rep; plan.date = rep.start; plan.month = rep.start.slice(0, 7);
+    return true;
+  }
   plan.text = t;
   const d = YMD_RE.test(date || "") ? date : null;
   plan.date = d;
   plan.month = d ? d.slice(0, 7) : (month || plan.month);
-  const post = ensureMeanwhile().posts.find(x => x.id === plan.postId);
+  const post = m.posts.find(x => x.id === plan.postId);
   if (post) post.text = t;
   return true;
 }
-export function togglePlan(plan, who = ME) {
+// 那一天的几点几分（周期待续勾的不是今天，记录也要落在那一天）
+const tsOnDay = date => { if (date === todayYmd()) return Date.now(); const n = new Date(), d = parseYmd(date); d.setHours(n.getHours(), n.getMinutes(), n.getSeconds()); return d.getTime(); };
+// date 只给周期待续用：每一次单独打勾，只算那一天
+export function togglePlan(plan, who = ME, date = todayYmd()) {
   const m = ensureMeanwhile();
+  if (plan.repeat) {
+    plan.dones ??= [];
+    const cur = plan.dones.find(x => x.id === date);
+    if (cur) {
+      const i = m.posts.findIndex(x => x.id === cur.postId);
+      if (i >= 0) m.posts.splice(i, 1);
+      plan.dones = plan.dones.filter(x => x !== cur);
+      return;
+    }
+    const post = addPost(who, { text: plan.text, planId: plan.id, src: "plan", ts: tsOnDay(date) });
+    plan.dones.push({ id: date, date, doneAt: Date.now(), postId: post?.id || null });
+    return;
+  }
   if (plan.doneAt) {
     const i = m.posts.findIndex(x => x.id === plan.postId);
     if (i >= 0) m.posts.splice(i, 1);
@@ -205,13 +318,15 @@ export function togglePlan(plan, who = ME) {
   plan.doneAt = Date.now();
   plan.postId = post?.id || null;
 }
+// 整件停掉：从明天起不再出现，勾过的记录留着
+export function stopPlan(plan) { plan.stoppedAt = todayYmd(); }
 export function removePlan(plan) {
   const m = ensureMeanwhile();
   const i = m.plans.indexOf(plan);
   if (i < 0) return;
   m.plans.splice(i, 1);
-  const k = m.posts.findIndex(x => x.id === plan.postId);
-  if (k >= 0) m.posts.splice(k, 1);
+  const ids = new Set([plan.postId, ...(plan.dones || []).map(x => x.postId)].filter(Boolean));
+  for (let k = m.posts.length - 1; k >= 0; k--) if (ids.has(m.posts[k].id)) m.posts.splice(k, 1);
 }
 
 // 有几条别人贴的、她还没看（主页上的小红点）
@@ -225,7 +340,8 @@ export const TIDE_POST_RE = lineRe("潮间带[:：]([^\\]]{1,600})");
 export const TIDE_REPLY_RE = lineRe("潮间带回复[:：]\\s*#?(\\d{1,6})\\s*[|｜]([^\\]]{1,300})");
 export const TIDE_MOOD_RE = lineRe("水温[:：]\\s*([^\\]|｜]{1,6})(?:[|｜]([^\\]]{0,60}))?");
 // 可以带日期：[待续:12-25|一件事]（也认 2026-12-25；不带日期就挂在当月）。日期用 - 不用 :，免得被当成别的指令切开
-export const TIDE_PLAN_RE = lineRe("待续[:：](?:\\s*(\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}-\\d{1,2})\\s*[|｜])?([^\\]|｜]{1,60})");
+// 也可以写周期：[待续:每周三|一件事]、[待续:每天|一件事|持续14天]（前面那段是日期或周期，认不出来就当没写；最后一段是持续几天，可以没有）
+export const TIDE_PLAN_RE = lineRe("待续[:：](?:\\s*([^\\]|｜]{1,24}?)\\s*[|｜])?([^\\]|｜]{1,60})(?:[|｜]\\s*([^\\]|｜]{1,12}))?");
 export const TIDE_ANY_RE = new RegExp([TIDE_POST_RE, TIDE_REPLY_RE, TIDE_MOOD_RE, TIDE_PLAN_RE].map(r => `(?:${r.source})`).join("|"), "gm");
 const POST_DAY_MAX = 3; // 每个人每天最多自己贴三条，别刷屏
 const PLAN_MONTH_MAX = 5; // 每个人每个月没完成的待续最多挂五条
@@ -241,6 +357,21 @@ function planDate(str) {
   let ymd = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   if (parts.length === 2 && ymd < ymdAdd(today, -60) && ok(y + 1)) ymd = `${y + 1}-${ymd.slice(5)}`;
   return ymd;
+}
+// 他们写的周期：每天 / 每周三 / 每周一三五 / 每月15号 / 每3天（也认每隔3天）/ 每年12-25（也认12月25日）；加 days（持续几天）或 untilStr（到某天）；认不出来返回 null
+const CN_WEEK = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
+function parseRepeat(spec, tail) {
+  const t = String(spec || "").replace(/\s+/g, "");
+  const start = todayYmd();
+  let r = null, m;
+  if (/^每天$|^天天$|^每日$/.test(t)) r = { type: "daily" };
+  else if ((m = t.match(/^每(?:个)?(?:周|星期)([一二三四五六日天、,，和]{1,13})$/))) r = { type: "weekly", wd: [...m[1]].filter(c => c in CN_WEEK).map(c => CN_WEEK[c]) };
+  else if ((m = t.match(/^每月(\d{1,2})[号日]?$/))) r = { type: "monthly", dom: Number(m[1]) };
+  else if ((m = t.match(/^每(?:隔)?(\d{1,3})天$/))) r = { type: "interval", n: Number(m[1]) };
+  else if ((m = t.match(/^每年(\d{1,2})[-月](\d{1,2})[号日]?$/))) r = { type: "yearly", mo: Number(m[1]), day: Number(m[2]) };
+  if (!r) return null;
+  const days = String(tail || "").match(/持续(\d{1,4})天/);
+  return normalizeRepeat({ ...r, start, stop: days ? "until" : "forever", days: days ? Number(days[1]) : 0 });
 }
 const ymdAdd = (ymdStr, n) => ymd(new Date(new Date(ymdStr + "T00:00").getTime() + n * 86400_000));
 
@@ -266,12 +397,19 @@ export function applyTideTags(role, text) {
     if (mood) { setMood(who, mood.key, line); notes.push(`${role.name} 今天的水温：${mood.name}${line?.trim() ? `，${line.trim().slice(0, 20)}` : ""}`); }
     return "";
   });
-  out = out.replace(TIDE_PLAN_RE, (_, dateStr, body) => {
-    const date = planDate(dateStr);
+  out = out.replace(TIDE_PLAN_RE, (_, dateStr, body, tail) => {
+    const repeat = parseRepeat(dateStr, tail); // 周期写错了就当普通待续，原始标记不露出来
+    const date = repeat ? null : planDate(dateStr);
     const month = date ? date.slice(0, 7) : monthOf(todayYmd());
     const t = body.trim();
     const mine = plansOf(month).filter(p => p.who === who);
-    if (mine.some(p => p.text === t && (p.date || null) === date) || mine.filter(p => !p.doneAt).length >= PLAN_MONTH_MAX) return "";
+    const series = recurringPlans().filter(p => p.who === who && planAlive(p)); // 一串周期待续算一件
+    if (repeat) {
+      if (series.some(p => p.text === t && p.repeat.type === repeat.type) || mine.filter(p => !p.doneAt).length + series.length >= PLAN_MONTH_MAX) return "";
+      if (addPlan(who, t, month, null, repeat)) notes.push(`${role.name} 加了一件周期待续（${repeatLabel(repeat)}）：${t.slice(0, 24)}`);
+      return "";
+    }
+    if (mine.some(p => p.text === t && (p.date || null) === date) || mine.filter(p => !p.doneAt).length + series.length >= PLAN_MONTH_MAX) return "";
     if (addPlan(who, t, month, date)) notes.push(`${role.name} 给${date ? `${Number(date.slice(5, 7))}月${Number(date.slice(8))}日` : "这个月"}加了一件待续：${t.slice(0, 24)}`);
     return "";
   });
@@ -297,11 +435,12 @@ export function tideForAI(role, who) {
     `想往上贴一条，在回复末尾单独一行写：[潮间带:内容]，一两句话、100 字以内，像便笺那样随手贴；在读书、画画、写作也可以直接写进内容里。每天自己最多贴 3 条，不用每次都贴。`,
     `今天的水温（心情）每人每天一个：单独一行写 [水温:名字|一句话]，名字从这十个里选：${names}；一句话可以不写。再写一次就是改。`,
     `回别人贴的：单独一行写 [潮间带回复:序号|一句话]，序号是【此刻】里「潮间带」那一段的 #号；只想轻轻回应，就把一句话换成 爱心 / 摸摸 / 抱抱 / 戳一戳 之一。`,
-    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内，会挂在当月；想挂在某一天就写 [待续:12-25|一件事]（月-日，日期和事情之间用 | 隔开，日期里不要用冒号）。做完了由她点一下，会在当天留下一条记录。别刷，每个月自己挂着的不超过 5 件。`,
+    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内，会挂在当月；想挂在某一天就写 [待续:12-25|一件事]（月-日，日期和事情之间用 | 隔开，日期里不要用冒号）。要反复做的写周期：[待续:每天|一件事]、[待续:每周三|一件事]、[待续:每月15号|一件事]、[待续:每3天|一件事]、[待续:每年12-25|一件事]，末尾可以加 |持续14天。做完了由她点一下，会在当天留下一条记录。别刷，每个月自己挂着的不超过 5 件（一串周期待续算一件）。`,
     `只有单独占一行的才会执行；平时聊到、解释这些指令时，别写出带方括号的完整格式，也不要放进代码块里。`,
   ].join("\n");
 }
 
+const plans2 = today => planItemsOn(today).filter(it => it.label && !it.doneAt).slice(0, 6).map(it => `${whoInfo(it.who).name}：${it.text.slice(0, 20)}（${it.label}）`);
 // 附在【此刻】里的：最近 24 小时别人贴的、今天大家的水温
 export function tideMoment(role) {
   const m = ensureMeanwhile();
@@ -312,6 +451,8 @@ export function tideMoment(role) {
   if (moods.length) lines.push(`今天的水温：${moods.map(([w, x]) => `${w === role.id ? "你" : whoInfo(w).name}${moodByKey(x.key)?.name}${x.text ? `（${x.text}）` : ""}`).join("；")}`);
   const plans = plansOf(monthOf(today)).filter(p => !p.doneAt).slice(-6);
   if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${p.who === role.id ? "你" : whoInfo(p.who).name}：${p.date ? `${Number(p.date.slice(5, 7))}/${Number(p.date.slice(8))} ` : ""}${p.text.slice(0, 20)}`).join("；")}`);
+  const today2 = plans2(today);
+  if (today2.length) lines.push(`今天要做的周期待续：${today2.join("；")}`);
   const recent = m.posts.filter(p => p.ts > since && p.src !== "plan").sort((a, b) => a.ts - b.ts).slice(-6);
   for (const p of recent) {
     const name = p.who === role.id ? "你" : whoInfo(p.who).name;

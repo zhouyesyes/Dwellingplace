@@ -7,7 +7,7 @@ import { store } from "../../store/index.js";
 import { todayYmd } from "../../lib/dates.js";
 import { pickFile, saveImage, deleteImage } from "../../lib/images.js";
 import {
-  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf, plansOnDay, updatePlan,
+  ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf, planItemsOn, occursOn, planItemOf, recurringPlans, planAlive, stopPlan, repeatLabel, emptyRepeatForm, repeatFormOf, repeatFromForm, updatePlan,
   setMood, clearMood, addPost, removePost, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
 } from "../../lib/meanwhile.js";
 import Icon from "../Icon.vue";
@@ -17,6 +17,7 @@ import ImageViewer from "../ImageViewer.vue";
 import TideHero from "./TideHero.vue";
 import MoodCard from "./MoodCard.vue";
 import TideCalendar from "./TideCalendar.vue";
+import RepeatPicker from "./RepeatPicker.vue";
 import TideImg from "./TideImg.vue";
 import ShellPrinter from "./ShellPrinter.vue";
 
@@ -141,33 +142,58 @@ function react(p, kind) {
 const plansOpen = ref(false);
 const planText = ref("");
 const plans = computed(() => plansOf(month.value));
-const dayPlans = computed(() => (selected.value ? plansOnDay(selected.value) : []));
+// 点了某一天看那天要做的；没点就只看今天要做的周期待续
+const dayPlans = computed(() => (selected.value ? planItemsOn(selected.value) : planItemsOn(today.value).filter(i => i.label)));
+// 还在继续的周期待续（每一串一行）；小圆圈勾的是「正在看的这一天」，那天不用做的就没有圈
+const series = computed(() => recurringPlans().filter(p => planAlive(p, today.value)).map(p => ({ ...planItemOf(p, day.value), on: occursOn(p, day.value) })));
+const newRep = ref(emptyRepeatForm());
 // 新加：挂在这个月，或者挂在某一天
 const planScope = ref("month");
 const planDay = ref("");
-function openPlans() { planScope.value = "month"; planDay.value = selected.value || (month.value === today.value.slice(0, 7) ? today.value : `${month.value}-01`); plansOpen.value = true; }
+function openPlans() {
+  planScope.value = "month"; planDay.value = selected.value || (month.value === today.value.slice(0, 7) ? today.value : `${month.value}-01`);
+  newRep.value = emptyRepeatForm(selected.value || today.value);
+  plansOpen.value = true;
+}
 function savePlan() {
   const date = planScope.value === "day" && planDay.value ? planDay.value : null;
-  if (addPlan(ME, planText.value, month.value, date)) planText.value = "";
+  const rep = repeatFromForm(newRep.value);
+  if (newRep.value.type !== "none" && !rep) return alert("这个周期还没填完整（每周几至少选一天）");
+  if (addPlan(ME, planText.value, month.value, date, rep)) { planText.value = ""; newRep.value = emptyRepeatForm(selected.value || today.value); }
 }
-function tickPlan(p) { togglePlan(p, ME); }
+function tickPlan(p, date) { togglePlan(p, ME, date); }
 const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
 // 点开一件待续：改文字、改日期（月和日之间可以换）、删掉
 const editing = ref(null);
 const edit = ref({ text: "", scope: "month", date: "", month: "" });
-function openEdit(p) {
+const editDate = ref(""); // 周期待续是从哪一天点进来的（「这次做完了」算哪天）
+const editRep = ref(emptyRepeatForm());
+function openEdit(p, date = "") {
   editing.value = p;
+  editDate.value = p.repeat ? date : "";
   edit.value = { text: p.text, scope: p.date ? "day" : "month", date: p.date || `${p.month}-01`, month: p.month };
+  editRep.value = repeatFormOf(p.repeat, p.date || today.value);
 }
+const editDone = computed(() => !!editing.value?.dones?.some(x => x.id === editDate.value));
+const editStopped = computed(() => !!editing.value?.stoppedAt && editing.value.stoppedAt < today.value);
 function saveEdit() {
   const e = edit.value;
-  if (!updatePlan(editing.value, { text: e.text, date: e.scope === "day" ? e.date : null, month: e.month })) return;
+  const rep = editRep.value.type === "none" ? null : repeatFromForm(editRep.value);
+  if (editRep.value.type !== "none" && !rep) return alert("这个周期还没填完整（每周几至少选一天）");
+  if (!updatePlan(editing.value, { text: e.text, date: e.scope === "day" ? e.date : null, month: e.month, repeat: rep })) return;
   editing.value = null;
 }
 // 在卡里点「做完了」：等于在待续清单里点前面的小圆圈（留一条「✓ 待续完成了」），然后关卡
 function finishEdit() {
   if (!editing.value.doneAt) togglePlan(editing.value, ME);
+  editing.value = null;
+}
+// 周期待续：「这次做完了」只算点进来的那一天；「整件停掉」之后的日子不再出现，勾过的留着
+function finishOnce() { togglePlan(editing.value, ME, editDate.value); editing.value = null; }
+function stopWhole() {
+  if (!confirm("整件停掉？之后的日子不再出现，已经勾过的记录会留着。")) return;
+  stopPlan(editing.value);
   editing.value = null;
 }
 function dropEdit() {
@@ -206,8 +232,8 @@ function dropEdit() {
 
     <!-- 点了某一天：挂在那天的待续 -->
     <section v-if="dayPlans.length" class="day-plans">
-      <button v-for="p in dayPlans" :key="p.id" class="dp" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }" @click="openEdit(p)">
-        <span class="tag">待续</span><span class="t">{{ p.text }}</span><small>{{ info(p.who).name }}</small>
+      <button v-for="p in dayPlans" :key="p.key" class="dp" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }" @click="openEdit(p.plan, p.date)">
+        <span class="tag">待续</span><span class="t">{{ p.text }}</span><em v-if="p.label" class="cyc">{{ p.label }}</em><small>{{ info(p.who).name }}</small>
       </button>
     </section>
 
@@ -296,11 +322,12 @@ function dropEdit() {
         <input v-model="planText" class="input" maxlength="60" placeholder="写一件想做的事" enterkeyhint="done" />
         <button class="btn small" :disabled="!planText.trim()">贴上</button>
       </form>
-      <div class="scope">
+      <div v-if="newRep.type === 'none'" class="scope">
         <button type="button" class="chip" :class="{ on: planScope === 'month' }" @click="planScope = 'month'">这个月</button>
         <button type="button" class="chip" :class="{ on: planScope === 'day' }" @click="planScope = 'day'">某一天</button>
         <input v-if="planScope === 'day'" v-model="planDay" class="input date" type="date" :min="`${month}-01`" :max="`${month}-31`" />
       </div>
+      <RepeatPicker :form="newRep" />
       <ul class="plan-list">
         <li v-for="p in plans" :key="p.id" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }">
           <button class="tick" :aria-label="p.doneAt ? '取消完成' : '完成'" @click="tickPlan(p)"><Icon v-if="p.doneAt" name="check" :size="14" /></button>
@@ -308,25 +335,46 @@ function dropEdit() {
           <small>{{ info(p.who).name }}</small>
           <button class="x" aria-label="拿掉" @click="removePlan(p)">×</button>
         </li>
-        <li v-if="!plans.length" class="none">这个月还没有待续</li>
+        <li v-if="!plans.length && !series.length" class="none">这个月还没有待续</li>
       </ul>
+      <template v-if="series.length">
+        <p class="hint sub">周期待续（勾的是{{ day === today ? "今天" : md(day) }}）</p>
+        <ul class="plan-list">
+          <li v-for="p in series" :key="p.key" :class="{ done: p.doneAt }" :style="{ '--c': info(p.who).color }">
+            <button v-if="p.on" class="tick" :aria-label="p.doneAt ? '取消这次' : '这次做完了'" @click="tickPlan(p.plan, p.date)"><Icon v-if="p.doneAt" name="check" :size="14" /></button>
+            <span v-else class="tick off" />
+            <button class="t" @click="openEdit(p.plan, p.on ? p.date : '')">{{ p.text }}<em class="cyc">{{ p.label }}</em></button>
+            <small>{{ info(p.who).name }}</small>
+          </li>
+        </ul>
+      </template>
     </Sheet>
 
     <!-- 改一件待续 -->
     <Sheet :open="!!editing" title="改待续" :z="60" @close="editing = null">
       <template v-if="editing">
         <input v-model="edit.text" class="input" maxlength="60" placeholder="这件事" />
-        <div class="scope">
-          <button type="button" class="chip" :class="{ on: edit.scope === 'month' }" @click="edit.scope = 'month'">挂在月上</button>
-          <button type="button" class="chip" :class="{ on: edit.scope === 'day' }" @click="edit.scope = 'day'">挂在某一天</button>
+        <template v-if="!editing.repeat">
+          <div v-if="editRep.type === 'none'" class="scope">
+            <button type="button" class="chip" :class="{ on: edit.scope === 'month' }" @click="edit.scope = 'month'">挂在月上</button>
+            <button type="button" class="chip" :class="{ on: edit.scope === 'day' }" @click="edit.scope = 'day'">挂在某一天</button>
+          </div>
+          <template v-if="editRep.type === 'none'">
+            <input v-if="edit.scope === 'day'" v-model="edit.date" class="input date" type="date" />
+            <label v-else class="mon">挂在 <input v-model="edit.month" class="input" type="month" /></label>
+          </template>
+        </template>
+        <RepeatPicker :form="editRep" :no-none="!!editing.repeat" />
+        <p v-if="editing.repeat" class="hint sub">改文字或改周期是整串一起改，已经勾过的那几天不受影响。{{ editStopped ? "这件已经停掉了。" : "" }}</p>
+        <div v-if="editing.repeat" class="sheet-act once">
+          <button v-if="editDate" class="btn soft" @click="finishOnce">{{ editDone ? "撤回这次的勾" : "这次做完了" }}</button>
+          <button v-if="!editStopped" class="btn soft" @click="stopWhole">整件停掉</button>
         </div>
-        <input v-if="edit.scope === 'day'" v-model="edit.date" class="input date" type="date" />
-        <label v-else class="mon">挂在 <input v-model="edit.month" class="input" type="month" /></label>
         <div class="sheet-act">
           <button class="btn soft" @click="dropEdit">删掉</button>
           <span class="act-gap" />
-          <button v-if="!editing.doneAt" class="btn soft" @click="finishEdit">做完了</button>
-          <button class="btn" :disabled="!edit.text.trim() || (edit.scope === 'day' && !edit.date) || (edit.scope === 'month' && !edit.month)" @click="saveEdit">保存</button>
+          <button v-if="!editing.repeat && !editing.doneAt && editRep.type === 'none'" class="btn soft" @click="finishEdit">做完了</button>
+          <button class="btn" :disabled="!edit.text.trim() || (!editing.repeat && editRep.type === 'none' && ((edit.scope === 'day' && !edit.date) || (edit.scope === 'month' && !edit.month)))" @click="saveEdit">保存</button>
         </div>
       </template>
     </Sheet>
@@ -447,6 +495,11 @@ function dropEdit() {
 .dp .tag { flex: none; font-size: .68rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #f3dc8b; color: #6b5a22; }
 .dp .t { flex: 1; min-width: 0; font-size: .92rem; word-break: break-word; }
 .dp.done .t { text-decoration: line-through; color: var(--text-3); }
+.cyc { flex: none; font-style: normal; font-size: .64rem; padding: 0 6px; border-radius: 999px; color: var(--text-3); background: color-mix(in srgb, var(--text-3) 14%, transparent); margin-left: 6px; }
+.dp .cyc { margin-left: 0; color: var(--text-2); background: color-mix(in srgb, var(--text-2) 16%, transparent); }
+.plan-list .tick.off { border-style: dashed; opacity: .35; }
+.hint.sub { margin: 14px 0 0; }
+.sheet-act.once { justify-content: flex-start; margin-top: 12px; }
 .dp small { color: var(--text-3); font-size: .72rem; flex: none; }
 .plan-list li.done .t { color: var(--text-3); text-decoration: line-through; }
 .plan-list small { color: var(--text-3); font-size: .7rem; }

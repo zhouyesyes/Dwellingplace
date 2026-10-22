@@ -405,6 +405,18 @@ function migrate() {
       migratedDirty = true;
     }
   }
+  // 10/22：#261 / #262 只挪了找到的第一张（.find），要是小螃蟹那边有两张同名的（醒来的结果被两台设备各记了一遍），另一张就留在原地——看起来是「只复制、没删」。
+  // 小章鱼那边已经有这条的话，小螃蟹这边同一本书、同标题的几张放进回收站（可以恢复）；只动这一条，别的笔记不碰
+  if (!store.fixes?.crabReadDup) {
+    const TAG = "（这段是小螃蟹醒来时误读的）", TITLE = "被比较与被看见";
+    const his = (store.memories || []).find(m => m.status !== "deleted" && m.roleId === MAIN && m.bookId && m.title?.includes(TITLE) && m.content?.startsWith(TAG));
+    if (his) {
+      const dups = (store.memories || []).filter(m => m.status !== "deleted" && m.roleId === CRAB && m.bookId === his.bookId && m.title?.includes(TITLE));
+      for (const m of dups) { m.statusBefore = m.status; m.status = "deleted"; m.deletedAt = Date.now(); m.updatedAt = Date.now(); }
+      store.fixes = { ...(store.fixes || {}), crabReadDup: true, crabReadDupInfo: { trashed: dups.length } };
+      migratedDirty = true;
+    }
+  }
   for (const a of store.apis) {
     a.favModels ??= [];
     a.showThinking ??= false;
