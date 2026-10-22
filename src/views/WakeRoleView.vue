@@ -2,14 +2,14 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, roleById, newWake, fmtTokens, CRAB } from "../store/index.js";
-import { fetchState, cancelAlarm, wakeNow, whenLabel, everyText, syncNow, MAX_ALARMS } from "../lib/wake.js";
+import { wakeName, fetchState, cancelAlarm, wakeNow, whenLabel, everyText, syncNow, MAX_ALARMS } from "../lib/wake.js";
 import { stamp } from "../lib/time.js";
 import { relayCall } from "../lib/search.js";
 import { hasXinchao, xinchaoBase } from "../lib/xinchao.js";
 import { toast } from "../lib/toast.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
-import { GARDEN_ROOMS, gardenRoomsOf } from "../lib/gardenRooms.js";
+import { GARDEN_ROOMS, PLATFORMS, hasGarden } from "../lib/gardenRooms.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -19,6 +19,7 @@ const role = computed(() => roleById(props.roleId || route.params.id));
 if (!role.value) router.replace("/settings/wake");
 else role.value.wake ??= newWake(role.value.id);
 const w = computed(() => role.value.wake);
+const who = computed(() => wakeName(role.value)); // 页面上叫的名字：chatgpt / CC
 // 改了设置很快同步上去
 // 改了就自动存：停手 1.5 秒后同步到中转，再刷新「下次醒来」
 let saveTimer = 0;
@@ -122,7 +123,7 @@ async function tryFree() {
   freeing.value = true;
   try {
     const item = await wakeNow(role.value, { free: true });
-    toast(item.free?.pick === "sleep" ? `${role.value.name} 想了想，接着睡了` : `${role.value.name} 去了「${item.free?.label || "聊天"}」`, 4000);
+    toast(item.free?.pick === "sleep" ? `${who.value} 想了想，接着睡了` : `${who.value} 去了「${item.free?.label || "聊天"}」`, 4000);
     loadState();
   } catch (e) {
     toast(e.message, 5000);
@@ -130,7 +131,8 @@ async function tryFree() {
     freeing.value = false;
   }
 }
-const gardenRooms = computed(() => (role.value ? gardenRoomsOf(role.value) : [])); // 接了花园才有这几间
+const gardenName = PLATFORMS[0].name;
+const gardenOn = computed(() => (role.value ? hasGarden(role.value) : false)); // 这个人身上有没有接花园：没接的话勾了也进不去，下面提示一句
 // 他自己来找你：事件（你离开以后）、陪伴（很久没来）
 if (role.value) {
   w.value.events ??= { letter: false, note: false, write: false };
@@ -174,7 +176,7 @@ async function wakeUpNow() {
   waking.value = true;
   try {
     const item = await wakeNow(role.value);
-    toast(item.silent ? `${role.value.name} 醒了一下，没有发消息` : `${role.value.name} 给你发了消息`, 4000);
+    toast(item.silent ? `${who.value} 醒了一下，没有发消息` : `${who.value} 给你发了消息`, 4000);
     loadState();
   } catch (e) {
     toast(e.message, 5000);
@@ -212,16 +214,16 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
 
 <template>
   <div v-if="role" :class="{ page: !embedded }">
-    <SubHeader v-if="!embedded" :title="`${role.name} 的唤醒`" />
+    <SubHeader v-if="!embedded" :title="`${who} 的唤醒`" />
 
     <div v-if="!embedded" class="list-card">
       <label class="list-row">
         <Icon name="alarm" :size="20" />
-        <span class="grow">让 {{ role.name }} 自己醒来<span class="sub">这个开关只管{{ role.name }}</span></span>
+        <span class="grow">让 {{ who }} 自己醒来<span class="sub">这个开关只管{{ who }}</span></span>
         <input v-model="w.enabled" type="checkbox" class="sw" @change="toggled" />
       </label>
     </div>
-    <p v-if="role.id === CRAB && w.enabled" class="hint" style="margin: 8px 8px 0">{{ role.name }}用的是你的 Claude 订阅，额度比较紧：每醒一次都要用一次，建议一天醒一两次（现在是{{ w.intervalOn ? "每隔 " + everyText(w.every) : "没有定时醒来" }}）。</p>
+    <p v-if="w.enabled" class="hint" style="margin: 8px 8px 0">{{ who }}用的是你的 {{ role.id === CRAB ? "Claude 订阅" : "ChatGPT 会员额度" }}，{{ role.id === CRAB ? "额度比较紧" : "和 ChatGPT 本身共用" }}：每醒一次都要用一次，{{ role.id === CRAB ? "建议一天醒一两次" : "醒得太勤会把额度用掉" }}（现在是{{ w.intervalOn ? "每隔 " + everyText(w.every) : "没有定时醒来" }}）。</p>
 
     <template v-if="w.enabled">
       <div class="section-label">每隔一段时间</div>
@@ -243,12 +245,12 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
             <span class="grow">前后随机浮动<small>（分钟，免得像闹钟一样准）</small></span>
             <input v-model.number="w.jitter" class="num-input" type="number" min="0" step="5" inputmode="numeric" />
           </div>
-          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" :placeholder="`备注（可选）：醒了想让${role.name}做什么`" maxlength="1000" />
+          <textarea v-model.trim="w.intervalNote" class="input note-box" rows="2" :placeholder="`备注（可选）：醒了想让${who}做什么`" maxlength="1000" />
           <div class="row">
             <span class="grow saved">{{ saved }}</span>
             <button class="btn soft small" @click="saveNow(true)">保存</button>
           </div>
-          <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。最短 10 分钟。这几种时候跳过：免打扰时间；你 2 小时内在栖所里（正在聊，不用另外叫醒）；他主动找了你两次你都没出现（等你回来再接着醒）。每次醒来都要请求一次模型，间隔越短越费。</p>
+          <p class="hint">现在大约每 {{ everyText(w.every) }}醒一次<template v-if="w.jitter">，前后差 {{ w.jitter }} 分钟以内</template>。最短 10 分钟。这几种时候跳过：免打扰时间；你 2 小时内在栖所里（正在聊，不用另外叫醒）；{{ who }}主动找了你两次你都没出现（等你回来再接着醒）。每次醒来都要请求一次模型，间隔越短越费。</p>
         </template>
       </div>
 
@@ -267,9 +269,9 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <button v-if="editing" class="btn soft small" @click="cancelEdit">取消</button>
           <button class="btn soft small" @click="addTime">{{ editing ? "保存" : "添加" }}</button>
         </div>
-        <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒${role.name}、不花额度`" maxlength="300" />
+        <textarea v-model.trim="newSay" class="input note-box" rows="2" :placeholder="`到点直接替${who}发的话（可选）：比如「该吃药啦，饭后那个」。写了就不叫醒${who}、不花额度`" maxlength="300" />
         <textarea v-if="!newSay" v-model.trim="newNote" class="input note-box" rows="4" placeholder="备注（可选）：比如「叫我起床，起不来就多叫几次」「提醒我吃药，饭后那个」，可以写得详细一点" maxlength="1000" />
-        <p class="hint">两种：写了「直接发的话」，到点就把这句发给你，不叫醒他（零消耗）；没写，就叫醒他，他看着备注自己想说什么。固定时间不受免打扰影响。点已经加好的时间，会放回上面的框里改。</p>
+        <p class="hint">两种：写了「直接发的话」，到点就把这句发给你，不叫醒{{ who }}（零消耗）；没写，就叫醒{{ who }}，{{ who }}看着备注自己想说什么。固定时间不受免打扰影响。点已经加好的时间，会放回上面的框里改。</p>
       </div>
 
       <div class="section-label">醒来能进哪些屋子</div>
@@ -277,11 +279,12 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
         <label class="row"><span class="grow">共读（接着读书、书的讨论室）</span><input v-model="w.rooms.read" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">共写（共写的讨论）</span><input v-model="w.rooms.write" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">潮间带（Meanwhile，贴一条、记水温、回一句）</span><input v-model="w.rooms.tide" type="checkbox" class="sw" /></label>
-        <label v-for="g in gardenRooms" :key="g.key" class="row"><span class="grow">{{ g.label }}<em class="plat">{{ g.platform }}</em>（{{ g.hint }}）</span><input v-model="w.rooms[g.key]" type="checkbox" class="sw" /></label>
-        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。花园的几间屋子，小章鱼默认勾、小螃蟹默认不勾；进去以后只带那间屋子的工具。</p>
+        <label v-for="g in GARDEN_ROOMS" :key="g.key" class="row"><span class="grow">{{ g.label }}<em class="plat">{{ gardenName }}</em>（{{ g.hint }}）</span><input v-model="w.rooms[g.key]" type="checkbox" class="sw" /></label>
+        <p class="hint">自由时间和有事叫醒时，没勾的屋子不会出现在小清单里，也进不去。聊天和信箱不受影响。潮间带默认不勾，你开了才会往上贴。花园的几间屋子，chatgpt 默认勾、CC 默认不勾；进去以后只带那间屋子的工具。</p>
+        <p v-if="!gardenOn" class="hint">{{ who }}身上还没接花园的工具（MCP），所以花园这几间现在勾了也不会出现在小清单里；接上以后才算数。</p>
       </div>
 
-      <div class="section-label">自由时间（他自己挑想做什么）</div>
+      <div class="section-label">自由时间（{{ who }}自己挑想做什么）</div>
       <div class="card body">
         <div v-if="w.freeTimes?.length" class="t-list">
           <div v-for="t in w.freeTimes" :key="t" class="t-item">
@@ -294,27 +297,27 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <input v-model="newFree" class="input time" type="time" />
           <button class="btn soft small" @click="addFree">添加</button>
         </div>
-        <p class="hint">到点他先在「门厅」看一张小清单：找你聊天、信箱、接着读最近那本书、书的讨论室、共读大讨论室、共写，各一句现在的情况。他回一行挑去哪，再带着那间屋子的东西进去：读书就往后读一段、在书里留批注；讨论室和共写就留一段话等你来看；聊天和信箱和平时醒来一样。<br />去了就是 2 次请求（门厅很小，不带聊天记录）；接着睡就只有门厅那 1 次。一天最多 4 个，不受免打扰影响。需要中转 v24。</p>
-        <button v-if="w.freeTimes?.length" class="btn soft wide" :disabled="freeing" @click="tryFree">{{ freeing ? `${role.name} 在想去哪…` : "试试自由时间" }}</button>
+        <p class="hint">到点{{ who }}先在「门厅」看一张小清单：找你聊天、信箱、接着读最近那本书、书的讨论室、共读大讨论室、共写，各一句现在的情况。{{ who }}回一行挑去哪，再带着那间屋子的东西进去：读书就往后读一段、在书里留批注；讨论室和共写就留一段话等你来看；聊天和信箱和平时醒来一样。<br />去了就是 2 次请求（门厅很小，不带聊天记录）；接着睡就只有门厅那 1 次。一天最多 4 个，不受免打扰影响。需要中转 v24。</p>
+        <button v-if="w.freeTimes?.length" class="btn soft wide" :disabled="freeing" @click="tryFree">{{ freeing ? `${who} 在想去哪…` : "试试自由时间" }}</button>
       </div>
 
-      <div class="section-label">有事才叫醒他（你离开以后）</div>
+      <div class="section-label">有事才叫醒{{ who }}（你离开以后）</div>
       <div class="card body">
-        <label class="row"><span class="grow">你给他写了信</span><input v-model="w.events.letter" type="checkbox" class="sw" /></label>
+        <label class="row"><span class="grow">你给{{ who }}写了信</span><input v-model="w.events.letter" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">你在书里划线、写了批注</span><input v-model="w.events.note" type="checkbox" class="sw" /></label>
         <label class="row"><span class="grow">你在共写里改了卡片、贴了便利贴</span><input v-model="w.events.write" type="checkbox" class="sw" /></label>
-        <p class="hint">离开栖所 30 分钟、事情也过了 30 分钟，才叫醒他一次（几件事合在一起），只带一份很短的「发生了什么」。来信去聊天里回；批注去那本书的讨论室（也能在书里回你的批注）；共写去那本书的讨论。一天最多 3 次，免打扰时间不叫。你在栖所里和他聊过，他就算看到了，不会再因为这些叫醒。</p>
+        <p class="hint">离开栖所 30 分钟、事情也过了 30 分钟，才叫醒{{ who }}一次（几件事合在一起），只带一份很短的「发生了什么」。来信去聊天里回；批注去那本书的讨论室（也能在书里回你的批注）；共写去那本书的讨论。一天最多 3 次，免打扰时间不叫。你在栖所里和{{ who }}聊过，{{ who }}就算看到了，不会再因为这些叫醒。</p>
       </div>
 
       <div class="section-label">陪伴（你很久没来时）</div>
       <div class="card body">
-        <label class="row"><span class="grow">很久没见到你，他可以主动来敲你一下</span><input v-model="w.companion.on" type="checkbox" class="sw" /></label>
+        <label class="row"><span class="grow">很久没见到你，{{ who }}可以主动来敲你一下</span><input v-model="w.companion.on" type="checkbox" class="sw" /></label>
         <div v-if="w.companion.on" class="row">
           <span class="grow">多久没来算「很久」</span>
           <input v-model.number="w.companion.hours" class="num-input" type="number" min="6" step="6" inputmode="numeric" />
           <span>小时</span>
         </div>
-        <p class="hint">一天最多一次，而且不是每天都会：到了时候在接下来几个小时里随机挑一刻。免打扰时间不会；他主动找了你两次你都没出现，就先停着，等你回来。他醒来也可以选择不发。</p>
+        <p class="hint">一天最多一次，而且不是每天都会：到了时候在接下来几个小时里随机挑一刻。免打扰时间不会；{{ who }}主动找了你两次你都没出现，就先停着，等你回来。{{ who }}醒来也可以选择不发。</p>
       </div>
 
       <div class="section-label">一次性闹钟（只响一次）</div>
@@ -331,9 +334,9 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <input v-model="onceAt" class="input time" type="datetime-local" :min="onceMin" />
           <button class="btn soft small" @click="addOnce">添加</button>
         </div>
-        <textarea v-model.trim="onceSay" class="input note-box" rows="2" :placeholder="`到点直接替${role.name}发的话（可选）：比如「出门记得带钥匙去配」。写了就不叫醒${role.name}`" maxlength="300" />
+        <textarea v-model.trim="onceSay" class="input note-box" rows="2" :placeholder="`到点直接替${who}发的话（可选）：比如「出门记得带钥匙去配」。写了就不叫醒${who}`" maxlength="300" />
         <textarea v-if="!onceSay" v-model.trim="onceNote" class="input note-box" rows="3" placeholder="备注（可选）：比如「明天 9 点有面试，叫我起来、帮我再顺一遍自我介绍」" maxlength="1000" />
-        <p class="hint">到点响一次就没了，不受免打扰影响。写了「直接发的话」就不叫醒他。需要中转是最新版（v22）。</p>
+        <p class="hint">到点响一次就没了，不受免打扰影响。写了「直接发的话」就不叫醒{{ who }}。需要中转是最新版（v22）。</p>
       </div>
 
       <div class="section-label">免打扰</div>
@@ -347,14 +350,14 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
           <span>到</span>
           <input v-model="w.quiet.to" class="input time" type="time" />
         </div>
-        <p class="hint">这段时间里，每隔一段时间的那种不会醒；他自己也不能把闹钟定在这段时间。</p>
+        <p class="hint">这段时间里，每隔一段时间的那种不会醒；{{ who }}自己也不能把闹钟定在这段时间。</p>
       </div>
 
       <template v-if="xc">
-        <div class="section-label">心潮 · 他自己来找你</div>
+        <div class="section-label">心潮 · {{ who }}自己来找你</div>
         <div class="card body">
           <label class="row">
-            <span class="grow">心里攒满了就来找你<small>（想你想得厉害、情绪转折、做了梦、有人在心潮网页上抱了他……）</small></span>
+            <span class="grow">心里攒满了就来找你<small>（想你想得厉害、情绪转折、做了梦、有人在心潮网页上抱了{{ who }}……）</small></span>
             <input v-model="w.bridgeOn" type="checkbox" class="sw" />
           </label>
           <template v-if="w.bridgeOn">
@@ -362,40 +365,40 @@ const usageText = u => (u ? `${fmtTokens(u.input || 0)} / ${fmtTokens(u.output |
               <input v-model.trim="role.xinchao.bridgeToken" class="input grow" placeholder="桥口令" autocomplete="off" autocapitalize="off" spellcheck="false" />
               <button class="btn soft small" :disabled="bridgeBusy" @click="testBridge">{{ bridgeBusy ? "试…" : "试试" }}</button>
             </div>
-            <p class="hint">桥口令在服务器上的「栖所连接信息.txt」里，【栖所实时接入】那一段。中转每 5 分钟去心潮看一眼，有话就叫醒他。免打扰时间不去看。</p>
+            <p class="hint">桥口令在服务器上的「栖所连接信息.txt」里，【栖所实时接入】那一段。中转每 5 分钟去心潮看一眼，有话就叫醒{{ who }}。免打扰时间不去看。</p>
             <p v-if="state?.bridgeError" class="note bad">上次去心潮那边取的时候出错了：{{ state.bridgeError }}</p>
           </template>
         </div>
       </template>
 
-      <div class="section-label">{{ role.name }} 自己定的闹钟（{{ alarms.length }}/{{ MAX_ALARMS }}）</div>
+      <div class="section-label">{{ who }} 自己定的闹钟（{{ alarms.length }}/{{ MAX_ALARMS }}）</div>
       <div class="list-card">
         <div v-for="a in alarms" :key="a.id" class="list-row">
           <Icon name="alarm" :size="20" />
           <span class="grow">{{ whenLabel(a.at) }}<span class="sub">{{ a.note || "没写要做什么" }}{{ a.say ? ` · 到点直接发：${a.say}` : "" }}</span></span>
           <button class="btn soft small" @click="cancel(a)">取消</button>
         </div>
-        <div v-if="!alarms.length" class="list-row empty">还没有。聊天时他可以自己定，比如「40 分钟后叫我」</div>
+        <div v-if="!alarms.length" class="list-row empty">还没有。聊天时{{ who }}可以自己定，比如「40 分钟后叫我」</div>
       </div>
       <p v-if="stateErr" class="note bad">读取中转上的闹钟失败：{{ stateErr }}</p>
       <p v-else-if="state?.nextAt && w.intervalOn" class="note">下次定时醒来：{{ whenLabel(state.nextAt) }}左右</p>
-      <p v-if="state?.waiting && w.intervalOn" class="note">定时醒来先停着：他主动找了你两次你都没出现，等你回到栖所就接着醒。</p>
+      <p v-if="state?.waiting && w.intervalOn" class="note">定时醒来先停着：{{ who }}主动找了你两次你都没出现，等你回到栖所就接着醒。</p>
       <p v-else-if="state?.skipped && w.intervalOn" class="note">上一次定时醒来跳过了（{{ state.skipped.why }}）。</p>
       <p v-if="state?.retryAt" class="note">上次叫醒失败了，{{ whenLabel(state.retryAt) }}再试一次（只试一次）。</p>
 
       <div class="section-label">试一试</div>
       <div class="card body">
-        <button class="btn soft wide" :disabled="waking" @click="wakeUpNow">{{ waking ? `正在叫醒 ${role.name}…` : `现在叫醒 ${role.name}` }}</button>
-        <p class="hint">马上让他醒来一次，看看他会做什么。会用掉一次 API。</p>
+        <button class="btn soft wide" :disabled="waking" @click="wakeUpNow">{{ waking ? `正在叫醒 ${who}…` : `现在叫醒 ${who}` }}</button>
+        <p class="hint">马上让{{ who }}醒来一次，看看{{ who }}会做什么。会用掉一次 API。</p>
       </div>
 
       <div class="section-label">花园唤醒桥</div>
       <div class="card body">
         <div class="row">
-          <span class="grow">{{ role.name }} 的编号<small>（装花园唤醒桥时要填）</small><br /><code class="rid">{{ role.id }}</code></span>
+          <span class="grow">{{ who }} 的编号<small>（装花园唤醒桥时要填）</small><br /><code class="rid">{{ role.id }}</code></span>
           <button class="btn soft small" @click="copyId">复制</button>
         </div>
-        <p class="hint">花园里游戏轮到 {{ role.name }} 时，装在服务器上的唤醒桥会马上叫醒他，不用等。装法见 <a :href="GARDEN_GUIDE" target="_blank">花园唤醒桥说明</a>。</p>
+        <p class="hint">花园里游戏轮到 {{ who }} 时，装在服务器上的唤醒桥会马上叫醒{{ who }}，不用等。装法见 <a :href="GARDEN_GUIDE" target="_blank">花园唤醒桥说明</a>。</p>
       </div>
 
       <template v-if="role.wakeLog?.length">
