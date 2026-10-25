@@ -1,8 +1,8 @@
 <script setup>
-// 站在一个东西上面的小章鱼（放在那个东西里面，绝对定位贴着它的上沿）。决定现在做哪个动作：
+// 站在一个东西上面的小章鱼 / 小螃蟹（放在那个东西里面，绝对定位贴着它的上沿）。决定现在做哪个动作：
 //   水温（今天选了漂流瓶 / 夜潮 / 退潮 / 晴水 / 下雨）排在待机、困了、等待前面，其他动作都比它优先
 //   报错 ＞ 一次性的小反应（开心、害羞、做成了、收到信、泡泡）＞ 半夜催睡觉 ＞ 用工具 ＞ 四条敲 ＞ 两条敲 ＞ 在想 ＞ 共读 / 共写 ＞ 困了 / 等待 ＞ 待机（偶尔走两步、吐泡泡）
-// kind="crab"：小螃蟹（cc），站在左边（小章鱼在右边）；只有待机、点一下扭一扭、敲键盘（work 有值就趴下敲，停了站起来），没有别的状态
+// kind="crab"：小螃蟹（cc），和小章鱼一样站在右边，动作和触发条件一模一样（只是画成螃蟹的样子）
 // work：外面告诉它正在干什么（think / type2 / type4 / tool / error）；base：在共读、共写里（read / write）；roam：能不能左右走
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { pet, petOnce } from "../../lib/pet.js";
@@ -25,7 +25,7 @@ const moodState = computed(() => { void now.value; return MOOD_STATE[moodOf(crab
 // 一次性的小反应：播一次就回去
 const once = ref(null);
 watch(() => pet.at, () => { if (pet.once) once.value = pet.once; });
-const done = () => { once.value = null; phase.value = null; };
+const done = () => { once.value = null; };
 
 // 很久没动静：缩成一团 / 困了；半夜还在聊：举牌子
 const idleMs = computed(() => now.value - pet.lastActive);
@@ -78,21 +78,7 @@ watch(() => props.work, (w, old) => {
   }, Math.max(0, 1000 - (Date.now() - toolT0)));
 });
 
-// 小螃蟹：开始干活先趴下（leanin），干完站起来（leanout），中间敲键盘（type）
-const phase = ref(null);
-watch(() => !!props.work, (on, was) => {
-  if (!crab) return;
-  if (on) phase.value = "leanin";
-  else if (was) phase.value = "leanout";
-}, { immediate: true });
-const crabState = computed(() => {
-  if (phase.value) return phase.value;
-  if (props.work) return "type";
-  return once.value === "wiggle" ? "wiggle" : moodState.value || "idle";
-});
-
 const state = computed(() => {
-  if (crab) return crabState.value;
   if (props.work === "error") return "error";
   if (once.value) return once.value;
   if (toolHold.value) return "tool";
@@ -109,7 +95,6 @@ const state = computed(() => {
 
 // 点一下：开心或者吐个泡泡；举着牌子时点一下就放下（一小时内不再举）
 function tap() {
-  if (crab) { if (!props.work && !phase.value) { once.value = "wiggle"; } return; }
   if (state.value === "bedtime") { pet.bedtimeOff = Date.now() + 3600_000; return; }
   if (props.work) return;
   petOnce(Math.random() < 0.6 ? "happy" : "bubble");
@@ -122,9 +107,9 @@ onMounted(() => {
 onBeforeUnmount(() => { clearInterval(clock); clearInterval(wander); clearTimeout(holdTimer); clearTimeout(okTimer); });
 
 const style = computed(() => ({
-  ...(crab ? { left: "14px" } : { right: "14px" }),
+  right: "14px",
   bottom: `calc(100% - ${(PET_H - PET_FEET) * props.scale}px)`,
-  transform: `translateX(${crab ? -x.value : x.value}px)`,
+  transform: `translateX(${x.value}px)`,
   transition: `transform ${walkMs.value}ms linear`,
 }));
 </script>
@@ -133,7 +118,7 @@ const style = computed(() => ({
   <div ref="root" class="pet-dock" :style="style">
     <PixelPet :kind="kind" :state="state" :scale="scale" @done="done" />
     <!-- 只有身体那一块点得到，旁边透明的地方不挡着聊天 -->
-    <i class="hit" :style="{ left: (crab ? 1 : 12) * scale + 'px', width: (crab ? 18 : 19) * scale + 'px', height: PET_FEET * scale + 'px' }" @click.stop="tap" />
+    <i class="hit" :style="{ left: 12 * scale + 'px', width: 19 * scale + 'px', height: PET_FEET * scale + 'px' }" @click.stop="tap" />
   </div>
 </template>
 

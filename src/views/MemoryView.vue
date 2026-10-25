@@ -98,7 +98,7 @@ const timeline = computed(() => {
 });
 // 小章鱼的样子看这条记忆讲的是什么（m.cat）：常驻的最开心；喜好脸红、约定抱信、心事在想、时刻欢呼、读写捧书、日常抱小本子
 const OCT = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/oct-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/oct-(\w+)\.png/)[1], v]));
-// 小螃蟹的抽屉：同样七类，每只带小道具（常驻星星、喜好耳机、约定安全帽和小锤、心事小云、时刻小彩灯、读写敲键盘、日常什么都不带）
+// 小螃蟹的抽屉：同样七类，意思对着小章鱼：常驻头顶星星、喜好脸红、约定抱信、心事冒「…」、时刻举钳子欢呼、读写捧书、日常抱小本子（只用橘粉和黑色）
 const CRABS = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/crab-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/crab-(\w+)\.png/)[1], v]));
 const CAT_OCT = { 喜好: "like", 约定: "promise", 心事: "feel", 时刻: "moment", 读写: "book", 日常: "daily" };
 const LEGEND = [{ k: "pin", label: "常驻" }, ...CATS.map(c => ({ k: CAT_OCT[c], label: c }))];
@@ -319,14 +319,12 @@ function remove() {
     <p v-if="role" class="drawer-name">{{ role.name }} 的抽屉</p>
     <div v-if="role && store.roles.length > 1" class="who-switch">
       <button class="who-btn" @click="switchOpen = !switchOpen">
-        <img v-if="solo(role)" class="who-crab" :src="CRABS.daily" alt="" />
-        <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="26" />
+        <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="26" />
         <i class="caret">{{ switchOpen ? "▴" : "▾" }}</i>
       </button>
       <div v-if="switchOpen" class="who-menu">
         <button v-for="r in store.roles" :key="r.id" :class="{ on: tab === r.id }" @click="tab = r.id; switchOpen = false">
-          <img v-if="solo(r)" class="who-crab" :src="CRABS.daily" alt="" />
-          <Avatar v-else :img="r.avatar" :name="r.name" :color="r.color" :size="26" /> {{ r.name }} 的抽屉
+          <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="26" /> {{ r.name }} 的抽屉
         </button>
       </div>
     </div>
@@ -381,7 +379,7 @@ function remove() {
       <template v-for="g in timeline" :key="g.key">
         <div class="mon">{{ g.label }}</div>
         <article v-for="m in g.items" :key="m.id" class="it" :class="{ off: !isLive(m) || accessOf(m) === 'archived' }" @click="viewing = m">
-          <img class="oct" :src="mark(octOf(m), role)" alt="" />
+          <img class="oct" :class="{ crab: solo(role) }" :src="mark(octOf(m), role)" alt="" />
           <div class="d">{{ md(m.date) }}</div>
           <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
           <b>{{ m.title }}</b>
@@ -635,14 +633,14 @@ function remove() {
 /* 时间轴 */
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 2px 4px 6px; font-size: .7rem; color: var(--text-3); }
 .legend span { display: flex; align-items: center; gap: 2px; }
-.who-crab { width: 40px; height: 25px; image-rendering: pixelated; object-fit: contain; }
 .legend img { width: 30px; height: auto; image-rendering: pixelated; }
 .tl { position: relative; padding: 6px 4px 0 58px; }
 .tl::before { content: ""; position: absolute; left: 28px; top: 14px; bottom: 6px; width: 1px; background: var(--line); }
-.mon { margin: 10px 0 8px -40px; font-family: "Poppins", var(--font); font-size: .68rem; letter-spacing: 2px; color: var(--text-3); }
+.mon { position: relative; z-index: 1; width: fit-content; background: var(--bg); padding: 2px 6px; margin: 8px 0 6px -46px; font-family: "Poppins", var(--font); font-size: .68rem; letter-spacing: 2px; color: var(--text-3); }
 .it { position: relative; margin-bottom: 14px; cursor: pointer; }
 .it .dot { position: absolute; left: -36px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 2px var(--text-3); }
-.it .oct { position: absolute; left: -54px; top: -5px; width: 48px; height: auto; image-rendering: pixelated; background: var(--bg); padding: 1px 0; }
+.it .oct { position: absolute; left: -62px; top: -5px; width: 48px; height: auto; image-rendering: pixelated; background: var(--bg); padding: 1px 0; }
+.it .oct.crab { left: -54px; }   /* 两张图都是 32 宽，章鱼画在偏右，螃蟹画在正中：各自挪一下，让身子正好压在竖线上 */
 .it .d { font-family: "Poppins", var(--font); font-size: .7rem; color: var(--text-3); }
 .it b { display: block; font-size: .95rem; font-weight: 600; margin: 1px 0 2px; }
 .it p { margin: 0; font-size: .84rem; line-height: 1.55; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
