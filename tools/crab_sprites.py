@@ -27,7 +27,7 @@ class F:
         for (x, y), c in s.px.items(): im.putpixel((x, y), PAL[c] + (255,))
         return im
 
-LEGX = [3, 6, 9, 12]   # 四条腿（1 格宽），左右对称
+LEGX = [3, 7, 10, 14]   # 四条腿（1 格宽），和身体（2~15）左右严格对称
 
 def crab(f, ox, oy, eye='dot', legs=(0, 0, 0, 0), bh=7, claw=(0, 0), shear=0, ldx=0, shadow=True, ey=2, cdy=0):
     """螃蟹本体。(ox,oy) 是左上角；bh 身体高度；legs 每条：0 站着(2 格) 1 抬起(1 格) 2 踩下(3 格)；
@@ -35,8 +35,6 @@ def crab(f, ox, oy, eye='dot', legs=(0, 0, 0, 0), bh=7, claw=(0, 0), shear=0, ld
     for y in range(bh):
         sx = shear if y < 2 else 0
         for x in range(2, 16): f.put(ox + x + sx, oy + y, 'C')
-        if y == 0:
-            for x in (2, 15): f.px.pop((ox + x + sx, oy + y), None)   # 顶上两个角抹圆一点
     # 眼睛（身体里 x=5 和 x=12，左右对称）
     for x in (5, 12):
         X = ox + x + shear
@@ -63,7 +61,7 @@ def crab(f, ox, oy, eye='dot', legs=(0, 0, 0, 0), bh=7, claw=(0, 0), shear=0, ld
         f.put(ox + lx + ldx, oy + bh, 'C')
         for y in range(n): f.put(ox + lx + ldx, oy + bh + y, 'C')
     if shadow:
-        for x in range(3, 13): f.put(ox + x, oy + bh + 2, 'E')
+        for x in range(3, 15): f.put(ox + x, oy + bh + 2, 'E')
 
 OX, OY = 1, 6   # 站着：身体 6~12 行，腿 13~14 行，影子线在 15 行，脚底在第 16 行
 KB0, KB1 = 0, 23   # 小键盘在脚边，比身体宽出一截
@@ -71,7 +69,7 @@ KB0, KB1 = 0, 23   # 小键盘在脚边，比身体宽出一截
 def stand(dx=0, dy=0, **kw): f = F(); crab(f, OX + dx, OY + dy, **kw); return f
 
 # 敲键盘：侧过身面朝左（照小续发的那段动图）：方块身体、左边探出一小截钳子、一只眼睛、四条腿；
-# 钳子前面是一小块键盘（一条斜斜的屏幕线 + 一小截键），钳子点下去键就变深一下
+# 身体是一个方方正正的长方块，不削角、不斜；钳子前面是一小块键盘（一条斜斜的屏幕线 + 一小截键），钳子点下去键就变深一下
 SX, SY = 9, 6   # 侧身时身体左上角
 def side(f=None, ox=SX, oy=SY, tap=False, lifted=(), eye='dot', kb=True, dy=0):
     f = f or F()
@@ -81,13 +79,12 @@ def side(f=None, ox=SX, oy=SY, tap=False, lifted=(), eye='dot', kb=True, dy=0):
         for i in range(4): f.put(ox - 6 + i, by, 'A' if tap else 'g')
         for i in range(3): f.put(ox - 7 - i, by - 1 - i, 'g')
     for y in range(7):
-        x0 = 3 if y < 2 else 0   # 前面（左边）是个斜下去的头，后面平平的
-        for x in range(x0, 13): f.put(ox + x, oy + y, 'C')
+        for x in range(12): f.put(ox + x, oy + y, 'C')   # 一个方方正正的长方块
     f.rows(["CC", "CC"], ox - 2, oy + 3 + (1 if tap else 0))   # 探出来的钳子
-    X = ox + 7
+    X = ox + 6
     if eye == 'dot': f.put(X, oy + 2, 'E'); f.put(X, oy + 3, 'E')
     else: f.put(X, oy + 3, 'E'); f.put(X + 1, oy + 3, 'E')   # 闭眼：一小横
-    for i, lx in enumerate((2, 5, 8, 11)):
+    for i, lx in enumerate((1, 4, 7, 10)):
         for y in range(1 if i in lifted else 2): f.put(ox + lx, oy + 7 + y, 'C')
     return f
 def lean(legs=(0, 0, 0, 0), dy=0, eye='dot', kb=True):
@@ -135,8 +132,8 @@ M['m-rain'] = [(rain(0), 300), (rain(1), 300), (rain(2), 300)]
 S['idle'] = [(stand(), 1000), (stand(dy=-1), 600), (stand(), 800), (stand(eye='blink'), 140), (stand(), 900),
              (stand(dx=1), 500), (stand(), 700), (stand(dx=-1), 500), (stand(), 1200)]
 # 点一下：扭一扭身子，小腿左右轮着抬，钳子举一下
-S['wiggle'] = [(stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0), ldx=-1), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1), ldx=1), 90),
-               (stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0), ldx=-1), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1), ldx=1), 90),
+S['wiggle'] = [(stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0)), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1)), 90),
+               (stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0)), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1)), 90),
                (stand(dx=0, dy=-2, eye='happy', claw=(1, 1)), 140), (stand(dy=-1, eye='happy', claw=(1, 1)), 110), (stand(eye='happy'), 160), (stand(), 100)]
 # 转身侧过去，键盘这时候冒出来
 S['leanin'] = [(stand(dy=1), 100), (side(kb=False, dy=1), 100), (side(dy=1), 100), (side(), 120)]
