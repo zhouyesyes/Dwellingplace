@@ -1,6 +1,7 @@
 <script setup>
 // 站在一个东西上面的小章鱼 / 小螃蟹（放在那个东西里面，绝对定位贴着它的上沿）。决定现在做哪个动作：
 //   水温（今天选了漂流瓶 / 夜潮 / 退潮 / 晴水 / 下雨）排在待机、困了、等待前面，其他动作都比它优先
+//   夜潮、退潮一直缩着 / 趴着；晴水、漂流瓶、下雨平时是普通待机，隔 20 到 40 秒才露一下水温，几秒后回去
 //   报错 ＞ 一次性的小反应（开心、害羞、做成了、收到信、泡泡）＞ 半夜催睡觉 ＞ 用工具 ＞ 四条敲 ＞ 两条敲 ＞ 在想 ＞ 共读 / 共写 ＞ 困了 / 等待 ＞ 待机（偶尔走两步、吐泡泡）
 // kind="crab"：小螃蟹（cc），和小章鱼一样站在右边，动作和触发条件一模一样（只是画成螃蟹的样子）
 // work：外面告诉它正在干什么（think / type2 / type4 / tool / error）；base：在共读、共写里（read / write）；roam：能不能左右走
@@ -20,7 +21,27 @@ let clock = null, wander = null;
 
 // 跟自己今天的水温变：漂流瓶抱小瓶子、夜潮打盹、退潮趴着、晴水晃手、下雨头顶小云；其他水温和没选，就是普通待机
 const MOOD_STATE = { bottle: "m-bottle", night: "m-night", ebb: "m-ebb", sunny: "m-sunny", rain: "m-rain" };
-const moodState = computed(() => { void now.value; return MOOD_STATE[moodOf(crab ? CRAB : MAIN, todayYmd())?.key] || null; });
+const moodKey = computed(() => { void now.value; return moodOf(crab ? CRAB : MAIN, todayYmd())?.key || null; });
+const STEADY = ["night", "ebb"]; // 这两种一直保持，不走动
+const peek = ref(false); // 偶尔露一下水温的那几秒
+const moodState = computed(() => {
+  const k = moodKey.value;
+  if (!MOOD_STATE[k]) return null;
+  return STEADY.includes(k) || peek.value ? MOOD_STATE[k] : null;
+});
+const steady = computed(() => STEADY.includes(moodKey.value));
+let peekT = null, peekEnd = null;
+function schedulePeek() {
+  clearTimeout(peekT);
+  peekT = setTimeout(() => {
+    if (MOOD_STATE[moodKey.value] && !steady.value) {
+      peek.value = true;
+      clearTimeout(peekEnd);
+      peekEnd = setTimeout(() => (peek.value = false), 4000 + Math.random() * 2000);
+    }
+    schedulePeek();
+  }, 20_000 + Math.random() * 20_000);
+}
 
 // 一次性的小反应：播一次就回去
 const once = ref(null);
@@ -41,7 +62,7 @@ function maxLeft() {
   return Math.max(0, w - PET_W * props.scale - 20);
 }
 function stroll() {
-  if (!props.roam || props.work || props.base || once.value || moodState.value || idleMs.value > 3 * 60_000) return;
+  if (!props.roam || props.work || props.base || once.value || steady.value || peek.value || idleMs.value > 3 * 60_000) return;
   const r = Math.random();
   if (r < 0.15) return petOnce("bubble");
   const target = x.value < -10 && r < 0.75 ? 0 : -Math.round(Math.random() * Math.min(maxLeft(), 180)); // 走出去一点，大多还会走回右边
@@ -103,8 +124,9 @@ function tap() {
 onMounted(() => {
   clock = setInterval(() => (now.value = Date.now()), 5000);
   wander = setInterval(stroll, 9000 + Math.random() * 6000);
+  schedulePeek();
 });
-onBeforeUnmount(() => { clearInterval(clock); clearInterval(wander); clearTimeout(holdTimer); clearTimeout(okTimer); });
+onBeforeUnmount(() => { clearInterval(clock); clearInterval(wander); clearTimeout(holdTimer); clearTimeout(okTimer); clearTimeout(peekT); clearTimeout(peekEnd); });
 
 const style = computed(() => ({
   right: "14px",

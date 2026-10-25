@@ -17,7 +17,7 @@ import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
 import { BOARD_RE, applyBoardTags } from "./board.js";
 import { applyTideTags, stripTideTags, tideForAI, tideImageParts } from "./meanwhile.js";
-import { petHears, petAfterReply, cloudStart } from "./pet.js";
+import { petHears, petAfterReply } from "./pet.js";
 import { planLow, logTurn } from "./quota.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
@@ -714,7 +714,6 @@ export async function generate(thread, parentId) {
           const r = await fetch(base + "/cloud/fire", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: job }) });
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(j.error?.message || `返回 ${r.status}`);
-          cloudStart();
           ev.text = `${role.name} 派去云端开工了`;
           if (j.url) ev.sources = [{ title: "在 Claude App 里看过程", url: j.url }];
           back = `（系统：已经派出去了，云端的你开工了${j.url ? `，过程在 ${j.url}` : ""}。简单告诉对方一声，做完的报告会回到这条聊天里。）`;

@@ -6,7 +6,7 @@ import { generating, following, generate, sendMessage, regenerate, editAndResend
 import { pokeText } from "../lib/poke.js";
 import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
 import PetDock from "../components/pet/PetDock.vue";
-import { petOn, cloudJob, cloudBusy } from "../lib/pet.js";
+import { petOn } from "../lib/pet.js";
 import SumVersions from "../components/memory/SumVersions.vue";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
@@ -87,8 +87,6 @@ const petWork = computed(() => {
   }
   return last?.from === "ai" && last.error ? "error" : null;
 });
-// 小螃蟹：和小章鱼一样看这条聊天；云端派活还没回来也敲（长活，四条腿敲）
-const crabWork = computed(() => petWork.value || (cloudJob.at && cloudBusy() ? "type4" : null));
 const bgUrl = useImage(() => thread.value?.bg);
 
 async function openThread(id) {
@@ -809,7 +807,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <!-- 桌宠：他（主角色）的小章鱼，站在输入框上面 -->
       <PetDock v-if="petOn() && role.id === MAIN && !thread?.mail" :work="petWork" />
       <!-- 小螃蟹（cc）：同样站在右边，和小章鱼一模一样的动作 -->
-      <PetDock v-else-if="petOn('crab') && solo(role) && !thread?.mail" kind="crab" :work="crabWork" />
+      <PetDock v-else-if="petOn('crab') && solo(role) && !thread?.mail" kind="crab" :work="petWork" />
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
           <ImgThumb v-if="a.kind === 'image'" :id="a.img" class="mini" />
