@@ -13,7 +13,7 @@ export const cloudJob = reactive({ at: (() => { try { return Number(localStorage
 export function cloudStart() { cloudJob.at = Date.now(); try { localStorage.setItem(CLOUD_KEY, String(cloudJob.at)); } catch { /* 存不了就算了 */ } }
 export function cloudDone() { cloudJob.at = 0; try { localStorage.removeItem(CLOUD_KEY); } catch { /* 同上 */ } }
 export const cloudBusy = () => cloudJob.at > 0 && Date.now() - cloudJob.at < CLOUD_MAX;
-export const petOn = () => store.settings.pet !== false;
+export const petOn = kind => (kind === "crab" ? store.settings.petCrab : store.settings.pet) !== false; // 小章鱼、小螃蟹各一个开关
 export function petOnce(kind) { pet.once = kind; pet.at = Date.now(); }
 export function petActive() { pet.lastActive = Date.now(); }
 

@@ -1,193 +1,346 @@
 # 用法：python3 tools/crab_sprites.py <预览图输出目录> .    （第二个参数是栖所的目录：会写 public/pet/crab/*.png、src/assets/memory/crab-*.png 和 src/lib/crabFrames.js）
-# 小螃蟹（cc）：只用一种平涂橘粉色（#D97757），没有描边、阴影、高光、渐变；扁长方块身体、两颗竖条小黑方眼、两侧短钳子、底下四条短腿，
-# 有的底下垫一条黑色细横线当影子。表情只有几种：平常竖条眼、开心 ^^、闭眼一条线。道具只有几格像素、一两种颜色，不抢螃蟹。自己画的像素，不用官方图片。
-# 桌宠站在左边（和小章鱼站右边对称）；敲键盘时身体往前倾趴下，四条小腿轮流敲面前的小键盘
-import sys, os
+# 小螃蟹（cc）：只用平涂橘粉（#D97757）和黑色，没有描边、阴影、高光；扁方块身体、两颗竖条小黑眼、两侧短钳子、底下四条短腿。
+# 动作和时长照小章鱼（tools/pet_sprites.py）一一对应，只是换成螃蟹的样子；站在输入框上沿的右边，脚底第 16 行（和小章鱼一样）。
+# 颜色的规矩：身体上的细节用黑色（眼睛、书、信封）；伸到身体外面的东西（键盘、终端、星星、泡泡、牌子）用橘粉，
+# 这样深色模式里也看得见（黑色放在深色底上会消失）。自己画的像素，不用官方图片。
+import sys, os, json, re
 from PIL import Image
 OUT, ROOT = sys.argv[1], sys.argv[2]
 BG = (238, 236, 229)
-PAL = {
- 'C': (217, 119, 87),                                   # 螃蟹：只这一种颜色（#D97757）
- 'E': (24, 24, 28),                                     # 小黑眼、影子线
- 'g': (150, 154, 164),                                  # 键盘：平时浅灰，敲下去变深一下
- 'Y': (236, 196, 90), 'A': (92, 96, 108), 'w': (198, 205, 216), 'B': (112, 160, 214), 'R': (214, 84, 84),   # 道具：一两格的小东西
-}
+PAL = {'C': (217, 119, 87), 'E': (24, 24, 28)}
 W, H = 32, 20
-FEET = 16   # 脚底下面那一行：站在东西上时对齐到上沿（和小章鱼一样）
 
 class F:
     def __init__(s): s.px = {}
     def put(s, x, y, c):
         if 0 <= x < W and 0 <= y < H and c != '.': s.px[(x, y)] = c
-    def rows(s, rs, x0, y0):
-        for j, r in enumerate(rs):
-            for i, c in enumerate(r): s.put(x0 + i, y0 + j, c)
+    def rect(s, x0, y0, x1, y1, c):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1): s.put(x, y, c)
+    def box(s, x0, y0, x1, y1, c):   # 空心框
+        for x in range(x0, x1 + 1): s.put(x, y0, c); s.put(x, y1, c)
+        for y in range(y0, y1 + 1): s.put(x0, y, c); s.put(x1, y, c)
     def render(s):
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         for (x, y), c in s.px.items(): im.putpixel((x, y), PAL[c] + (255,))
         return im
 
-LEGX = [3, 7, 10, 14]   # 四条腿（1 格宽），和身体（2~15）左右严格对称
+# ---------- 正面 ----------
+BX, BY = 14, 7        # 身体左上角：身体 14 宽（x 14~27）、7 高；两边钳子各 2 宽，一共 x 12~29，和小章鱼一样靠右
+LEG = (1, 4, 9, 12)   # 四条腿在身体里的列（左右对称）
 
-def crab(f, ox, oy, eye='dot', legs=(0, 0, 0, 0), bh=7, claw=(0, 0), shear=0, ldx=0, shadow=True, ey=2, cdy=0):
-    """螃蟹本体。(ox,oy) 是左上角；bh 身体高度；legs 每条：0 站着(2 格) 1 抬起(1 格) 2 踩下(3 格)；
-    claw 左右钳子：0 放下 1 举起；shear 往前倾时上面两行往右挪 1 格；ldx 腿整体挪的格数；shadow 脚下垫一条黑细线；ey 眼睛从第几行起；cdy 钳子整体下移"""
-    for y in range(bh):
-        sx = shear if y < 2 else 0
-        for x in range(2, 16): f.put(ox + x + sx, oy + y, 'C')
-    # 眼睛（身体里 x=5 和 x=12，左右对称）
-    for x in (5, 12):
-        X = ox + x + shear
-        if eye == 'dot':
-            f.put(X, oy + ey, 'E'); f.put(X, oy + ey + 1, 'E')
-        elif eye == 'down':
-            f.put(X, oy + ey + 1, 'E'); f.put(X, oy + ey + 2, 'E')
-        elif eye == 'blink':
-            f.put(X, oy + ey + 1, 'E')
-        elif eye == 'happy':   # ^
-            f.put(X - 1, oy + ey + 1, 'E'); f.put(X, oy + ey, 'E'); f.put(X + 1, oy + ey + 1, 'E')
-        elif eye == 'shut':    # 闭眼一条线
-            for a in (-1, 0, 1): f.put(X + a, oy + ey + 1, 'E')
-    # 钳子：短短一小截
-    cy = (1 if claw[0] else 3) + cdy
-    f.rows(["CC", "CC"], ox + 0, oy + cy)
-    cy = (1 if claw[1] else 3) + cdy
-    f.rows(["CC", "CC"], ox + 16, oy + cy)
-    # 腿
-    low = 0
-    for i, lx in enumerate(LEGX):
-        n = [2, 1, 3][legs[i]]
-        low = max(low, n)
-        f.put(ox + lx + ldx, oy + bh, 'C')
-        for y in range(n): f.put(ox + lx + ldx, oy + bh + y, 'C')
-    if shadow:
-        for x in range(3, 15): f.put(ox + x, oy + bh + 2, 'E')
+def eyes(f, x0, y0, eye, lookx=0, looky=0, ey=2):
+    for x in (x0 + 3 + lookx, x0 + 10 + lookx):
+        y = y0 + ey + looky
+        if eye == 'dot': f.put(x, y, 'E'); f.put(x, y + 1, 'E')
+        elif eye == 'blink': f.put(x, y + 1, 'E')
+        elif eye == 'down': f.put(x, y + 1, 'E'); f.put(x, y + 2, 'E')
+        elif eye == 'happy': f.put(x, y + 1, 'E'); f.put(x - 1, y + 2, 'E'); f.put(x + 1, y + 2, 'E')   # ^
+        elif eye == 'shut':
+            for a in (-1, 0, 1): f.put(x + a, y + 1, 'E')
+        elif eye == 'x':
+            for a, b in ((-1, 0), (1, 0), (0, 1), (-1, 2), (1, 2)): f.put(x + a, y + b, 'E')
 
-OX, OY = 1, 6   # 站着：身体 6~12 行，腿 13~14 行，影子线在 15 行，脚底在第 16 行
-KB0, KB1 = 0, 23   # 小键盘在脚边，比身体宽出一截
+def claw(f, x, y0, side, cy):
+    """钳子 2×2：cy 是它在身体里的第几行（3 = 放下，-2 = 高高举起）；够不到身体的地方补一小截胳膊"""
+    if cy < 2:   # 举起来：钳子往外挪一格，胳膊斜着连回身体（中间留一点空，看得出是举着的）
+        o = -1 if side == 'l' else 1
+        f.rect(x + o, y0 + cy, x + o + 1, y0 + cy + 1, 'C')
+        ax = x + 1 if side == 'l' else x
+        f.put(ax + o, y0 + cy + 2, 'C'); f.put(ax, y0 + cy + 3, 'C')
+        return
+    f.rect(x, y0 + cy, x + 1, y0 + cy + 1, 'C')
+    ax = x + 1 if side == 'l' else x   # 贴着身体那一列
+    for r in range(cy + 2, 4): f.put(ax, y0 + r, 'C')
 
-def stand(dx=0, dy=0, **kw): f = F(); crab(f, OX + dx, OY + dy, **kw); return f
-
-# 敲键盘：侧过身面朝左（照小续发的那段动图）：方块身体、左边探出一小截钳子、一只眼睛、四条腿；
-# 身体是一个方方正正的长方块，不削角、不斜；钳子前面是一小块键盘（一条斜斜的屏幕线 + 一小截键），钳子点下去键就变深一下
-SX, SY = 9, 6   # 侧身时身体左上角
-def side(f=None, ox=SX, oy=SY, tap=False, lifted=(), eye='dot', kb=True, dy=0):
-    f = f or F()
-    oy += dy
-    if kb:
-        by = oy + 8   # 键盘在钳子前面的脚边
-        for i in range(4): f.put(ox - 6 + i, by, 'A' if tap else 'g')
-        for i in range(3): f.put(ox - 7 - i, by - 1 - i, 'g')
-    for y in range(7):
-        for x in range(12): f.put(ox + x, oy + y, 'C')   # 一个方方正正的长方块
-    f.rows(["CC", "CC"], ox - 2, oy + 3 + (1 if tap else 0))   # 探出来的钳子
-    X = ox + 6
-    if eye == 'dot': f.put(X, oy + 2, 'E'); f.put(X, oy + 3, 'E')
-    else: f.put(X, oy + 3, 'E'); f.put(X + 1, oy + 3, 'E')   # 闭眼：一小横
-    for i, lx in enumerate((1, 4, 7, 10)):
-        for y in range(1 if i in lifted else 2): f.put(ox + lx, oy + 7 + y, 'C')
+def crab(f, dx=0, dy=0, eye='dot', cl=(3, 3), legs=(2, 2, 2, 2), bh=7, lookx=0, looky=0, ey=2, blush=False):
+    x0, y0 = BX + dx, BY + dy
+    f.rect(x0, y0, x0 + 13, y0 + bh - 1, 'C')
+    eyes(f, x0, y0, eye, lookx, looky, ey)
+    claw(f, x0 - 2, y0, 'l', cl[0]); claw(f, x0 + 14, y0, 'r', cl[1])
+    for i, c in enumerate(LEG):
+        for j in range(legs[i]): f.put(x0 + c, y0 + bh + j, 'C')
+    if blush:   # 脸红：眼睛下面两边各一小道黑色
+        for x in (x0 + 1, x0 + 2, x0 + 11, x0 + 12): f.put(x, y0 + ey + 3, 'E')
     return f
-def lean(legs=(0, 0, 0, 0), dy=0, eye='dot', kb=True):
-    pressed = [i for i, v in enumerate(legs) if v == 2]
-    return side(tap=len(pressed) >= 1 and dy == 0, lifted=pressed[:1], eye=eye, kb=kb, dy=dy)
+
+def front(**kw): f = F(); crab(f, **kw); return f
+
+def star(f, x, y, big=False):
+    f.put(x, y, 'C')
+    if big:
+        for a, b in ((-1, 0), (1, 0), (0, -1), (0, 1)): f.put(x + a, y + b, 'C')
+
+def ring(f, x, y):
+    for a, b in ((0, -1), (-1, 0), (1, 0), (0, 1)): f.put(x + a, y + b, 'C')
+
+def zz(f, x, y):
+    for j, r in enumerate(["CCCC", "...C", "..C.", ".C..", "CCCC"]):
+        for i, c in enumerate(r): f.put(x + i, y + j, c)
+
+# ---------- 侧面（敲键盘、用工具、共写）：侧过身面朝左 ----------
+SBX, SBY = 17, 7   # 侧身身体左上角：12 宽 7 高
+KY = 14            # 键盘那一行
+
+def laptop(f, press=None):
+    """面前一台小笔记本：左边立着屏幕（橘粉框、黑底，里面两行字），底下一排键（橘粉和黑相间），钳子点到哪一格，哪一格亮一下"""
+    f.box(4, 7, 9, 13, 'C')
+    f.rect(5, 8, 8, 12, 'E')
+    for x in (5, 6, 7): f.put(x, 9, 'C'); f.put(x, 11, 'C')   # 屏幕里两行字
+    for x in range(4, 16): f.put(x, KY + 1, 'C')              # 底座
+    for x in range(5, 16): f.put(x, KY, 'E' if (x % 2 == 0) != (press == x) else 'C')   # 键：黑橘相间，被点的那格翻成橘粉
+
+def side(f=None, tap=None, lifted=(), eye='dot', dy=0, dx=0, pen=False, clawup=False):
+    """tap：钳子点的是哪一格键（x 坐标）；None 是抬着。lifted：抬起来的腿（0~3）"""
+    f = f or F()
+    x0, y0 = SBX + dx, SBY + dy
+    f.rect(x0, y0, x0 + 11, y0 + 6, 'C')
+    if eye == 'dot': f.put(x0 + 3, y0 + 3, 'E'); f.put(x0 + 3, y0 + 4, 'E')   # 低头看键盘
+    elif eye == 'up': f.put(x0 + 3, y0 + 1, 'E'); f.put(x0 + 3, y0 + 2, 'E')
+    else:
+        for a in (0, 1): f.put(x0 + 3 + a, y0 + 4, 'E')
+    # 前钳子：抬着在身前，点下去就够到键盘
+    if clawup:
+        f.rect(x0 - 2, y0 - 2, x0 - 1, y0 - 1, 'C'); f.put(x0 - 1, y0, 'C'); f.put(x0 - 1, y0 + 1, 'C'); f.put(x0 - 1, y0 + 2, 'C')
+    else:
+        cy = 5 if tap is not None else 3
+        f.rect(x0 - 2, y0 + cy, x0 - 1, y0 + cy + 1, 'C')
+        for r in range(3, cy): f.put(x0 - 1, y0 + r, 'C')
+    if pen:   # 握着一支笔：黑色小斜线
+        f.put(x0 - 3, y0 + 7, 'E'); f.put(x0 - 2, y0 + 6, 'E'); f.put(x0 - 1, y0 + 5, 'E')
+    for i, lx in enumerate((1, 4, 7, 10)):
+        for j in range(1 if i in lifted else 2): f.put(x0 + lx, y0 + 7 + j, 'C')
+    return f
+
+def typing(tapkey, lifted=(), dx=0, dy=0, sparks=0, eye='dot'):
+    f = F(); laptop(f, tapkey)
+    side(f, tap=tapkey, lifted=lifted, dx=dx, dy=dy, eye=eye)
+    if sparks == 1: f.put(14, 10, 'C'); f.put(13, 9, 'C')
+    if sparks == 2: f.put(12, 11, 'C'); f.put(15, 8, 'C')
+    return f
 
 S = {}   # 动作名 -> [(帧, 毫秒)]
-# ---------- 跟水温变：每种一小段，道具只有几格（时长在 crabFrames.js 里）----------
+
+# 1 待机：站着，偶尔轻轻上下一格、眨眼
+S['idle'] = [(front(), 900), (front(dy=-1), 650), (front(), 700), (front(eye='blink'), 140), (front(), 1200)]
+
+# 2 开心：眼睛 ^^，轻轻弹一下，头顶闪一颗小星星（播一次）
+def happy(dy, st):
+    f = front(dy=dy, eye='happy')
+    if st == 1: star(f, 22, 3 + dy)
+    if st == 2: star(f, 22, 2 + dy, True)
+    return f
+S['happy'] = [(happy(0, 0), 260), (happy(-1, 1), 220), (happy(0, 2), 260), (happy(-1, 1), 220), (happy(0, 0), 600)]
+
+# 3 害羞：脸红，眼睛偷偷往旁边看，腿缩一缩，眨一下（播一次）
+S['shy'] = [(front(blush=True), 500), (front(blush=True, lookx=-1, legs=(1, 1, 1, 1)), 1200),
+            (front(blush=True, lookx=-1, eye='blink', legs=(1, 1, 1, 1)), 140), (front(blush=True, lookx=-1, legs=(1, 1, 1, 1)), 900)]
+
+# 4 困了：眼睛一条线，身子一压一抬，头顶飘 z
+def sleepy(k):
+    f = front(eye='shut', bh=6 if k % 2 else 7, dy=1 if k % 2 else 0, ey=1)
+    zz(f, 28 + k % 2, 0 + (1 - k % 2))
+    return f
+S['sleepy'] = [(sleepy(0), 800), (sleepy(1), 800)]
+
+# 5 在想：眼睛往上看，头顶三个小点轮流跳
+def think(k):
+    f = front(looky=-1)
+    for i, x in enumerate((17, 20, 23)): f.put(x, 3 - (1 if i == k else 0), 'C')
+    return f
+S['think'] = [(think(i % 3), 400) for i in range(6)]
+
+# 6 吐泡泡（播一次）
+def bubble(k):
+    f = front()
+    if k == 0: f.put(28, 7, 'C')
+    if k == 1: ring(f, 30, 5)
+    if k == 2: ring(f, 30, 2); f.put(28, 6, 'C')
+    if k == 3: ring(f, 30, 4)
+    return f
+S['bubble'] = [(bubble(0), 500), (bubble(1), 500), (bubble(2), 500), (bubble(3), 500), (front(), 800), (front(eye='blink'), 140), (front(), 700)]
+
+# 7 出错着急：X 眼，左右抖，头顶一个大惊叹号
+def err(dx):
+    f = F(); crab(f, dx=dx, eye='x', cl=(1, 1))
+    for y in (0, 1, 2, 3): f.put(20 + dx, y, 'C'); f.put(21 + dx, y, 'C')
+    f.rect(20 + dx, 5, 21 + dx, 6, 'C')
+    return f
+S['error'] = [(err(-1), 70), (err(1), 70), (err(-1), 70), (err(1), 70), (err(0), 2400)]
+
+# 8 两条敲：侧着身，两条腿轮流点；安静、认真
+S['type2'] = [(typing(12 if t % 2 == 0 else 14, lifted=(0,) if t % 2 == 0 else (1,)), 160) for t in range(6)]
+
+# 9 四条敲：四条腿都跟着点，钳子也快，身子左右晃一格，偶尔飞出小火花
+def four(t):
+    st = [(t + o) % 4 < 2 for o in (0, 2, 1, 3)]
+    return typing(11 + (t % 4), lifted=tuple(i for i, v in enumerate(st) if v), dx=-1 if (t // 2) % 2 else 0, sparks=1 if t in (1, 5) else 2 if t == 3 else 0)
+S['type4'] = [(four(t), 90) for t in range(8)]
+
+# 10 用工具：一只钳子敲键盘，另一只往上指着飘在旁边的小终端；终端里的光标一闪一闪
+def tool(t):
+    f = F(); laptop(f, 12 if t % 2 == 0 else None)
+    side(f, tap=12 if t % 2 == 0 else None, clawup=False)
+    f.box(1, 0, 12, 5, 'C'); f.rect(2, 1, 11, 4, 'E')              # 终端
+    for x in range(3, 8): f.put(x, 2, 'C')
+    for x in range(3, 5): f.put(x, 3, 'C')
+    if t % 4 < 2: f.put(9, 3, 'C')
+    for x, y in ((14, 6), (15, 5), (14, 4)): f.put(x, y, 'C')   # 另一只钳子指着终端（身前一道短斜线）
+    f.rect(12, 3, 13, 4, 'C')
+    return f
+S['tool'] = [(tool(t), 220) for t in range(8)]
+
+# 11 共读：两只钳子捧着摊开的书，眼睛往下看；隔一会儿翻一页
+def book(f, flip=0):
+    f.box(16, 10, 25, 13, 'E')   # 摊开的书：黑框，中间一道书脊（上沿在书脊处凹下去），页上有字
+    for y in (11, 12): f.put(20, y, 'E'); f.put(21, y, 'E')
+    f.put(20, 10, 'C'); f.put(21, 10, 'C')
+    for x in (17, 18, 19, 22, 23, 24): f.put(x, 11, 'E')
+    if flip == 1: f.put(24, 10, 'E'); f.put(25, 9, 'E')
+    if flip == 2: f.put(17, 10, 'E'); f.put(16, 9, 'E')
+    return f
+def reading(eye='dot', flip=0): f = F(); crab(f, eye=eye, cl=(4, 4), ey=1); return book(f, flip)
+S['read'] = [(reading(), 1400), (reading('blink'), 140), (reading(), 1200), (reading(flip=1), 220), (reading(flip=2), 220), (reading(), 1200)]
+
+# 12 共写：侧着身，面前一张稿纸，一只钳子握着笔一点点写；写完停一下，笔抬起来、眼睛往上想
+def write(k, pause=False):
+    f = F()
+    for x in range(4, 16): f.put(x, KY + 1, 'C')   # 稿纸（橘粉的一条）
+    for x in range(5, 5 + min(k, 7)):   # 一点点写出来的字
+        if x % 3 != 0: f.put(x, KY, 'E')
+    side(f, tap=None if pause else 1, eye='up' if pause else 'dot', pen=not pause, clawup=pause)
+    return f
+S['write'] = [(write(k), 260) for k in range(1, 8)] + [(write(7, True), 1400)]
+
+# 13 等待消息：缩成小小一团，只露眼睛；偶尔探出一只钳子看一眼
+def wait(peek=0, blink=False):
+    f = F(); x0, y0 = BX, BY + 3
+    f.rect(x0, y0, x0 + 13, y0 + 3, 'C')
+    for x in (x0 + 3, x0 + 10):
+        f.put(x, y0 + 2, 'E')
+        if not blink: f.put(x, y0 + 1, 'E')
+    if peek: f.rect(x0 + 14, y0 + 1, x0 + 15, y0 + 2, 'C')
+    return f
+S['wait'] = [(wait(), 2600), (wait(blink=True), 140), (wait(), 1500), (wait(1), 500), (wait(), 300), (wait(1), 300), (wait(), 2000)]
+
+# 14 做成了：轻轻弹起一格，两只钳子举起来，头顶闪一颗小星星（播一次）
+def yay(dy, st):
+    f = F(); crab(f, dy=dy, eye='happy', cl=(-2, -2), legs=(2, 2, 2, 2))
+    if st == 1: star(f, 20, 2 + dy)
+    if st == 2: star(f, 20, 1 + dy, True)
+    return f
+S['success'] = [(front(), 300), (yay(-1, 1), 180), (yay(-1, 2), 300), (yay(0, 1), 260), (front(eye='happy'), 900), (front(), 900)]
+
+# 15 收到信：^^ 眼，两只钳子抱着小信封，左右轻轻晃（播一次）
+def letter(dx):
+    f = F(); crab(f, dx=dx, eye='happy', cl=(4, 4), legs=(2, 1, 1, 2))
+    x0 = BX + dx + 4
+    f.box(x0, BY + 3, x0 + 5, BY + 6, 'E')
+    f.put(x0 + 1, BY + 4, 'E'); f.put(x0 + 2, BY + 5, 'E'); f.put(x0 + 3, BY + 5, 'E'); f.put(x0 + 4, BY + 4, 'E')
+    return f
+S['letter'] = [(letter(0), 300), (letter(-1), 260), (letter(0), 260), (letter(1), 260), (letter(0), 260), (letter(-1), 260), (letter(0), 700)]
+
+# 16 提醒睡觉：面无表情，一只钳子举着「睡觉」小牌子（月亮 + z），其余稳稳站着
+def sign(blink=False, up=0):
+    f = F(); crab(f, dx=-5, eye='blink' if blink else 'dot', cl=(3, 3))
+    for y in range(7 - up, 14): f.put(25, y, 'C')   # 竿子（右钳子握着）
+    f.rect(21, 0 - up, 30, 6 - up, 'C'); f.rect(22, 1 - up, 29, 5 - up, 'E')   # 牌子：橘粉框、黑底
+    for x, y in ((23, 2), (24, 2), (23, 3), (23, 4), (24, 4)): f.put(x, y - up, 'C')   # 月亮（弯弯的一牙）
+    for x, y in ((26, 2), (27, 2), (28, 2), (27, 3), (26, 4), (27, 4), (28, 4)): f.put(x, y - up, 'C')   # Z
+    return f
+S['bedtime'] = [(sign(), 900), (sign(up=1), 300), (sign(), 900), (sign(up=1), 300), (sign(True), 140), (sign(), 1500)]
+
+# 走路：腿一前一后地挪，身体轻轻一颠
+S['walk'] = [(front(legs=(2, 1, 2, 1)), 170), (front(dy=-1, legs=(1, 1, 1, 1)), 130), (front(legs=(1, 2, 1, 2)), 170), (front(dy=-1, legs=(1, 1, 1, 1)), 130)]
+
+# ---------- 跟水温变：每种一小段（时长在 crabFrames.js 里）----------
 M = {}
-# 漂流瓶：右钳子抱着一个小瓶子，轻轻晃
-def bottle(dy=0, eye='dot'):
-    f = stand(dy=dy, eye=eye, claw=(0, 1))
-    y0 = OY + dy + 1
-    f.put(OX + 19, y0, 'B')
-    for y in range(1, 4):
-        for x in range(OX + 18, OX + 21): f.put(x, y0 + y, 'B')
+def bottle(dy=0, eye='dot'):   # 漂流瓶：右钳子抱着一个小瓶子，轻轻晃
+    f = F(); crab(f, dy=dy, eye=eye, cl=(3, 1))
+    f.box(29, 5 + dy, 31, 11 + dy, 'C'); f.put(30, 4 + dy, 'C')
     return f
 M['m-bottle'] = [(bottle(), 900), (bottle(dy=-1), 700), (bottle(), 900), (bottle(eye='blink'), 140), (bottle(), 1000)]
-# 夜潮：缩成一小团，闭着眼打盹，头上飘一个小 z
-def night(k):
-    f = stand(dy=2, bh=5, eye='shut', ey=1, legs=(1, 1, 1, 1), cdy=0)
-    if k == 1: f.put(OX + 17, OY - 2, 'g')
-    if k == 2: f.rows(["ggg", ".g.", "ggg"], OX + 17, OY - 4)
+def night(k):   # 夜潮：缩成一小团，闭着眼打盹，头上飘一个小 z
+    f = F(); x0, y0 = BX, BY + 2
+    f.rect(x0, y0, x0 + 13, y0 + 4, 'C')
+    for x in (x0 + 3, x0 + 10):
+        for a in (-1, 0, 1): f.put(x + a, y0 + 2, 'E')
+    if k == 1: f.put(29, 4, 'C')
+    if k == 2: zz(f, 28, 1)
     return f
 M['m-night'] = [(night(0), 900), (night(1), 800), (night(2), 1000), (night(1), 800)]
-# 退潮：趴着没精神，眼睛朝下，钳子垂着，慢慢呼吸
-def ebb(k):
-    return stand(dy=1 + (k % 2), bh=6 - (k % 2), eye='down', ey=1, legs=(1, 1, 1, 1), cdy=1)
+def ebb(k):   # 退潮：趴着没精神，眼睛朝下，慢慢呼吸
+    f = F(); crab(f, dy=1 + (k % 2), bh=6 - (k % 2), eye='down', ey=1, legs=(1, 1, 1, 1), cl=(3, 3))
+    return f
 M['m-ebb'] = [(ebb(0), 1700), (ebb(1), 1500)]
-# 晴水：两只钳子轮着举起来晃一晃，头顶一个小太阳
-def sunny(l, r, dy=0):
-    f = stand(dy=dy, eye='happy', claw=(l, r))
-    f.rows(["YY", "YY"], OX + 19, OY - 4)
+def sunny(l, r, dy=0):   # 晴水：两只钳子轮着举起来晃一晃，头顶一个小太阳
+    f = F(); crab(f, dy=dy, eye='happy', cl=(-2 if l else 3, -2 if r else 3))
+    f.rect(19, 0, 22, 2, 'C')   # 小太阳：一小块橘粉，四边各一粒光
+    for x, y in ((18, 1), (23, 1)): f.put(x, y + dy, 'C')
     return f
 M['m-sunny'] = [(sunny(1, 0), 260), (sunny(0, 1), 260), (sunny(1, 0), 260), (sunny(0, 1), 260), (sunny(1, 1, -1), 300), (sunny(1, 1), 300)]
-# 下雨：头上一小朵云，雨滴一滴一滴落下来
-def rain(k):
-    f = stand(eye='dot')
-    f.rows(["..www..", ".wwwwww"], OX + 5, OY - 5)
-    for x, y in ((OX + 7, OY - 3 + k), (OX + 10, OY - 3 + (k + 1) % 3)): f.put(x, y, 'B')
+def rain(k):   # 下雨：头上一小朵云，雨滴一滴一滴落下来
+    f = front()
+    f.rect(17, 1, 24, 2, 'C'); f.rect(18, 0, 23, 0, 'C')
+    for x, y in ((19, 3 + k), (22, 3 + (k + 1) % 3)): f.put(x, y, 'C')
     return f
 M['m-rain'] = [(rain(0), 300), (rain(1), 300), (rain(2), 300)]
 
-# 待机：站着，偶尔轻轻上下一格、眨眼、左右晃一格
-S['idle'] = [(stand(), 1000), (stand(dy=-1), 600), (stand(), 800), (stand(eye='blink'), 140), (stand(), 900),
-             (stand(dx=1), 500), (stand(), 700), (stand(dx=-1), 500), (stand(), 1200)]
-# 点一下：扭一扭身子，小腿左右轮着抬，钳子举一下
-S['wiggle'] = [(stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0)), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1)), 90),
-               (stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0)), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1)), 90),
-               (stand(dx=0, dy=-2, eye='happy', claw=(1, 1)), 140), (stand(dy=-1, eye='happy', claw=(1, 1)), 110), (stand(eye='happy'), 160), (stand(), 100)]
-# 转身侧过去，键盘这时候冒出来
-S['leanin'] = [(stand(dy=1), 100), (side(kb=False, dy=1), 100), (side(dy=1), 100), (side(), 120)]
-S['leanout'] = [(side(), 80), (side(dy=1), 90), (side(kb=False, dy=1), 90), (stand(dy=1), 90)]
-# 敲键盘：四条腿一下一下轮流敲，节奏有长有短，偶尔两条一起；身体跟着一抖一抖
-_T = [((2, 0, 0, 0), 0, 80), ((0, 0, 2, 0), -1, 70), ((0, 2, 0, 0), 0, 90), ((0, 0, 0, 2), -1, 70), ((0, 2, 0, 2), 0, 100),
-      ((2, 0, 0, 0), -1, 70), ((0, 0, 2, 0), 0, 80), ((0, 0, 0, 0), -1, 120), ((2, 0, 2, 0), 0, 90), ((0, 1, 0, 2), -1, 70),
-      ((0, 2, 0, 0), 0, 80), ((0, 0, 2, 0), -1, 100), ((0, 0, 0, 0), 0, 140), ((0, 0, 0, 2), -1, 70), ((2, 0, 0, 0), 0, 80), ((0, 1, 2, 0), -1, 90)]
-S['type'] = [(lean(legs=lg, dy=dy, eye='shut' if i % 7 == 6 else 'dot'), d) for i, (lg, dy, d) in enumerate(_T)]
-
-
-# ---------- 时间线小标志：每种一只，带一个很小的道具（32×20，和小章鱼那套一样大）----------
-IX, IY = 7, 8   # 螃蟹在小图里的位置（头顶留出道具的地方）
-def icon(prop):
+# ---------- 时间线小标志：每种一只，32×20，身体和左右钳子正好在正中间（和小章鱼的一样大）----------
+IDX, IDY = -5, 1   # 整只往左挪到画面正中、往下挪一点，头顶留位置给小道具
+def icon(kind):
     f = F()
-    X = lambda x: IX + x   # 身体里的 x 换算成小图里的 x
-    if prop == 'book':   # 读写：侧过身，面前一小块键盘
-        side(f, ox=12, oy=7, tap=True, lifted=(1,))
-        return f
-    eye, claw = 'dot', (0, 0)
-    if prop == 'moment': eye = 'happy'; claw = (1, 1)
-    crab(f, IX, IY, eye=eye, claw=claw)
-    if prop == 'pin':   # 头顶一颗小星星
-        f.rows([".Y.", "YYY", ".Y."], X(8), IY - 5)
-    if prop == 'like':   # 戴耳机：头顶一道细弧，两边小耳罩
-        for x in range(X(3), X(15)): f.put(x, IY - 1, 'A')
-        for x in (X(2), X(15)): f.put(x, IY, 'A')
-        f.rows(["AA", "AA", "AA"], X(1), IY + 1); f.rows(["AA", "AA", "AA"], X(15), IY + 1)
-    if prop == 'promise':   # 小安全帽 + 一把小锤
-        f.rows([".YYYYYY.", "YYYYYYYY"], X(4), IY - 2)
-        f.rows(["AAA", "AAA"], X(18), IY - 3)
-        for y in range(IY - 1, IY + 3): f.put(X(19), y, 'A')
-    if prop == 'feel':   # 旁边一朵小云，掉一滴小雨
-        f.rows([".ww.", "wwww"], X(18), IY - 3)
-        f.put(X(19), IY, 'B')
-    if prop == 'moment':   # 开心 ^^，头上三粒小彩点
-        for x, y, c in ((X(3), IY - 3, 'R'), (X(8), IY - 4, 'Y'), (X(13), IY - 3, 'B')): f.put(x, y, c)
+    kw = dict(dx=IDX, dy=IDY)
+    x0 = BX + IDX       # 身体左边
+    top = BY + IDY      # 身体顶
+    if kind == 'pin':      # 常驻：头顶一颗小星星
+        crab(f, eye='happy', **kw); star(f, x0 + 7, top - 3, True)
+    elif kind == 'like':   # 喜好：脸红
+        crab(f, blush=True, **kw)
+    elif kind == 'promise':   # 约定：两只钳子抱着一封信
+        crab(f, eye='happy', cl=(4, 4), **kw)
+        bx = x0 + 4
+        f.box(bx, top + 3, bx + 5, top + 6, 'E')
+        f.put(bx + 1, top + 4, 'E'); f.put(bx + 2, top + 5, 'E'); f.put(bx + 3, top + 5, 'E'); f.put(bx + 4, top + 4, 'E')
+    elif kind == 'feel':   # 心事：头顶冒「…」
+        crab(f, **kw)
+        for x in (x0 + 4, x0 + 7, x0 + 10): f.put(x, top - 2, 'C')
+    elif kind == 'moment':   # 时刻：举着钳子欢呼，眼睛 ^^
+        crab(f, eye='happy', cl=(-2, -2), **kw)
+    elif kind == 'book':   # 读写：两只钳子捧着一本书，眼睛往下看
+        crab(f, eye='dot', ey=1, cl=(4, 4), **kw)
+        g = F(); g.box(x0 + 2, top + 3, x0 + 11, top + 6, 'E')
+        for y in (top + 4, top + 5): g.put(x0 + 6, y, 'E'); g.put(x0 + 7, y, 'E')
+        g.put(x0 + 6, top + 3, 'C'); g.put(x0 + 7, top + 3, 'C')
+        for x in (x0 + 3, x0 + 4, x0 + 5, x0 + 8, x0 + 9, x0 + 10): g.put(x, top + 4, 'E')
+        f.px.update(g.px)
+    elif kind == 'daily':   # 日常：抱着一本小本子
+        crab(f, cl=(4, 3), **kw)
+        nx = x0 + 5
+        f.rect(nx, top + 3, nx + 3, top + 6, 'E'); f.put(nx + 1, top + 4, 'C'); f.put(nx + 2, top + 4, 'C')
     return f
 
-ICONS = {'pin': 'pin', 'like': 'like', 'promise': 'promise', 'feel': 'feel', 'moment': 'moment', 'book': 'book', 'daily': 'daily'}
+ICONS = ['pin', 'like', 'promise', 'feel', 'moment', 'book', 'daily']
 
 # ---------- 输出 ----------
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
-    pdir = os.path.join(ROOT, 'public/pet/crab'); os.makedirs(pdir, exist_ok=True)
+    pdir = os.path.join(ROOT, 'public/pet/crab')
+    if os.path.isdir(pdir):
+        for n in os.listdir(pdir): os.remove(os.path.join(pdir, n))
+    os.makedirs(pdir, exist_ok=True)
     adir = os.path.join(ROOT, 'src/assets/memory'); os.makedirs(adir, exist_ok=True)
+    # 时长和小章鱼同一个动作一模一样（帧数也一样），水温那几个用自己的
+    octo = json.loads(re.search(r'PET_FRAMES = (\{.*\});', open(os.path.join(ROOT, 'src/lib/petFrames.js')).read()).group(1))
     meta = {}
     for name, fr in {**S, **M}.items():
         strip = Image.new('RGBA', (W * len(fr), H), (0, 0, 0, 0))
         for i, (f, d) in enumerate(fr): strip.paste(f.render(), (i * W, 0))
         strip.save(os.path.join(pdir, name + '.png'))
         meta[name] = {'durs': [d for _, d in fr]}
-        if name in ('leanin', 'wiggle'): meta[name]['once'] = True
-        if name == 'leanout': meta[name]['once'] = True
+        if name in octo:
+            assert len(octo[name]['durs']) == len(fr), (name, len(octo[name]['durs']), len(fr))
+            meta[name] = octo[name]
         sheet = Image.new('RGB', (W * 6 * len(fr), H * 6), BG)
         r = strip.resize((W * 6 * len(fr), H * 6), Image.NEAREST); sheet.paste(r, (0, 0), r)
         sheet.save(os.path.join(OUT, f'pet-{name}.png'))
@@ -198,7 +351,6 @@ if __name__ == '__main__':
         for i, k in enumerate(ICONS):
             r = icon(k).render().resize((W * 6, H * 6), Image.NEAREST); sheet.paste(r, (i * W * 6, 0), r)
         sheet.save(os.path.join(OUT, f'icons-{tag}.png'))
-    import json
     with open(os.path.join(ROOT, 'src/lib/crabFrames.js'), 'w') as fh:
-        fh.write("// 小螃蟹桌宠的动作：帧条在 public/pet/crab/<名字>.png（每帧 32×20 像素），这里记每帧停多久；once 的播一次就回去\n// 由 tools/crab_sprites.py 生成，改动作请改脚本再导出\n")
+        fh.write("// 小螃蟹桌宠的动作：帧条在 public/pet/crab/<名字>.png（每帧 32×20 像素），这里记每帧停多久；once 的播一次就回去\n// 和小章鱼的动作一一对应（时长也一样，水温那几个除外）；由 tools/crab_sprites.py 生成，改动作请改脚本再导出\n")
         fh.write("export const CRAB_FRAMES = " + json.dumps(meta, ensure_ascii=False) + ";\n")

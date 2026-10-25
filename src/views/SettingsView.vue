@@ -89,6 +89,13 @@ function setHelper(v) {
           <button :class="{ on: store.settings.pet === false }" @click="store.settings.pet = false">关</button>
         </div>
       </div>
+      <div class="list-row">
+        <Icon name="heart" :size="20" /><span class="grow">桌宠小螃蟹<span class="sub">在 CC 的聊天页，站在输入框上面，动作和小章鱼一样</span></span>
+        <div class="seg">
+          <button :class="{ on: store.settings.petCrab !== false }" @click="store.settings.petCrab = true">开</button>
+          <button :class="{ on: store.settings.petCrab === false }" @click="store.settings.petCrab = false">关</button>
+        </div>
+      </div>
       <button class="list-row" @click="router.push('/settings/sync')"><Icon name="refresh" :size="20" /><span class="grow">同步<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "已开启：几台设备共用一份") : "手机、iPad、电脑共用一份栖所" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')"><Icon name="home" :size="20" /><span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/backup')"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
