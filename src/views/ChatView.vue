@@ -706,16 +706,12 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
   <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="{ ...bubbleColors, '--dock': dockH + 'px' }">
     <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
 
-    <header class="top">
-      <button class="icon-btn" aria-label="返回" @click="back"><Icon name="back" /></button>
-      <div class="who">
-        <div v-if="thread?.studio" class="name">Studio</div>
-        <div v-if="thread?.studio" class="sig">{{ role.name }} 的工作室 · 连着栖所的仓库</div>
-        <div v-if="!thread?.studio" class="name">{{ role.name }}<span v-if="moodFace" class="mood" :title="moodFace.word"><PixelArt :grid="moodFace.grid" :size="20" /></span></div>
-        <div v-if="role.signature && !thread?.studio" class="sig">{{ role.signature }}</div>
-      </div>
-      <button class="icon-btn" aria-label="小世界" @click="smallWorld"><Icon name="house" /></button>
-    </header>
+    <!-- 没有顶栏了：返回和小世界是左上角两个浮着的小圆钮；他的心情小脸（原来在名字旁）挨在后面 -->
+    <div class="float-nav">
+      <button class="fbtn" aria-label="返回" @click="back"><Icon name="back" :size="20" /></button>
+      <button class="fbtn" aria-label="小世界" @click="smallWorld"><Icon name="house" :size="20" /></button>
+      <span v-if="moodFace && !thread?.studio" class="fbtn mood" :title="moodFace.word"><PixelArt :grid="moodFace.grid" :size="20" /></span>
+    </div>
 
     <main ref="scroller" class="scroll" @scroll.passive="onScroll">
       <div class="inner">
@@ -1002,23 +998,14 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 }
 .has-bg .bg { box-shadow: inset 0 0 0 100vmax rgba(10, 12, 18, var(--img-dim)); } /* 深色模式：背景图压暗一层 */
 
-/* 顶部 */
-.top {
-  width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: calc(var(--safe-top) + 10px) 16px 10px;
-}
-.who { flex: 1; text-align: center; min-width: 0; }
-.name { font-size: 1.13rem; font-weight: 700; letter-spacing: 1px; }
-.sig { font-size: 0.833rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 左上角浮着的小圆钮：半透明、细线，不挡消息；跟着屏幕不动，顶上留出刘海 */
+.float-nav { position: absolute; top: calc(var(--safe-top) + 8px); left: 12px; z-index: 5; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.fbtn { pointer-events: auto; width: 36px; height: 36px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: rgba(var(--glass-rgb), .55); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); color: var(--text); display: grid; place-items: center; }
+.fbtn.mood { pointer-events: none; margin-left: 0; vertical-align: 0; }
 
 /* 消息区：输入框浮在上面，底下留出它的高度，最后一条能滑到它上方 */
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.inner { max-width: 760px; margin: 0 auto; padding: 12px 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
+.inner { max-width: 760px; margin: 0 auto; padding: calc(var(--safe-top) + 56px) 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
 
 .latest-btn { position: absolute; right: 16px; bottom: calc(var(--dock, 120px) + var(--dock-bottom) + 10px); z-index: 4; border: 0; border-radius: 999px; padding: 8px 14px; background: rgba(var(--glass-rgb), .95); color: var(--text); font-size: .8rem; box-shadow: var(--shadow); }
 .more-hint { display: block; margin: 4px auto 8px; border: 0; background: none; font-size: .72rem; color: var(--text-3); }
