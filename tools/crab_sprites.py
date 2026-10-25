@@ -279,10 +279,11 @@ def icon(kind):
         f = pet(cl=('hold', 'hold'), **kw)
         f.rect(x0 + 1, top + 4, x0 + 9, top + 7, 'W'); f.rect(x0 + 5, top + 4, x0 + 5, top + 7, 'G')
         for x in (x0 + 2, x0 + 3, x0 + 7, x0 + 8): f.put(x, top + 5, 'g')
-    elif kind == 'daily':    # 日常：抱着一本竖着的小本子（白页、灰线）
-        f = pet(cl=('hold', 'hold'), **kw)
-        f.rect(x0 + 3, top + 4, x0 + 7, top + 8, 'W'); f.rect(x0 + 3, top + 4, x0 + 7, top + 4, 'G')
-        for y in (top + 6, top + 7): f.rect(x0 + 4, y, x0 + 6, y, 'g')
+    elif kind == 'daily':    # 日常：举着淡蓝小水壶浇一朵粉色小花（10/26 她挑的）
+        f = pet(cl=('mid', 'up'), **kw)
+        f.rect(x0 + 12, top - 2, x0 + 14, top, 'B'); f.put(x0 + 15, top + 1, 'B'); f.put(x0 + 16, top + 3, 'B')
+        f.rect(x0 + 17, top + 5, x0 + 17, top + 8, 'G')
+        for x, y in ((x0 + 17, top + 4), (x0 + 16, top + 4), (x0 + 18, top + 4), (x0 + 17, top + 3)): f.put(x, y, 'P')
     return f
 
 ICONS = ['pin', 'like', 'promise', 'feel', 'moment', 'book', 'daily']
