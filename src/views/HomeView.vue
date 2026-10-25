@@ -74,8 +74,9 @@ async function changeCover() {
 // 我的名字：用设定里写的（他角色设定里的「我」的称呼 > 用户名），不用主页标题「栖所」
 const myName = computed(() => him.value?.me?.name || store.profile.userName || "我");
 
-// 签名：他（MAIN）和小螃蟹各一行，没写签名的不显示
-const sigs = computed(() => [him.value, crab.value].filter(r => r?.signature?.trim()).map(r => ({ id: r.id, name: r.name, text: r.signature.trim() })));
+// 签名：他（MAIN）在左、小螃蟹在右，没写签名的不显示
+const sigL = computed(() => him.value?.signature?.trim() || "");
+const sigR = computed(() => crab.value?.signature?.trim() || "");
 
 // ---------- 下面那一列 ----------
 const thread = computed(() => threadsOf(MAIN)[0]);
@@ -119,15 +120,10 @@ const rows = computed(() => [
         <span class="ava me"><Avatar :img="store.profile.avatar" :name="myName" :color="store.profile.color" :size="68" /></span>
         <button v-if="crab" class="ava crab" :aria-label="`和${crab.name}聊天`" @click="router.push(`/chat/${CRAB}`)"><Avatar :img="crab.avatar" :name="crab.name" :color="crab.color" :size="68" /></button>
       </div>
-      <div class="bios" @click="bioOpen = true">
-        <p v-if="store.profile.bioSelf" class="bio">{{ store.profile.bioSelf }}</p>
-        <p v-if="hisBio" class="bio his">{{ hisBio }}<span class="by"> — {{ him.name }}</span></p>
-        <p v-if="crab && bioOf(CRAB)" class="bio his">{{ bioOf(CRAB) }}<span class="by"> — {{ crab.name }}</span></p>
-        <p v-if="!store.profile.bioSelf && !hisBio" class="bio ph">点这里写一句简介，或者让他帮你写</p>
-      </div>
-      <!-- 签名：直接读设定里的，他们改了这里跟着变 -->
-      <div v-if="sigs.length" class="sigs">
-        <p v-for="s in sigs" :key="s.id" class="sig"><b>{{ s.name }}</b>{{ s.text }}</p>
+      <!-- 签名：直接读设定里的；他的在左圈正下方，小螃蟹的在右圈正下方，中间不放 -->
+      <div v-if="sigL || sigR" class="sigs">
+        <p v-if="sigL" class="sig l">{{ sigL }}</p>
+        <p v-if="sigR" class="sig r">{{ sigR }}</p>
       </div>
     </div>
 
@@ -187,9 +183,10 @@ const rows = computed(() => [
 .bio.his { color: var(--text-2); }
 .by { color: var(--text-3); white-space: nowrap; }
 .bio { margin: 0; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
-.sigs { margin: 10px auto 0; max-width: 320px; display: flex; flex-direction: column; gap: 2px; }
-.sig { margin: 0; font-size: .75rem; line-height: 1.5; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sig b { font-weight: 500; margin-right: 6px; }
+.sigs { margin: 10px auto 0; display: grid; grid-template-columns: 104px 104px; gap: 8px; justify-content: center; align-items: start; }
+.sig { margin: 0; font-size: .75rem; line-height: 1.5; color: var(--text-3); text-align: center; overflow-wrap: anywhere; }
+.sig.l { grid-column: 1; }
+.sig.r { grid-column: 2; }
 .bio.ph { color: var(--text-3); }
 
 /* 一列条：挨在一起，中间一道细线，整列是一张圆角的卡 */
