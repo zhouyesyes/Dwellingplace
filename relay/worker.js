@@ -192,9 +192,11 @@ async function readPage(target, maxLength) {
 //   sched:<角色>            下次定时醒来的时间、今天哪些固定时间已经醒过
 //   alarms                 TA 自己定的闹钟，一份列表 [{ roleId, id, at, note, say }]（定时任务每分钟看一次，用一个 key 省得每次 list）
 //   alarm:<角色>:<编号>     旧版一个闹钟一个 key（v30 起第一次读时搬进 alarms，之后不再用）
-//   box:<时间>:<编号>       还没被栖所取走的消息
-//   boxlatest               收件箱最后一次有新东西的时间
-//   sub:<编号>              手机的推送订阅
+//   box:<时间>:<编号>       还没被栖所取走的消息（内容；有哪些看 boxindex）
+//   boxindex                收件箱目录 { latest, items: [{ id, ts, key }] }（v36 起，不再 list）
+//   boxlatest               旧版「最后有新东西的时间」（v36 起并进 boxindex）
+//   subs                    手机的推送订阅，一份列表（v36 起）
+//   sub:<编号>              旧版一个订阅一个 key（v36 起第一次读时搬进 subs）
 //   vapid                   推送用的密钥（第一次用时自动生成）
 // ======================================================================
 
@@ -424,12 +426,36 @@ async function subId(endpoint) {
   return b64u(await crypto.subtle.digest("SHA-256", enc(endpoint))).slice(0, 22);
 }
 
+// 订阅清单：一个 key（subs）装着 [{ id, endpoint, keys, at }]，不再 list()
+async function readSubs(env) {
+  let subs = await env.KV.get("subs", "json");
+  if (subs) return subs;
+  // 升级后第一次：把旧的逐条存的 sub:* 搬进清单（只列这一回）
+  subs = [];
+  let cursor;
+  do {
+    const r = await env.KV.list({ prefix: "sub:", cursor });
+    for (const k of r.keys) {
+      const sub = await env.KV.get(k.name, "json");
+      if (sub?.endpoint) subs.push({ id: k.name.slice(4), ...sub });
+    }
+    cursor = r.list_complete ? null : r.cursor;
+  } while (cursor);
+  await env.KV.put("subs", JSON.stringify(subs));
+  return subs;
+}
+async function dropSub(env, endpoint) {
+  const id = await subId(endpoint);
+  const subs = await readSubs(env);
+  if (subs.some(x => x.id === id)) await env.KV.put("subs", JSON.stringify(subs.filter(x => x.id !== id)));
+  await env.KV.delete(`sub:${id}`).catch(() => {});
+}
+
 // 推送给所有订阅过的手机。返回 { sent, failed, errors }
 async function pushAll(env, data) {
   const out = { sent: 0, failed: 0, errors: [] };
-  const { keys } = await env.KV.list({ prefix: "sub:" });
-  for (const k of keys) {
-    const sub = await env.KV.get(k.name, "json");
+  const subs = await readSubs(env);
+  for (const sub of subs) {
     if (!sub?.endpoint) continue;
     try {
       const r = await fetch(sub.endpoint, {
@@ -447,7 +473,7 @@ async function pushAll(env, data) {
       else {
         out.failed++;
         out.errors.push(`${r.status} ${(await r.text()).slice(0, 120)}`);
-        if (r.status === 404 || r.status === 410) await env.KV.delete(k.name); // 这台手机取消了订阅
+        if (r.status === 404 || r.status === 410) await dropSub(env, sub.endpoint); // 这台手机取消了订阅
       }
     } catch (e) {
       out.failed++;
@@ -749,18 +775,51 @@ const addTurn = (convo, role, content) => {
   return [...convo, { role, content }];
 };
 
-// 还没被栖所取走的消息
-async function pendingBox(env) {
-  const out = [];
+// 收件箱目录：一个 key（boxindex）装着 { latest, items: [{ id, ts, key }] }。
+// 存消息时顺手记一笔，栖所来取、确认、醒来时查都直接读它，不再 list()。
+// latest 和清单放在同一个 key 里，「有没有新的」和实际清单不会各说各的。
+async function readBoxIndex(env) {
+  let idx = await env.KV.get("boxindex", "json");
+  if (idx) return idx;
+  // 升级后第一次：把旧的逐条存的 box:* 一次性记进目录（只列这一回）
+  const items = [];
   let cursor;
   do {
     const r = await env.KV.list({ prefix: "box:", cursor });
     for (const k of r.keys) {
-      const item = await env.KV.get(k.name, "json");
-      if (item) out.push({ ...item, key: k.name });
+      const [, t, id] = k.name.split(":");
+      items.push({ id, ts: parseInt(t, 36) || 0, key: k.name });
     }
     cursor = r.list_complete ? null : r.cursor;
   } while (cursor);
+  const old = Number(await env.KV.get("boxlatest")) || 0;
+  idx = { latest: Math.max(old, ...items.map(x => x.ts), 0), items };
+  await env.KV.put("boxindex", JSON.stringify(idx));
+  return idx;
+}
+
+// 存一条消息进收件箱，并在目录里记一笔
+async function boxAdd(env, item) {
+  const key = `box:${item.ts.toString(36)}:${item.id}`;
+  await env.KV.put(key, JSON.stringify(item), { expirationTtl: 30 * 86400 });
+  const idx = await readBoxIndex(env);
+  if (!idx.items.some(x => x.id === item.id)) idx.items.push({ id: item.id, ts: item.ts, key });
+  idx.latest = Math.max(idx.latest || 0, item.ts);
+  await env.KV.put("boxindex", JSON.stringify(idx));
+}
+
+// 还没被栖所取走的消息（按目录取；过期已经没了的顺手从目录里去掉）
+async function pendingBox(env) {
+  const idx = await readBoxIndex(env);
+  const out = [];
+  const keep = [];
+  for (const e of idx.items) {
+    const item = await env.KV.get(e.key, "json");
+    if (!item) continue;
+    keep.push(e);
+    out.push({ ...item, key: e.key });
+  }
+  if (keep.length !== idx.items.length) await env.KV.put("boxindex", JSON.stringify({ ...idx, items: keep }));
   return out.sort((a, b) => a.ts - b.ts);
 }
 
@@ -1088,8 +1147,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, Date.now())),
     ...(handoff ? { handoff: true } : {}),
   };
-  await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
-  await env.KV.put("boxlatest", String(item.ts));
+  await boxAdd(env, item);
 
   if (!silent) {
     const first = visible(text).split(/\n\s*\n/)[0] || "";
@@ -1142,8 +1200,7 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: why, silent: true, text: "",
       notes: [{ text: `自由时间：${role.name} 想了想，接着睡了` }], usage: { ...lobbyUsage, rounds: 1, ctx0: lobbyUsage.input }, apiId: role.api?.id || null, model: role.api?.model || "", free: { pick: "sleep" } };
     await bookWake(role, item);
-    await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
-    await env.KV.put("boxlatest", String(item.ts));
+    await boxAdd(env, item);
     return item;
   }
   const into = [...reasons, { kind: "free", text: `自由时间，你自己选了去「${room.label}」` }];
@@ -1176,8 +1233,7 @@ async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, outp
       apiId: role.api?.id || null, model: role.api?.model || "", ...(free ? { free } : {}),
     };
     await bookWake(role, item);
-    await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
-    await env.KV.put("boxlatest", String(item.ts));
+    await boxAdd(env, item);
     if (!silent) {
       const path = room.kind === "read" ? `/read/${room.bookId}` : room.room === "write" ? `/write/${room.id}` : room.room === "tide" ? "/meanwhile" : `/books/talk/${room.id}`;
       const body = room.kind === "read" ? `去读了一会儿书，在书里留了批注` : `在${room.label}留了话：${visible(text).split(/\n\s*\n/)[0].slice(0, 30)}`;
@@ -1224,8 +1280,7 @@ async function gardenMissItem(env, role, why) {
     note: `花园叫醒：${role.id === "crab" ? "CC" : "chatgpt"} 有一手没接上（${why}）`,
     usage: { input: 0, output: 0, rounds: 0 }, apiId: null, model: "", alarms: [],
   };
-  await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
-  await env.KV.put("boxlatest", String(item.ts));
+  await boxAdd(env, item);
   return item;
 }
 
@@ -1248,8 +1303,7 @@ async function deliverSay(env, cfg, role, says, now = Date.now()) {
     notes: [{ text: "到点直接发的，没有叫醒他（不花额度）" }], usage: { input: 0, output: 0, rounds: 0 },
     apiId: null, model: "", alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, now)),
   };
-  await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
-  await env.KV.put("boxlatest", String(item.ts));
+  await boxAdd(env, item);
   const first = text.split(/\n\s*\n/)[0] || "";
   const url = cfg.appUrl ? `${cfg.appUrl}#/chat/${role.id}${role.threadId ? "/" + role.threadId : ""}` : undefined;
   item.push = await pushAll(env, { title: role.name, body: first.length > 40 ? first.slice(0, 40) + "…" : first, url, tag: "say-" + role.id + "-" + item.id });
@@ -1430,8 +1484,7 @@ async function tick(env, now = Date.now()) {
     // 出错也告诉栖所一声
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: reasons.map(r => r.text), silent: true, error: errText, text: "", notes: [], usage: { input: 0, output: 0 } };
     await bookWake(role, item).catch(() => {});
-    await env.KV.put(`box:${item.ts.toString(36)}:${item.id}`, JSON.stringify(item), { expirationTtl: 30 * 86400 });
-    await env.KV.put("boxlatest", String(item.ts));
+    await boxAdd(env, item);
   }
   await env.KV.put(key, JSON.stringify(sched));
   return sched.last;
@@ -1475,9 +1528,9 @@ async function wakeRoute(path, req, env) {
       roles[r.id] = { alarms: alarms.filter(a => a.roleId === r.id).map(a => alarmView(a, now)), nextAt: sched.nextAt || null, last: sched.last || null, bridgeError: sched.bridgeError || "",
         skipped: sched.skipped || null, waiting, retryAt: sched.retry?.at || null };
     }
-    const subs = await env.KV.list({ prefix: "sub:" });
+    const subs = await readSubs(env);
     const pokes = (await env.KV.get("pokes", "json")) || [];
-    return json({ roles, pokes, syncedAt: cfg.syncedAt || 0, tick: Number(await env.KV.get("tick")) || 0, devices: subs.keys.length });
+    return json({ roles, pokes, syncedAt: cfg.syncedAt || 0, tick: Number(await env.KV.get("tick")) || 0, devices: subs.length });
   }
 
   if (path === "/wake/alarm") {
@@ -1579,7 +1632,8 @@ async function wakeRoute(path, req, env) {
       const seen = Number(await env.KV.get("seen")) || 0;
       if (Date.now() - seen > 5 * 60_000) await env.KV.put("seen", String(Date.now()));
     }
-    const latest = Number(await env.KV.get("boxlatest")) || 0;
+    const idx = await readBoxIndex(env);
+    const latest = idx.latest || 0;
     const since = Number(url.searchParams.get("since")) || 0;
     const busy = await getBusy(env);
     if (since && latest <= since) return json({ latest, items: [], busy });
@@ -1589,8 +1643,10 @@ async function wakeRoute(path, req, env) {
 
   if (path === "/wake/ack") {
     const ids = new Set(body.ids || []);
-    const { keys } = await env.KV.list({ prefix: "box:" });
-    for (const k of keys) if (ids.has(k.name.split(":")[2])) await env.KV.delete(k.name);
+    const idx = await readBoxIndex(env);
+    const gone = idx.items.filter(x => ids.has(x.id));
+    for (const e of gone) await env.KV.delete(e.key);
+    if (gone.length) await env.KV.put("boxindex", JSON.stringify({ ...idx, items: idx.items.filter(x => !ids.has(x.id)) }));
     return json({ ok: true });
   }
 
@@ -1598,12 +1654,15 @@ async function wakeRoute(path, req, env) {
 
   if (path === "/push/subscribe") {
     if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) return json({ error: "订阅信息不完整" }, 400);
-    await env.KV.put(`sub:${await subId(body.endpoint)}`, JSON.stringify({ endpoint: body.endpoint, keys: body.keys, at: Date.now() }));
+    const id = await subId(body.endpoint);
+    const subs = (await readSubs(env)).filter(x => x.id !== id);
+    subs.push({ id, endpoint: body.endpoint, keys: body.keys, at: Date.now() });
+    await env.KV.put("subs", JSON.stringify(subs));
     return json({ ok: true });
   }
 
   if (path === "/push/unsubscribe") {
-    if (body.endpoint) await env.KV.delete(`sub:${await subId(body.endpoint)}`);
+    if (body.endpoint) await dropSub(env, body.endpoint);
     return json({ ok: true });
   }
 
@@ -1637,7 +1696,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 35, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 36, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
