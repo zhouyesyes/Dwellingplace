@@ -4,7 +4,6 @@
 import { store, roleById, apiById, threadsOf, createThread, loadMessages, saveMessages, uid, CRAB } from "../store/index.js";
 import { activePath, ROOT } from "./tree.js";
 import { get, set } from "./kv.js";
-import { cloudJob, cloudDone } from "./pet.js";
 import { applyMemoryTags, memoriesOf, isLive } from "./memoryTags.js";
 
 export const WHERE = { code: "在 Claude Code 里", cloud: "云端干活", wake: "自己醒来" };
@@ -135,7 +134,6 @@ export async function syncBook() {
       if (!atts) break; // 图还没拿到：这句和后面的下次再拿，别悄悄丢了
       st.pulledTs = Math.max(st.pulledTs, Number(e.ts) || 0);
       if (wakeIdOf(e)) continue; // 自己醒来的：中转写进对话本的那份，栖所自己从信箱取回聊天（带 wakeId）；一律不再接一遍
-      if (e.where === "cloud" && e.from === "crab" && Number(e.ts) >= cloudJob.at) cloudDone(); // 云端的报告回来了
       if (e.kind === "memory") { applyMemoryTags(role, e.text); continue; } // 别处记下的记忆卡片
       const path = activePath(all, t.sel || {});
       const parentId = path.length ? path[path.length - 1].id : ROOT;
