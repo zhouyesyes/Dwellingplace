@@ -74,6 +74,9 @@ async function changeCover() {
 // 我的名字：用设定里写的（他角色设定里的「我」的称呼 > 用户名），不用主页标题「栖所」
 const myName = computed(() => him.value?.me?.name || store.profile.userName || "我");
 
+// 签名：他（MAIN）和小螃蟹各一行，没写签名的不显示
+const sigs = computed(() => [him.value, crab.value].filter(r => r?.signature?.trim()).map(r => ({ id: r.id, name: r.name, text: r.signature.trim() })));
+
 // ---------- 下面那一列 ----------
 const thread = computed(() => threadsOf(MAIN)[0]);
 // 小螃蟹住进来了的话：他下面再一条
@@ -121,6 +124,10 @@ const rows = computed(() => [
         <p v-if="hisBio" class="bio his">{{ hisBio }}<span class="by"> — {{ him.name }}</span></p>
         <p v-if="crab && bioOf(CRAB)" class="bio his">{{ bioOf(CRAB) }}<span class="by"> — {{ crab.name }}</span></p>
         <p v-if="!store.profile.bioSelf && !hisBio" class="bio ph">点这里写一句简介，或者让他帮你写</p>
+      </div>
+      <!-- 签名：直接读设定里的，他们改了这里跟着变 -->
+      <div v-if="sigs.length" class="sigs">
+        <p v-for="s in sigs" :key="s.id" class="sig"><b>{{ s.name }}</b>{{ s.text }}</p>
       </div>
     </div>
 
@@ -180,6 +187,9 @@ const rows = computed(() => [
 .bio.his { color: var(--text-2); }
 .by { color: var(--text-3); white-space: nowrap; }
 .bio { margin: 0; font-size: .82rem; line-height: 1.6; color: var(--text-2); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.sigs { margin: 10px auto 0; max-width: 320px; display: flex; flex-direction: column; gap: 2px; }
+.sig { margin: 0; font-size: .75rem; line-height: 1.5; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sig b { font-weight: 500; margin-right: 6px; }
 .bio.ph { color: var(--text-3); }
 
 /* 一列条：挨在一起，中间一道细线，整列是一张圆角的卡 */

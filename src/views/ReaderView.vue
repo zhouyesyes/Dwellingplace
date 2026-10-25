@@ -590,6 +590,10 @@ function pressStart(n) { pressed = false; clearTimeout(pressT); pressT = setTime
 const pressEnd = () => clearTimeout(pressT);
 function tapTrack(n) { if (pressed) return (pressed = false); trackOpenOne.value = trackOpenOne.value === n.id ? null : n.id; }
 const chTitle = i => b.value?.chapters[i]?.title || `第 ${i + 1} 章`;
+// 全部忽视：所有书里他贴的、还没看的便利贴都标成已忽视（不删内容）
+const ignoreAsk = ref(false);
+const allUnread = computed(() => (store.bookNotes || []).filter(n => n.from === "ai" && n.text && !n.seen && n.ch >= 0));
+function ignoreAll() { for (const n of allUnread.value) n.seen = true; ignoreAsk.value = false; trackAct.value = null; }
 function ignore(n) { n.seen = true; trackAct.value = null; }
 // 跳过去：翻到那张便利贴所在的那一页，闪一下
 async function jumpNote(n) {
@@ -795,10 +799,17 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       </div>
     </Sheet>
 
-    <Sheet :open="trackOpen" :title="`${role?.name || '他'}的便利贴`" @close="trackOpen = false; trackAct = null">
+    <Sheet :open="trackOpen" :title="`${role?.name || '他'}的便利贴`" @close="trackOpen = false; trackAct = null; ignoreAsk = false">
       <div class="track-list">
         <p v-if="!unread.length" class="track-empty">{{ role?.name || "他" }}贴的都看过了</p>
         <p v-else class="track-tip">还没看到的 {{ unread.length }} 张 · 长按一条：跳转 / 忽略</p>
+        <div v-if="allUnread.length" class="ign-all">
+          <template v-if="!ignoreAsk"><button @click="ignoreAsk = true">全部忽视</button></template>
+          <template v-else>
+            <span>把所有书里没看的 {{ allUnread.length }} 张都忽视吗？便利贴不会删。</span>
+            <button class="ghost" @click="ignoreAsk = false">先不</button><button class="go" @click="ignoreAll">忽视</button>
+          </template>
+        </div>
         <div v-for="n in unread" :key="n.id" class="titem" :class="{ held: trackAct === n }"
           @pointerdown="pressStart(n)" @pointerup="pressEnd" @pointerleave="pressEnd" @pointercancel="pressEnd" @contextmenu.prevent @click="tapTrack(n)">
           <small>{{ chTitle(n.ch) }}{{ n.quote ? ` ·「${n.quote.slice(0, 16)}${n.quote.length > 16 ? "…" : ""}」` : "" }}</small>
@@ -965,6 +976,11 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .titem small { display: block; font-size: .7rem; color: var(--text-3); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .titem p { margin: 0; font-size: .88rem; line-height: 1.65; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
 .titem p.full { display: block; }
+.ign-all { display: flex; align-items: center; gap: 8px; margin: 2px 4px 4px; font-size: .78rem; color: var(--text-2); }
+.ign-all span { flex: 1; }
+.ign-all button { border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: .78rem; background: none; color: var(--text-2); }
+.ign-all button.go { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.ign-all:has(> button:only-child) { justify-content: flex-end; }
 .tacts { display: flex; gap: 8px; margin-top: 8px; }
 .tacts button { flex: 1; border: 0; border-radius: 999px; padding: 7px 0; font-size: .8rem; background: var(--card); color: var(--text); box-shadow: var(--shadow-soft); }
 .tacts button:first-child { background: var(--ink); color: var(--on-ink); }
