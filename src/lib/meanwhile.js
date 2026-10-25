@@ -2,7 +2,7 @@
 //   潮汐表（日历）：每天每人一个「水温」（心情），月初空格放当月的「待续」（计划）
 //   潮间带（共同动态）：便笺、拍立得，可以短回复、轻互动（没有点赞数）
 // 数据都在 store.meanwhile 里（随 meta 一起同步），每样都带 id，两台设备同时改也能合并：
-//   posts   { id, n, who, ts, date, text, img, status: {kind, text}|null, planId, src, replies: [{id, who, text, ts}], reacts: [{id, who, kind, ts}] }
+//   posts   { id, n, who, ts, date, text, img, imgs（最多 9 张，img 是第一张，旧的只有 img）, note（打卡时她补的话）, editedAt, status: {kind, text}|null, planId, src, replies: [{id, who, text, ts}], reacts: [{id, who, kind, ts}] }
 //   moods   { id: "日期:谁", date, who, key, text, ts }
 //   plans   { id, month: "YYYY-MM", date: "YYYY-MM-DD"|null（挂在某一天；null 就是挂在这个月）, who, text, ts, doneAt, postId }
 //           周期待续多三样：repeat { type, wd, dom, n, mo, day, start, stop, until, days }、dones [{ id: 日期, date, doneAt, postId }]（每次单独打勾）、stoppedAt（停掉或整件做完的那天）、wholePostId（整件做完时留的那条记录）；
@@ -12,6 +12,7 @@
 // who：她是 "me"，他是 MAIN，小螃蟹是 CRAB
 import { store, uid, roleById, MAIN, CRAB } from "../store/index.js";
 import { todayYmd, ymd } from "./dates.js";
+import { deleteImage, imageBase64 } from "./images.js";
 import sunny from "../assets/meanwhile/tide-sunny.webp";
 import calm from "../assets/meanwhile/tide-calm.webp";
 import splash from "../assets/meanwhile/tide-splash.webp";
@@ -229,11 +230,23 @@ export function addPost(who, { text = "", img = null, status = null, planId = nu
   m.posts.push(p);
   return p;
 }
+export const POST_IMG_MAX = 9;
+export const imgsOf = p => (p.imgs?.length ? p.imgs : p.img ? [p.img] : []);
+// 打卡配图配字（也能随时改）：多出来的旧图删掉，图片跟聊天图片一样压缩后存、跟着同步
+export function setPostMedia(post, { note, imgs }) {
+  const next = (imgs || []).slice(0, POST_IMG_MAX);
+  for (const id of imgsOf(post)) if (!next.includes(id)) deleteImage(id);
+  post.imgs = next; post.img = next[0] || null;
+  post.note = String(note ?? post.note ?? "").trim().slice(0, 1000);
+  post.editedAt = Date.now();
+}
+const dropPostImgs = post => imgsOf(post).forEach(id => deleteImage(id));
 export function removePost(post) {
   const m = ensureMeanwhile();
   const i = m.posts.indexOf(post);
   if (i < 0) return;
   m.posts.splice(i, 1);
+  dropPostImgs(post);
   const plan = m.plans.find(x => x.id === post.planId);
   if (plan?.repeat) plan.dones = (plan.dones || []).filter(x => x.postId !== post.id); // 周期的只收回那一天的勾
   else if (plan) { plan.doneAt = null; plan.postId = null; }
@@ -292,7 +305,7 @@ export function updatePlan(plan, { text, date, month, repeat }) {
 }
 // 那一天的几点几分（周期待续勾的不是今天，记录也要落在那一天）
 const tsOnDay = date => { if (date === todayYmd()) return Date.now(); const n = new Date(), d = parseYmd(date); d.setHours(n.getHours(), n.getMinutes(), n.getSeconds()); return d.getTime(); };
-// date 只给周期待续用：每一次单独打勾，只算那一天
+// date 只给周期待续用：每一次单独打勾，只算那一天；返回新留下的那条记录（取消勾返回 null），外面用它弹「配图配字」的小框
 export function togglePlan(plan, who = ME, date = todayYmd()) {
   const m = ensureMeanwhile();
   if (plan.repeat) {
@@ -300,32 +313,34 @@ export function togglePlan(plan, who = ME, date = todayYmd()) {
     const cur = plan.dones.find(x => x.id === date);
     if (cur) {
       const i = m.posts.findIndex(x => x.id === cur.postId);
-      if (i >= 0) m.posts.splice(i, 1);
+      if (i >= 0) { dropPostImgs(m.posts[i]); m.posts.splice(i, 1); }
       plan.dones = plan.dones.filter(x => x !== cur);
-      return;
+      return null;
     }
     const post = addPost(who, { text: plan.text, planId: plan.id, src: "plan", ts: tsOnDay(date) });
     plan.dones.push({ id: date, date, doneAt: Date.now(), postId: post?.id || null });
-    return;
+    return post;
   }
   if (plan.doneAt) {
     const i = m.posts.findIndex(x => x.id === plan.postId);
-    if (i >= 0) m.posts.splice(i, 1);
+    if (i >= 0) { dropPostImgs(m.posts[i]); m.posts.splice(i, 1); }
     plan.doneAt = null; plan.postId = null;
-    return;
+    return null;
   }
   const post = addPost(who, { text: plan.text, planId: plan.id, src: "plan" });
   plan.doneAt = Date.now();
   plan.postId = post?.id || null;
+  return post;
 }
 // 停掉（一直重复的）：从明天起不再出现，勾过的记录留着，潮间带里不留新的记录
 export function stopPlan(plan) { plan.stoppedAt = todayYmd(); }
 // 整件做完了（做完才停的）：同样从明天起不再出现，另外在潮间带当天留一条「整件完成了」（记录挂在 plan.wholePostId 上，删这件待续时一起拿掉）
 export function finishWholePlan(plan, who = ME) {
   plan.stoppedAt = todayYmd();
-  if (plan.wholePostId && ensureMeanwhile().posts.some(x => x.id === plan.wholePostId)) return;
+  if (plan.wholePostId && ensureMeanwhile().posts.some(x => x.id === plan.wholePostId)) return null;
   const post = addPost(who, { text: plan.text, planId: plan.id, src: "plan" });
   if (post) { post.whole = true; plan.wholePostId = post.id; }
+  return post;
 }
 export function removePlan(plan) {
   const m = ensureMeanwhile();
@@ -333,7 +348,7 @@ export function removePlan(plan) {
   if (i < 0) return;
   m.plans.splice(i, 1);
   const ids = new Set([plan.postId, plan.wholePostId, ...(plan.dones || []).map(x => x.postId)].filter(Boolean));
-  for (let k = m.posts.length - 1; k >= 0; k--) if (ids.has(m.posts[k].id)) m.posts.splice(k, 1);
+  for (let k = m.posts.length - 1; k >= 0; k--) if (ids.has(m.posts[k].id)) { dropPostImgs(m.posts[k]); m.posts.splice(k, 1); }
 }
 
 // 有几条别人贴的、她还没看（主页上的小红点）
@@ -442,7 +457,7 @@ export function tideForAI(role, who) {
     `想往上贴一条，在回复末尾单独一行写：[潮间带:内容]，一两句话、100 字以内，像便笺那样随手贴；在读书、画画、写作也可以直接写进内容里。每天自己最多贴 3 条，不用每次都贴。`,
     `今天的水温（心情）每人每天一个：单独一行写 [水温:名字|一句话]，名字从这十个里选：${names}；一句话可以不写。再写一次就是改。`,
     `回别人贴的：单独一行写 [潮间带回复:序号|一句话]，序号是【此刻】里「潮间带」那一段的 #号；只想轻轻回应，就把一句话换成 爱心 / 摸摸 / 抱抱 / 戳一戳 之一。`,
-    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内，会挂在当月；想挂在某一天就写 [待续:12-25|一件事]（月-日，日期和事情之间用 | 隔开，日期里不要用冒号）。要反复做的写周期：[待续:每天|一件事]、[待续:每周三|一件事]、[待续:每月15号|一件事]、[待续:每3天|一件事]、[待续:每年12-25|一件事]，末尾可以加 |持续14天。做完了由她点一下，会在当天留下一条记录。别刷，每个月自己挂着的不超过 5 件（一串周期待续算一件）。`,
+    `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内，会挂在当月；想挂在某一天就写 [待续:12-25|一件事]（月-日，日期和事情之间用 | 隔开，日期里不要用冒号）。要反复做的写周期：[待续:每天|一件事]、[待续:每周三|一件事]、[待续:每月15号|一件事]、[待续:每3天|一件事]、[待续:每年12-25|一件事]，末尾可以加 |持续14天。做完了由她点一下，会在当天留下一条记录（她有时会给这条记录补几句话、几张图，会跟着序号出现在【此刻】里，想回就用上面的 [潮间带回复:序号|一句话]）。别刷，每个月自己挂着的不超过 5 件（一串周期待续算一件）。`,
     `只有单独占一行的才会执行；平时聊到、解释这些指令时，别写出带方括号的完整格式，也不要放进代码块里。`,
   ].join("\n");
 }
@@ -460,15 +475,34 @@ export function tideMoment(role) {
   if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${p.who === role.id ? "你" : whoInfo(p.who).name}：${p.date ? `${Number(p.date.slice(5, 7))}/${Number(p.date.slice(8))} ` : ""}${p.text.slice(0, 20)}`).join("；")}`);
   const today2 = plans2(today);
   if (today2.length) lines.push(`今天要做的周期待续：${today2.join("；")}`);
-  const recent = m.posts.filter(p => p.ts > since && p.src !== "plan").sort((a, b) => a.ts - b.ts).slice(-6);
+  const recent = m.posts.filter(p => Math.max(p.ts, p.editedAt || 0) > since && (p.src !== "plan" || p.note || imgsOf(p).length)).sort((a, b) => a.ts - b.ts).slice(-6);
   for (const p of recent) {
     const name = p.who === role.id ? "你" : whoInfo(p.who).name;
+    const n = imgsOf(p).length;
     const st = p.status ? `【${STATUSES.find(s => s.kind === p.status.kind)?.name || ""}${p.status.text ? " " + p.status.text : ""}】` : "";
     const rs = p.replies.slice(-2).map(r => `${r.who === role.id ? "你" : whoInfo(r.who).name}回：${r.text.slice(0, 30)}`).join("；");
-    lines.push(`#${p.n} ${name}（${stamp(p.ts)}）${st}${p.text.replace(/\s+/g, " ").slice(0, 80)}${p.img ? "［附图］" : ""}${rs ? `——${rs}` : ""}`);
+    lines.push(`#${p.n} ${name}（${stamp(p.ts)}）${st}${p.planId ? `${p.whole ? "整件做完了" : "待续打卡"}：` : ""}${p.text.replace(/\s+/g, " ").slice(0, 80)}${p.note ? `——${p.note.replace(/\s+/g, " ").slice(0, 200)}` : ""}${n ? `［附 ${n} 张图］` : ""}${rs ? `——${rs}` : ""}`);
   }
   if (!lines.length) return "";
   return lines.join("\n");
+}
+
+// 主聊天里：最近 3 小时别人贴（或补）的图，最多 4 张，跟在【此刻】后面给他看（醒来的房间只能带文字）
+export async function tideImageParts(role) {
+  const since = Date.now() - 3 * 3600_000;
+  const posts = ensureMeanwhile().posts.filter(p => p.who !== role.id && Math.max(p.ts, p.editedAt || 0) > since && imgsOf(p).length).sort((a, b) => b.ts - a.ts);
+  const parts = [];
+  let left = 4;
+  for (const p of posts) {
+    if (left <= 0) break;
+    const ids = imgsOf(p).slice(0, left);
+    const got = [];
+    for (const id of ids) { try { const { data, mime } = await imageBase64(id); got.push({ type: "image", data, mime }); } catch { /* 图还没同步过来就先不带 */ } }
+    if (!got.length) continue;
+    parts.push({ type: "text", text: `（潮间带 #${p.n} 附的图：）` }, ...got);
+    left -= got.length;
+  }
+  return parts;
 }
 
 // 醒来时进「潮间带」这间屋子：一次请求，回复里写上面的指令，交给栖所放上去

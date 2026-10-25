@@ -16,7 +16,7 @@ import { stickersForAI } from "./stickers.js";
 import { LETTER_RE, applyLetterTags, lettersForAI } from "./letters.js";
 import { MOMENT_RE, applyMomentTags, momentForAI, momentRule } from "./moment.js";
 import { BOARD_RE, applyBoardTags } from "./board.js";
-import { applyTideTags, stripTideTags, tideForAI } from "./meanwhile.js";
+import { applyTideTags, stripTideTags, tideForAI, tideImageParts } from "./meanwhile.js";
 import { petHears, petAfterReply } from "./pet.js";
 import { planLow, logTurn } from "./quota.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
@@ -500,6 +500,8 @@ export async function generate(thread, parentId) {
     const messages = await buildMessages(history);
     const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
+    const tideImgs = await tideImageParts(role).catch(() => []);
+    if (tideImgs.length) messages[messages.length - 1].parts.splice(1, 0, ...tideImgs);
     const recent = recentToolResults(history);
     if (recent) messages[messages.length - 1].parts.unshift({ type: "text", text: recent });
     if (noFollow && noFollow !== "mail") messages[messages.length - 1].parts.unshift({ type: "text", text: `（这次不能续发：${noFollow}。一次回完就好。）` });

@@ -8,7 +8,7 @@ import { todayYmd } from "../../lib/dates.js";
 import { pickFile, saveImage, deleteImage } from "../../lib/images.js";
 import {
   ME, MOODS, REACTS, STATUSES, moodByKey, moodOf, whoList, whoInfo, ensureMeanwhile, postsOf, postsOn, plansOf, planItemsOn, occursOn, planItemOf, recurringPlans, planAlive, stopPlan, finishWholePlan, repeatLabel, emptyRepeatForm, repeatFormOf, repeatFromForm, updatePlan,
-  setMood, clearMood, addPost, removePost, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
+  setMood, clearMood, addPost, removePost, imgsOf, setPostMedia, POST_IMG_MAX, addReply, toggleReact, reactorsOf, addPlan, togglePlan, removePlan, markSeen, dayLabel, monthOf, stamp,
 } from "../../lib/meanwhile.js";
 import Icon from "../Icon.vue";
 import Avatar from "../Avatar.vue";
@@ -131,11 +131,40 @@ function sendReply(p) {
 }
 const viewImgs = ref([]);
 const viewAt = ref(null);
-const openImg = p => { viewImgs.value = [p.img]; viewAt.value = 0; };
+const openImg = (p, i = 0) => { viewImgs.value = imgsOf(p); viewAt.value = i; };
+const gridOf = p => { const n = imgsOf(p).length; return n <= 1 ? 'g1' : n <= 4 ? 'g2' : 'g3'; };
 const poked = ref("");
 function react(p, kind) {
   toggleReact(p, ME, kind);
   if (kind === "poke") { poked.value = p.id; setTimeout(() => { if (poked.value === p.id) poked.value = ""; }, 500); }
+}
+
+// ---------- 打卡配图配字（勾掉待续时弹一次，也能在那条打卡上点「编辑」随时改）----------
+const ck = ref(null); // { post, fresh, note, imgs, added }
+const ckBusy = ref(false);
+function openCheckin(post, fresh = false) { ck.value = { post, fresh, note: post.note || "", imgs: [...imgsOf(post)], added: [] }; }
+async function ckAdd() {
+  if (ckBusy.value || !ck.value) return;
+  const files = (await pickFile("image/*", true)).slice(0, POST_IMG_MAX - ck.value.imgs.length);
+  if (!files.length) return;
+  ckBusy.value = true;
+  try {
+    for (const f of files) { const id = await saveImage(f, { maxSize: 1280, quality: 0.8 }); if (!ck.value) { deleteImage(id); continue; } ck.value.imgs.push(id); ck.value.added.push(id); }
+  } finally { ckBusy.value = false; }
+}
+function ckDrop(id) { ck.value.imgs = ck.value.imgs.filter(x => x !== id); }
+// 没存就关了：这次新加的图不留
+function ckClose() {
+  if (!ck.value) return;
+  for (const id of ck.value.added) if (!imgsOf(ck.value.post).includes(id)) deleteImage(id);
+  ck.value = null;
+}
+const ckDirty = computed(() => !!ck.value && (ck.value.note.trim() || ck.value.imgs.length || imgsOf(ck.value.post).length || ck.value.post.note));
+function ckSave() {
+  const c = ck.value;
+  if (!c) return;
+  setPostMedia(c.post, { note: c.note, imgs: c.imgs });
+  ck.value = null;
 }
 
 // ---------- 待续 ----------
@@ -161,7 +190,7 @@ function savePlan() {
   if (newRep.value.type !== "none" && !rep) return alert("这个周期还没填完整（每周几至少选一天）");
   if (addPlan(ME, planText.value, month.value, date, rep)) { planText.value = ""; newRep.value = emptyRepeatForm(selected.value || today.value); }
 }
-function tickPlan(p, date) { togglePlan(p, ME, date); }
+function tickPlan(p, date) { const post = togglePlan(p, ME, date); if (post) openCheckin(post, true); }
 const monthName = computed(() => `${Number(month.value.slice(5))} 月`);
 const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
 // 点开一件待续：改文字、改日期（月和日之间可以换）、删掉
@@ -186,16 +215,20 @@ function saveEdit() {
 }
 // 在卡里点「做完了」：等于在待续清单里点前面的小圆圈（留一条「✓ 待续完成了」），然后关卡
 function finishEdit() {
-  if (!editing.value.doneAt) togglePlan(editing.value, ME);
+  const post = editing.value.doneAt ? null : togglePlan(editing.value, ME);
   editing.value = null;
+  if (post) openCheckin(post, true);
 }
 // 周期待续：「这次做完了」只算点进来的那一天。一直重复的点「停掉」：之后的日子不再出现，不留记录；整件做完才停的点「整件做完了」：同样不再出现，潮间带当天留一条「整件完成了」。勾过的都留着
-function finishOnce() { togglePlan(editing.value, ME, editDate.value); editing.value = null; }
+function finishOnce() { const post = togglePlan(editing.value, ME, editDate.value); editing.value = null; if (post) openCheckin(post, true); }
 const wholeStop = computed(() => editing.value?.repeat?.stop === "whole");
 function stopWhole() {
   if (wholeStop.value) {
     if (!confirm("整件做完了？之后的日子不再出现，潮间带今天会留一条「整件完成了」，已经勾过的记录会留着。")) return;
-    finishWholePlan(editing.value, ME);
+    const post = finishWholePlan(editing.value, ME);
+    editing.value = null;
+    if (post) openCheckin(post, true);
+    return;
   } else {
     if (!confirm("停掉这件？之后的日子不再出现，已经勾过的记录会留着。")) return;
     stopPlan(editing.value);
@@ -252,17 +285,21 @@ function dropEdit() {
         <span class="cap">{{ selected ? "这一天贴的" : "三个人的便笺" }}</span>
       </div>
       <p v-if="!feed.length" class="empty">{{ selected ? "这天还没贴过东西" : "还没有东西，贴第一条吧" }}</p>
-      <article v-for="p in shown" :key="p.id" class="card" :class="{ polaroid: p.img, plan: p.planId }" :style="{ '--c': info(p.who).color, '--t': tilt(p) + 'deg' }">
+      <article v-for="p in shown" :key="p.id" class="card" :class="{ polaroid: imgsOf(p).length, plan: p.planId }" :style="{ '--c': info(p.who).color, '--t': tilt(p) + 'deg' }">
         <i class="tape" />
         <header>
           <Avatar :img="info(p.who).avatar" :name="info(p.who).name" :color="info(p.who).color" :size="30" class="ava" />
           <div class="meta"><b>{{ info(p.who).name }}</b><small>{{ stamp(p.ts) }}</small></div>
+          <button v-if="p.who === ME && p.planId" class="more edit" @click="openCheckin(p)">编辑</button>
           <button v-if="p.who === ME" class="more" aria-label="删除" @click="dropPost(p)"><Icon name="trash" :size="15" /></button>
         </header>
-        <button v-if="p.img" class="pic" @click="openImg(p)"><TideImg :id="p.img" /></button>
         <p v-if="p.status" class="st"><span>{{ statusName(p.status.kind) }}</span>{{ p.status.text }}</p>
         <p v-if="p.planId" class="done">{{ p.whole ? "✓ 整件完成了" : "✓ 待续完成了" }}</p>
-        <p v-if="p.text" class="body" :class="{ cap: p.img }">{{ p.text }}</p>
+        <p v-if="p.text" class="body" :class="{ cap: imgsOf(p).length && !p.planId }">{{ p.text }}</p>
+        <p v-if="p.note" class="body note">{{ p.note }}</p>
+        <div v-if="imgsOf(p).length" class="grid" :class="gridOf(p)">
+          <button v-for="(id, i) in imgsOf(p)" :key="id" class="cell" :aria-label="`看第 ${i + 1} 张图`" @click="openImg(p, i)"><TideImg :id="id" /></button>
+        </div>
         <ul v-if="p.replies.length" class="replies">
           <li v-for="r in p.replies" :key="r.id"><b :style="{ color: `color-mix(in srgb, ${info(r.who).color} 70%, var(--text))` }">{{ info(r.who).name }}</b>{{ r.text }}</li>
         </ul>
@@ -385,6 +422,23 @@ function dropEdit() {
       </template>
     </Sheet>
 
+    <!-- 打卡配图配字：勾掉待续时弹一次，可以跳过；留下的打卡上点「编辑」也是这个框 -->
+    <Sheet :open="!!ck" :title="ck?.fresh ? '记一笔' : '编辑打卡'" :z="70" @close="ckClose">
+      <template v-if="ck">
+        <p class="hint">{{ ck.post.text }}{{ ck.fresh ? " 勾掉了。想留张图、几句话就加上，也可以跳过。" : "" }}</p>
+        <textarea v-model="ck.note" class="input area" rows="3" maxlength="1000" placeholder="想说点什么（可以不写）" />
+        <div class="ck-imgs">
+          <div v-for="id in ck.imgs" :key="id" class="ck-img"><TideImg :id="id" /><button class="x" aria-label="去掉这张" @click="ckDrop(id)">×</button></div>
+          <button v-if="ck.imgs.length < POST_IMG_MAX" class="ck-add" :disabled="ckBusy" @click="ckAdd">{{ ckBusy ? "…" : "＋" }}</button>
+        </div>
+        <p class="hint sub">{{ ck.imgs.length }} / {{ POST_IMG_MAX }} 张</p>
+        <div class="sheet-act">
+          <button class="btn soft" @click="ckClose">{{ ck.fresh ? "跳过" : "取消" }}</button>
+          <button class="btn" :disabled="ckBusy || (ck.fresh && !ck.note.trim() && !ck.imgs.length)" @click="ckSave">{{ ck.fresh ? "记下" : "保存" }}</button>
+        </div>
+      </template>
+    </Sheet>
+
     <ImageViewer :open="viewAt != null" :images="viewImgs" :start="viewAt || 0" @close="viewAt = null" />
   </div>
 </template>
@@ -435,7 +489,20 @@ function dropEdit() {
 .meta b { font-size: .84rem; }
 .meta small { font-size: .7rem; color: var(--text-3); }
 .more { border: 0; background: none; color: var(--text-3); padding: 6px; }
-.pic { display: block; width: 100%; margin: 10px 0 0; padding: 0; border: 0; background: none; }
+.more.edit { font-size: .74rem; padding: 6px 8px; color: var(--text-2); font-family: inherit; }
+.body.note { margin-top: 6px; }
+.grid { display: grid; gap: 4px; margin-top: 10px; }
+.grid.g1 { grid-template-columns: 1fr; }
+.grid.g2 { grid-template-columns: repeat(2, 1fr); }
+.grid.g3 { grid-template-columns: repeat(3, 1fr); }
+.cell { display: block; padding: 0; border: 0; background: none; min-width: 0; overflow: hidden; border-radius: 2px; }
+.grid.g2 .cell, .grid.g3 .cell { aspect-ratio: 1; }
+.grid.g2 .cell :deep(.tide-img), .grid.g3 .cell :deep(.tide-img) { height: 100%; max-height: none; }
+.ck-imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.ck-img, .ck-add { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; min-width: 0; }
+.ck-img :deep(.tide-img) { height: 100%; max-height: none; }
+.ck-img .x { position: absolute; top: 4px; right: 4px; border: 0; background: rgba(30, 30, 40, .55); color: #fff; width: 22px; height: 22px; border-radius: 50%; line-height: 1; }
+.ck-add { border: 1.5px dashed var(--text-3); background: none; color: var(--text-3); font-size: 1.4rem; }
 .st { margin: 10px 0 0; font-size: .8rem; color: var(--text-2); }
 .st span { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--c) 28%, transparent); color: var(--text); font-size: .72rem; }
 .done { margin: 8px 0 0; font-size: .74rem; color: color-mix(in srgb, var(--c) 70%, var(--text-2)); }
