@@ -6,6 +6,13 @@ import { reactive } from "vue";
 import { store } from "../store/index.js";
 
 export const pet = reactive({ once: null, at: 0, lastActive: Date.now(), bedtimeOff: 0 });
+// 云端派活进行中：派出去那一刻记下，云端的报告回到对话本（或 40 分钟还没回）就当做完了；小螃蟹桌宠据此趴下敲键盘
+const CLOUD_KEY = "qisuo-cloud-job";
+const CLOUD_MAX = 40 * 60_000;
+export const cloudJob = reactive({ at: (() => { try { return Number(localStorage.getItem(CLOUD_KEY)) || 0; } catch { return 0; } })() });
+export function cloudStart() { cloudJob.at = Date.now(); try { localStorage.setItem(CLOUD_KEY, String(cloudJob.at)); } catch { /* 存不了就算了 */ } }
+export function cloudDone() { cloudJob.at = 0; try { localStorage.removeItem(CLOUD_KEY); } catch { /* 同上 */ } }
+export const cloudBusy = () => cloudJob.at > 0 && Date.now() - cloudJob.at < CLOUD_MAX;
 export const petOn = () => store.settings.pet !== false;
 export function petOnce(kind) { pet.once = kind; pet.at = Date.now(); }
 export function petActive() { pet.lastActive = Date.now(); }

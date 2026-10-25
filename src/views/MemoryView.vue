@@ -98,8 +98,11 @@ const timeline = computed(() => {
 });
 // 小章鱼的样子看这条记忆讲的是什么（m.cat）：常驻的最开心；喜好脸红、约定抱信、心事在想、时刻欢呼、读写捧书、日常抱小本子
 const OCT = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/oct-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/oct-(\w+)\.png/)[1], v]));
+// 小螃蟹的抽屉：同样七类，每只带小道具（常驻星星、喜好耳机、约定安全帽和小锤、心事小云、时刻小彩灯、读写敲键盘、日常什么都不带）
+const CRABS = Object.fromEntries(Object.entries(import.meta.glob("../assets/memory/crab-*.png", { eager: true, import: "default" })).map(([k, v]) => [k.match(/crab-(\w+)\.png/)[1], v]));
 const CAT_OCT = { 喜好: "like", 约定: "promise", 心事: "feel", 时刻: "moment", 读写: "book", 日常: "daily" };
 const LEGEND = [{ k: "pin", label: "常驻" }, ...CATS.map(c => ({ k: CAT_OCT[c], label: c }))];
+const mark = (k, r) => (solo(r) ? CRABS : OCT)[k];
 function octOf(m) {
   if (isLive(m) && accessOf(m) === "pinned") return "pin";
   if (CAT_OCT[m.cat]) return CAT_OCT[m.cat];
@@ -316,12 +319,14 @@ function remove() {
     <p v-if="role" class="drawer-name">{{ role.name }} 的抽屉</p>
     <div v-if="role && store.roles.length > 1" class="who-switch">
       <button class="who-btn" @click="switchOpen = !switchOpen">
-        <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="26" />
+        <img v-if="solo(role)" class="who-crab" :src="CRABS.daily" alt="" />
+        <Avatar v-else :img="role.avatar" :name="role.name" :color="role.color" :size="26" />
         <i class="caret">{{ switchOpen ? "▴" : "▾" }}</i>
       </button>
       <div v-if="switchOpen" class="who-menu">
         <button v-for="r in store.roles" :key="r.id" :class="{ on: tab === r.id }" @click="tab = r.id; switchOpen = false">
-          <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="26" /> {{ r.name }} 的抽屉
+          <img v-if="solo(r)" class="who-crab" :src="CRABS.daily" alt="" />
+          <Avatar v-else :img="r.avatar" :name="r.name" :color="r.color" :size="26" /> {{ r.name }} 的抽屉
         </button>
       </div>
     </div>
@@ -369,15 +374,14 @@ function remove() {
       <label><input v-model="withHistory" type="checkbox" /> 包含已过时</label>
     </div>
     <p v-else-if="bucket !== 'all'" class="btip">{{ BUCKETS[bucket].tip }}{{ bucket === "normal" ? `（现在每次最多 ${recallCount()} 张，⋯ → 记忆设置 里调）` : "" }}</p>
-    <!-- 小章鱼的小表情是他的；小螃蟹的以后换成螃蟹，先只放一个小圆点 -->
-    <div v-if="!solo(role)" class="legend"><span v-for="x in LEGEND" :key="x.k"><img :src="OCT[x.k]" alt="" />{{ x.label }}</span></div>
+    <!-- 小章鱼是他的，小螃蟹是 cc 的 -->
+    <div class="legend"><span v-for="x in LEGEND" :key="x.k"><img :src="mark(x.k, role)" alt="" />{{ x.label }}</span></div>
 
     <div class="tl">
       <template v-for="g in timeline" :key="g.key">
         <div class="mon">{{ g.label }}</div>
         <article v-for="m in g.items" :key="m.id" class="it" :class="{ off: !isLive(m) || accessOf(m) === 'archived' }" @click="viewing = m">
-          <img v-if="!solo(role)" class="oct" :src="OCT[octOf(m)]" alt="" />
-          <i v-else class="dot" />
+          <img class="oct" :src="mark(octOf(m), role)" alt="" />
           <div class="d">{{ md(m.date) }}</div>
           <img v-if="imgOf(m)" :src="imgOf(m)" alt="" class="pic" />
           <b>{{ m.title }}</b>
@@ -631,6 +635,7 @@ function remove() {
 /* 时间轴 */
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 2px 4px 6px; font-size: .7rem; color: var(--text-3); }
 .legend span { display: flex; align-items: center; gap: 2px; }
+.who-crab { width: 40px; height: 25px; image-rendering: pixelated; object-fit: contain; }
 .legend img { width: 30px; height: auto; image-rendering: pixelated; }
 .tl { position: relative; padding: 6px 4px 0 58px; }
 .tl::before { content: ""; position: absolute; left: 28px; top: 14px; bottom: 6px; width: 1px; background: var(--line); }

@@ -1,12 +1,12 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, MAIN, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
+import { store, MAIN, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
 import { pokeText } from "../lib/poke.js";
 import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
 import PetDock from "../components/pet/PetDock.vue";
-import { petOn } from "../lib/pet.js";
+import { petOn, cloudJob, cloudBusy } from "../lib/pet.js";
 import SumVersions from "../components/memory/SumVersions.vue";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
@@ -87,6 +87,8 @@ const petWork = computed(() => {
   }
   return last?.from === "ai" && last.error ? "error" : null;
 });
+// 小螃蟹：主聊天生成中，或者云端派活还没回来，就趴下敲键盘；其他时候只待机
+const crabWork = computed(() => (busy.value || (cloudJob.at && cloudBusy()) ? "type" : null));
 const bgUrl = useImage(() => thread.value?.bg);
 
 async function openThread(id) {
@@ -806,6 +808,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <footer ref="dock" class="composer">
       <!-- 桌宠：他（主角色）的小章鱼，站在输入框上面 -->
       <PetDock v-if="petOn() && role.id === MAIN && !thread?.mail" :work="petWork" />
+      <!-- 小螃蟹（cc）：站在左边，和小章鱼对称 -->
+      <PetDock v-else-if="petOn() && solo(role) && !thread?.mail" kind="crab" :roam="false" :work="crabWork" />
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
           <ImgThumb v-if="a.kind === 'image'" :id="a.img" class="mini" />
