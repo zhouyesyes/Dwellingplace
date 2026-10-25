@@ -9,8 +9,8 @@ BG = (238, 236, 229)
 PAL = {
  'C': (217, 119, 87),                                   # 螃蟹：只这一种颜色（#D97757）
  'E': (24, 24, 28),                                     # 小黑眼、影子线
- 'k': (206, 208, 214),                                  # 键盘
- 'Y': (236, 196, 90), 'A': (92, 96, 108), 'w': (198, 205, 216), 'B': (112, 160, 214), 'R': (214, 84, 84), 'g': (150, 154, 164),   # 道具：一两格的小东西
+ 'g': (150, 154, 164),                                  # 键盘：平时浅灰，敲下去变深一下
+ 'Y': (236, 196, 90), 'A': (92, 96, 108), 'w': (198, 205, 216), 'B': (112, 160, 214), 'R': (214, 84, 84),   # 道具：一两格的小东西
 }
 W, H = 32, 20
 FEET = 16   # 脚底下面那一行：站在东西上时对齐到上沿（和小章鱼一样）
@@ -65,28 +65,36 @@ def crab(f, ox, oy, eye='dot', legs=(0, 0, 0, 0), bh=7, claw=(0, 0), shear=0, ld
     if shadow:
         for x in range(3, 13): f.put(ox + x, oy + bh + 2, 'E')
 
-def keyboard(f, x0, x1):
-    for x in range(x0, x1 + 1):
-        if (x - x0) % 4 != 3: f.put(x, 14, 'k')
-        f.put(x, 15, 'E')
-
 OX, OY = 1, 6   # 站着：身体 6~12 行，腿 13~14 行，影子线在 15 行，脚底在第 16 行
 KB0, KB1 = 0, 23   # 小键盘在脚边，比身体宽出一截
 
 def stand(dx=0, dy=0, **kw): f = F(); crab(f, OX + dx, OY + dy, **kw); return f
 
-# 趴着：身体往下压一点（少一行）、上面歪向键盘、眼睛朝下看；腿够到键盘
-LEANY = 7   # 趴下之后身体顶端所在的行
-def lean(legs=(0, 0, 0, 0), dy=0, eye='down', claw=(0, 0), kb=True, level=2):
-    f = F()
-    if kb: keyboard(f, KB0, KB1)
-    bh = 6 if level == 2 else 7
-    top = {0: OY, 1: OY + 1, 2: LEANY}[level] + dy
-    lg = tuple({0: 1, 1: 1, 2: 0}[v] if level == 2 else 0 for v in legs)   # 趴着：没敲的腿悬着（1 格），敲下去的腿踩到键帽上（2 格）
-    crab(f, OX, top, eye=eye, legs=lg, bh=bh, claw=claw, shear=1 if level else 0, shadow=False)
+# 敲键盘：侧过身面朝左（照小续发的那段动图）：方块身体、左边探出一小截钳子、一只眼睛、四条腿；
+# 钳子前面是一小块键盘（一条斜斜的屏幕线 + 一小截键），钳子点下去键就变深一下
+SX, SY = 9, 6   # 侧身时身体左上角
+def side(f=None, ox=SX, oy=SY, tap=False, lifted=(), eye='dot', kb=True, dy=0):
+    f = f or F()
+    oy += dy
+    if kb:
+        by = oy + 8   # 键盘在钳子前面的脚边
+        for i in range(4): f.put(ox - 6 + i, by, 'A' if tap else 'g')
+        for i in range(3): f.put(ox - 7 - i, by - 1 - i, 'g')
+    for y in range(7):
+        x0 = 3 if y < 2 else 0   # 前面（左边）是个斜下去的头，后面平平的
+        for x in range(x0, 13): f.put(ox + x, oy + y, 'C')
+    f.rows(["CC", "CC"], ox - 2, oy + 3 + (1 if tap else 0))   # 探出来的钳子
+    X = ox + 7
+    if eye == 'dot': f.put(X, oy + 2, 'E'); f.put(X, oy + 3, 'E')
+    else: f.put(X, oy + 3, 'E'); f.put(X + 1, oy + 3, 'E')   # 闭眼：一小横
+    for i, lx in enumerate((2, 5, 8, 11)):
+        for y in range(1 if i in lifted else 2): f.put(ox + lx, oy + 7 + y, 'C')
     return f
+def lean(legs=(0, 0, 0, 0), dy=0, eye='dot', kb=True):
+    pressed = [i for i, v in enumerate(legs) if v == 2]
+    return side(tap=len(pressed) >= 1 and dy == 0, lifted=pressed[:1], eye=eye, kb=kb, dy=dy)
 
-
+S = {}   # 动作名 -> [(帧, 毫秒)]
 # ---------- 跟水温变：每种一小段，道具只有几格（时长在 crabFrames.js 里）----------
 M = {}
 # 漂流瓶：右钳子抱着一个小瓶子，轻轻晃
@@ -123,7 +131,6 @@ def rain(k):
     return f
 M['m-rain'] = [(rain(0), 300), (rain(1), 300), (rain(2), 300)]
 
-S = {}   # 动作名 -> [(帧, 毫秒)]
 # 待机：站着，偶尔轻轻上下一格、眨眼、左右晃一格
 S['idle'] = [(stand(), 1000), (stand(dy=-1), 600), (stand(), 800), (stand(eye='blink'), 140), (stand(), 900),
              (stand(dx=1), 500), (stand(), 700), (stand(dx=-1), 500), (stand(), 1200)]
@@ -131,14 +138,14 @@ S['idle'] = [(stand(), 1000), (stand(dy=-1), 600), (stand(), 800), (stand(eye='b
 S['wiggle'] = [(stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0), ldx=-1), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1), ldx=1), 90),
                (stand(dx=-1, legs=(1, 0, 0, 1), claw=(1, 0), ldx=-1), 90), (stand(dx=1, legs=(0, 1, 1, 0), claw=(0, 1), ldx=1), 90),
                (stand(dx=0, dy=-2, eye='happy', claw=(1, 1)), 140), (stand(dy=-1, eye='happy', claw=(1, 1)), 110), (stand(eye='happy'), 160), (stand(), 100)]
-# 趴下：先蹲一点，再压低，键盘这时候冒出来
-S['leanin'] = [(stand(dy=1, eye='dot'), 100), (lean(level=1, kb=False, eye='down'), 100), (lean(level=2, dy=-1, eye='down'), 100), (lean(), 120)]
-S['leanout'] = [(lean(), 80), (lean(level=2, dy=-1), 90), (lean(level=1, kb=False, eye='dot'), 90), (stand(dy=1), 90)]
+# 转身侧过去，键盘这时候冒出来
+S['leanin'] = [(stand(dy=1), 100), (side(kb=False, dy=1), 100), (side(dy=1), 100), (side(), 120)]
+S['leanout'] = [(side(), 80), (side(dy=1), 90), (side(kb=False, dy=1), 90), (stand(dy=1), 90)]
 # 敲键盘：四条腿一下一下轮流敲，节奏有长有短，偶尔两条一起；身体跟着一抖一抖
 _T = [((2, 0, 0, 0), 0, 80), ((0, 0, 2, 0), -1, 70), ((0, 2, 0, 0), 0, 90), ((0, 0, 0, 2), -1, 70), ((0, 2, 0, 2), 0, 100),
       ((2, 0, 0, 0), -1, 70), ((0, 0, 2, 0), 0, 80), ((0, 0, 0, 0), -1, 120), ((2, 0, 2, 0), 0, 90), ((0, 1, 0, 2), -1, 70),
       ((0, 2, 0, 0), 0, 80), ((0, 0, 2, 0), -1, 100), ((0, 0, 0, 0), 0, 140), ((0, 0, 0, 2), -1, 70), ((2, 0, 0, 0), 0, 80), ((0, 1, 2, 0), -1, 90)]
-S['type'] = [(lean(legs=lg, dy=dy, claw=(0, 0) if i % 5 else (1, 0), eye='down' if i % 7 else 'dot'), d) for i, (lg, dy, d) in enumerate(_T)]
+S['type'] = [(lean(legs=lg, dy=dy, eye='shut' if i % 7 == 6 else 'dot'), d) for i, (lg, dy, d) in enumerate(_T)]
 
 
 # ---------- 时间线小标志：每种一只，带一个很小的道具（32×20，和小章鱼那套一样大）----------
@@ -146,11 +153,8 @@ IX, IY = 7, 8   # 螃蟹在小图里的位置（头顶留出道具的地方）
 def icon(prop):
     f = F()
     X = lambda x: IX + x   # 身体里的 x 换算成小图里的 x
-    if prop == 'book':   # 读写：趴着敲小键盘
-        for x in range(IX - 1, IX + 22):
-            if (x - IX) % 4 != 2: f.put(x, 17, 'k')
-            f.put(x, 18, 'E')
-        crab(f, IX, IY + 1, eye='down', legs=(1, 1, 0, 1), bh=6, shear=1, shadow=False)
+    if prop == 'book':   # 读写：侧过身，面前一小块键盘
+        side(f, ox=12, oy=7, tap=True, lifted=(1,))
         return f
     eye, claw = 'dot', (0, 0)
     if prop == 'moment': eye = 'happy'; claw = (1, 1)
