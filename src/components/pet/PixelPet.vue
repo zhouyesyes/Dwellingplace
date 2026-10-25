@@ -3,12 +3,13 @@
 import { ref, watch, computed, onBeforeUnmount } from "vue";
 import { PET_FRAMES, PET_W, PET_H } from "../../lib/petFrames.js";
 import { CRAB_FRAMES } from "../../lib/crabFrames.js";
+import { PET_MOOD_FRAMES } from "../../lib/petMoodFrames.js";
 
 const props = defineProps({ state: { type: String, default: "idle" }, scale: { type: Number, default: 3 }, kind: { type: String, default: "octopus" } }); // kind：octopus 小章鱼 / crab 小螃蟹
 const emit = defineEmits(["done"]);
 const BASE = import.meta.env.BASE_URL;
 // 先把所有帧条都加载好，换动作时不闪
-const FRAMES = props.kind === "crab" ? CRAB_FRAMES : PET_FRAMES;
+const FRAMES = props.kind === "crab" ? CRAB_FRAMES : { ...PET_FRAMES, ...PET_MOOD_FRAMES }; // 小章鱼：原来的动作 + 跟水温变的几个（m-*）
 const DIR = props.kind === "crab" ? "pet/crab/" : "pet/";
 for (const k of Object.keys(FRAMES)) { const im = new Image(); im.src = `${BASE}${DIR}${k}.png`; }
 
