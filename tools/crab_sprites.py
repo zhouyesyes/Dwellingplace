@@ -1,8 +1,7 @@
 # 用法：python3 tools/crab_sprites.py <预览图输出目录> .    （第二个参数是栖所的目录：会写 public/pet/crab/*.png、src/assets/memory/crab-*.png 和 src/lib/crabFrames.js）
 # 小螃蟹（cc）：只用平涂橘粉（#D97757）和黑色，没有描边、阴影、高光；扁方块身体、两颗竖条小黑眼、两侧短钳子、底下四条短腿。
 # 动作和时长照小章鱼（tools/pet_sprites.py）一一对应，只是换成螃蟹的样子；站在输入框上沿的右边，脚底第 16 行（和小章鱼一样）。
-# 时间线小标志：只用橘粉和黑色（下面 crab() 那套）。
-# 桌宠（10/26 照她挑的草图重画，下面 pet() 那套）：身子 11×7 方一点、两道竖条眼、四条细腿；脸红粉、泡泡淡蓝，
+# 桌宠和时间线小标志（10/26 照她挑的草图重画，下面 pet() 那套）：身子 11×7 方一点、两道竖条眼、四条细腿；脸红粉、泡泡淡蓝，
 # 敲键盘时半侧身对着一台打开的小电脑（侧面看：屏幕斜着立起来），腿往后斜一格。伸到身子外面的东西不用黑色，深色模式里也看得见。
 # 自己画的像素，不用官方图片。
 import sys, os, json, re, hashlib
@@ -28,47 +27,6 @@ class F:
         im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         for (x, y), c in s.px.items(): im.putpixel((x, y), PAL[c] + (255,))
         return im
-
-# ---------- 正面 ----------
-BX, BY = 14, 7        # 身体左上角：身体 14 宽（x 14~27）、7 高；两边钳子各 2 宽，一共 x 12~29，和小章鱼一样靠右
-LEG = (1, 4, 9, 12)   # 四条腿在身体里的列（左右对称）
-
-def eyes(f, x0, y0, eye, lookx=0, looky=0, ey=2):
-    for x in (x0 + 3 + lookx, x0 + 10 + lookx):
-        y = y0 + ey + looky
-        if eye == 'dot': f.put(x, y, 'E'); f.put(x, y + 1, 'E')
-        elif eye == 'blink': f.put(x, y + 1, 'E')
-        elif eye == 'down': f.put(x, y + 1, 'E'); f.put(x, y + 2, 'E')
-        elif eye == 'happy': f.put(x, y + 1, 'E'); f.put(x - 1, y + 2, 'E'); f.put(x + 1, y + 2, 'E')   # ^
-        elif eye == 'shut':
-            for a in (-1, 0, 1): f.put(x + a, y + 1, 'E')
-        elif eye == 'x':
-            for a, b in ((-1, 0), (1, 0), (0, 1), (-1, 2), (1, 2)): f.put(x + a, y + b, 'E')
-
-def claw(f, x, y0, side, cy):
-    """钳子 2×2：cy 是它在身体里的第几行（3 = 放下，-2 = 高高举起）；够不到身体的地方补一小截胳膊"""
-    if cy < 2:   # 举起来：钳子往外挪一格，胳膊斜着连回身体（中间留一点空，看得出是举着的）
-        o = -1 if side == 'l' else 1
-        f.rect(x + o, y0 + cy, x + o + 1, y0 + cy + 1, 'C')
-        ax = x + 1 if side == 'l' else x
-        f.put(ax + o, y0 + cy + 2, 'C'); f.put(ax, y0 + cy + 3, 'C')
-        return
-    f.rect(x, y0 + cy, x + 1, y0 + cy + 1, 'C')
-    ax = x + 1 if side == 'l' else x   # 贴着身体那一列
-    for r in range(cy + 2, 4): f.put(ax, y0 + r, 'C')
-
-def crab(f, dx=0, dy=0, eye='dot', cl=(3, 3), legs=(2, 2, 2, 2), bh=7, lookx=0, looky=0, ey=2, blush=False):
-    x0, y0 = BX + dx, BY + dy
-    f.rect(x0, y0, x0 + 13, y0 + bh - 1, 'C')
-    eyes(f, x0, y0, eye, lookx, looky, ey)
-    claw(f, x0 - 2, y0, 'l', cl[0]); claw(f, x0 + 14, y0, 'r', cl[1])
-    for i, c in enumerate(LEG):
-        for j in range(legs[i]): f.put(x0 + c, y0 + bh + j, 'C')
-    if blush:   # 脸红：眼睛下面两边各一小道黑色
-        for x in (x0 + 1, x0 + 2, x0 + 11, x0 + 12): f.put(x, y0 + ey + 3, 'E')
-    return f
-
-def front(**kw): f = F(); crab(f, **kw); return f
 
 # ---------- 桌宠（10/26 重画）----------
 PX, PY, PW, PH = 17, 7, 11, 7   # 正面身子左上角：11 宽 7 高（x 17~27），两边钳子在 16 和 28；腿在第 14、15 行，脚底第 15 行
@@ -298,38 +256,33 @@ def rain(k):   # 下雨：头上一小朵灰云，淡蓝雨滴一滴一滴落下
     return f
 M['m-rain'] = [(rain(0), 300), (rain(1), 300), (rain(2), 300)]
 
-# ---------- 时间线小标志：每种一只，32×20，身体和左右钳子正好在正中间（和小章鱼的一样大）----------
-IDX, IDY = -5, 1   # 整只往左挪到画面正中、往下挪一点，头顶留位置给小道具
+# ---------- 时间线小标志：每种一只，32×20，和桌宠同一个样子（10/26 一起换），身子正好在正中间（和小章鱼的一样大）----------
+IDX, IDY = -7, 1   # 整只往左挪到画面正中（身子 x 10~20）、往下挪一格，头顶留位置给小道具
 def icon(kind):
-    f = F()
     kw = dict(dx=IDX, dy=IDY)
-    x0 = BX + IDX       # 身体左边
-    top = BY + IDY      # 身体顶
-    if kind == 'pin':      # 常驻：头顶一颗小星星
-        crab(f, eye='happy', **kw); star(f, x0 + 7, top - 3, True, 'C')
-    elif kind == 'like':   # 喜好：脸红
-        crab(f, blush=True, **kw)
-    elif kind == 'promise':   # 约定：两只钳子抱着一封信
-        crab(f, eye='happy', cl=(4, 4), **kw)
-        bx = x0 + 4
-        f.box(bx, top + 3, bx + 5, top + 6, 'E')
-        f.put(bx + 1, top + 4, 'E'); f.put(bx + 2, top + 5, 'E'); f.put(bx + 3, top + 5, 'E'); f.put(bx + 4, top + 4, 'E')
-    elif kind == 'feel':   # 心事：头顶冒「…」
-        crab(f, **kw)
-        for x in (x0 + 4, x0 + 7, x0 + 10): f.put(x, top - 2, 'C')
-    elif kind == 'moment':   # 时刻：举着钳子欢呼，眼睛 ^^
-        crab(f, eye='happy', cl=(-2, -2), **kw)
-    elif kind == 'book':   # 读写：两只钳子捧着一本书，眼睛往下看
-        crab(f, eye='dot', ey=1, cl=(4, 4), **kw)
-        g = F(); g.box(x0 + 2, top + 3, x0 + 11, top + 6, 'E')
-        for y in (top + 4, top + 5): g.put(x0 + 6, y, 'E'); g.put(x0 + 7, y, 'E')
-        g.put(x0 + 6, top + 3, 'C'); g.put(x0 + 7, top + 3, 'C')
-        for x in (x0 + 3, x0 + 4, x0 + 5, x0 + 8, x0 + 9, x0 + 10): g.put(x, top + 4, 'E')
-        f.px.update(g.px)
-    elif kind == 'daily':   # 日常：抱着一本小本子
-        crab(f, cl=(4, 3), **kw)
-        nx = x0 + 5
-        f.rect(nx, top + 3, nx + 3, top + 6, 'E'); f.put(nx + 1, top + 4, 'C'); f.put(nx + 2, top + 4, 'C')
+    x0, top = PX + IDX, PY + IDY   # 身子左边、身子顶
+    if kind == 'pin':        # 常驻：头顶一颗小黄星
+        f = pet(eye='happy', **kw); star(f, x0 + 5, top - 3, True)
+    elif kind == 'like':     # 喜好：脸红（粉）
+        f = pet(eye='shy', blush=True, cl=('hold', 'hold'), **kw)
+    elif kind == 'promise':  # 约定：两只钳子把一封信举过头顶
+        f = pet(eye='happy', cl=('up', 'up'), **kw)
+        f.rect(x0 + 1, top - 7, x0 + 9, top - 4, 'W')
+        for i in range(3): f.put(x0 + 2 + i, top - 7 + i, 'G'); f.put(x0 + 8 - i, top - 7 + i, 'G')
+        f.put(x0 + 5, top - 5, 'R')
+    elif kind == 'feel':     # 心事：头顶冒「…」，眼睛往下
+        f = pet(eye='down', **kw)
+        for x in (x0 + 2, x0 + 5, x0 + 8): f.put(x, top - 2, 'C')
+    elif kind == 'moment':   # 时刻：举着钳子欢呼，眼睛 ^^，旁边两颗小黄星
+        f = pet(eye='happy', cl=('up', 'up'), **kw); star(f, x0 - 3, top - 2); star(f, x0 + 13, top - 3)
+    elif kind == 'book':     # 读写：钳子捧着一本摊开的书（书在眼睛下面，不挡脸）
+        f = pet(cl=('hold', 'hold'), **kw)
+        f.rect(x0 + 1, top + 4, x0 + 9, top + 7, 'W'); f.rect(x0 + 5, top + 4, x0 + 5, top + 7, 'G')
+        for x in (x0 + 2, x0 + 3, x0 + 7, x0 + 8): f.put(x, top + 5, 'g')
+    elif kind == 'daily':    # 日常：抱着一本竖着的小本子（白页、灰线）
+        f = pet(cl=('hold', 'hold'), **kw)
+        f.rect(x0 + 3, top + 4, x0 + 7, top + 8, 'W'); f.rect(x0 + 3, top + 4, x0 + 7, top + 4, 'G')
+        for y in (top + 6, top + 7): f.rect(x0 + 4, y, x0 + 6, y, 'g')
     return f
 
 ICONS = ['pin', 'like', 'promise', 'feel', 'moment', 'book', 'daily']
