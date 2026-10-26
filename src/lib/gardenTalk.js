@@ -23,7 +23,7 @@ import { streamChat } from "./providers.js";
 import { wakeName } from "./wake.js";
 import { logTurn } from "./quota.js";
 import { tail, sumTokens, keepCount, AUTO, snapshotSum } from "./budget.js";
-import { visibleText, findCmd, meName, helperApi, oneShot, sumSpanHead, pathOf, afterSummary, splitBubbles } from "./chat.js";
+import { recallWhyForCC, visibleText, findCmd, meName, helperApi, oneShot, sumSpanHead, pathOf, afterSummary, splitBubbles } from "./chat.js";
 import { takeSuggestions, roomSuggestRule } from "./memoryTags.js";
 
 export const roomKeys = ROOMS.map(r => r.key);
@@ -135,6 +135,7 @@ export function roomRules(role, key, { wake = false } = {}) {
   return [
     `\n你可以在回复里顺手做这几件事（不是每次都要）：`,
     wake ? "" : `- 想不起以前的事（你们聊过什么、哪天说过什么），或者${me}问起以前的事：只回复一行 [翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录和记忆里找给你，你再回复`,
+    wake ? "" : recallWhyForCC(role) && `  （${recallWhyForCC(role)}）`,
     `- ${momentRule(me)}（写在这里的会记进全局的此刻，前面自动加上房间名）`,
   ].filter(Boolean).join("\n");
 }
