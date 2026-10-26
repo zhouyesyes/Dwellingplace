@@ -328,9 +328,21 @@ function migrate() {
   store.bookNotes ??= []; // 书里的便利贴
   store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）；带 room 的是小世界某间房自己的此刻
   store.gardenTalk ??= {}; // 小世界花园三间房的对话摘要等（每人每间一份，见 lib/gardenTalk.js）
-  if (!store.toolRooms) { // 工具分房间改成她自己勾：把原来写死的分法当默认值迁移过来（只迁一次）
+  if (!store.toolRoomsPer) { // 工具分房间改成「人 + MCP + 工具」各记一份：原来按工具名记的，原样抄给两个人当起点（只迁一次）
+    const old = store.toolRooms || {};
+    if (!store.toolRooms) for (const p of PLATFORMS) for (const [room, names] of Object.entries(p.rooms)) for (const n of names) (old[n] ??= []).push(room);
     store.toolRooms = {};
-    for (const p of PLATFORMS) for (const [room, names] of Object.entries(p.rooms)) for (const n of names) (store.toolRooms[n] ??= []).push(room);
+    for (const s of store.mcpServers || []) {
+      if (s.builtin) continue;
+      for (const t of s.tools || []) {
+        const rooms = s.browser ? ["stroll"] : old[t.name]; // 浏览器的工具默认进「逛」
+        if (rooms?.length) for (const r of [MAIN, CRAB]) store.toolRooms[`${r}|${s.id}|${t.name}`] = [...rooms];
+      }
+      if (s.browser) { // 浏览器不再只给 chatgpt：原来的开关 = 给不给 chatgpt，CC 一起接上
+        if (s.enabled === false) { s.enabled = true; s.roleIds = []; } else s.roleIds = [MAIN, CRAB];
+      }
+    }
+    store.toolRoomsPer = true;
     migratedDirty = true;
   }
   store.roomIntros ??= {}; // 小房间的介绍：每人每间一段，键是「人:房间」（见 lib/rooms.js）

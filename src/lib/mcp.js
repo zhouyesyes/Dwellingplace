@@ -38,9 +38,9 @@ export const isMailServer = s => ["send_email", "reply_email"].every(n => (s.too
 // 记忆库：心潮
 export const isMemoryServer = s => (s.tools || []).some(t => /^(xinchao_|breath$|hold$|trace$)/.test(t.name));
 // 分进了小房间的工具（她在工具页勾的，见 toolRooms.js）：只在对应的房间里带，主聊天里没有
-const withoutGarden = list => list.flatMap(s => {
-  if (s.builtin || !(s.tools || []).some(t => isRoomTool(t.name))) return [s];
-  const tools = s.tools.filter(t => !isRoomTool(t.name));
+const withoutGarden = (roleId, list) => list.flatMap(s => {
+  if (s.builtin || !(s.tools || []).some(t => isRoomTool(roleId, s, t.name))) return [s];
+  const tools = s.tools.filter(t => !isRoomTool(roleId, s, t.name));
   return tools.length ? [{ ...s, tools }] : []; // 只剩房间的工具：整条不带
 });
 // 不同地方能用哪些工具：平时聊天不碰邮箱、也没有花园的工具（花园在小世界的房间里）；邮箱页只有邮箱和记忆；醒来能用邮箱，但也没有花园的工具（花园叫醒只进小房间）
@@ -48,8 +48,8 @@ const withoutGarden = list => list.flatMap(s => {
 export function serversForMode(roleId, mode = "chat", { garden = false } = {}) {
   const all = serversFor(roleId);
   if (mode === "mail") return all.filter(s => isMailServer(s) || isMemoryServer(s));
-  if (mode === "chat") return (garden ? all : withoutGarden(all)).filter(s => !isMailServer(s));
-  return garden ? all : withoutGarden(all); // 醒来（含读书、共写）也不带花园的工具
+  if (mode === "chat") return (garden ? all : withoutGarden(roleId, all)).filter(s => !isMailServer(s));
+  return garden ? all : withoutGarden(roleId, all); // 醒来（含读书、共写）也不带花园的工具
 }
 
 // 这个服务器里开着的工具
@@ -173,8 +173,23 @@ export async function refreshTools(server) {
   return { tools: server.tools, serverInfo };
 }
 
+// 浏览器是 chatgpt 和 CC 共用的一个：一个人刚用过（25 秒内），另一个人的调用先排队等一下，免得把对方正看着的页面抢走；
+// 同一个人的调用不排队，最多等 60 秒就放行（不会卡死）
+const leases = new Map(); // serverId -> { who, until }
+const LEASE_MS = 25_000, LEASE_WAIT_MS = 60_000;
+async function takeLease(server, who, release = false) {
+  if (!server.browser || !who) return;
+  const t0 = Date.now();
+  while (!release) {
+    const l = leases.get(server.id);
+    if (!l || l.who === who || l.until <= Date.now() || Date.now() - t0 > LEASE_WAIT_MS) break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  leases.set(server.id, { who, until: Date.now() + LEASE_MS });
+}
+
 // 调用一个工具，返回给 AI 看的文字
-export async function callTool(server, name, args) {
+export async function callTool(server, name, args, who = "") {
   if (server.builtin) {
     const url = String(args?.url || "").trim();
     if (!url) return { text: "没有给网址", isError: true };
@@ -182,7 +197,9 @@ export async function callTool(server, name, args) {
     const head = [r.title && `标题：${r.title}`, `网址：${r.url}`, r.truncated && `（内容太长，只读了前 ${r.text.length} 字，全文约 ${r.length} 字）`].filter(Boolean).join("\n");
     return { text: `${head}\n\n${r.text || "（网页里没有读到文字）"}`, isError: false };
   }
-  const result = await callToolRaw(server, name, args);
+  await takeLease(server, who);
+  let result;
+  try { result = await callToolRaw(server, name, args); } finally { await takeLease(server, who, true); }
   // 工具返回的图片（比如浏览器截图、网页里的图）：原样交给他看（最多 12 张）
   const images = (result?.content || []).filter(c => c.type === "image" && c.data).slice(0, 12).map(c => ({ data: c.data, mime: c.mimeType || "image/jpeg" }));
   return { text: resultText(result), isError: !!result?.isError, images };

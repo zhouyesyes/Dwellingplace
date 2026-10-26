@@ -1,17 +1,28 @@
 <script setup>
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
-import { store, MAIN } from "../store/index.js";
+import { store, MAIN, CRAB } from "../store/index.js";
 import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
 import { newServer, refreshTools, callToolRaw } from "../lib/mcp.js";
 import { serverBase } from "../lib/server.js";
+import { defaultToolRoom } from "../lib/toolRooms.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
 
 const router = useRouter();
 
-// ---------- 他的浏览器（自己服务器上的 chrome-mcp-bridge，经 …/p/口令/chrome/ 转发） ----------
+// ---------- 浏览器（自己服务器上的 chrome-mcp-bridge，经 …/p/口令/chrome/ 转发；chatgpt 和 CC 共用这一个） ----------
 const browser = computed(() => store.mcpServers.find(s => s.browser));
+// 两个开关各管各的：给谁用 = 这个浏览器的 roleIds 里有没有这个人
+const browserFor = id => computed({
+  get: () => !!browser.value?.roleIds?.includes(id),
+  set: on => {
+    const ids = new Set(browser.value.roleIds || []);
+    if (on) { ids.add(id); browser.value.enabled = true; } else ids.delete(id);
+    browser.value.roleIds = [...ids];
+  },
+});
+const browserMain = browserFor(MAIN), browserCrab = browserFor(CRAB);
 const bState = ref(null); // { ok, text }
 const bBusy = ref("");
 const qr = ref(""); // 小红书登录页截图
@@ -50,11 +61,14 @@ async function connectBrowser() {
     if (!base) throw new Error("找不到你服务器的地址：先在「设置 → 同步」里连上服务器");
     let s = browser.value;
     if (!s) {
-      s = newServer({ name: "浏览器", url: `${base}/chrome/`, viaRelay: false, roleIds: [MAIN], headers: [], browser: true });
+      s = newServer({ name: "浏览器", url: `${base}/chrome/`, viaRelay: false, roleIds: [MAIN, CRAB], headers: [], browser: true });
       store.mcpServers.push(s);
       s = store.mcpServers[store.mcpServers.length - 1];
     }
+    const known = new Set((s.tools || []).map(t => t.name));
     const r = await refreshTools(s);
+    s.enabled = true;
+    defaultToolRoom([MAIN, CRAB], s, r.tools.map(t => t.name).filter(n => !known.has(n)), "stroll"); // 新见到的浏览器工具默认进「逛」（两个人都是）
     bState.value = { ok: true, text: `接上了：${r.tools.map(t => t.name).join("、")}` };
   } catch (e) {
     bState.value = { ok: false, text: /404|不认识/.test(e.message) ? "服务器上还没装浏览器：再运行一次安装那一行，问到浏览器时选 y" : e.message };
@@ -62,9 +76,9 @@ async function connectBrowser() {
     bBusy.value = "";
   }
 }
-// 清空他的浏览器：退出所有网站的登录（换账号用），浏览器会重开
+// 清空浏览器：退出所有网站的登录（换账号用），浏览器会重开
 async function resetBrowser() {
-  if (!confirm("清空他的浏览器？所有网站（包括小红书）都会退出登录，之后可以用别的账号重新扫码登录。")) return;
+  if (!confirm("清空浏览器？所有网站（包括小红书）都会退出登录，之后可以用别的账号重新扫码登录。")) return;
   bBusy.value = "reset";
   bState.value = null;
   qr.value = qrBig.value = "";
@@ -80,7 +94,7 @@ async function resetBrowser() {
     bBusy.value = "";
   }
 }
-// ---------- 遥控他的浏览器：给你登录网站用（看画面、点一下、打字、回车） ----------
+// ---------- 遥控浏览器：给你登录网站用（看画面、点一下、打字、回车） ----------
 const rPage = ref(""); // 现在操作的页面
 const rTitle = ref("");
 const typed = ref("");
@@ -131,8 +145,9 @@ const GUIDE = "https://github.com/zhouyesyes/Dwellingplace/blob/main/docs/cloudf
 
 // 搜索服务的设置平时收起来（不常改）
 const searchOpen = ref(false);
-// 他的 MCP（旧居里那两位的不列在这里）
-const mine = computed(() => store.mcpServers.filter(s => (s.roleIds || []).includes(MAIN)));
+// chatgpt 和 CC 的 MCP（旧居里那两位的不列在这里）
+const mine = computed(() => store.mcpServers.filter(s => (s.roleIds || []).some(id => id === MAIN || id === CRAB)));
+const whoText = s => ["main", "crab"].filter(id => s.roleIds?.includes(id)).map(id => (id === MAIN ? "chatgpt" : "CC")).join("、");
 const toolsText = s => (s.tools?.length ? `工具 ${s.tools.length - (s.disabledTools?.length || 0)}/${s.tools.length}` : "还没读取工具");
 
 const pingState = ref(null); // { ok, text }
@@ -259,12 +274,13 @@ async function testSearch() {
     </div>
     <p class="note">开了上面的「通过中转搜索」时，会优先用中转，这个开关就不起作用。</p>
 
-    <div class="section-label">浏览器（他自己上网看）</div>
+    <div class="section-label">浏览器（自己上网看）</div>
     <div class="card body">
-      <p class="desc">装在你自己的服务器上的浏览器（chrome-mcp-bridge）。他能打开网页、读文字、<b>看网页里的图片和截图</b>；小红书笔记会带回正文、评论和图片。比上面的网页读取慢一些，但看得全。</p>
+      <p class="desc">装在你自己的服务器上的浏览器（chrome-mcp-bridge），chatgpt 和 CC 共用这一个，小红书登录也只用登一次。能打开网页、读文字、<b>看网页里的图片和截图</b>；小红书笔记会带回正文、评论和图片。比上面的网页读取慢一些，但看得全。两个人同时用时会排队，不会抢页面。浏览器的工具在每个人的 MCP 页里分小房间，默认在「逛」里。</p>
       <button class="btn soft wide" :disabled="!!bBusy" @click="connectBrowser">{{ bBusy === "connect" ? "连接中…" : browser ? "重新连接" : "接上浏览器" }}</button>
       <template v-if="browser">
-        <label class="switch-row"><span>他可以用浏览器</span><input v-model="browser.enabled" type="checkbox" class="sw" /></label>
+        <label class="switch-row"><span>chatgpt 可以用浏览器</span><input v-model="browserMain" type="checkbox" class="sw" /></label>
+        <label class="switch-row"><span>CC 可以用浏览器</span><input v-model="browserCrab" type="checkbox" class="sw" /></label>
         <button class="btn soft wide" :disabled="!!bBusy" @click="openSite('https://www.xiaohongshu.com/explore')">{{ bBusy === "open" ? "打开中…（要等几秒）" : "登录小红书" }}</button>
         <button class="btn soft wide gap" :disabled="!!bBusy" @click="resetBrowser">{{ bBusy === "reset" ? "清空中…" : "清空浏览器（退出所有登录、换账号）" }}</button>
       </template>
@@ -275,7 +291,7 @@ async function testSearch() {
         <div class="remote">
           <div class="r-top"><span class="r-title">{{ rTitle }}</span><button class="btn soft small" :disabled="!!bBusy" @click="refreshShot">{{ bBusy && bBusy !== "reset" ? "…" : "刷新画面" }}</button></div>
           <img :src="qr" alt="" class="qr" @click="tapShot" />
-          <p class="tip-sm">这是他浏览器现在的样子。点截图上的地方 = 点网页上的那里（比如先点验证码的框）。</p>
+          <p class="tip-sm">这是浏览器现在的样子。点截图上的地方 = 点网页上的那里（比如先点验证码的框）。</p>
           <div class="r-type">
             <input v-model="typed" class="input" placeholder="要填进去的字（比如短信验证码）" autocomplete="one-time-code" inputmode="text" @keydown.enter.prevent="typeIn" />
             <button class="btn small" :disabled="!!bBusy || !typed" @click="typeIn">填进去</button>
@@ -291,17 +307,17 @@ async function testSearch() {
 
     <div class="section-label">MCP</div>
     <div class="list-card">
-      <div v-for="s in mine.filter(x => !x.browser)" :key="s.id" class="list-row">
+      <div v-for="s in mine" :key="s.id" class="list-row">
         <Icon name="tool" :size="20" />
         <button class="grow plain" @click="router.push(`/settings/mcp/${s.id}`)">
           {{ s.name }}<span v-if="!s.enabled" class="off">（关着）</span>
-          <span class="sub">{{ toolsText(s) }} · 点进去设置</span>
+          <span class="sub">{{ whoText(s) }} · {{ toolsText(s) }} · 点进去设置</span>
         </button>
         <input v-model="s.enabled" type="checkbox" class="sw" />
       </div>
       <button class="list-row add" @click="router.push('/settings/mcp/new')"><Icon name="plus" :size="20" /><span class="grow">添加 MCP</span></button>
     </div>
-    <p class="note">开关打开，他就能用这个 MCP。MCP 通过上面的中转连接。</p>
+    <p class="note">开关打开，这个 MCP 才算开着；给 chatgpt 还是 CC 用、工具分哪间小房间，点进去选。MCP 通过上面的中转连接。</p>
   </div>
 </template>
 
