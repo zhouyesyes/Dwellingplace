@@ -374,7 +374,7 @@ async function buildMessages(list) {
     }
     else {
       parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "video") });
-      const oldVids = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "video");
+      const oldVids = fresh.has(m) ? [] : (m.attachments || []).filter(a => a.kind === "video"); // 刚发的那条：没有「之前的视频」（以前写成 0，for…of 读数字就报错，两边一发消息就出错）
       for (const a of oldVids) parts.unshift({ type: "text", text: `[之前发的视频，共 ${a.dur} 秒]` });
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
       if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
