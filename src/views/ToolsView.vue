@@ -5,7 +5,7 @@ import { store, MAIN, CRAB } from "../store/index.js";
 import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
 import { newServer, refreshTools, callToolRaw } from "../lib/mcp.js";
 import { serverBase } from "../lib/server.js";
-import { defaultToolRoom } from "../lib/toolRooms.js";
+import { defaultToolRoom, EVERYWHERE } from "../lib/toolRooms.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
 
@@ -68,7 +68,7 @@ async function connectBrowser() {
     const known = new Set((s.tools || []).map(t => t.name));
     const r = await refreshTools(s);
     s.enabled = true;
-    defaultToolRoom([MAIN, CRAB], s, r.tools.map(t => t.name).filter(n => !known.has(n)), "stroll"); // 新见到的浏览器工具默认进「逛」（两个人都是）
+    defaultToolRoom([MAIN, CRAB], s, r.tools.map(t => t.name).filter(n => !known.has(n)), EVERYWHERE); // 新见到的浏览器工具默认「哪里都能用」（两个人都是）
     bState.value = { ok: true, text: `接上了：${r.tools.map(t => t.name).join("、")}` };
   } catch (e) {
     bState.value = { ok: false, text: /404|不认识/.test(e.message) ? "服务器上还没装浏览器：再运行一次安装那一行，问到浏览器时选 y" : e.message };

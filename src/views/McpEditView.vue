@@ -5,7 +5,7 @@ import { store, MAIN, CRAB } from "../store/index.js";
 import { newServer, parseMcpJson, refreshTools } from "../lib/mcp.js";
 import { goBack } from "../lib/nav.js";
 import { ROOMS } from "../lib/roomCatalog.js";
-import { toolInRoom, roomsOfTool, setToolRoom } from "../lib/toolRooms.js";
+import { toolInRoom, roomsOfTool, setToolRoom, toolEverywhere, EVERYWHERE } from "../lib/toolRooms.js";
 import { toast } from "../lib/toast.js";
 import { openEditor } from "../lib/editor.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -135,7 +135,7 @@ function remove() {
           <button class="link-btn" @click="setAll(true)">全开</button>
           <button class="link-btn" @click="setAll(false)">全关</button>
         </div>
-        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。每个工具后面的 逛 / 玩 / 雾潮群岛 可以多选：勾了的工具只在那几间小房间里带，主聊天里就不带了；都没勾（还没分房间）的，哪里都带。chatgpt 和 CC 各勾各的，先选好是在给谁勾。</p>
+        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。每个工具后面的 逛 / 玩 / 雾潮群岛 可以多选：勾了的工具只在那几间小房间里带，主聊天里就不带了；勾「哪里都能用」的，主聊天和每间房都带；都没勾（还没分房间）的，现在也是哪里都带。chatgpt 和 CC 各勾各的，先选好是在给谁勾。</p>
         <div class="trooms who-tabs">
           <label v-for="w in WHO" :key="w.id" class="rchip" :class="{ on: roomsWho === w.id }"><input type="radio" name="roomsWho" :checked="roomsWho === w.id" @change="roomsWho = w.id" />给 {{ w.name }} 分房间</label>
         </div>
@@ -146,8 +146,9 @@ function remove() {
               <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
             </label>
             <div class="trooms">
-              <label v-for="r in ROOMS" :key="r.key" class="rchip" :class="{ on: toolInRoom(roomsWho, form.id, t.name, r.key) }"><input type="checkbox" :checked="toolInRoom(roomsWho, form.id, t.name, r.key)" @change="e => setToolRoom(roomsWho, form.id, t.name, r.key, e.target.checked)" />{{ r.label }}</label>
-              <small v-if="!roomsOfTool(roomsWho, form.id, t.name).length">还没分房间</small>
+              <label class="rchip" :class="{ on: toolEverywhere(roomsWho, form.id, t.name) }"><input type="checkbox" :checked="toolEverywhere(roomsWho, form.id, t.name)" @change="e => setToolRoom(roomsWho, form.id, t.name, EVERYWHERE, e.target.checked)" />哪里都能用</label>
+              <label v-for="r in ROOMS" :key="r.key" class="rchip" :class="{ on: toolInRoom(roomsWho, form.id, t.name, r.key), dim: toolEverywhere(roomsWho, form.id, t.name) }"><input type="checkbox" :checked="toolInRoom(roomsWho, form.id, t.name, r.key)" @change="e => setToolRoom(roomsWho, form.id, t.name, r.key, e.target.checked)" />{{ r.label }}</label>
+              <small v-if="!roomsOfTool(roomsWho, form.id, t.name).length">还没分房间（现在哪里都带）</small>
             </div>
           </div>
         </div>
@@ -185,6 +186,7 @@ function remove() {
 .trooms { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .trooms small { color: var(--text-3); font-size: .72rem; }
 .rchip { position: relative; display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 11px; font-size: .78rem; color: var(--text-2); background: var(--card); border: 1px solid var(--line); cursor: pointer; }
+.rchip.dim:not(.on) { opacity: .45; }
 .rchip.on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
 .who-tabs { margin: 0 2px 8px; }
 .rchip input { position: absolute; opacity: 0; width: 0; height: 0; }

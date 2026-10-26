@@ -335,7 +335,7 @@ function migrate() {
     for (const s of store.mcpServers || []) {
       if (s.builtin) continue;
       for (const t of s.tools || []) {
-        const rooms = s.browser ? ["stroll"] : old[t.name]; // 浏览器的工具默认进「逛」
+        const rooms = s.browser ? ["all"] : old[t.name]; // 浏览器的工具默认「哪里都能用」
         if (rooms?.length) for (const r of [MAIN, CRAB]) store.toolRooms[`${r}|${s.id}|${t.name}`] = [...rooms];
       }
       if (s.browser) { // 浏览器不再只给 chatgpt：原来的开关 = 给不给 chatgpt，CC 一起接上
@@ -343,6 +343,15 @@ function migrate() {
       }
     }
     store.toolRoomsPer = true;
+    migratedDirty = true;
+  }
+  if (!store.toolRoomsAll) { // 浏览器的工具原来默认勾进「逛」，改成「哪里都能用」（两个人都是，只迁一次；别的工具不动）
+    store.toolRooms ??= {};
+    for (const s of store.mcpServers || []) {
+      if (!s.browser) continue;
+      for (const t of s.tools || []) for (const r of [MAIN, CRAB]) store.toolRooms[`${r}|${s.id}|${t.name}`] = ["all"];
+    }
+    store.toolRoomsAll = true;
     migratedDirty = true;
   }
   store.roomIntros ??= {}; // 小房间的介绍：每人每间一段，键是「人:房间」（见 lib/rooms.js）
