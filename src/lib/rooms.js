@@ -9,7 +9,7 @@ import { roomsOfTool, toolInRoom, BACKSTAGE } from "./toolRooms.js";
 export { ROOMS, PLATFORMS } from "./roomCatalog.js";
 
 // 这个人身上接着的、有工具分进了小房间的 MCP（工具分房间见 toolRooms.js，她自己在工具页勾）
-const roomServersOf = role => serversFor(role.id).filter(s => !s.builtin && (s.tools || []).some(t => roomsOfTool(t.name).length));
+const roomServersOf = role => serversFor(role.id).filter(s => !s.builtin && (s.tools || []).some(t => roomsOfTool(role.id, s, t.name).length));
 
 // 这个人醒来能不能进这间屋子：没写过就看人（小章鱼默认勾，小螃蟹默认不勾）
 export const roomOn = (role, key) => role.wake?.rooms?.[key] ?? role.id !== CRAB;
@@ -19,7 +19,7 @@ export function roomsOf(role) {
   const out = [];
   const servers = roomServersOf(role);
   for (const r of ROOMS) {
-    const mine = servers.map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(t.name, r.key)) }))
+    const mine = servers.map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(role.id, s, t.name, r.key)) }))
       .filter(s => s.tools.some(t => !(s.disabledTools || []).includes(t.name)));
     if (mine.length) out.push({ ...r, platform: mine.map(s => s.name).join("、"), servers: mine });
   }
@@ -46,7 +46,7 @@ export const roomConnected = (role, key) => roomsOf(role).some(g => g.key === ke
 // 进这间屋子能用的工具：通用的（网页、搜索、浏览器……哪里都能用）+ 这间房的工具 + 查参数的 get_tool_schema；别的屋子的工具不带
 export function roomServers(role, key) {
   return serversForMode(role.id, "chat", { garden: true })
-    .map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(t.name, key) || BACKSTAGE.has(t.name) || !roomsOfTool(t.name).length) }))
+    .map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(role.id, s, t.name, key) || BACKSTAGE.has(t.name) || !roomsOfTool(role.id, s, t.name).length) }))
     .filter(s => s.tools.length);
 }
 
