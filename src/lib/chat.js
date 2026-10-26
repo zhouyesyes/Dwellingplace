@@ -4,7 +4,7 @@ import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
 import { WHERE } from "./crabBook.js";
-import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage } from "../store/index.js";
+import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB } from "../store/index.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -41,6 +41,10 @@ const SIG_RE = /\[签名[:：]\s*([^\]\n]{1,40})\]/g;
 const SEARCH_RE = /\[搜索[:：]\s*([^\]\n]{1,120})\]/;
 const REPO_RE = /\[看仓库(?:[:：]\s*([^\]]{0,600}))?\]/; // 小螃蟹：要看栖所的仓库
 const JOB_RE = /\[派活[:：]\s*([^\]]{4,4000})\]/; // 小螃蟹：把要改代码的活派去云端
+// 只给 CC 的一句：要说「上次」这类话之前先翻一下（chatgpt 那边不加）
+export const recallWhyForCC = role => role?.id === CRAB
+  ? `要说「上次」「之前」「那天」「你说过」「以前」这类话，或者问起以前的事时，先翻一下记忆再回答：眼前的摘要和此刻只是一小段，凭印象说，容易把最近的当成对的。`
+  : "";
 const RECALL_RE = /\[翻记忆[:：]\s*([^\]\n]{1,60})\]/;
 // 只认真正的指令：单独占一行写着的。写在代码里（``` 或 `）、引用里（> 开头）、夹在一句话中间当例子讲的，都不算——
 // 不然他一解释「翻记忆怎么写」，前端就当真去翻，翻完他再解释一遍，就停不下来了
@@ -204,7 +208,8 @@ export function buildSystem(role, messages, { wake = false, mail = false } = {})
       `想不起以前的事（聊过什么、哪天说过什么、某张记忆卡片的细节），或者${who}问起以前的事，只回复一行：[翻记忆:关键词]（不要写别的），系统会在你们所有的聊天记录、摘要和记忆卡片里找，把找到的给你，你再回复。`,
       `只有单独占一行的才会执行。平时聊到、解释这些指令时，别写出带方括号的完整格式（说「翻记忆」三个字就好），也不要放进代码块里。`,
       `关键词短一点（一两个词，空格隔开表示都要有）；找不到就换个说法再找一次。平常聊天不用翻。`,
-    ].join("\n"),
+      recallWhyForCC(role),
+    ].filter(Boolean).join("\n"),
     solo(role) && !wake && studioApi(role) ? [
       `\n# 看仓库`,
       `平时聊天你看不到栖所的代码。${who}想看代码、问某个功能是怎么写的、要你查施工日志或提交记录时，只回复一行：[看仓库:要看什么]（不要写别的），系统会让你带着能看仓库的工具（只能看，不能改）再回答这一句。`,
