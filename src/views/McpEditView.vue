@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 import { store, MAIN } from "../store/index.js";
 import { newServer, parseMcpJson, refreshTools } from "../lib/mcp.js";
 import { goBack } from "../lib/nav.js";
+import { ROOMS } from "../lib/roomCatalog.js";
+import { toolInRoom, roomsOfTool, setToolRoom } from "../lib/toolRooms.js";
 import { toast } from "../lib/toast.js";
 import { openEditor } from "../lib/editor.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -123,12 +125,18 @@ function remove() {
           <button class="link-btn" @click="setAll(true)">全开</button>
           <button class="link-btn" @click="setAll(false)">全关</button>
         </div>
-        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。</p>
+        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。每个工具后面的 逛 / 玩 / 雾潮群岛 可以多选：勾了的工具只在那几间小房间里带，主聊天里就不带了；都没勾（还没分房间）的，哪里都带。</p>
         <div class="tools">
-          <label v-for="t in form.tools" :key="t.name" class="tool" :class="{ off: form.disabledTools.includes(t.name) }">
-            <span class="tinfo"><b>{{ t.name }}</b><span>{{ t.description }}</span></span>
-            <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
-          </label>
+          <div v-for="t in form.tools" :key="t.name" class="tool" :class="{ off: form.disabledTools.includes(t.name) }">
+            <label class="trow">
+              <span class="tinfo"><b>{{ t.name }}</b><span>{{ t.description }}</span></span>
+              <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
+            </label>
+            <div class="trooms">
+              <label v-for="r in ROOMS" :key="r.key" class="rchip" :class="{ on: toolInRoom(t.name, r.key) }"><input type="checkbox" :checked="toolInRoom(t.name, r.key)" @change="e => setToolRoom(t.name, r.key, e.target.checked)" />{{ r.label }}</label>
+              <small v-if="!roomsOfTool(t.name).length">还没分房间</small>
+            </div>
+          </div>
         </div>
       </template>
     </div>
@@ -159,9 +167,15 @@ function remove() {
 .tools-head { display: flex; align-items: center; gap: 10px; margin: 12px 2px 4px; font-size: 0.87rem; }
 .tools-head span { flex: 1; }
 .tools-head .link-btn { padding: 0; }
-.tool { background: var(--bg); border-radius: 12px; padding: 8px 10px; font-size: 0.8rem; display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.tool.off { opacity: .5; }
-.tool input { width: 20px; height: 20px; accent-color: var(--ink); flex: none; }
+.tool { background: var(--bg); border-radius: 12px; padding: 8px 10px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 8px; }
+.trow { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.trooms { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.trooms small { color: var(--text-3); font-size: .72rem; }
+.rchip { position: relative; display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 11px; font-size: .78rem; color: var(--text-2); background: var(--card); border: 1px solid var(--line); cursor: pointer; }
+.rchip.on { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.rchip input { position: absolute; opacity: 0; width: 0; height: 0; }
+.tool.off .trow { opacity: .5; }
+.trow input { width: 20px; height: 20px; accent-color: var(--ink); flex: none; }
 .tinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .tinfo span { color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .danger-zone { display: flex; justify-content: center; margin-top: 24px; }

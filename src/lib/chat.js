@@ -29,6 +29,7 @@ import { DIARY_RE, applyDiaryTags, diaryForAI } from "./diary.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
+import { videoNote } from "./video.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
 
@@ -291,6 +292,12 @@ async function partsOf(m) {
     if (a.kind === "image") {
       const { data, mime } = await imageBase64(a.img);
       parts.push({ type: "image", data, mime });
+    } else if (a.kind === "video") {
+      // 视频：看不了整段，只给均匀截的几帧，当图片附上
+      parts.push({ type: "text", text: `（${videoNote(a)}）` });
+      for (const id of a.frames || [a.img]) {
+        try { const { data, mime } = await imageBase64(id); parts.push({ type: "image", data, mime }); } catch { /* 这帧丢了 */ }
+      }
     } else if (a.kind === "pdf") {
       const blob = await get("file:" + a.file);
       if (blob) {
@@ -366,7 +373,9 @@ async function buildMessages(list) {
       parts = [{ type: "text", text: (m.quote ? `[引用:${m.quote.text}]\n` : "") + (win.indexOf(m) < win.length - 4 ? shrinkCode(stripCallJunk(m.text)) : stripCallJunk(m.text)) }];
     }
     else {
-      parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image") });
+      parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "video") });
+      const oldVids = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "video");
+      for (const a of oldVids) parts.unshift({ type: "text", text: `[之前发的视频，共 ${a.dur} 秒]` });
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
       if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
       const tp = parts.find(p => p.type === "text" && p.text === m.text);

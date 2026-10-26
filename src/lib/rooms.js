@@ -1,19 +1,15 @@
-// 小房间：房间是容器（逛 / 玩 / 雾潮群岛……），每间房装着一组工具；工具从哪来是「来源」（roomCatalog.js 的 PLATFORMS，现在只有花园 MCP）。
+// 小房间：房间是容器（逛 / 玩 / 雾潮群岛……），每间房装着一组工具；哪个工具进哪间房由她在工具页自己勾（toolRooms.js）。
 // 每间房是小世界里一间自己的对话房（见 gardenTalk.js），房间的工具只在对应那间里带，主聊天里没有。
-// 以后往房间里放别的平台、别的工具：往 PLATFORMS 里加一项，把它的工具归进某间房就行，房间和开关不用另做。
+// 新导入的工具默认不进任何房间（还没分房间）：主聊天和各间房里都照常带，勾进房间以后才只在那间房里带。
 import { CRAB, store } from "../store/index.js";
 import { serversFor, serversForMode } from "./mcp.js";
 import { ROOMS, PLATFORMS } from "./roomCatalog.js";
+import { roomsOfTool, toolInRoom, BACKSTAGE } from "./toolRooms.js";
 
 export { ROOMS, PLATFORMS } from "./roomCatalog.js";
 
-const namesOf = p => new Set([...Object.values(p.rooms).flat(), ...p.backstage]);
-
-// 这个人身上接着的、属于这个平台的 MCP（有它的工具就算）
-const platformServers = (role, p) => {
-  const all = namesOf(p);
-  return serversFor(role.id).filter(s => !s.builtin && (s.tools || []).some(t => all.has(t.name)));
-};
+// 这个人身上接着的、有工具分进了小房间的 MCP（工具分房间见 toolRooms.js，她自己在工具页勾）
+const roomServersOf = role => serversFor(role.id).filter(s => !s.builtin && (s.tools || []).some(t => roomsOfTool(t.name).length));
 
 // 这个人醒来能不能进这间屋子：没写过就看人（小章鱼默认勾，小螃蟹默认不勾）
 export const roomOn = (role, key) => role.wake?.rooms?.[key] ?? role.id !== CRAB;
@@ -21,20 +17,16 @@ export const roomOn = (role, key) => role.wake?.rooms?.[key] ?? role.id !== CRAB
 // 这个人现在有哪几间房接上了工具（那间房里有工具开着）：[{ key, label, hint, platform, servers（只留这间屋子的工具）}]
 export function roomsOf(role) {
   const out = [];
-  for (const p of PLATFORMS) {
-    const servers = platformServers(role, p);
-    if (!servers.length) continue;
-    for (const r of ROOMS) {
-      const want = new Set(p.rooms[r.key] || []);
-      const mine = servers.map(s => ({ ...s, tools: (s.tools || []).filter(t => want.has(t.name)) }))
-        .filter(s => s.tools.some(t => !(s.disabledTools || []).includes(t.name)));
-      if (mine.length) out.push({ ...r, platform: p.name, servers: mine });
-    }
+  const servers = roomServersOf(role);
+  for (const r of ROOMS) {
+    const mine = servers.map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(t.name, r.key)) }))
+      .filter(s => s.tools.some(t => !(s.disabledTools || []).includes(t.name)));
+    if (mine.length) out.push({ ...r, platform: mine.map(s => s.name).join("、"), servers: mine });
   }
   return out;
 }
 
-export const hasRoomTools = role => PLATFORMS.some(p => platformServers(role, p).length > 0);
+export const hasRoomTools = role => roomServersOf(role).length > 0;
 
 export const roomOf = key => ROOMS.find(r => r.key === key);
 
@@ -53,14 +45,8 @@ export const roomConnected = (role, key) => roomsOf(role).some(g => g.key === ke
 
 // 进这间屋子能用的工具：通用的（网页、搜索、浏览器……哪里都能用）+ 这间房的工具 + 查参数的 get_tool_schema；别的屋子的工具不带
 export function roomServers(role, key) {
-  const mine = new Set();
-  const others = new Set();
-  for (const p of PLATFORMS) {
-    for (const [k, names] of Object.entries(p.rooms)) for (const n of names) (k === key ? mine : others).add(n);
-    for (const n of p.backstage) mine.add(n);
-  }
   return serversForMode(role.id, "chat", { garden: true })
-    .map(s => ({ ...s, tools: (s.tools || []).filter(t => mine.has(t.name) || !others.has(t.name)) }))
+    .map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(t.name, key) || BACKSTAGE.has(t.name) || !roomsOfTool(t.name).length) }))
     .filter(s => s.tools.length);
 }
 

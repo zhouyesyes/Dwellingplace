@@ -46,6 +46,9 @@ import Sheet from "../components/Sheet.vue";
 import UsageSheet from "../components/UsageSheet.vue";
 import ImgThumb from "../components/ImgThumb.vue";
 import ImageViewer from "../components/ImageViewer.vue";
+import VideoViewer from "../components/VideoViewer.vue";
+import { isVideoFile, videoAttachment } from "../lib/video.js";
+import { del } from "../lib/kv.js";
 import ColorSwatches from "../components/ColorSwatches.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import { openEditor } from "../lib/editor.js";
@@ -349,7 +352,8 @@ watch(() => messages.value.length, () => setTimeout(refreshMood, 4000));
 
 // 多张图片：缩成一格，点开看全部
 const imgsOf = m => (m.attachments || []).filter(a => a.kind === "image");
-const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "audio");
+const videosOf = m => (m.attachments || []).filter(a => a.kind === "video");
+const filesOf = m => (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "audio" && a.kind !== "video");
 const voicesOf = m => (m.attachments || []).filter(a => a.kind === "audio");
 const VOICE_ONLY = /^\s*\[语音[:：]\s*([^\]\n]{1,500})\]\s*$/;
 const voiceText = b => b.match(VOICE_ONLY)?.[1]?.trim() || "";
@@ -394,6 +398,7 @@ async function readAloud() {
     await a.play();
   } catch (e) { toast((e?.message || String(e)).slice(0, 100), 4000); }
 }
+const videoOpen = ref(null); // 正在看的视频附件
 const gallery = ref(null); // { m, start }：全屏看图，左右滑
 const viewImgs = (m, start = 0) => (gallery.value = { m, start });
 
@@ -405,8 +410,16 @@ function stop() {
 const plusOpen = ref(false);
 async function addImages() {
   plusOpen.value = false;
-  const files = await pickFile("image/*", true);
+  const files = await pickFile("image/*,video/*", true);
   for (const f of files) {
+    if (isVideoFile(f)) {
+      try {
+        toast("正在压视频，请稍等……", 60000);
+        attachments.value.push(await videoAttachment(f));
+        toast("视频准备好了", 1500);
+      } catch (e) { toast(e?.message || "这段视频读不了：" + f.name, 4000); }
+      continue;
+    }
     try { attachments.value.push({ kind: "image", img: await saveImage(f, CHAT_IMAGE), name: f.name }); }
     catch { toast("这张图片读不了：" + f.name); }
   }
@@ -422,6 +435,7 @@ async function addFiles() {
 function removeAttachment(i) {
   const [a] = attachments.value.splice(i, 1);
   if (a.kind === "image") deleteImage(a.img);
+  else if (a.kind === "video") { deleteImage(a.img); (a.frames || []).forEach(deleteImage); del("file:" + a.file); }
 }
 
 // ---------- 对话切换 ----------
@@ -755,6 +769,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                     </div>
                   </div>
                   <div v-else-if="imgsOf(m).length" class="att one" @click="viewImgs(m)"><ImgThumb :id="imgsOf(m)[0].img" /></div>
+                  <div v-for="a in videosOf(m)" :key="'v' + a.file" class="att one vthumb" @click="videoOpen = a"><ImgThumb :id="a.img" /><i class="vplay" /><em>{{ a.dur }}″</em></div>
                   <VoiceBubble v-for="a in voicesOf(m)" :key="a.file" :file="a.file" :dur="a.dur" :transcript="a.text" mine @transcribed="t => { a.text = t; saveMessages(thread.id); }" @more="openActions(m)" />
                   <div v-for="(a, i) in filesOf(m)" :key="'f' + i" class="att" @click="openActions(m)">
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
@@ -811,6 +826,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
           <ImgThumb v-if="a.kind === 'image'" :id="a.img" class="mini" />
+          <span v-else-if="a.kind === 'video'" class="vthumb mini"><ImgThumb :id="a.img" class="mini" /><i class="vplay" /><em>{{ a.dur }}″</em></span>
           <span v-else class="file-chip"><Icon name="file" :size="16" />{{ a.name }}</span>
           <button class="x" @click="removeAttachment(i)"><Icon name="close" :size="14" /></button>
         </div>
@@ -846,7 +862,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <!-- ＋ -->
     <Sheet :open="plusOpen" @close="plusOpen = false">
       <div class="grid-actions">
-        <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片</button>
+        <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片或视频</button>
         <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
         <button @click="plusOpen = false; stickerOpen = true"><span><Icon name="smile" :size="26" /></span>表情</button>
       </div>
@@ -962,6 +978,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     </Teleport>
 
     <!-- 一组图片 -->
+    <VideoViewer :open="!!videoOpen" :file="videoOpen?.file" :mime="videoOpen?.mime" @close="videoOpen = null" />
     <ImageViewer :open="!!gallery" :images="gallery ? imgsOf(gallery.m).map(a => a.img) : []" :start="gallery?.start || 0"
       @close="gallery = null" @more="openActions(gallery.m); gallery = null" />
 
@@ -1198,6 +1215,13 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 .send.on { background: var(--ink); }
 
 .pending-atts { display: flex; gap: 8px; overflow-x: auto; max-width: 760px; margin: 0 auto 10px; padding: 2px; }
+.vthumb { position: relative; display: inline-block; }
+.vthumb :deep(.thumb) { pointer-events: none; }
+.vplay { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(0, 0, 0, 0.45); }
+.vplay::after { content: ""; position: absolute; left: 13px; top: 9px; border: 8px solid transparent; border-left: 13px solid #fff; border-right: 0; }
+.vthumb em { position: absolute; right: 6px; bottom: 5px; font-style: normal; font-size: 11px; color: #fff; background: rgba(0, 0, 0, 0.5); border-radius: 8px; padding: 0 6px; }
+.vthumb.mini .vplay { width: 24px; height: 24px; margin: -12px 0 0 -12px; }
+.vthumb.mini .vplay::after { left: 9px; top: 6px; border-width: 6px; border-left-width: 9px; }
 .patt { position: relative; flex: none; }
 .patt :deep(.thumb) { width: 64px; height: 64px; }
 .patt :deep(.thumb img) { width: 64px; height: 64px; object-fit: cover; }

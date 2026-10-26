@@ -4,6 +4,7 @@
 import { store, roleById, apiById, threadsOf, createThread, loadMessages, saveMessages, uid, CRAB } from "../store/index.js";
 import { activePath, ROOT } from "./tree.js";
 import { get, set } from "./kv.js";
+import { videoNote } from "./video.js";
 import { applyMemoryTags, memoriesOf, isLive } from "./memoryTags.js";
 
 export const WHERE = { code: "在 Claude Code 里", cloud: "云端干活", wake: "自己醒来" };
@@ -54,11 +55,14 @@ async function shrink(blob) {
 // 这句话带的图 → { media: [{data}], lost: 读不到的张数 }
 async function packImages(m) {
   const media = []; let lost = 0;
-  for (const a of (m.attachments || []).filter(a => a.kind === "image")) {
-    try { const b = await get("img:" + a.img); if (!b) throw 0; media.push({ data: await toBase64(await shrink(b)) }); }
+  // 视频：截的几帧当图片送去，文字里写一行说明（TA 听不到声音）
+  const imgs = (m.attachments || []).flatMap(a => a.kind === "image" ? [a.img] : a.kind === "video" ? (a.frames || [a.img]) : []);
+  const vids = (m.attachments || []).filter(a => a.kind === "video");
+  for (const id of imgs) {
+    try { const b = await get("img:" + id); if (!b) throw 0; media.push({ data: await toBase64(await shrink(b)) }); }
     catch { lost++; }
   }
-  return { media, lost };
+  return { media, lost, note: vids.map(a => `（${videoNote(a)}）`).join("\n") };
 }
 // 别处发来的图：从服务器拿回来存进本地，变成这句话的图片附件；拿不到就返回 null（下次再拿）
 async function fetchImages(base, media) {
@@ -108,7 +112,7 @@ export async function syncBook() {
     const all = await loadMessages(t.id);
     if (dropWakeEchoes(all, t)) saveMessages(t.id);
     // 写进去：栖所这边新说的（别处拿回来的不再写回去）、摘要、记忆卡片
-    const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && ((m.text || "").trim() || m.attachments?.some(a => a.kind === "image")));
+    const fresh = activePath(all, t.sel || {}).filter(m => !m.pending && !m.error && !m.where && m.ts > st.pushedTs && ((m.text || "").trim() || m.attachments?.some(a => a.kind === "image" || a.kind === "video")));
     const packs = await Promise.all(fresh.map(packImages));
     const summary = t.summary?.text || "";
     const memories = memoriesOf(CRAB).filter(isLive).map(m => `- [${m.date}] ${m.cat ? `（${m.cat}）` : ""}${m.title}：${m.content.replace(/\n+/g, " ")}`).join("\n");
@@ -117,7 +121,7 @@ export async function syncBook() {
       const r = await fetch(base + "/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries: fresh.map((m, i) => ({ id: m.id, ts: m.ts, where: "qisuo", from: m.from === "ai" ? "crab" : "me", text: m.text || "", ...(packs[i].media.length ? { media: packs[i].media } : {}), ...(packs[i].lost ? { lost: packs[i].lost } : {}) })), summary, memories }),
+        body: JSON.stringify({ entries: fresh.map((m, i) => ({ id: m.id, ts: m.ts, where: "qisuo", from: m.from === "ai" ? "crab" : "me", text: [m.text || "", packs[i].note].filter(Boolean).join("\n"), ...(packs[i].media.length ? { media: packs[i].media } : {}), ...(packs[i].lost ? { lost: packs[i].lost } : {}) })), summary, memories }),
       });
       if (!r.ok) return; // 服务器还没放钥匙、或者没更新：安静地等下次
       if (fresh.length) st.pushedTs = Math.max(...fresh.map(m => m.ts));

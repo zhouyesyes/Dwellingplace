@@ -114,7 +114,7 @@ function dropGroup() {
   position: absolute; top: 0; right: 0; bottom: 0; width: min(88vw, 440px); overflow-y: auto;
   padding: calc(var(--safe-top) + 14px) 16px calc(var(--safe-bottom) + 24px);
   background: rgba(var(--glass-rgb), .9); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
-  border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
+  overflow-x: hidden; border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
 }
 .sp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .script { flex: 1; margin: 0; font-size: 1.15rem; font-weight: 600; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -139,9 +139,9 @@ function dropGroup() {
 .ctags.big { border: 0; background: none; padding: 0; align-items: center; color: var(--text-3); font-size: .78rem; gap: 6px; }
 .stk { min-width: 20px; height: 20px; padding: 0 5px; border-radius: 3px; background: color-mix(in srgb, #f4e7a8 var(--pastel), var(--card)); font-size: .7rem; display: grid; place-items: center; transform: rotate(4deg); margin-left: auto; }
 .stk.fresh { background: #cfe0f2; }
-.groups { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.grp { position: relative; border: 0; text-align: left; background: var(--card); border-radius: 6px 14px 14px 6px; padding: 12px 12px 10px 16px; min-height: 76px; box-shadow: 0 3px 12px rgba(40, 40, 60, .07); display: flex; flex-direction: column; gap: 6px; border-left: 5px solid #c9b8a6; }
-.grp b { font-size: calc(.92rem * var(--wf, 1)); }
+.groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.grp { position: relative; border: 0; text-align: left; background: var(--card); border-radius: 6px 14px 14px 6px; padding: 12px 12px 10px 16px; min-height: 76px; min-width: 0; box-shadow: 0 3px 12px rgba(40, 40, 60, .07); display: flex; flex-direction: column; gap: 6px; border-left: 5px solid #c9b8a6; }
+.grp b { font-size: calc(.92rem * var(--wf, 1)); min-width: 0; padding-right: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grp em { position: absolute; right: 12px; bottom: 8px; font-style: normal; font-size: 1.05rem; font-weight: 300; color: var(--text-3); }
 .grp.add { background: none; box-shadow: inset 0 0 0 1.5px var(--line); border-left: 0; align-items: center; justify-content: center; color: var(--text-2); }
 .g-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
