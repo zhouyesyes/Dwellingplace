@@ -1,10 +1,10 @@
 // 小房间：房间是容器（逛 / 玩 / 雾潮群岛……），每间房装着一组工具；哪个工具进哪间房由她在工具页自己勾（toolRooms.js）。
 // 每间房是小世界里一间自己的对话房（见 gardenTalk.js），房间的工具只在对应那间里带，主聊天里没有。
-// 新导入的工具默认不进任何房间（还没分房间）：主聊天和各间房里都照常带，勾进房间以后才只在那间房里带。
+// 新导入的工具默认不进任何房间（还没分房间）：主聊天和各间房里都照常带，勾进房间以后才只在那间房里带；勾了「哪里都能用」的主聊天和每间房都带。
 import { CRAB, store } from "../store/index.js";
 import { serversFor, serversForMode } from "./mcp.js";
 import { ROOMS, PLATFORMS } from "./roomCatalog.js";
-import { roomsOfTool, toolInRoom, BACKSTAGE } from "./toolRooms.js";
+import { roomsOfTool, toolInRoom, toolCarriedInRoom } from "./toolRooms.js";
 
 export { ROOMS, PLATFORMS } from "./roomCatalog.js";
 
@@ -46,7 +46,7 @@ export const roomConnected = (role, key) => roomsOf(role).some(g => g.key === ke
 // 进这间屋子能用的工具：通用的（网页、搜索、浏览器……哪里都能用）+ 这间房的工具 + 查参数的 get_tool_schema；别的屋子的工具不带
 export function roomServers(role, key) {
   return serversForMode(role.id, "chat", { garden: true })
-    .map(s => ({ ...s, tools: (s.tools || []).filter(t => toolInRoom(role.id, s, t.name, key) || BACKSTAGE.has(t.name) || !roomsOfTool(role.id, s, t.name).length) }))
+    .map(s => ({ ...s, tools: (s.tools || []).filter(t => toolCarriedInRoom(role.id, s, t.name, key)) }))
     .filter(s => s.tools.length);
 }
 
