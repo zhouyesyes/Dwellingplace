@@ -4,7 +4,7 @@
 //   { id, name, url, headers: [{ key, value }], viaRelay, roleIds: [], tools: [], toolsAt, enabled }
 import { store, uid } from "../store/index.js";
 import { relayFetch } from "./search.js";
-import { PLATFORMS } from "./roomCatalog.js";
+import { isRoomTool } from "./toolRooms.js";
 
 const PROTOCOL = "2025-06-18";
 const sessions = new Map(); // serverId -> { sessionId, protocolVersion }
@@ -37,12 +37,11 @@ export const serversFor = roleId => {
 export const isMailServer = s => ["send_email", "reply_email"].every(n => (s.tools || []).some(t => t.name === n));
 // 记忆库：心潮
 export const isMemoryServer = s => (s.tools || []).some(t => /^(xinchao_|breath$|hold$|trace$)/.test(t.name));
-// 花园的工具（各个平台里归在屋子里的、还有查参数的）：只在小世界对应的房间里带，主聊天里没有
-const GARDEN_TOOLS = new Set(PLATFORMS.flatMap(p => [...Object.values(p.rooms).flat(), ...p.backstage]));
+// 分进了小房间的工具（她在工具页勾的，见 toolRooms.js）：只在对应的房间里带，主聊天里没有
 const withoutGarden = list => list.flatMap(s => {
-  if (s.builtin || !(s.tools || []).some(t => GARDEN_TOOLS.has(t.name))) return [s];
-  const tools = s.tools.filter(t => !GARDEN_TOOLS.has(t.name));
-  return tools.length ? [{ ...s, tools }] : []; // 只剩花园的工具：整条不带
+  if (s.builtin || !(s.tools || []).some(t => isRoomTool(t.name))) return [s];
+  const tools = s.tools.filter(t => !isRoomTool(t.name));
+  return tools.length ? [{ ...s, tools }] : []; // 只剩房间的工具：整条不带
 });
 // 不同地方能用哪些工具：平时聊天不碰邮箱、也没有花园的工具（花园在小世界的房间里）；邮箱页只有邮箱和记忆；醒来能用邮箱，但也没有花园的工具（花园叫醒只进小房间）
 // garden: true 是房间自己挑工具用的，先不去掉花园的（见 rooms.js 的 roomServers）

@@ -7,6 +7,7 @@ import { get, set, del, setMany, editMany } from "../lib/kv.js";
 import { migrateFlat } from "../lib/tree.js";
 import { mergeBookMeta, applyBookMeta, sameMeta } from "../lib/bookMetaMerge.js";
 import { defaultMedia } from "../lib/media.js";
+import { PLATFORMS } from "../lib/roomCatalog.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -327,6 +328,11 @@ function migrate() {
   store.bookNotes ??= []; // 书里的便利贴
   store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）；带 room 的是小世界某间房自己的此刻
   store.gardenTalk ??= {}; // 小世界花园三间房的对话摘要等（每人每间一份，见 lib/gardenTalk.js）
+  if (!store.toolRooms) { // 工具分房间改成她自己勾：把原来写死的分法当默认值迁移过来（只迁一次）
+    store.toolRooms = {};
+    for (const p of PLATFORMS) for (const [room, names] of Object.entries(p.rooms)) for (const n of names) (store.toolRooms[n] ??= []).push(room);
+    migratedDirty = true;
+  }
   store.roomIntros ??= {}; // 小房间的介绍：每人每间一段，键是「人:房间」（见 lib/rooms.js）
   store.penpals ??= []; // 板块记忆：他记着的笔友，每人一句话
   store.readingLog ??= {}; // 每天读了多久（秒）

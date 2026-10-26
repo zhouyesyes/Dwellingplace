@@ -109,7 +109,7 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
   position: absolute; top: 0; right: 0; bottom: 0; width: min(88vw, 440px); overflow-y: auto;
   padding: calc(var(--safe-top) + 14px) 16px calc(var(--safe-bottom) + 24px);
   background: rgba(var(--glass-rgb), .9); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
-  border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
+  overflow-x: hidden; border-radius: 26px 0 0 26px; box-shadow: -10px 0 40px rgba(30, 30, 40, .12);
 }
 .sp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .script { flex: 1; margin: 0; font-size: 1.15rem; font-weight: 600; letter-spacing: .06em; }
@@ -127,10 +127,10 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 .syn { font-size: calc(.92rem * var(--wf, 1)); line-height: 1.75; color: var(--text); resize: none; field-sizing: content; min-height: 3.5em; }
 .syn::placeholder, .pitch::placeholder { color: var(--text-3); }
 .sec { margin: 26px 4px 10px; font-size: calc(.85rem * var(--wf, 1)); font-weight: 600; color: var(--text-2); }
-.folders { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 10px; }
+.folders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; } /* minmax(0) 才不会被长名字撑宽、要左右滑 */
 /* 资料夹是白的，只有标题前一个小色点 */
 .folder {
-  position: relative; border: 0; text-align: left; cursor: pointer; padding: 14px 12px 10px; min-height: 84px; border-radius: 4px 14px 14px 14px; margin-top: 8px;
+  position: relative; border: 0; text-align: left; cursor: pointer; padding: 14px 12px 10px; min-height: 84px; min-width: 0; border-radius: 4px 14px 14px 14px; margin-top: 8px;
   background: var(--card); box-shadow: 0 3px 12px rgba(40, 40, 60, .07); display: flex; flex-direction: column; gap: 3px;
 }
 .folder .tab { position: absolute; top: -8px; left: 0; width: 42%; height: 12px; border-radius: 6px 10px 0 0; background: color-mix(in srgb, #ebebef var(--pastel), var(--card)); }
@@ -141,7 +141,7 @@ const peek = k => all.value.filter(c => c.type === k).slice(-2).map(c => c.title
 :root[data-theme="dark"] .folder .tab { background: #3c4250; }
 :root[data-theme="dark"] .folder.empty { background: #2b2f39; box-shadow: none; }
 :root[data-theme="dark"] .folder.empty .tab { background: #333844; }
-.folder b { font-size: calc(.95rem * var(--wf, 1)); display: flex; align-items: center; gap: 7px; }
+.folder b { font-size: calc(.95rem * var(--wf, 1)); display: flex; align-items: center; gap: 7px; min-width: 0; padding-right: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mark { width: 7px; height: 7px; border-radius: 50%; background: #ffadc6; flex: none; }
 .c1 .mark { background: #ffcb85; } .c2 .mark { background: #8fd3f4; } .c3 .mark { background: #a6e3a1; }
 .c4 .mark { background: #bfa8f6; } .c5 .mark { background: #ffa494; } .c6 .mark { background: #c9c3ba; }

@@ -118,7 +118,7 @@ export async function applyAlarmTags(role, text) {
 const threadFor = role => threadsOf(role.id).find(t => t.id === role.lastThreadId) || threadsOf(role.id)[0] || null;
 
 function textOf(m) {
-  const att = (m.attachments || []).map(a => (a.kind === "image" ? "[图片]" : `[文件：${a.name}]`)).join(" ");
+  const att = (m.attachments || []).map(a => (a.kind === "image" ? "[图片]" : a.kind === "video" ? "[视频]" : `[文件：${a.name}]`)).join(" ");
   return [att, m.text].filter(Boolean).join(" ");
 }
 
