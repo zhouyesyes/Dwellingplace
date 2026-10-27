@@ -206,7 +206,7 @@ async function roomsOf(role, thread, path, extra = []) {
   const { estTokens } = await import("./budget.js");
   const reading = (store.books || []).filter(b => !b.his && !b.mine && b.readAt).sort((a, b) => b.readAt - a.readAt)[0];
   if (reading && roomOn(role, "read")) {
-    const from = hisNextFrom(reading, await loadBook(reading.id));
+    const from = hisNextFrom(reading, await loadBook(reading.id), role.id);
     const items = await forwardSlice(reading, from, READ_MAX, estTokens);
     // maxChars 记成这一段的字数：取回来时按字数重新切，切出来是同一段
     if (items.length) rooms.push({ key: `read:${reading.id}`, kind: "read", label: `接着读《${reading.title}》`, bookId: reading.id, from: { ch: items[0].ch, p: items[0].p }, maxChars: items.reduce((a, it) => a + it.t.length, 0),
@@ -403,6 +403,7 @@ async function ingestRoom(role, item) {
         markHisPos(b, p.upTo.ch, p.upTo.p);
         b.alongTo = p.upTo;
         if (p.next) b.hisNext = p.next; else delete b.hisNext; // 他说下次从哪开始
+        R.clearHerPin(b, role.id); // 她定的「下次从这章」用过一次就清
         R.maybeGist(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
         R.maybeImpression(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
         what = `，读了一段，划了 ${p.notes.length} 处${p.memNotes.length ? "，记了读书笔记" : ""}`;

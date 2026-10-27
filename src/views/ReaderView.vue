@@ -11,11 +11,11 @@
 // 翻页：一屏一页（左右划，或者点屏幕左右两边）
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, MAIN, roleById } from "../store/index.js";
+import { store, MAIN, CRAB, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
 import { captureReadingPage } from "../lib/readingImages.js";
 import { safeBookImage } from "../lib/epubImages.js";
-import { askHim, readAlong, alongSlice, placeAlong, readOnHisOwn, hisAt } from "../lib/reading.js";
+import { askHim, readAlong, alongSlice, placeAlong, readOnHisOwn, hisAt, setHerPin, clearHerPin } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookImage from "../components/books/BookImage.vue";
@@ -649,6 +649,14 @@ const mergeEdit = () => runEdit(e => mergeWithNext(b.value.id, ch.value, e.p), "
 const restoreEdit = () => runEdit(e => restoreParagraph(b.value.id, ch.value, e.p), "恢复成原文了");
 
 const tocOpen = ref(false);
+// 目录里「下次从这章读」：chatgpt 和 CC 两个人都设上，各读过一次就各自清掉；不动你自己的书签和进度
+function pinNext(i) {
+  setHerPin(b.value, i, [MAIN, CRAB]);
+  toast(`下次他们都从「${chTitle(i)}」开头读`, 2600);
+}
+function unpinNext() {
+  clearHerPin(b.value);
+}
 const tocEdit = ref(false);
 // 目录里改了章节（改名、移除、合并、切开、重新分）：正文换成新的，回到刚才读的地方（位置已经跟着挪过了）
 async function chaptersChanged() {
@@ -866,9 +874,13 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
           <button class="book-card" @click="tocOpen = false; infoOpen = true">这本书：进度、评分、读后感 ›</button>
           <button class="toc-edit" @click="tocEdit = true">编辑</button>
         </div>
-        <button v-for="(c, i) in b.chapters" :key="i" :class="{ on: i === ch }" @click="goChapter(i)">
-          <span>{{ c.title }}</span><small v-if="notesOf(b.id, i).length">{{ notesOf(b.id, i).length }} 张便利贴</small>
-        </button>
+        <div v-for="(c, i) in b.chapters" :key="i" class="toc-row" :class="{ on: i === ch }">
+          <button class="toc-go" @click="goChapter(i)">
+            <span>{{ c.title }}</span><small v-if="notesOf(b.id, i).length">{{ notesOf(b.id, i).length }} 张便利贴</small>
+          </button>
+          <button v-if="b.herNext?.ch === i" class="pin on" aria-label="取消下次从这里读" @click="unpinNext">下次从这里读 ✕</button>
+          <button v-else class="pin" @click="pinNext(i)">下次从这章读</button>
+        </div>
       </div>
     </Sheet>
   </div>
@@ -996,8 +1008,13 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .compose blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid #d9a441; background: color-mix(in srgb, #faf6ef var(--pastel), var(--card)); color: var(--text-2); font-size: .85rem; line-height: 1.7; border-radius: 4px; }
 .compose .btn { align-self: flex-end; }
 .toc { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
+.toc-row { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
+.toc-row.on .toc-go { font-weight: 600; color: #b5852e; }
+.toc-row .toc-go { flex: 1; min-width: 0; border-bottom: 0; }
+.toc .pin { flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: .68rem; color: var(--text-2); background: none; border-bottom: 1px solid var(--line); }
+.toc .pin.on { border-color: #d9a441; color: #b5852e; background: color-mix(in srgb, #d9a441 14%, transparent); }
 .toc button { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border: 0; background: none; text-align: left; padding: 11px 6px; border-bottom: 1px solid var(--line); font-size: .9rem; }
-.toc button.on { font-weight: 600; color: #b5852e; }
+
 .toc small { color: #d9a441; font-size: .7rem; flex: none; }
 .bar .t span { color: color-mix(in srgb, var(--rink) 55%, transparent); }
 .night .icon-btn { background: #2a2b31; color: #ddd; }
