@@ -486,7 +486,7 @@ function remove() {
           </template>
           <template v-else>
         <article v-for="m in derived" :key="m.id" class="sum" @click="viewing = m">
-          <div class="meta"><span>{{ m.bookId ? "共读 · 读书笔记" : "共写 · 写书的总结" }}</span><span>{{ md(m.date) }}</span></div>
+          <div class="meta"><span>共写 · 写书的总结</span><span>{{ md(m.date) }}</span></div>
           <h3>{{ m.title }}</h3>
           <p>{{ m.content }}</p>
         </article>

@@ -152,12 +152,19 @@ const bookPush = body => serial(async () => {
   changed = writeIfChanged(".gitattributes", "book/*.jsonl merge=union\n") || changed; // 两边同时加行：合在一起，不算冲突
   if (typeof body.summary === "string") changed = writeIfChanged("summary.md", `# 前情摘要（栖所整理的，比 book/log.jsonl 里的原话更早）\n\n${body.summary.trim()}\n`) || changed;
   if (typeof body.memories === "string") changed = writeIfChanged("memories.md", `# 小螃蟹的记忆卡片（栖所同步过来的）\n\n${body.memories.trim()}\n`) || changed;
-  if (!changed) return { added: 0 };
+  // 栖所要存一份备份（比如删数据之前先导出）：只收 backup/ 下面的 .json，写好了在 saved 里告诉栖所，栖所看到了才敢删
+  const saved = [];
+  for (const [rel, text] of Object.entries(body.files || {})) {
+    if (!/^backup\/[\w.-]+\.json$/.test(rel) || typeof text !== "string" || text.length > 4_000_000) continue;
+    changed = writeIfChanged(rel, text) || changed;
+    saved.push(rel);
+  }
+  if (!changed) return { added: 0, saved };
   await mgit(["add", "-A"]);
   await mgit(["commit", "-q", "-m", `栖所：${add.length ? `${add.length} 条新消息` : "更新摘要和记忆"}`]);
   try { await mgit(["push", "-q"]); }
   catch { await mgit(["pull", "--rebase", "-q"]); await mgit(["push", "-q"]); } // 别处刚推过：先合上再推
-  return { added: add.length };
+  return { added: add.length, saved };
 });
 // 栖所拿回去一张图（只给 book/media/ 下面的 jpg）
 function bookMedia(p) {

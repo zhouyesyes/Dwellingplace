@@ -406,13 +406,13 @@ async function ingestRoom(role, item) {
         R.clearHerPin(b, role.id); // 她定的「下次从这章」用过一次就清
         R.maybeGist(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
         R.maybeImpression(role, b, { ch: p.upTo.ch, p: p.upTo.p + 1 }).catch(() => {});
-        what = `，读了一段，划了 ${p.notes.length} 处${p.memNotes.length ? "，记了读书笔记" : ""}`;
+        what = `，读了一段，划了 ${p.notes.length} 处`;
       }
     } else if (r.kind === "talk" && r.text && r.room === "read") {
       const T = await import("./readTalk.js");
-      const { applyNoteTags, applyReadMemTags } = await import("./reading.js");
+      const { applyNoteTags, stripReadMemTags } = await import("./reading.js");
       const t1 = applyNoteTags(role, r.text);
-      const t2 = applyReadMemTags(role, t1.text);
+      const t2 = stripReadMemTags(t1.text);
       const text = visibleText(t2.text.replace(/\[不说话\]/g, "")).trim();
       const list = await T.loadRoom(r.id);
       if (text && !list.some(m => m.id === `w${item.id}`)) list.push({ id: `w${item.id}`, from: "ai", text, notes: [...t1.notes, ...t2.notes, "自由时间自己来的"], ts: item.ts });

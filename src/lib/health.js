@@ -90,7 +90,7 @@ export async function healthOf(role, me) {
   const raw = sumTokens(rest.slice(tailFrom(rest, chatTokens())));
   const tokens = [
     { label: "系统提示（不算记忆）", n: Math.max(0, estTokens(system) - estTokens(mem)) },
-    { label: "全局记忆：常驻卡片、信、读书笔记等", n: Math.max(0, estTokens(mem) - estTokens(board)) },
+    { label: "全局记忆：常驻卡片、信等", n: Math.max(0, estTokens(mem) - estTokens(board)) },
     { label: "板块记忆", n: estTokens(board) },
     { label: "此刻（最近 24 小时）", n: estTokens(moment) },
     { label: "聊天摘要", n: estTokens(summary) },
