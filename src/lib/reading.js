@@ -329,11 +329,22 @@ export const READ_MIN = 1000, READ_MAX = 8000;
 export const hisAt = b => b.alongTo || b.hisPos || null;
 const START0 = { ch: 0, p: 0 };
 // 他接着读的话从哪开始：他说过下次从哪就从那；不然从上次读到的下一段；还没读过就从她读到的地方
-export function hisNextFrom(b, book) {
+export function hisNextFrom(b, book, roleId) {
+  const pin = herPin(b, roleId);
+  if (pin) return { ch: Math.min(pin.ch, book.chapters.length - 1), p: 0 };
   if (b.hisNext?.end) return tailStart(book, b.hisNext.tokens || 4000);
   if (b.hisNext) return { ch: b.hisNext.ch, p: b.hisNext.p || 0 };
   const at = hisAt(b);
   return at ? { ch: at.ch, p: at.p + 1 } : b.pos || START0;
+}
+// 她在目录里点的「下次从这章读」：b.herNext = { ch, ids: [哪几个 AI 还没用] }；每个 AI 读过一次就从 ids 里划掉，划空了整个清掉
+export const herPin = (b, roleId) => (b.herNext && b.herNext.ids?.includes(roleId) ? b.herNext : null);
+export function setHerPin(b, ch, ids) { b.herNext = { ch, ids: [...ids] }; }
+export function clearHerPin(b, roleId) {
+  if (!b.herNext) return;
+  if (roleId == null) { delete b.herNext; return; }
+  const ids = (b.herNext.ids || []).filter(x => x !== roleId);
+  if (ids.length) b.herNext = { ...b.herNext, ids }; else delete b.herNext;
 }
 // 倒着数够 tokens，结尾那一段从哪开始
 function tailStart(book, tokens) {
@@ -362,23 +373,28 @@ export async function chooseReading(role, b) {
   const me = meName(role);
   const book = await loadBook(b.id);
   const im = latestImpr(b);
-  const next = hisNextFrom(b, book);
+  const next = hisNextFrom(b, book, role.id);
+  const pin = herPin(b, role.id);
+  const pinTitle = pin ? book.chapters[next.ch]?.title || `第 ${next.ch + 1} 章` : "";
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。这次你自己挑读哪里、读多少。`,
     `目录：\n${tocText(b, book, me)}`,
-    hisAt(b) ? `你上次读到「${book.chapters[hisAt(b).ch]?.title || ""}」；接着读的话从「${book.chapters[next.ch]?.title || ""}」那里开始。` : `你还没读过这本，接着读的话从${me}读到的地方开始。`,
+    pin ? `【${me}特意定的起点】${me}在目录里点了「下次从这章读」：这次请从「${pinTitle}」（第 ${next.ch + 1} 章）开头读。这是${me}定的，比你自己对中途的印象优先；中间那些章${me}不想让你读，别回头补。读多少还是你自己定。` : "",
+    !pin && hisAt(b) ? `你上次读到「${book.chapters[hisAt(b).ch]?.title || ""}」；接着读的话从「${book.chapters[next.ch]?.title || ""}」那里开始。` : `你还没读过这本，接着读的话从${me}读到的地方开始。`,
     b.gist?.text ? `前面的梗概：\n${b.gist.text.length > 2000 ? "……" + b.gist.text.slice(-2000) : b.gist.text}` : "",
     im ? `你最新的中途印象：${im.text}` : "",
-    `大多数时候接着往下读就好；想跳到某一章、或者直接去看结尾，也可以。读多少你自己定：${READ_MIN}～${READ_MAX} token（中文大约一个字一个 token）。`,
-    `只回一行：[读:接着|token数]，或者 [读:章号|token数]（从那一章开头读），或者 [读:末尾|token数]。`,
+    pin ? `读多少你自己定：` : `大多数时候接着往下读就好；想跳到某一章、或者直接去看结尾，也可以。读多少你自己定：${READ_MIN}～${READ_MAX} token（中文大约一个字一个 token）。`,
+    pin ? `只回一行：[读:${next.ch + 1}|token数]（token 数你定）。` : `只回一行：[读:接着|token数]，或者 [读:章号|token数]（从那一章开头读），或者 [读:末尾|token数]。`,
   ].filter(Boolean).join("\n\n");
   const raw = await oneShot(role, prompt, { raw: true });
-  return parseChoice(raw, b, book);
+  return parseChoice(raw, b, book, role.id);
 }
-export function parseChoice(raw, b, book) {
+export function parseChoice(raw, b, book, roleId) {
   const m = String(raw || "").match(CHOICE_RE);
   const tokens = Math.max(READ_MIN, Math.min(READ_MAX, Number(m?.[2]) || 4000));
+  // 她定了起点：不管他回了什么，都从那一章开头读
+  if (herPin(b, roleId)) return { how: "chapter", tokens, from: hisNextFrom(b, book, roleId) };
   const where = m?.[1] || "接着";
   if (/末尾|结尾/.test(where)) return { how: "end", tokens, from: tailStart(book, tokens) };
   if (/^\d+$/.test(where)) {
@@ -510,6 +526,7 @@ export async function readOnHisOwn(role, b) {
   markHisPos(b, r.upTo.ch, r.upTo.p);
   b.alongTo = r.upTo;
   delete b.hisNext;
+  clearHerPin(b, role.id);
   maybeGist(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
   maybeImpression(role, b, { ch: r.upTo.ch, p: r.upTo.p + 1 }).catch(() => {});
   return { ...r, choice, from: items[0] };
