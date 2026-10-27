@@ -3,6 +3,7 @@
 // 移除要确认两次（写清是哪几章、几章；上面有笔记的再提醒一句）。改完通知读书页重新排版
 import { ref, computed } from "vue";
 import { notesOf } from "../../lib/books.js";
+import { store } from "../../store/index.js";
 import { renameChapter, removeChapters, restoreChapter, mergeChapters, splitChapter, resplitChapters, resplitPreview } from "../../lib/chapters.js";
 import { SPLIT_RULES } from "../../lib/chapterSplit.js";
 import { toast } from "../../lib/toast.js";
@@ -16,7 +17,8 @@ const picked = ref(new Set()); // 多选着的章
 const picking = computed(() => picked.value.size > 0);
 const renaming = ref(-1);
 const draft = ref("");
-const panel = ref(null); // { kind: "remove" | "split" | "resplit", ... }
+const panel = ref(null); // { kind: "remove" | "merge" | "split" | "resplit", ... }
+const open = ref(-1); // 点开了哪一章的操作条（改名 / 和下一章合并 / 从某一行拆开）
 
 const noteCount = i => notesOf(props.book.id, i).length;
 const sorted = computed(() => [...picked.value].sort((a, b) => a - b));
@@ -30,6 +32,7 @@ async function run(fn, done) {
     picked.value = new Set();
     panel.value = null;
     renaming.value = -1;
+    open.value = -1;
     emit("changed");
     if (done) toast(done);
   } catch (e) {
@@ -62,14 +65,26 @@ function askRemove() {
   panel.value = { kind: "remove", list, notes: list.reduce((a, x) => a + x.notes, 0) };
 }
 const doRemove = () => run(() => removeChapters(props.book.id, panel.value.list.map(x => x.i)), "移到「已移除章节」了，可以恢复");
-const doMerge = () => run(() => mergeChapters(props.book.id, sorted.value), "合并好了");
+// 合并：先列出来确认，说清楚哪些东西会跟着走
+const trail = () => {
+  const b = store.books.find(x => x.id === props.book.id) || {};
+  return { pos: !!b.pos, his: !!(b.hisPos || b.alongTo), pin: b.herNext != null };
+};
+function askMerge(list = sorted.value) {
+  if (list.length < 2) return;
+  const items = list.map(i => ({ i, title: props.book.chapters[i].title, n: props.book.chapters[i].n, notes: noteCount(i) }));
+  panel.value = { kind: "merge", list: items, notes: items.reduce((a, x) => a + x.notes, 0), ...trail() };
+}
+const doMerge = () => run(() => mergeChapters(props.book.id, panel.value.list.map(x => x.i)), "合并好了，笔记和进度都跟着原来的句子");
+function askMergeNext(i) { askMerge([i, i + 1]); }
 const restore = r => run(() => restoreChapter(props.book.id, r.id), `「${r.title}」放回去了`);
 
 // 切开：选从哪一段开始是新的一章
-function askSplit() {
-  const i = sorted.value[0];
-  panel.value = { kind: "split", i, at: -1, title: "" };
+function askSplit(i = sorted.value[0]) {
+  panel.value = { kind: "split", i, at: -1, title: "", sure: false };
 }
+// 切开前数一数：从这一段往后有几条笔记会跟着去新的一章
+const movedNotes = computed(() => panel.value?.kind === "split" && panel.value.at > 0 ? notesOf(props.book.id, panel.value.i).filter(n => n.p >= panel.value.at).length : 0);
 const splitParas = computed(() => panel.value?.kind === "split" ? props.body.chapters[panel.value.i]?.paras || [] : []);
 function pickSplit(p) { panel.value.at = p; panel.value.title = splitParas.value[p].slice(0, 30); }
 const doSplit = () => run(() => splitChapter(props.book.id, panel.value.i, panel.value.at, panel.value.title), "切成两章了");
@@ -92,6 +107,15 @@ const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `�
       <div class="row"><button class="btn soft" :disabled="busy" @click="panel = null">再想想</button><button class="btn danger" :disabled="busy" @click="doRemove">确定移除</button></div>
     </section>
 
+    <!-- 合并确认 -->
+    <section v-else-if="panel?.kind === 'merge'" class="panel">
+      <h4>把这 {{ panel.list.length }} 章并成一章？</h4>
+      <ul class="names"><li v-for="x in panel.list" :key="x.i">{{ x.title }}<small> · {{ x.n }} 段<template v-if="x.notes"> · {{ x.notes }} 条笔记</template></small></li></ul>
+      <p class="tip">并成「{{ panel.list[0].title }}」，后面几章的名字不留（想找回可以再把它们切开）。</p>
+      <p class="tip">划线、便利贴（你的、chatgpt 的、CC 的）、书签、阅读进度<template v-if="panel.pin">、「下次从这章读」</template>都会跟着原来的那一句走，不会丢也不会错位。</p>
+      <div class="row"><button class="btn soft" :disabled="busy" @click="panel = null">再想想</button><button class="btn" :disabled="busy" @click="doMerge">确定合并</button></div>
+    </section>
+
     <!-- 切开 -->
     <section v-else-if="panel?.kind === 'split'" class="panel">
       <h4>「{{ book.chapters[panel.i].title }}」从哪一段开始切成新的一章？</h4>
@@ -99,7 +123,11 @@ const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `�
         <button v-for="(t, p) in splitParas" :key="p" :class="{ on: panel.at === p }" :disabled="p === 0" @click="pickSplit(p)"><small>{{ p + 1 }}</small>{{ t.slice(0, 60) }}</button>
       </div>
       <label v-if="panel.at > 0" class="name">新一章的名字<input v-model="panel.title" class="input" maxlength="60" /></label>
-      <div class="row"><button class="btn soft" :disabled="busy" @click="panel = null">取消</button><button class="btn" :disabled="busy || panel.at <= 0" @click="doSplit">从这一段切开</button></div>
+      <template v-if="panel.sure">
+        <p class="tip">会在第 {{ panel.at + 1 }} 段「{{ splitParas[panel.at].slice(0, 20) }}…」前面切开，从它起往后是新的一章「{{ panel.title }}」。{{ movedNotes ? `这几段上的 ${movedNotes} 条笔记会跟着去新的一章，` : "" }}划线、便利贴、书签、阅读进度都留在原来那一句上。</p>
+        <div class="row"><button class="btn soft" :disabled="busy" @click="panel.sure = false">再选选</button><button class="btn" :disabled="busy" @click="doSplit">确定切开</button></div>
+      </template>
+      <div v-else class="row"><button class="btn soft" :disabled="busy" @click="panel = null">取消</button><button class="btn" :disabled="busy || panel.at <= 0" @click="panel.sure = true">从这一段切开</button></div>
     </section>
 
     <!-- 换规则重新分 -->
@@ -114,11 +142,12 @@ const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `�
 
     <template v-else>
       <div class="top">
-        <small>{{ picking ? `选了 ${picked.size} 章` : "长按一章开始多选；点笔可以改名" }}</small>
+        <small>{{ picking ? `选了 ${picked.size} 章` : "点 ⋯ 合并或拆开，点笔改名，长按多选" }}</small>
         <button class="link" :disabled="busy" @click="panel = { kind: 'resplit' }">换规则重新分章</button>
       </div>
       <div class="list">
-        <div v-for="(c, i) in book.chapters" :key="c.id || i" class="item" :class="{ on: picked.has(i), cur: i === current }"
+        <template v-for="(c, i) in book.chapters" :key="c.id || i">
+        <div class="item" :class="{ on: picked.has(i), cur: i === current }"
           @pointerdown="down(i)" @pointerup="up" @pointerleave="up" @pointercancel="up" @contextmenu.prevent @click="tap(i)">
           <template v-if="renaming === i">
             <input v-model="draft" class="input" maxlength="60" aria-label="章节名" @click.stop @pointerdown.stop @keydown.enter="saveRename" />
@@ -130,13 +159,19 @@ const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `�
             <span class="t">{{ c.title }}</span>
             <small>{{ c.n }} 段{{ noteCount(i) ? ` · ${noteCount(i)} 条笔记` : "" }}</small>
             <button v-if="!picking" class="pen" aria-label="改名" @click.stop="startRename(i)" @pointerdown.stop><Icon name="edit" :size="15" /></button>
+            <button v-if="!picking" class="pen" :aria-label="open === i ? '收起' : '合并或拆开'" @click.stop="open = open === i ? -1 : i" @pointerdown.stop>{{ open === i ? "▴" : "⋯" }}</button>
           </template>
         </div>
+        <div v-if="open === i && !picking && renaming !== i" class="acts">
+          <button :disabled="busy || i >= book.chapters.length - 1" @click="askMergeNext(i)">和下一章合并</button>
+          <button :disabled="busy || c.n < 2" @click="askSplit(i)">从某一行拆开</button>
+        </div>
+        </template>
       </div>
       <div v-if="picking" class="bar">
         <button :disabled="busy" @click="picked = new Set()">取消</button>
         <button :disabled="busy || picked.size !== 1 || book.chapters[sorted[0]].n < 2" @click="askSplit">切开</button>
-        <button :disabled="busy || !contiguous" @click="doMerge">合并</button>
+        <button :disabled="busy || !contiguous" @click="askMerge()">合并</button>
         <button class="danger" :disabled="busy || picked.size >= book.chapters.length" @click="askRemove">移除</button>
       </div>
       <section v-if="body.removed?.length" class="removed">
@@ -166,6 +201,9 @@ const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `�
 .check { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--text-3); display: grid; place-items: center; font-style: normal; font-size: .72rem; color: var(--on-ink); }
 .item.on .check { background: var(--ink); border-color: var(--ink); }
 .pen { flex: none; border: 0; background: none; color: var(--text-3); padding: 4px; display: grid; place-items: center; }
+.acts { display: flex; gap: 8px; padding: 8px 6px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.acts button { flex: 1; border: 1px solid var(--line); border-radius: 999px; padding: 7px 0; font-size: .8rem; background: var(--card); color: var(--text); }
+.acts button:disabled { opacity: .4; }
 .mini { flex: none; border: 0; border-radius: 999px; padding: 5px 12px; font-size: .78rem; background: var(--ink); color: var(--on-ink); }
 .mini.soft { background: var(--bg); color: var(--text-2); border: 1px solid var(--line); }
 .bar { display: flex; gap: 8px; }

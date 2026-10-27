@@ -61,7 +61,15 @@ async function commit(bookId, build) {
   const bi = next.books.findIndex(x => x.id === bookId);
   if (bi < 0) throw Error("这本书已不在书架上");
   const { chapters: _, ...rest } = next.books[bi];
-  next.books[bi] = { ...walk(rest), chapters: shelfChapters(chapters) };
+  const moved = walk(rest);
+  // 「下次从这章读」（herNext）和他说的下次从哪（hisNext）有的只记章号、没记段号，上面的 walk 认不出来：这里单独挪
+  for (const key of ["herNext", "hisNext"]) {
+    const v = rest[key];
+    if (!v || !Number.isInteger(v.ch) || v.ch < 0 || Number.isInteger(v.p)) continue;
+    const m = moveTo(v.ch, 0);
+    moved[key] = { ...moved[key], ch: m.ch, ...(m.p ? { p: m.p } : {}) };
+  }
+  next.books[bi] = { ...moved, chapters: shelfChapters(chapters) };
   next.bookNotes = (next.bookNotes || []).map(n => {
     if (n.bookId !== bookId) return n;
     if (n.removedCh) { // 移除章节上的笔记：章节恢复了就回来
