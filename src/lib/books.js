@@ -6,6 +6,7 @@ import { splitLines } from "./chapterSplit.js";
 //                    pos / hisPos：你 / 他读到哪；readSecs：你读了多久；mine / his：读完的评分和读后感 { stars, text, at }
 //   book:<id>        正文 { chapters: [{ id, title, paras: [段落…], media?: [{ p, resource }] }], resources?: { 路径: 图片数据 }, removed?: [移除的章节] }（单独存并同步）
 //                    id：章节的稳定编号（改名、挪位置都不变；EPUB 用书里自带的编号）；书架上 chapters 也带着同一个 id
+//                    note：章末的作者便签 [「作者有话要说」那一行, 她写的话…]（不是正文，不算段落，AI 读书时标明是作者的话）
 //                    heading：TXT 里章名原本是哪几行（换规则重新分章时用）
 //   store.bookNotes  便利贴 [{ id, bookId, ch, p, quote, text, from: "me" | "ai", ts, seen, replyTo }]
 //                    p：贴在第几段；seen：对方看过没有（你贴的他看没看过 / 他贴的你在书页上看没看到过）；replyTo：回应的是哪一张
@@ -26,11 +27,11 @@ export const bookById = id => (store.books || []).find(b => b.id === id);
 export const notesOf = (bookId, ch) => (store.bookNotes || []).filter(n => n.bookId === bookId && (ch == null || n.ch === ch));
 
 // ---------- 导入 ----------
-export async function importBook(file, { encoding, rule } = {}) {
+export async function importBook(file, { encoding, rule, edits } = {}) {
   const name = file.name.replace(/\.[^.]+$/, "");
   const buf = new Uint8Array(await file.arrayBuffer());
   const isEpub = /\.epub$/i.test(file.name) || (buf[0] === 0x50 && buf[1] === 0x4b);
-  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name, encoding, rule);
+  const parsed = isEpub ? await parseEpub(buf) : parseTxt(buf, name, encoding, rule, edits);
   const chapters = parsed.chapters.filter(c => c.paras.length || c.media?.length);
   if (!chapters.length) throw new Error("这本书里没读出文字");
   const id = uid();
@@ -65,14 +66,16 @@ export const shelfChapters = chapters => chapters.map(c => ({ id: c.id, title: c
 export const txtLines = text => text.replace(/\r\n?/g, "\n").split("\n").map(s => s.replace(/^[\s　]+|\s+$/g, "")).filter(Boolean);
 // 章名是原文里的哪几行（「第一卷」「第一章」）：换规则重新分章时放回正文里重新认；改名、手动切开起的名字不算原文
 export const headingOf = (c, lines) => { const hs = c.heads || (c.head >= 0 ? [c.head] : []); return hs.length ? { heading: hs.map(i => lines[i]) } : {}; };
-export function txtChapters(text, rule = "auto") {
+// 章末的作者便签：note 的第一行是「作者有话要说」那一行，后面是她写的话
+export const noteOf = (c, lines) => c.noteLines?.length ? { note: c.noteLines.map(i => lines[i]) } : {};
+export function txtChapters(text, rule = "auto", edits = null) {
   const lines = txtLines(text);
-  return splitLines(lines, rule).map(c => ({ id: uid(), title: c.title.slice(0, 60), ...headingOf(c, lines), paras: c.lines.map(i => lines[i]) }));
+  return splitLines(lines, rule, undefined, edits).map(c => ({ id: uid(), title: c.title.slice(0, 60), ...headingOf(c, lines), ...noteOf(c, lines), paras: c.lines.map(i => lines[i]) }));
 }
-function parseTxt(buf, name, encoding, rule) {
+function parseTxt(buf, name, encoding, rule, edits) {
   const decoded = decodeTxt(buf, encoding);
   if (!decoded.usable) throw new Error("正文为空或损坏字符过多，请重新选择编码导入");
-  return { title: name, chapters: txtChapters(decoded.text, rule) };
+  return { title: name, chapters: txtChapters(decoded.text, rule, edits) };
 }
 
 // EPUB：其实是个 zip。按 spine（阅读顺序）一篇篇拿出正文；目录里有名字就用目录的名字

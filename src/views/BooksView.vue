@@ -4,8 +4,8 @@
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
-import { importBook, progressOf, readingTotals, fmtDur, txtChapters } from "../lib/books.js";
-import { SPLIT_RULES } from "../lib/chapterSplit.js";
+import { importBook, progressOf, readingTotals, fmtDur, txtLines } from "../lib/books.js";
+import { SPLIT_RULES, splitLines } from "../lib/chapterSplit.js";
 import { readingMemsOf } from "../lib/reading.js";
 import { pickFile } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
@@ -28,10 +28,35 @@ const txt = ref(null); // { file, bytes, detected, pick（展开编码选择）}
 const encoding = ref('utf-8');
 const rule = ref('auto');
 const decoded = computed(() => txt.value ? decodeTxt(txt.value.bytes, encoding.value) : null);
-const preview = computed(() => decoded.value?.usable ? txtChapters(decoded.value.text, rule.value) : []);
+// 分错了两种补救：自己写章名开头（比如「☆、」）按它重新分；或者手动合并 / 拆开（edits 记着哪几行被她改成章名、哪几行被改回正文）
+const prefix = ref('');
+const edits = ref({ add: [], del: [] });
+const opened = ref(-1); // 展开着看内容、挑从哪一行拆开的那一章
+const lines = computed(() => decoded.value?.usable ? txtLines(decoded.value.text) : []);
+const preview = computed(() => splitLines(lines.value, rule.value, undefined, edits.value).map(c => ({ ...c, n: c.lines.length, heads: c.heads || (c.head >= 0 ? [c.head] : []) })));
+function setRule(k) { rule.value = k; edits.value = { add: [], del: [] }; opened.value = -1; }
+function applyPrefix() {
+  const pre = prefix.value.trim();
+  if (!pre) return toast('先写一个章节开头，比如 ☆、');
+  setRule('custom:' + pre);
+  if (preview.value.length < 2) toast('这样没分出几章，看看开头是不是写对了', 3000);
+}
+function mergeNext(k) {
+  const next = preview.value[k + 1];
+  if (!next?.heads.length) return;
+  const e = edits.value;
+  edits.value = { add: e.add.filter(i => !next.heads.includes(i)), del: [...e.del, ...next.heads] };
+  opened.value = -1;
+}
+function splitAt(i) {
+  const e = edits.value;
+  edits.value = { add: [...e.add, i], del: e.del.filter(x => x !== i) };
+  opened.value = -1;
+}
+const edited = computed(() => edits.value.add.length + edits.value.del.length > 0);
 async function confirmTxt() {
   if (!txt.value || !decoded.value.usable || busy.value) return;
-  await place(txt.value.file, { encoding: encoding.value, rule: rule.value });
+  await place(txt.value.file, { encoding: encoding.value, rule: rule.value, edits: edited.value ? edits.value : null });
 }
 async function place(file, options) {
   busy.value = true;
@@ -57,7 +82,8 @@ async function add(forceEncoding = false) {
     } else {
       const analysis = analyzeTxt(bytes);
       encoding.value = analysis.encoding;
-      rule.value = 'auto';
+      setRule('auto');
+      prefix.value = '';
       txt.value = { file, bytes, detected: encoding.value, pick: forceEncoding || analysis.needsPreview };
     }
   } catch (e) {
@@ -200,13 +226,27 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
         <p v-else class="txt-enc-line">编码 {{ encodingLabel(encoding) }}（自动认出来的）<button :disabled="busy" @click="txt.pick = true">有乱码？换编码</button></p>
         <div v-if="decoded.usable" class="txt-chapters">
           <div class="txt-rules" role="group" aria-label="分章规则">
-            <button v-for="(l, k) in SPLIT_RULES" :key="k" :class="{ on: rule === k }" :disabled="busy" @click="rule = k">{{ l }}</button>
+            <button v-for="(l, k) in SPLIT_RULES" :key="k" :class="{ on: rule === k }" :disabled="busy" @click="setRule(k)">{{ l }}</button>
           </div>
-          <small>分成了 {{ preview.length }} 章{{ preview.length === 1 ? "（没认出章节标题，可以换个规则试试）" : "" }}</small>
+          <form class="txt-prefix" @submit.prevent="applyPrefix">
+            <input v-model="prefix" maxlength="12" placeholder="自己写章节开头，比如 ☆、" aria-label="章节开头" />
+            <button type="submit" :class="{ on: rule.startsWith('custom:') }" :disabled="busy">按这个分</button>
+          </form>
+          <small>认出了 {{ preview.length }} 章{{ preview.length === 1 ? "（没认出章节标题，可以换个规则、或者自己写开头）" : "" }}{{ edited ? "（手动改过）" : "" }}。分错了可以点「合并」或「拆开」</small>
           <ol class="txt-toc">
-            <li v-for="c in preview.slice(0, 80)" :key="c.id"><span>{{ c.title }}</span><small>{{ c.paras.length }} 段</small></li>
+            <template v-for="(c, k) in preview.slice(0, 80)" :key="k">
+              <li>
+                <span>{{ c.title }}</span><small>{{ c.n }} 段<template v-if="c.noteLines?.length"> · 有作者便签</template></small>
+                <button v-if="c.n > 1" :disabled="busy" @click="opened = opened === k ? -1 : k">{{ opened === k ? '收起' : '拆开' }}</button>
+                <button v-if="preview[k + 1]?.heads.length" :disabled="busy" @click="mergeNext(k)">和下一章合并</button>
+              </li>
+              <li v-if="opened === k" class="txt-lines">
+                <button v-for="i in c.lines.slice(1, 120)" :key="i" :disabled="busy" @click="splitAt(i)"><b>从这里拆开</b>{{ lines[i].slice(0, 40) }}</button>
+              </li>
+            </template>
             <li v-if="preview.length > 80" class="more">……还有 {{ preview.length - 80 }} 章</li>
           </ol>
+          <button v-if="edited" class="txt-reset" :disabled="busy" @click="setRule(rule)">撤销手动改的</button>
         </div>
         <div class="txt-actions">
           <button :disabled="busy" @click="txt = null">取消</button>
@@ -235,6 +275,16 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .txt-rules { display: flex; flex-wrap: wrap; gap: 6px; }
 .txt-rules button { border: 1px solid var(--line); background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 5px 11px; font-size: .78rem; }
 .txt-rules button.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.txt-prefix { display: flex; gap: 6px; margin-top: 8px; }
+.txt-prefix input { flex: 1; min-width: 0; min-height: 36px; font-size: 16px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 0 14px; }
+.txt-prefix button, .txt-reset { flex: none; border: 1px solid var(--line); background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 5px 12px; font-size: .78rem; }
+.txt-prefix button.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.txt-reset { margin-top: 8px; }
+.txt-toc li { flex-wrap: wrap; }
+.txt-toc li > button { flex: none; border: 0; background: none; color: var(--accent); font-size: .74rem; padding: 2px 0; }
+.txt-toc li.txt-lines { display: block; padding: 0; max-height: 22dvh; overflow-y: auto; background: var(--card); border-radius: 8px; }
+.txt-toc li.txt-lines button { display: flex; gap: 8px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 7px 8px; font-size: .78rem; color: var(--text); line-height: 1.5; }
+.txt-toc li.txt-lines button b { flex: none; color: var(--accent); font-weight: 500; font-size: .7rem; }
 .txt-toc { list-style: none; margin: 8px 0 0; padding: 4px 12px; max-height: 30dvh; overflow-y: auto; background: var(--bg); border-radius: 10px; }
 .txt-toc li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .85rem; }
 .txt-toc li:last-child { border-bottom: 0; }

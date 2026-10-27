@@ -41,6 +41,11 @@ const scroller = ref(null);
 const paras = computed(() => content.value?.chapters[ch.value]?.paras || []);
 const media = computed(() => content.value?.chapters[ch.value]?.media || []);
 const imagesAt = p => media.value.filter(m => m.p === p);
+// 章末的作者便签（「作者有话要说」）：默认收着，点一下展开；换章自动收起
+const authorNote = computed(() => { const n = content.value?.chapters[ch.value]?.note; return n?.length > 1 ? { label: n[0].replace(/[【】\[\]（）()：:\s]/g, ""), text: n.slice(1).join("\n") } : null; });
+const noteOpen = ref(false);
+watch(ch, () => (noteOpen.value = false));
+function toggleNote() { noteOpen.value = !noteOpen.value; nextTick(measure); }
 const chapterTitle = computed(() => b.value?.chapters[ch.value]?.title || "");
 
 // ---------- 翻页 ----------
@@ -712,6 +717,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         </div>
       </template>
       <BookImage v-for="(m, j) in imagesAt(paras.length)" :key="'tail:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="!paras.length ? openSheet('ask', { ch, p: 0, quote: '' }) : viewImage(m)" :role="!paras.length ? 'button' : null" :tabindex="!paras.length ? 0 : null" :aria-label="!paras.length ? '问问他：当前图片页' : null" @mousedown="!paras.length && $event.preventDefault()" @keydown.enter="!paras.length && openSheet('ask', { ch, p: 0, quote: '' })" />
+      <aside v-if="authorNote" class="author-note" :class="{ open: noteOpen }">
+        <button type="button" :aria-expanded="noteOpen" @click="toggleNote"><span>{{ authorNote.label || "作者的话" }}</span><i>{{ noteOpen ? "收起" : "点开" }}</i></button>
+        <p v-if="noteOpen">{{ authorNote.text }}</p>
+      </aside>
       <nav class="ch-nav">
         <button class="btn soft" :disabled="ch === 0" @click="goChapter(ch - 1)">‹ 上一章</button>
         <span>{{ ch + 1 }} / {{ b.chapters.length }}</span>
@@ -902,6 +911,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
    多垫一栏，最后一页总能滚到整页的位置；页数按章末那一行算，这一栏翻不到 */
 .page.paged .tail { break-before: column; height: var(--colh, 100%); }
 .pgno { position: fixed; left: 22px; bottom: calc(var(--safe-bottom) + 34px); z-index: 2; font-size: .72rem; color: var(--text-3); letter-spacing: .05em; }
+.author-note { margin: 22px 0 0; padding: 10px 14px; border-radius: 4px; background: color-mix(in srgb, #9cc98a 24%, var(--rbg)); color: var(--rink); box-shadow: 0 5px 12px rgba(60, 70, 40, .14); transform: rotate(-.6deg); break-inside: avoid; font-family: var(--font); }
+.author-note button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; border: 0; background: none; padding: 2px 0; font-size: .86rem; font-weight: 600; color: inherit; font-family: inherit; }
+.author-note button i { font-style: normal; font-size: .72rem; font-weight: 400; opacity: .6; }
+.author-note p { margin: 8px 0 2px; font-size: .88rem; line-height: 1.8; white-space: pre-wrap; text-indent: 0; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
 .page .para { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
 /* 划线：你的暖黄、他的淡蓝；两个人都划了就叠在一起。写了想法的线尾，有个小小的数字 */
