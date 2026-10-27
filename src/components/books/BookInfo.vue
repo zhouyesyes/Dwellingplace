@@ -1,9 +1,9 @@
 <script setup>
-// 一本书的卡片：读到哪（我、他）、便利贴几张、读了多久；读完的评分和读后感（我写、请他写）；他的读书笔记；换封面改名拿下来
+// 一本书的卡片：读到哪（我、他）、便利贴几张、读了多久；读完的评分和读后感（我写、请他写）；换封面改名拿下来
 import { ref, shallowRef, computed, watch } from "vue";
 import { store, MAIN, roleById } from "../../store/index.js";
 import { progressOf, fmtDur, notesOf, removeBook } from "../../lib/books.js";
-import { readingMemsOf, hisReview, writeImpression } from "../../lib/reading.js";
+import { hisReview, writeImpression } from "../../lib/reading.js";
 import { bookImpression, rereadBook, roundOf, IMPRESSION_MAX } from "../../lib/board.js";
 import { pickAndCrop, deleteImage } from "../../lib/images.js";
 import { describeError } from "../../lib/chat.js";
@@ -20,7 +20,6 @@ const b = computed(() => props.book);
 const pct = p => `${Math.round(p * 100)}%`;
 const chName = pos => (pos ? b.value.chapters[pos.ch]?.title || "" : "");
 const notes = computed(() => (b.value ? notesOf(b.value.id) : []));
-const mems = computed(() => (b.value ? readingMemsOf(b.value.id) : []));
 
 const replacing = ref(false);
 const preview = shallowRef(null);
@@ -82,7 +81,7 @@ function rename() {
   if (t?.trim()) b.value.title = t.trim().slice(0, 80);
 }
 async function takeDown() {
-  if (!confirm(`把《${b.value.title}》拿下来？里面的便利贴也会一起没有（他的读书笔记还留在记忆库里）。`)) return;
+  if (!confirm(`把《${b.value.title}》拿下来？里面的便利贴也会一起没有。`)) return;
   const x = b.value;
   emit("close");
   await removeBook(x);
@@ -181,11 +180,6 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
         <template v-if="showSegs">
           <article v-for="(x, i) in b.gist.segs || [{ text: b.gist.text, upTo: b.gist.upTo, at: b.gist.at }]" :key="i" class="mem old"><p>{{ x.text }}</p><small>第 {{ i + 1 }} 段{{ x.from ? ` · ${chOf(x.from)} 到 ${chOf(x.upTo)}` : "" }}{{ x.model ? ` · ${x.model}` : "" }}</small></article>
         </template>
-      </section>
-
-      <section v-if="mems.length">
-        <h4>{{ role?.name }} 的读书笔记</h4>
-        <article v-for="m in mems" :key="m.id" class="mem"><b>{{ m.title }}</b><p>{{ m.content }}</p><small>{{ m.date }}</small></article>
       </section>
 
       <section v-if="b.reimport">

@@ -39,7 +39,7 @@ const amount = r => (r.unit === "token" ? `${fmtTok(r.now)} / ${fmtTok(r.limit)}
           <div :class="{ warn: h.count.pending }"><b>{{ h.count.pending }}</b><span>待确认</span></div>
           <div><b>{{ h.count.obsolete }}</b><span>已过时</span></div>
           <div><b>{{ h.count.trash }}</b><span>回收站</span></div>
-          <div><b>{{ h.count.derived }}</b><span>读书笔记等</span></div>
+          <div><b>{{ h.count.derived }}</b><span>写书总结等</span></div>
         </div>
 
         <template v-if="h.pairs.length">

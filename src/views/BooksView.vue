@@ -1,12 +1,11 @@
 <script setup>
-// 共读室：三页——书（封面一格格排着，下面写读到百分之几）、他的读书笔记、读书统计。
+// 共读室：两页——书（封面一格格排着，下面写读到百分之几）、读书统计。
 // 点封面去读；长按（或「…」里的整理）看这本书的卡片：进度、评分、读后感、换封面
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { store, MAIN, roleById } from "../store/index.js";
 import { importBook, progressOf, readingTotals, fmtDur, txtLines } from "../lib/books.js";
 import { SPLIT_RULES, splitLines } from "../lib/chapterSplit.js";
-import { readingMemsOf } from "../lib/reading.js";
 import { pickFile } from "../lib/images.js";
 import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
@@ -18,7 +17,7 @@ import BookInfo from "../components/books/BookInfo.vue";
 const router = useRouter();
 const role = computed(() => roleById(MAIN));
 const books = computed(() => [...(store.books || [])].sort((a, b) => (b.readAt || b.addedAt) - (a.readAt || a.addedAt)));
-const TABS = { books: "书", notes: "笔记", stats: "统计" };
+const TABS = { books: "书", stats: "统计" };
 const tab = ref("books");
 const busy = ref(false);
 const info = ref(null);
@@ -97,8 +96,6 @@ const down = b => { press = setTimeout(() => { press = 0; info.value = b; naviga
 const up = b => { if (press) { clearTimeout(press); press = 0; router.push(`/read/${b.id}`); } };
 const cancel = () => { clearTimeout(press); press = 0; };
 
-const mems = computed(() => readingMemsOf());
-const bookOf = id => store.books.find(b => b.id === id);
 const totals = computed(() => readingTotals());
 // 一整年的热力图：十二个小月份，读得越久颜色越深（粉 → 红）；左右箭头换年份
 const year = ref(new Date().getFullYear());
@@ -166,16 +163,6 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
       </div>
       <p class="hint">{{ books.length ? "点封面去读，长按看这本书的进度、评分和读后感。" : "书架还空着：点右上角 ＋ 放一本书（txt / epub）。" }}</p>
       <button class="hint link" :disabled="busy" @click="add(true)">重新选择编码导入</button>
-    </template>
-
-    <!-- 他的读书笔记 -->
-    <template v-else-if="tab === 'notes'">
-      <article v-for="m in mems" :key="m.id" class="mem">
-        <small>{{ bookOf(m.bookId) ? `《${bookOf(m.bookId).title}》` : "" }} · {{ m.date }}</small>
-        <b>{{ m.title.replace(/^《[^》]*》：?/, "") || "读书笔记" }}</b>
-        <p>{{ m.content }}</p>
-      </article>
-      <p v-if="!mems.length" class="hint">{{ role?.name || "他" }}读书时觉得有收获的地方，会自己记在这里（也会进他的记忆库）。</p>
     </template>
 
     <!-- 统计 -->
@@ -317,10 +304,6 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .new { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #9fbfe0; box-shadow: 0 0 0 2px var(--bg); }
 .hint { text-align: center; color: var(--text-3); font-size: .78rem; line-height: 1.7; margin: 22px 10px; }
 .hint.link { display: block; margin: -14px auto 22px; border: 0; background: none; padding: 4px 10px; text-decoration: underline; text-underline-offset: 3px; }
-.mem { background: var(--card); border-radius: 18px; padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 4px; }
-.mem small { color: var(--text-3); font-size: .72rem; }
-.mem b { font-weight: 600; font-size: .95rem; }
-.mem p { margin: 0; color: var(--text-2); font-size: .88rem; line-height: 1.75; white-space: pre-wrap; }
 .totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .totals div { background: var(--card); border-radius: 18px; padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; box-shadow: var(--shadow-soft); }
 .totals b { font-size: 1.05rem; font-weight: 600; }

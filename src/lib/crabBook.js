@@ -96,6 +96,22 @@ function dropWakeEchoes(all, t) {
   return true;
 }
 
+// 共读笔记整个去掉（10/27）：旧的读书笔记（记忆库里带书的那几条，两个人的都算）先整份存进私人仓库 backup/ 里，服务器说存好了才删；
+// 服务器还是旧的（不认 backup）或连不上，就什么都不删，下次再试。删掉靠记忆库平常的同步传给别的设备
+async function purgeReadNotes(base) {
+  if (store.fixes?.readNotesPurged) return;
+  const list = (store.memories || []).filter(m => m.bookId && !m.insight);
+  if (!list.length) { store.fixes = { ...(store.fixes || {}), readNotesPurged: { count: 0, at: Date.now() } }; return; }
+  const name = `backup/read-notes-${new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10)}-${list.length}.json`;
+  const books = Object.fromEntries((store.books || []).map(b => [b.id, b.title]));
+  const text = JSON.stringify({ note: "共读笔记（记忆库里带书的读书笔记）删除前的整份备份", at: new Date().toISOString(), count: list.length, memories: list.map(m => ({ ...m, bookTitle: books[m.bookId] || "" })) }, null, 1);
+  const r = await fetch(base + "/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entries: [], files: { [name]: text } }) });
+  if (!r.ok || !(await r.json().catch(() => ({}))).saved?.includes(name)) return;
+  const ids = new Set(list.map(m => m.id));
+  store.memories = store.memories.filter(m => !ids.has(m.id));
+  store.fixes = { ...(store.fixes || {}), readNotesPurged: { count: list.length, at: Date.now(), backup: name } };
+}
+
 let busy = false;
 export async function syncBook() {
   const role = roleById(CRAB);
@@ -104,6 +120,7 @@ export async function syncBook() {
   busy = true;
   try {
     const st = (role.book ??= { pushedTs: 0, pulledTs: 0, sig: "" });
+    await purgeReadNotes(base).catch(() => {});
     const t = bookThread(role);
     if (st.thread !== t.id) { // 换了一条：这条的话从头写进去（按 id 去重，不会重复）；开这条前半小时以来别处写的也拿过来
       if (st.thread) st.pulledTs = Math.min(st.pulledTs, (t.createdAt || Date.now()) - 30 * 60_000);

@@ -3,15 +3,15 @@
 //
 // 每次给他看的（场景在前，全局在后）：
 //   一本书的讨论室：这本书读到哪、第几遍；前情梗概（太长留后面）；他一路写的中途印象（每版都给，最新的标出来）；
-//                   他的读后感（每一遍的）和你的读后感；最近的划线批注；他为这本书记的读书笔记；讨论摘要和摘要之后的讨论
-//   大讨论室：书架上每本书一行（读到哪、他最新的印象、读后感几颗星和开头）；最近的读书笔记；讨论摘要和之后的讨论
+//                   他的读后感（每一遍的）和你的读后感；最近的划线批注；讨论摘要和摘要之后的讨论
+//   大讨论室：书架上每本书一行（读到哪、他最新的印象、读后感几颗星和开头）；讨论摘要和之后的讨论
 //   全局记忆：常驻和相关的记忆卡片、板块记忆、此刻、主聊天最近几千 token（「场景里带主聊天多少」那个设置，默认 6k）
 //   涉及以前的事：他可以写 [翻记忆:关键词]，在所有聊天和记忆里找，找到了再回（一次最多翻两回）
 import { reactive } from "vue";
 import { store, uid } from "../store/index.js";
 import { get, set, onRemoteChange } from "./kv.js";
 import { progressOf } from "./books.js";
-import { latestImpr, readingMemsOf, applyNoteTags, applyReadMemTags, READ_NOTES_ON } from "./reading.js";
+import { latestImpr, applyNoteTags, stripReadMemTags } from "./reading.js";
 import { globalMemoryForScene, takeSuggestions, roomSuggestRule } from "./memoryTags.js";
 import { recallForAI } from "./recall.js";
 import { tail, sumTokens, keepCount, writeTokens, AUTO, snapshotSum } from "./budget.js";
@@ -77,8 +77,6 @@ function bookParts(b, me) {
   if (b.mine?.text) out.push({ key: "mine", label: `${me}的读后感`, text: `${me}的读后感（${b.mine.stars} 星）：\n${b.mine.text.slice(0, 1500)}` });
   const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-12).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
   if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
-  const mems = (READ_NOTES_ON ? readingMemsOf(b.id) : []).slice(0, 8).map(m => `- ${m.content.slice(0, 160)}`);
-  if (mems.length) out.push({ key: "mems", label: "这本书的读书笔记", text: `你为这本书记过的读书笔记：\n${mems.join("\n")}` });
   return out;
 }
 function hallParts(me) {
@@ -88,8 +86,6 @@ function hallParts(me) {
     const im = latestImpr(b);
     return [`- 《${b.title}》${b.author ? `（${b.author}）` : ""}：${where(b)}`, im && `你最新的印象：${im.text}`, b.his && `你的读后感 ${b.his.stars} 星：${b.his.text.slice(0, 160)}…`, b.mine && `${me}给了 ${b.mine.stars} 星`].filter(Boolean).join("；");
   }).join("\n")}` });
-  const mems = (READ_NOTES_ON ? readingMemsOf() : []).slice(0, 8).map(m => `- ${m.title}：${m.content.slice(0, 120)}`);
-  if (mems.length) out.push({ key: "mems", label: "最近的读书笔记", text: `你最近记的读书笔记：\n${mems.join("\n")}` });
   return out;
 }
 // 场景记忆一段段（记忆库「看看发给他的」也能用）
@@ -145,7 +141,7 @@ export async function roomTalk(role, id, text) {
   }
   raw = raw.replace(new RegExp(RECALL_LINE.source, "gm"), "");
   const t1 = applyNoteTags(role, raw);
-  const t2 = applyReadMemTags(role, t1.text);
+  const t2 = stripReadMemTags(t1.text);
   notes.push(...t1.notes, ...t2.notes);
   const reply = visibleText(t2.text).trim();
   if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });

@@ -165,8 +165,7 @@ export const memoriesOf = roleId =>
   store.memories.filter(m => m.roleId === roleId).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
 
 // 记忆分几种：平时的记忆卡片；共读里记下的读书笔记（带 bookId）；共写的总结（带 writingId）；心得本里的一条（带 insight，见 insights.js，不进全局记忆）
-// 读书笔记（共读里他写 [读书笔记:…] 记进记忆库）整个关掉了：不再教他写、不再记、也不再带进提示词；已经记下的数据留着，只是不带
-export const READ_NOTES_ON = false;
+// 读书笔记（共读里他写 [读书笔记:…] 记进记忆库）10/27 整个去掉了：不教他写、不记、不带进提示词，旧数据也一次性删了（见 store 里的 readNotesPurged）
 export const memKind = m => (m.insight ? "insight" : m.bookId ? "read" : m.writingId ? "write" : "card");
 const line = (m, n = 300) => `- #${m.id.slice(0, 4)} [${m.date}] ${m.title}：${(m.content.length > n ? m.content.slice(0, n) + "…" : m.content).replace(/\n+/g, " ")}`;
 
@@ -176,7 +175,6 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
   const all = memoriesOf(role.id).filter(isLive);
   const pinned = all.filter(m => memKind(m) === "card" && accessOf(m) === "pinned");
   const recent = wake ? all.filter(m => memKind(m) === "card" && accessOf(m) === "normal").slice(0, 10) : [];
-  const reads = !READ_NOTES_ON ? [] : all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5); // 共读的笔记、来往的信：他只记得最近 5 个
   const writes = all.filter(m => memKind(m) === "write" && accessOf(m) !== "archived").slice(0, 6);
   const letters = lettersLog(role, meName);
   const board = boardForAI(role);
@@ -189,7 +187,6 @@ export function memoryForAI(role, meName, { wake = false } = {}) {
     `其他记忆卡片平时不全放在这里：每次会按${meName}说的话，自动想起有关的几张，附在【此刻】里；想不起来就「翻记忆」。`,
     board ? `## 板块记忆（在写的书、在读和读完的书、笔友：长期的进展，一直记着）\n${board}` : "",
     letters ? `## 你们来往的信（只记了标题和开头）\n${letters}` : "",
-    reads.length ? `## 共读里你记下的读书笔记\n${reads.map(m => line(m, 200)).join("\n")}` : "",
     writes.length ? `## 共写：你们在写的书（你自己记的总结）\n${writes.map(m => line(m, 300)).join("\n")}` : "",
     `如果这次聊天里有值得长久记住的事（关于${meName}的喜好、经历、约定、重要的时刻），可以在回复末尾另起一行写：[记忆:类别|标题|内容]，类别从这几个里选一个：${CAT_HINT}`,
     `需要更新某张卡片时写：[改记忆:#编号|新的内容]（也可以 [改记忆:#编号|新标题|新的内容]）。能直接改的就改原卡，别留两张互相矛盾的。`,
@@ -205,7 +202,6 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
   const all = memoriesOf(role.id).filter(isLive);
   const pinned = all.filter(m => memKind(m) === "card" && accessOf(m) === "pinned");
   const cards = [...pinned, ...recallCards(role.id, query, recallCount(), { exclude: pinned.map(m => m.id) })];
-  const reads = skip === "read" || !READ_NOTES_ON ? [] : all.filter(m => memKind(m) === "read" && accessOf(m) !== "archived").slice(0, 5);
   const writes = skip === "write" ? [] : all.filter(m => memKind(m) === "write" && accessOf(m) !== "archived").slice(0, 3);
   const thread = [...(store.threads || [])].filter(t => t.roleId === role.id && !t.mail).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
   let recent = "";
@@ -225,7 +221,6 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
     moment ? `最近 24 小时（【此刻】）：\n${moment}` : "",
     thread?.summary?.text ? `聊天的摘要记忆（最近的几段）：\n${thread.summary.text.length > 2000 ? "……" + thread.summary.text.slice(-2000) : thread.summary.text}` : "",
     recent ? `平时聊天里最近说的（最近的在最后）：\n${recent}` : "",
-    reads.length ? `共读的读书笔记：\n${reads.map(m => line(m, 120)).join("\n")}` : "",
     writes.length ? `共写的总结：\n${writes.map(m => line(m, 160)).join("\n")}` : "",
   ].filter(Boolean);
   return parts.length ? `\n# 全局记忆（平时的你记得的，放在这里供参考）\n${parts.join("\n\n")}` : "";

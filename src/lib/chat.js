@@ -21,7 +21,7 @@ import { petHears, petAfterReply } from "./pet.js";
 import { planLow, logTurn } from "./quota.js";
 import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSum, fmtTok } from "./budget.js";
 import { writingForAI } from "./writing.js";
-import { NOTE_RE, READ_MEM_RE, applyNoteTags, applyReadMemTags, readingForAI } from "./reading.js";
+import { NOTE_RE, READ_MEM_RE, applyNoteTags, stripReadMemTags, readingForAI } from "./reading.js";
 import { ASK_RE, applyAskTags, askForAI } from "./ask.js";
 import { applyInsightTags, INSIGHT_RE } from "./insights.js";
 import { ROOM_RE, applyRoomCardTags, roomsForAI } from "./rooms.js";
@@ -975,7 +975,7 @@ export function applyReplyTags(role, msg) {
   const cal = applyCalendarTags(role, mem.text);
   const let_ = applyLetterTags(role, cal.text);
   const stick = applyNoteTags(role, let_.text);
-  const rmem = applyReadMemTags(role, stick.text);
+  const rmem = stripReadMemTags(stick.text);
   const mom = applyMomentTags(role, rmem.text);
   const brd = applyBoardTags(role, mom.text);
   const dia = applyDiaryTags(role, brd.text);

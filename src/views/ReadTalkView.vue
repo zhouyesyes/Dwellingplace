@@ -121,7 +121,7 @@ onBeforeUnmount(() => ro?.disconnect());
 
     <main ref="scroller" class="list">
       <div v-if="!msgs.length && !busy" class="empty">
-        <p>{{ book ? `坐下来，和${him}聊聊这本书。${him}会看着这本书的前情、他一路写的中途印象、读后感、你们的批注和读书笔记。` : `共读室的大讨论室：聊读过的、在读的书，几本放在一起比，或者聊读书这件事。${him}会看着书架上每本书读到哪、他的印象和读后感。` }}</p>
+        <p>{{ book ? `坐下来，和${him}聊聊这本书。${him}会看着这本书的前情、他一路写的中途印象、读后感、你们的批注。` : `共读室的大讨论室：聊读过的、在读的书，几本放在一起比，或者聊读书这件事。${him}会看着书架上每本书读到哪、他的印象和读后感。` }}</p>
         <button v-for="q in ideas" :key="q" class="idea" @click="send(q)">{{ q }}</button>
       </div>
       <p v-if="owner?.talkSum?.text" class="sum-tip" @click="sumOpen = true">前面 {{ owner.talkSum.count }} 句已经整理成摘要了 · 点开看</p>
