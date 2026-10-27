@@ -339,7 +339,7 @@ const START0 = { ch: 0, p: 0 };
 // 他接着读的话从哪开始：他说过下次从哪就从那；不然从上次读到的下一段；还没读过就从她读到的地方
 export function hisNextFrom(b, book, roleId) {
   const pin = herPin(b, roleId);
-  if (pin) return { ch: Math.min(pin.ch, book.chapters.length - 1), p: 0 };
+  if (pin) return { ch: Math.min(pin.ch, book.chapters.length - 1), p: pin.p || 0 }; // 合并章节后可能带段号
   if (b.hisNext?.end) return tailStart(book, b.hisNext.tokens || 4000);
   if (b.hisNext) return { ch: b.hisNext.ch, p: b.hisNext.p || 0 };
   const at = hisAt(b);

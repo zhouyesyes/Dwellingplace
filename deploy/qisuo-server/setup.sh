@@ -54,32 +54,46 @@ BRIDGE_REF="8db89c1a3c516a8ae7ddeb7adb070c98caafe3f2" # chrome-mcp-bridge 2.4.1
 $SUDO docker network create qisuo-net >/dev/null 2>&1 || true
 
 cat > Dockerfile <<'DOCKER'
+# 构建顺序按「多久变一次」排：最不爱变的放前面，这样重跑安装时前面的层直接用缓存
+# 第一段：只装依赖。依赖清单（package-lock.json）没变，这一段就整段用缓存，不用再 npm ci
+FROM node:22-slim AS deps
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+ARG REPO
+ARG LOCKHASH=0
+RUN echo "依赖指纹 $LOCKHASH" && git clone --depth 1 "$REPO" /clone && mkdir /deps && cp /clone/package.json /clone/package-lock.json /deps/ \
+ && cd /deps && npm ci --no-audit --no-fund && rm -rf /clone /root/.npm
+
+# 第二段：拉最新代码、构建网页（每次都重做，只有这一步是必须的）
 FROM node:22-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 ARG REPO
 ARG CACHEBUST=1
-RUN git clone --depth 1 "$REPO" /src
+RUN echo "$CACHEBUST" >/dev/null && git clone --depth 1 "$REPO" /src
 WORKDIR /src
-RUN npm ci --no-audit --no-fund && npm run build
+COPY --from=deps /deps/node_modules /src/node_modules
+RUN npm run build
 
+# 第三段：真正运行的镜像。只装运行要用的（git、小螃蟹），最后才放会变的网页和程序文件
 FROM node:22-slim
 WORKDIR /app
-COPY --from=build /src/dist /app/dist
-COPY --from=build /src/deploy/qisuo-server/server.mjs /app/server.mjs
-COPY --from=build /src/deploy/qisuo-server/chatgpt.mjs /app/chatgpt.mjs
-COPY --from=build /src/deploy/qisuo-server/sync.mjs /app/sync.mjs
-COPY --from=build /src/deploy/qisuo-server/devices.mjs /app/devices.mjs
-COPY --from=build /src/deploy/qisuo-server/preview.mjs /app/preview.mjs
-COPY --from=build /src/deploy/qisuo-server/claude.mjs /app/claude.mjs
-# 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）；git 给工作室拉栖所仓库用
+# 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）；git 给小螃蟹拉对话本用
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund
+# CLAUDE_WEEK 每周变一次：每周顺带更新一次小螃蟹，其余时候直接用缓存
+ARG CLAUDE_WEEK=0
+RUN echo "第 $CLAUDE_WEEK 周" && npm install -g @anthropic-ai/claude-code --no-audit --no-fund && npm cache clean --force && rm -rf /root/.npm
 ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data DISABLE_AUTOUPDATER=1
 CMD ["node", "/app/server.mjs"]
+COPY --from=build /src/deploy/qisuo-server/*.mjs /app/
+COPY --from=build /src/dist /app/dist
 DOCKER
 
+# 依赖清单的指纹：没变就让 npm ci 那一层吃缓存（取不到就用当前时间，等于不用缓存，照样能装）
+RAW_MAIN="https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main"
+LOCKHASH=$( { curl -fsSL -m 20 "$RAW_MAIN/package-lock.json" && curl -fsSL -m 20 "$RAW_MAIN/package.json"; } | sha256sum | cut -c1-16 ) || LOCKHASH=""
+[ -n "$LOCKHASH" ] && [ "$LOCKHASH" != "e3b0c44298fc1c14" ] || LOCKHASH="$(date +%s)"
+
 say "下载最新的栖所并构建（第一次要几分钟）…"
-$SUDO docker build --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" -t qisuo-server .
+$SUDO docker build --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" --build-arg LOCKHASH="$LOCKHASH" --build-arg CLAUDE_WEEK="$(date +%G%V)" -t qisuo-server .
 
 CHROME_ENV=""
 if [ "$CHROME" = "y" ]; then
