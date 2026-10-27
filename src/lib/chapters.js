@@ -6,7 +6,7 @@
 //   移除的章节：body.removed [{ id, title, paras, media, at（原来排第几）, removedAt }]；上面的笔记 ch 记成 -1、removedCh 记着章节 id
 import { store, uid, prepareBookPersistence, commitBookTransaction } from "../store/index.js";
 import { get } from "./kv.js";
-import { replaceBookCache, shelfChapters, headingOf, loadBook } from "./books.js";
+import { replaceBookCache, shelfChapters, headingOf, noteOf, loadBook } from "./books.js";
 import { splitLines } from "./chapterSplit.js";
 
 const copy = x => JSON.parse(JSON.stringify(x));
@@ -131,6 +131,7 @@ export function mergeChapters(bookId, indexes) {
       const head = chapters.at(-1), off = head.paras.length;
       head.media = [...(head.media || []), ...(c.media || []).map(m => ({ ...m, p: m.p + off }))];
       head.paras = [...head.paras, ...c.paras];
+      if (c.note) head.note = [...(head.note || []), ...c.note]; // 便签跟着并过来
       delete head.orig; delete head.src; // 合并章节后，改过的正文就定下来了（原文不再单独留）
       head.from = [...head.from, ...c.paras.map((_, p) => [ci, p])];
     });
@@ -146,6 +147,7 @@ export function splitChapter(bookId, index, p, title) {
     const chapters = body.chapters.map(keep);
     const a = chapters[index];
     const b = { id: uid(), title: (title || c.paras[p]).trim().slice(0, 60) || `${c.title}（下）`, paras: a.paras.slice(p), from: a.from.slice(p), media: (a.media || []).filter(m => m.p >= p).map(m => ({ ...m, p: m.p - p })) };
+    if (a.note) { b.note = a.note; delete a.note; } // 章末便签留在最后一章
     delete a.orig; delete a.src; delete b.orig; delete b.src; // 切开章节后，改过的正文就定下来了
     a.paras = a.paras.slice(0, p);
     a.from = a.from.slice(0, p);
@@ -166,12 +168,13 @@ function flatten(body) {
       lines.push(t); from.push([ci, p]);
     });
     for (const m of c.media || []) if (m.p >= c.paras.length) media.push({ ...m, at: lines.length, tail: true });
+    for (const t of c.note || []) { lines.push(t); from.push(null); } // 作者便签也放回去，重新认
   });
   return { lines, from, media };
 }
 export function resplitPreview(body, rule) {
   const { lines } = flatten(body);
-  return splitLines(lines, rule).map(c => ({ title: c.title, n: c.lines.length }));
+  return splitLines(lines, rule).map(c => ({ title: c.title, n: c.lines.length, note: !!c.noteLines?.length }));
 }
 export function resplitChapters(bookId, rule) {
   return commit(bookId, body => {
@@ -195,7 +198,7 @@ export function resplitChapters(bookId, rule) {
       let id = first && starts.get(`${first[0]}:${first[1]}`);
       if (!id || used.has(id)) id = uid();
       used.add(id);
-      return { id, title: s.title.slice(0, 60), ...headingOf(s, lines), paras: s.lines.map(i => lines[i]), from: f, media: mediaOf[k] };
+      return { id, title: s.title.slice(0, 60), ...headingOf(s, lines), ...noteOf(s, lines), paras: s.lines.map(i => lines[i]), from: f, media: mediaOf[k] };
     });
     return { chapters };
   });

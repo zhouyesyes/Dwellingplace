@@ -76,6 +76,7 @@ const doSplit = () => run(() => splitChapter(props.book.id, panel.value.i, panel
 
 // 换规则重新分：先看分成什么样
 const rule = ref("auto");
+const prefix = ref("");
 const resplitList = computed(() => panel.value?.kind === "resplit" ? resplitPreview(props.body, rule.value) : []);
 const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `重新分好了，${resplitList.value.length} 章`);
 </script>
@@ -105,6 +106,7 @@ const doResplit = () => run(() => resplitChapters(props.book.id, rule.value), `�
     <section v-else-if="panel?.kind === 'resplit'" class="panel">
       <h4>换一种规则重新分章</h4>
       <div class="rules"><button v-for="(l, k) in SPLIT_RULES" :key="k" :class="{ on: rule === k }" @click="rule = k">{{ l }}</button></div>
+      <form class="rules" @submit.prevent="prefix.trim() && (rule = 'custom:' + prefix.trim())"><input v-model="prefix" class="input" maxlength="12" placeholder="自己写章节开头，比如 ☆、" aria-label="章节开头" /><button type="submit" :class="{ on: rule.startsWith('custom:') }">按这个分</button></form>
       <small class="tip">会分成 {{ resplitList.length }} 章。笔记和读到哪会跟着挪；改了名字的章节，名字会按新认出来的标题来。</small>
       <ol class="preview"><li v-for="(c, k) in resplitList.slice(0, 80)" :key="k"><span>{{ c.title }}</span><small>{{ c.n }} 段</small></li><li v-if="resplitList.length > 80" class="more">……还有 {{ resplitList.length - 80 }} 章</li></ol>
       <div class="row"><button class="btn soft" :disabled="busy" @click="panel = null">取消</button><button class="btn" :disabled="busy || !resplitList.length" @click="doResplit">按这个重新分</button></div>

@@ -43,9 +43,17 @@ function textBetween(book, from, to, max = Infinity) {
     const ps = book.chapters[c].paras || [];
     const a = c === from.ch ? from.p : 0, z = c === to.ch ? to.p : ps.length;
     if (a < z) out.push(`【${book.chapters[c].title || `第 ${c + 1} 章`}】`, ...ps.slice(a, z));
+    if (z === ps.length && a < z) out.push(...authorNote(book.chapters[c]));
   }
   const t = out.join("\n");
   return t.length > max ? "……" + t.slice(-max) : t;
+}
+// 这一章末尾作者写的话（晋江的「作者有话要说」）：给 AI 看，但写明是作者的话，不是正文，别当剧情、也不用像正文那样批注
+function authorNote(chap) {
+  const note = chap?.note;
+  if (!note?.length) return [];
+  const t = note.slice(1).join("\n").slice(0, 600);
+  return t ? [`（以下是作者在这一章末尾写的话，不是正文，不用当剧情，也别当正文去批注：${t}）`] : [];
 }
 // 两处之间有多少字（不拼字符串）
 function charsBetween(book, from, to) {
@@ -425,6 +433,7 @@ export async function alongPrompt(role, b, items, from, { alone = false, self = 
   for (const it of items) {
     if (it.ch !== last) { lines.push(`【${book.chapters[it.ch]?.title || `第 ${it.ch + 1} 章`}】`); last = it.ch; }
     lines.push(`[${it.ch + 1}.${it.p}] ${it.t}`);
+    if (it.p === (book.chapters[it.ch]?.paras.length || 0) - 1) lines.push(...authorNote(book.chapters[it.ch]).map(x => `    ${x}`));
     for (const x of beside[`${it.ch}.${it.p}`] || []) lines.push(`    （便利贴：${x.line}）`);
   }
   const hers = Object.values(beside).flat().some(x => x.n.from === "me");
