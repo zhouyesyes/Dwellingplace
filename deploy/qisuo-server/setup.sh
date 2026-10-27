@@ -20,6 +20,25 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "缺少 $1，请先安装"; e
 need docker; need curl; need openssl
 SUDO=""; docker ps >/dev/null 2>&1 || SUDO="sudo"
 
+# 构建镜像：不刷屏。进度用 plain（每步只打新的一行，不原地刷新），完整输出存进日志，屏幕上只留每一步的标题；失败时把日志末尾原样打出来
+build_quiet() { # build_quiet 说明 docker-build 的参数…
+  local what="$1" log rc; shift
+  log=$(mktemp)
+  set +e
+  BUILDKIT_PROGRESS=plain $SUDO docker build --progress=plain "$@" >"$log" 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    grep -E '^#[0-9]+ \[' "$log" | sed -E 's/^#[0-9]+ //' | awk '!seen[$0]++' | cut -c1-90 | sed 's/^/  /'
+    echo "  $what 构建成功 ✓"
+    rm -f "$log"
+  else
+    say "$what 构建失败，下面是最后的报错（完整日志在 $log）："
+    tail -n 60 "$log"
+    exit 1
+  fi
+}
+
 mkdir -p "$DIR/data"; chmod 700 "$DIR/data"; cd "$DIR"
 if [ -f settings.env ]; then
   # shellcheck disable=SC1091
@@ -93,7 +112,7 @@ LOCKHASH=$( { curl -fsSL -m 20 "$RAW_MAIN/package-lock.json" && curl -fsSL -m 20
 [ -n "$LOCKHASH" ] && [ "$LOCKHASH" != "e3b0c44298fc1c14" ] || LOCKHASH="$(date +%s)"
 
 say "下载最新的栖所并构建（第一次要几分钟）…"
-$SUDO docker build --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" --build-arg LOCKHASH="$LOCKHASH" --build-arg CLAUDE_WEEK="$(date +%G%V)" -t qisuo-server .
+build_quiet "栖所" --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" --build-arg LOCKHASH="$LOCKHASH" --build-arg CLAUDE_WEEK="$(date +%G%V)" -t qisuo-server .
 
 CHROME_ENV=""
 if [ "$CHROME" = "y" ]; then
@@ -101,7 +120,7 @@ if [ "$CHROME" = "y" ]; then
   mkdir -p chrome "$DIR/chrome-profile"
   RAW="https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/main/deploy/qisuo-server/chrome"
   curl -fsSL "$RAW/Dockerfile" -o chrome/Dockerfile && curl -fsSL "$RAW/start.sh" -o chrome/start.sh && curl -fsSL "$RAW/remote.py" -o chrome/remote.py
-  $SUDO docker build --build-arg BRIDGE_REF="$BRIDGE_REF" -t qisuo-chrome chrome
+  build_quiet "他的浏览器" --build-arg BRIDGE_REF="$BRIDGE_REF" -t qisuo-chrome chrome
   $SUDO docker rm -f qisuo-chrome >/dev/null 2>&1 || true
   # 不开任何端口：只有栖所服务器在内部网络里能连到它
   $SUDO docker run -d --name qisuo-chrome --restart unless-stopped --network qisuo-net \
