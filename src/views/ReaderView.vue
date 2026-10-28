@@ -495,7 +495,7 @@ async function readThisPage() {
     await placeAlong(b.value, res.notes, -1);
     const title = i => content.value.chapters[i]?.title || `第 ${i + 1} 章`;
     const where = res.choice.how === "end" ? "直接去读了结尾" : res.choice.how === "chapter" ? `跳到「${title(res.from.ch)}」读了` : "接着往下读了";
-    toast(res.memNotes[0] || `${r.name}${where}约 ${res.choice.tokens} token，划了 ${res.notes.length} 处，读到「${title(res.upTo.ch)}」`, 3600);
+    toast(`${r.name}${where}约 ${res.choice.tokens} token，划了 ${res.notes.length} 处，读到「${title(res.upTo.ch)}」`, 3600);
     petOnce("success");
   } catch (e) {
     toast(`没读成：${describeError(e)}`, 4000);
