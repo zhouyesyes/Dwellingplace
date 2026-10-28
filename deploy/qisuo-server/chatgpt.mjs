@@ -259,7 +259,7 @@ const USAGE_CODES = { subscription_sharing_usage_limit_exceeded: "ChatGPT 会员
 const untilText = s => (s < 3600 ? `大约 ${Math.max(1, Math.ceil(s / 60))} 分钟后恢复` : s < 86400 ? `大约 ${Math.round(s / 3600)} 小时后恢复` : `大约 ${Math.round(s / 86400)} 天后恢复`);
 function errMsg(err) {
   const nice = USAGE_CODES[err?.code];
-  if (!nice) return err?.message || err?.code || "出错了";
+  if (!nice) return err?.message || err?.code || (err && Object.keys(err).length ? `出错了（OpenAI 回话没带说明，原文：${JSON.stringify(err).slice(0, 400)}）` : "出错了");
   const secs = Number(err.resets_in_seconds ?? err.reset_after_seconds ?? (err.resets_at ? err.resets_at - Date.now() / 1000 : NaN));
   return Number.isFinite(secs) && secs > 0 ? `${nice}（${untilText(secs)}）` : nice;
 }
@@ -291,9 +291,13 @@ async function chat(body, res, CORS) {
   }
   noteLimits(up.headers);
   if (!up.ok || !up.body) {
-    const j = await up.json().catch(() => ({}));
+    const raw = await up.text().catch(() => "");
+    let j = {}; try { j = JSON.parse(raw); } catch { /* 不是 JSON，下面带原文 */ }
+    // 有认得的说明（error.message、会员额度的 code）就用；没有就把状态码和原文前几百字带回去，别只剩「出错了」
+    const known = j.error?.message || USAGE_CODES[j.error?.code] ? errMsg(j.error) : "";
+    const message = known || `OpenAI 返回 ${up.status}：${raw.trim().slice(0, 400) || "（回话是空的）"}`;
     res.writeHead(up.status === 401 ? 401 : up.status || 502, { ...CORS, "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ error: { message: errMsg(j.error) || `接口返回 ${up.status}` } }));
+    return res.end(JSON.stringify({ error: { message } }));
   }
   const stream = body.stream !== false;
   const id = `chatcmpl-${randomUUID()}`;
