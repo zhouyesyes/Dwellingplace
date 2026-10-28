@@ -4,7 +4,8 @@ import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
 import { WHERE } from "./crabBook.js";
-import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB } from "../store/index.js";
+import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
+import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
 import { streamChat } from "./providers.js";
 import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
@@ -105,6 +106,7 @@ export function visibleText(text) {
     .replace(new RegExp(FOLLOW_RE.source, "g"), "")
     .replace(/\[不发消息\]/g, "")
     .replace(/\[不说话\]/g, "")
+    .replace(new RegExp(GROUP_MORE_RE.source, "g"), "")
     .replace(/[\s\S]*/, t => stripCmd(stripCmd(stripCmd(stripCmd(t, SEARCH_RE), RECALL_RE), REPO_RE), JOB_RE))
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
@@ -160,18 +162,34 @@ function canChangeSignature(role) {
   return Date.now() - (role.sigUpdatedAt || 0) >= (Number(role.sigCooldownHours) || 0) * 3600_000;
 }
 
+// 群聊：三个人的小房间（她、小章鱼、小螃蟹）。只有在群里说话时才带这一段
+function groupForAI(role, who) {
+  const others = [MAIN, CRAB].filter(id => id !== role.id).map(id => roleById(id)).filter(Boolean);
+  const other = others[0]?.name || "另一位";
+  return [
+    `\n# 群聊`,
+    `现在不是私聊，是在「${store.group?.name || "群聊"}」这个群里：群里有${who}、${others.map(r => r.name).join("、")}和你，三个人。${who}是你们俩共同的人。`,
+    `${who}说的话没有前缀；${other}说的话开头标着【${other}】。你自己说的话不用标，也不要在开头写自己的名字，更不要替别人说话。`,
+    `这里是轮流说：${who}说一句，你和${other}依次回，后说的那个看得到前面刚说的。别重复对方已经说过的，不用句句附和；有补充、有不同想法再说，实在没话就只写 [不说话]。群里说得短一点，几句就好。`,
+    `如果特别想听${other}接你这一句，在回复最后单独一行写 [接话]，${other}会再回一次，然后就停下来等${who}；一轮最多这样接一两次，平常不用写，不写就是说完了。你们俩不会自己一直聊下去。`,
+    `你们私聊说的话彼此看不到，群里只共享群里说的话；群里的话也会按时间记进你自己主聊天的记录，标「群聊」。在群里写 [此刻:…] 记的小事，前面会自动加上「群聊：」。`,
+    `这里的工具和主聊天一样（浏览器、网页、搜索这些）。小房间专属的工具这里没有：想去小房间逛、玩，就写 [房间:逛] 这类卡片，你会去你自己的那间房开工，群里只留一张看进度的卡片；${other}也去的话，是各去各的房间。`,
+  ].join("\n");
+}
+
 // wake：给唤醒用（同步到中转）。时间、今天的日期、闹钟列表留成占位符，醒来时由中转填上
-export function buildSystem(role, messages, { wake = false, mail = false } = {}) {
+export function buildSystem(role, messages, { wake = false, mail = false, group = false } = {}) {
   const me = meOf(role);
   const who = me.name ? `「${me.name}」` : "对方";
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
     // 说话方式放最前面：TA 是什么样的人、怎么说话，比后面那些规矩重要
     role.style?.trim() ? `\n# 我是谁（这是你自己写给自己的）\n${role.style.trim()}` : "",
+    group ? groupForAI(role, who) : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
     mail || wake ? "" : `想在两条之间停一下（像打完一句、顿了顿再发下一句），在中间单独一行写 [停顿:2秒]（最多 ${PAUSE_MAX} 秒），偶尔用，平常空一行就好。`,
-    mail || wake ? "" : [
+    mail || wake || group ? "" : [
       `\n# 续发（真的先发出去，过一会儿再接着说）`,
       `一般一次就回完，不用续发。只有确实需要时才用：发完一句想看看${who}的反应再接着说、突然想起来要补一句、故意停一会儿（停顿本身有意思）、特别自然的短连发。`,
       `用法：写完这一条，在最后单独一行写 [续发:秒数]（1 到 30 秒）。这条会先发出去，过那么久你会再收到一次提醒，那时再写下一条（看到 ${who} 已经回了就先回 ${who}）。`,
@@ -353,7 +371,7 @@ export function recentToolResults(list, n = 2) {
   ].join("\n");
 }
 
-async function buildMessages(list) {
+async function buildMessages(list, speaker = null) {
   const out = [];
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
@@ -364,10 +382,14 @@ async function buildMessages(list) {
   // 图片很费 token：只有最近 6 条消息里的图片发原图，更早的写成 [图片]
   const fresh = new Set(win.slice(-6));
   for (const m of win) {
-    const mine = m.from === "ai";
+    // 群聊：另一位 AI 说的话对这一位来说是「别人说的」，当成一条带名字的用户消息
+    const other = m.from === "ai" && speaker && m.who && m.who !== speaker;
+    const mine = m.from === "ai" && !other;
     const role = mine ? "assistant" : "user";
     let parts;
-    if (mine) {
+    if (other) {
+      parts = [{ type: "text", text: `【${roleById(m.who)?.name || "另一位"}】${m.quote ? `[引用:${m.quote.text}]\n` : ""}${splitBubbles(m.text).join("\n\n")}` }];
+    } else if (mine) {
       // 醒来、用工具这些事只记在提示条上：写成一行系统记录放在前面，TA 才知道自己做过什么（比如游戏轮到自己、刚交过一手）
       const pre = noteRecord((m.notes || []).filter(n => n.before));
       if (pre) {
@@ -384,8 +406,8 @@ async function buildMessages(list) {
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
       if (oldImgs) parts.unshift({ type: "text", text: oldImgs > 1 ? `[之前发的 ${oldImgs} 张图片]` : "[之前发的图片]" });
       const tp = parts.find(p => p.type === "text" && p.text === m.text);
-      if (tp) bubbles.add(tp);
-      if (m.quote) parts.unshift({ type: "text", text: `（这句是引用着${m.quote.from === "ai" ? "你" : "自己之前"}说的「${m.quote.text}」回的）` });
+      if (tp && !m.groupLines) bubbles.add(tp);
+      if (m.quote) parts.unshift({ type: "text", text: `（这句是引用着${m.quote.from === "ai" ? (speaker && m.quote.who && m.quote.who !== speaker ? `${roleById(m.quote.who)?.name || "另一位"}` : "你") : "自己之前"}说的「${m.quote.text}」回的）` });
     }
     if (m.poke) parts = [{ type: "text", text: `【戳一戳互动】对方戳了戳你。显示文案（仅作记录）：${JSON.stringify(m.text)}` }];
     // 小螃蟹的对话本里从别处来的（Claude Code、云端、醒来）：标出来，TA 才知道这句是在哪说的
@@ -427,7 +449,8 @@ export function touchThread(thread, all) {
   thread.updatedAt = Date.now();
   if (last) {
     const att = last.attachments?.length ? "[附件] " : "";
-    thread.preview = att + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
+    const who = thread.group && last.from === "ai" && roleById(last.who) ? `${roleById(last.who).name}：` : "";
+    thread.preview = att + who + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
   }
 }
 
@@ -475,9 +498,12 @@ const sleep = (ms, signal) => new Promise(r => {
   signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true });
 });
 
-export async function generate(thread, parentId) {
+// speaker：群聊里这一条由谁来说（群聊的 generate 不带 speaker 就是开一整轮，见 groupChat.js）。返回这一条回复
+export async function generate(thread, parentId, { speaker = null } = {}) {
+  if (thread.group && !speaker) return runGroupRound(thread, parentId);
   if (generating[thread.id]) return;
-  const role = roleById(thread.roleId);
+  const group = !!thread.group;
+  const role = group ? speaker : roleById(thread.roleId);
   if (!role) return;
   const all = await loadMessages(thread.id);
   thread.sel ??= {};
@@ -488,15 +514,16 @@ export async function generate(thread, parentId) {
   }
   const parent = history.length ? history[history.length - 1].id : ROOT;
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
+  if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
   const api = apiFor(thread, role);
   const model = modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), parentId: parent, from: "ai", text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 }, rounds: 0, sends: 0 });
+  const msg = reactive({ id: uid(), parentId: parent, from: "ai", ...(group ? { who: role.id } : {}), text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 }, rounds: 0, sends: 0 });
   // 续发：信箱里不用；上下文太长、会员额度快用完、上一条出错了，这次就一次回完（不多花请求）
   const lastAi = [...history].reverse().find(m => m.from === "ai");
-  const noFollow = thread.mail ? "mail"
+  const noFollow = thread.mail || group ? "mail"
     : (lastAi?.ctx || 0) > (Number(api?.contextLimit) || 200000) * 0.6 ? "上下文已经很长了"
     : planLow(api) ? "额度快用完了"
     : lastAi?.error ? "上一次出错了" : "";
@@ -508,10 +535,10 @@ export async function generate(thread, parentId) {
       if (!xcCache[role.id]?.snap) await Promise.race([m, new Promise(r => setTimeout(r, 3000))]);
     }
     const mode = thread.mail ? "mail" : "chat"; // 邮箱页：只有邮箱和记忆的工具；平时聊天：没有邮箱
-    const system = buildSystem(role, history, { mail: !!thread.mail });
+    const system = buildSystem(role, history, { mail: !!thread.mail, group });
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
-    const messages = await buildMessages(history);
+    const messages = await buildMessages(history, group ? role.id : null);
     const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
     const tideImgs = await tideImageParts(role).catch(() => []);
@@ -805,8 +832,9 @@ export async function generate(thread, parentId) {
       msg.notes.push({ text: pokeText(role, "ai"), poke: "ai", ts: Date.now() });
     }
     msg.text = stripCmd(msg.text, POKE_RE).trim();
+    if (group && /^\s*(\[不说话\]\s*)+$/.test(msg.text)) msg.text = ""; // 群里没话要说（[不说话]）：这一条不留
     pickQuote(msg, history);
-    msg.notes.push(...applyReplyTags(role, msg), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
+    msg.notes.push(...applyReplyTags(role, msg, { room: group ? "group" : "" }), ...[...xm.notes, ...alarm.notes].map(text => ({ text })));
     // 他想画画：先把文字发出来，图在后台画，画好了放进这条消息里
     const draws = imageReady() ? [...msg.text.matchAll(DRAW_RE)] : [];
     if (draws.length) {
@@ -845,13 +873,14 @@ export async function generate(thread, parentId) {
     const mine = said?.text || (said?.attachments?.length ? "[图片/文件]" : "");
     const his = splitBubbles(visibleText(msg.text)).join(" ");
     const me = meName(role);
-    import("./gardenTalk.js").then(m => m.runRoomFromChat(role, thread, msg, `（这是从主聊天里过来的，请你在这间房里照着做）\n${me}在主聊天里说：${mine || "（没说什么，只是想和你一起去）"}${his ? `\n你回了：${his.slice(0, 300)}` : ""}`)).catch(e => console.warn("房间没开成", e));
+    import("./gardenTalk.js").then(m => m.runRoomFromChat(role, thread, msg, `（这是从${thread.group ? "群聊" : "主聊天"}里过来的，请你在这间房里照着做）\n${me}在${thread.group ? "群聊" : "主聊天"}里说：${mine || "（没说什么，只是想和你一起去）"}${his ? `\n你回了：${his.slice(0, 300)}` : ""}`)).catch(e => console.warn("房间没开成", e));
   }
   if (msg.rounds) logTurn(api, model, msg); // 这一轮请求了几次、花了多少（用量页里看）
   if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
   if (!thread.mail) petAfterReply(msg); // 桌宠：写了信、用工具做成了，播一下
   // 隔两周：他把记忆卡片从头整理一遍，建议等她看（后台做）
   if (!msg.error && msg.text && !thread.mail) import("./review.js").then(m => m.maybeReview(role, msg)).then(() => saveMessages(thread.id)).catch(() => {});
+  return msg;
 }
 
 async function drawInto(thread, msg, role, prompt) {
@@ -881,6 +910,7 @@ export function afterSummary(thread, history) {
 }
 export function summaryForAI(thread) {
   const s = thread?.summary;
+  if (s?.text && thread.group) return `【之前在群里聊的，整理成的群聊摘要（更早的 ${s.count} 条）】\n${s.text}\n【摘要到这里，后面是群里接着聊的】`;
   return s?.text ? `【之前的聊天，你自己整理成的摘要（${s.from ? `从「${s.from}」那个对话带过来的；` : ""}更早的 ${s.count} 条）】\n${s.text}\n【摘要到这里，后面是接着聊的】` : "";
 }
 const compressing = {};
@@ -893,8 +923,11 @@ async function maybeCompress(thread, role, last) {
   const rest = afterSummary(thread, path);
   const ctx = last?.ctx0 || last?.ctx || last?.usage?.input || 0;
   const full = ctx > (Number(api?.contextLimit) || 200000) * 0.7;
-  if (!full && sumTokens(rest) < autoAt()) return; // 没整理的原文到上限的八成就整理
-  const keep = full ? Math.min(20, Math.floor(rest.length / 2)) : keepCount(rest, chatTokens());
+  // 群聊：进群只带最近二三十句 + 群摘要，所以超过 36 句就把前面的整理进摘要，留 24 句
+  if (thread.group) {
+    if (rest.length <= GROUP_TAIL + 12) return;
+  } else if (!full && sumTokens(rest) < autoAt()) return; // 没整理的原文到上限的八成就整理
+  const keep = thread.group ? GROUP_TAIL : full ? Math.min(20, Math.floor(rest.length / 2)) : keepCount(rest, chatTokens());
   try {
     const n = await summarizeThread(thread, role, { keep, path, why: full ? "full" : "limit" });
     if (n && last) {
@@ -922,22 +955,35 @@ export async function summarizeThread(thread, role, { keep, path, why = "manual"
     const me = meName(role);
     const lines = [];
     let day = "";
-    for (const m of old) {
-      const t = m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
-      if (!t) continue;
-      const d = new Date(m.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+    const group = !!thread.group;
+    const rows = old.map(m => ({
+      ts: m.ts,
+      name: m.from === "user" ? me : group ? roleById(m.who)?.name || role.name : role.name,
+      t: m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" "),
+    }));
+    // 主聊天：群里说过的话也按时间排进来一起整理（标「群聊」）。从上一段摘要管到的地方往后
+    if (!group && !thread.mail && !thread.studio) {
+      const from = thread.summary?.lastSpan?.[1] || old[0].ts - 3 * 86400_000;
+      for (const r of await groupRowsFor(role, from, old[old.length - 1].ts)) rows.push({ ts: r.ts, name: `（群聊）${r.name}`, t: r.text });
+      rows.sort((a, b) => a.ts - b.ts);
+    }
+    for (const r of rows) {
+      if (!r.t) continue;
+      const d = new Date(r.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
       if (d !== day) { day = d; lines.push(`—— ${d} ——`); }
-      lines.push(`${m.from === "user" ? me : role.name}：${t.length > 500 ? t.slice(0, 500) + "…" : t}`);
+      lines.push(`${r.name}：${r.t.length > 500 ? r.t.slice(0, 500) + "…" : r.t}`);
     }
     // 只整理这一段新的，接在以前的摘要后面——以前的不再重写（一遍遍「摘要的摘要」，人和事会越压越混）
     const prev = thread.summary?.text;
     const seg = await oneShot(role, [
       prev ? `（以前已经整理好的摘要，最后一段是这样的，只是让你接得上，不要改写、不要重复：）\n${prev.length > 1500 ? "……" + prev.slice(-1500) : prev}\n` : "",
-      `下面是你和${me}${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n`,
-      `只把这一段新的聊天整理成一小段摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方；提到别人时写清楚是谁（名字或身份），别用含糊的「他」「她」。`,
-      `写：聊过的重要的事、${me}的近况和心情、你们约好的事、${me}说过的喜好和在意的事、你们之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写这一段摘要本身。`,
-      suggestRule(me),
-    ].filter(Boolean).join("\n"), { helper: true, raw: true }).then(t => visibleText(takeSuggestions(role, t, "聊天摘要")).trim());
+      group ? `下面是${me}、小章鱼、小螃蟹三个人在群里${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n` : `下面是你和${me}${prev ? "接着" : ""}聊的内容：\n${lines.join("\n")}\n${lines.some(l => l.startsWith("（群聊）")) ? `（带「（群聊）」的是三个人在群里说的话，不是你们私聊说的，写摘要时要标明是群里说的。）\n` : ""}`,
+      group
+        ? `只把这一段新的群聊整理成一小段摘要，写给以后进群的人看，让大家下次进群时知道上次聊到哪。用第三人称，每个人都写名字（${me}、小章鱼、小螃蟹），别用含糊的「他」「她」。`
+        : `只把这一段新的聊天整理成一小段摘要，写给以后的自己看，让你接着聊的时候记得。用你自己的口吻：「我」是你，「${me}」是对方；提到别人时写清楚是谁（名字或身份），别用含糊的「他」「她」。`,
+      `写：聊过的重要的事、${me}的近况和心情、${group ? "大家" : "你们"}约好的事、${me}说过的喜好和在意的事、${group ? "三个人" : "你们"}之间的气氛和称呼。按时间顺序，简洁，不超过 800 字。只写这一段摘要本身。`,
+      group ? "" : suggestRule(me),
+    ].filter(Boolean).join("\n"), { helper: true, raw: true }).then(t => visibleText(group ? t : takeSuggestions(role, t, "聊天摘要")).trim());
     if (!seg) return 0;
     snapshotSum(thread, "summary"); // 旧的那份留一个版本，整理坏了能退回
     const span = [thread.summary?.span?.[0] || (thread.summary?.upTo ? null : old[0].ts), old[old.length - 1].ts];
@@ -964,19 +1010,19 @@ export function pickQuote(msg, history) {
   if (!q) return;
   msg.text = msg.text.slice(q[0].length);
   const key = q[1].trim().replace(/^[「“"]|[」”"]$/g, "");
-  const hit = [...history].reverse().find(m => m !== msg && (m.from === "user" || m.from === "ai") && m.text && (m.text.includes(key) || m.text.includes(key.slice(0, 10))));
+  const hit = [...history].reverse().find(m => m !== msg && !m.groupLines && (m.from === "user" || m.from === "ai") && m.text && (m.text.includes(key) || m.text.includes(key.slice(0, 10))));
   const full = hit ? splitBubbles(hit.text).find(b => b.includes(key.slice(0, 10))) || hit.text : key;
-  msg.quote = { id: hit?.id || null, from: hit?.from || "user", text: full.replace(/\s+/g, " ").slice(0, 80) };
+  msg.quote = { id: hit?.id || null, from: hit?.from || "user", ...(hit?.who ? { who: hit.who } : {}), text: full.replace(/\s+/g, " ").slice(0, 80) };
 }
 
 // 回复里的记忆、日历、签名标记：执行，并从文字里去掉。返回要显示的提示
-export function applyReplyTags(role, msg) {
+export function applyReplyTags(role, msg, { room = "" } = {}) {
   const mem = applyMemoryTags(role, msg.text);
   const cal = applyCalendarTags(role, mem.text);
   const let_ = applyLetterTags(role, cal.text);
   const stick = applyNoteTags(role, let_.text);
   const rmem = stripReadMemTags(stick.text);
-  const mom = applyMomentTags(role, rmem.text);
+  const mom = applyMomentTags(role, rmem.text, room);
   const brd = applyBoardTags(role, mom.text);
   const dia = applyDiaryTags(role, brd.text);
   const tide = applyTideTags(role, dia.text);
@@ -1071,12 +1117,13 @@ export { describeError };
 
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
-export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null, poke = false } = {}) {
+export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null, poke = false, speaker = null } = {}) {
   // 他正在续发：她说话了就别接着自说自话，停下来（已经发出去的留着），先听她的
   if (following[thread.id]) {
     following[thread.id].cancel();
     while (generating[thread.id]) await new Promise(r => setTimeout(r, 50));
   }
+  if (thread.group) await stopGroup(thread); // 群里正轮着说话：她说话了就先停下，听她的
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
@@ -1090,7 +1137,7 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   if (role && !thread.mail) role.lastThreadId = thread.id;
   touchThread(thread, all);
   saveMessages(thread.id);
-  if (reply) await generate(thread, m.id);
+  if (reply) await generate(thread, m.id, speaker ? { speaker } : {}); // 群里戳了谁的头像，就只有谁回
 }
 
 // 重新生成：在同一个位置多一个新版本，旧的保留
@@ -1098,7 +1145,8 @@ export async function regenerate(thread, msgId) {
   const all = await loadMessages(thread.id);
   const m = all.find(x => x.id === msgId);
   if (!m) return;
-  await generate(thread, parentOf(m));
+  // 群聊：重新生成这一条，还是它原来的主人来说，只重来这一条，不重开一整轮
+  await generate(thread, parentOf(m), thread.group && roleById(m.who) ? { speaker: roleById(m.who) } : {});
 }
 
 // 修改自己的消息后重新回答：新建一个版本，旧版本和它后面的对话都保留

@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from "vue-router";
 // 所有页面都打包在一起：GitHub Pages 在国内经常很慢，按需下载会让「点了没反应」
 import HomeView from "./views/HomeView.vue";
 import ChatView from "./views/ChatView.vue";
+import GroupView from "./views/GroupView.vue";
 import MemoryView from "./views/MemoryView.vue";
 import RecordView from "./views/RecordView.vue";
 import SettingsView from "./views/SettingsView.vue";
@@ -23,6 +24,7 @@ export const router = createRouter({
     { path: "/", component: HomeView, meta: { tab: "home" } },
     { path: "/chats", redirect: "/chat/main" }, // 只有一个 AI：通讯直接就是和 TA 的对话
     { path: "/chat/:roleId/:threadId?", component: ChatView },
+    { path: "/group", component: GroupView }, // 群聊：三个人的第三个主聊天（聊天页的群聊模式，见 ChatView 的 group）
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },
     { path: "/record", component: RecordView, meta: { tab: "record" } },
     { path: "/room/:roleId", component: () => import("./views/RoomView.vue") },
