@@ -561,7 +561,7 @@ async function callOpenAI(api, system, messages) {
     }),
   });
   const raw = await r.text();
-  if (!r.ok) throw new Error(`接口返回 ${r.status}：${raw.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`接口返回 ${r.status}：${raw.slice(0, 600)}`);
   const j = /^\s*data:/.test(raw) ? fromStream(raw) : JSON.parse(raw);
   const content = j.choices?.[0]?.message?.content || "";
   const text = (typeof content === "string" ? content : content.map(c => c.text || "").join(""))
@@ -1696,7 +1696,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 36, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 37, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
