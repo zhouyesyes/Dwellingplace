@@ -135,7 +135,7 @@ export function toggleFav(thread, m) {
   store.favorites ??= [];
   const i = store.favorites.findIndex(f => f.msgId === m.id);
   if (i >= 0) { store.favorites.splice(i, 1); return false; }
-  store.favorites.unshift({ id: m.id, msgId: m.id, threadId: thread.id, roleId: thread.roleId, from: m.from, text: plainOf(m), ts: m.ts, savedAt: Date.now() });
+  store.favorites.unshift({ id: m.id, msgId: m.id, threadId: thread.id, roleId: thread.roleId || m.who, from: m.from, text: plainOf(m), ts: m.ts, savedAt: Date.now() });
   return true;
 }
 export const whoName = (f, me) => (f.from === "user" ? me : roleById(f.roleId)?.name || "他");

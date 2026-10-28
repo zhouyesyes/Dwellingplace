@@ -23,6 +23,9 @@ export const MAIN = "main";
 export const CRAB = "crab";
 // 小螃蟹不掺和共读、共写、信、日记这些（那是他的），记忆和此刻也只算它自己的
 export const solo = role => role?.id === CRAB;
+// 群聊：小续、小章鱼（MAIN）、小螃蟹（CRAB）三个人的第三个主聊天。对话固定一个 id，几台设备各自升级也是同一个，聊天记录按 id 合并
+export const GROUP = "group";
+export const GROUP_TID = "group-main";
 
 function defaults() {
   return {
@@ -47,12 +50,16 @@ function defaults() {
     // 旧居：以前住在这里的 AI（设定、聊天、群聊、日历、主页上写的话），只看不动
     archive: emptyArchive(),
     threads: [], // 一对一：{ roleId }；群聊：{ groupId, roleId: null }
-    groups: [], // 群聊：{ id, name, memberIds, createdAt }
+    groups: [], // 旧居里的老群聊（只读），现在的群聊见 group
+    group: defaultGroup(), // 现在的群聊：三个人的小房间（对话在 threads 里，id 是 GROUP_TID）
     apis: [],
     defaultApiId: null,
     usage: {}, // { "2026-10-04": { [apiId]: { input, output, calls } } }
   };
 }
+
+// name：群名；avatar：群头像（图片 id，不设就拼三个人的小头像）；nextFirst：下一轮谁先说（每轮换一次，点名的除外）
+const defaultGroup = () => ({ name: "栖所小屋", avatar: null, nextFirst: MAIN });
 
 function mainRole() {
   return newRole({ id: MAIN, name: "TA", color: PALETTE[2], bubbleColor: BUBBLE_COLORS[3], signature: "", persona: "" });
@@ -452,6 +459,13 @@ function migrate() {
     a.contextLimit ??= 200000;
   }
   for (const t of store.threads) t.model ??= null;
+  // 群聊：设置和对话都补上（对话 id 固定，两台设备各补一份内容一样的）
+  store.group ??= defaultGroup();
+  for (const [k, v] of Object.entries(defaultGroup())) store.group[k] ??= v;
+  if (!store.threads.some(t => t.id === GROUP_TID)) {
+    store.threads.push({ id: GROUP_TID, roleId: null, group: true, title: "群聊", createdAt: 1, updatedAt: 0, bg: null, apiId: null, model: null, preview: "", sel: {} });
+    migratedDirty = true;
+  }
 }
 
 // ---------- 查询 ----------

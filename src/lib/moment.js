@@ -32,7 +32,7 @@ const first = s => {
 // ---------- 他自己记在此刻的 ----------
 // 此刻只有一份全局的：主聊天、各间小房间、共读共写、醒来都带这一份。
 // 在房间里记的，内容前面加房间名（「逛：……」）；以前每间房自己记的（带 room 字段）并回这一份
-const roomLabel = key => ROOMS.find(r => r.key === key)?.label || "";
+const roomLabel = key => (key === "group" ? "群聊" : ROOMS.find(r => r.key === key)?.label || "");
 export const momentText = m => (m.room && roomLabel(m.room) && !m.text.startsWith(`${roomLabel(m.room)}：`) ? `${roomLabel(m.room)}：${m.text}` : m.text);
 export const momentsOf = roleId => (store.moments || []).filter(x => x.roleId === roleId && within(x.ts)).sort((a, b) => a.ts - b.ts);
 export function pruneMoments() {

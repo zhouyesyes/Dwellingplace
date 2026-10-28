@@ -3,7 +3,7 @@
 // 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条只有一个英文粗标题（共读、共写、信、纪念日）。英文用 Poppins
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
-import { store, roleById, threadsOf, MAIN, CRAB } from "../store/index.js";
+import { store, roleById, threadsOf, MAIN, CRAB, GROUP_TID } from "../store/index.js";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
 import { anniversaryInfo } from "../lib/dates.js";
 import { projects, freshNotes } from "../lib/writing.js";
@@ -11,6 +11,7 @@ import { syncState, startSync, resumeSync } from "../lib/sync.js";
 import { useHomePullRefresh } from "../lib/homePullRefresh.js";
 import Icon from "../components/Icon.vue";
 import Avatar from "../components/Avatar.vue";
+import GroupAvatar from "../components/GroupAvatar.vue";
 import BioSheet from "../components/home/BioSheet.vue";
 import AnnivWidget from "../components/widgets/AnnivWidget.vue";
 
@@ -82,6 +83,7 @@ const thread = computed(() => threadsOf(MAIN)[0]);
 // 小螃蟹住进来了的话：他下面再一条
 const crab = computed(() => roleById(CRAB));
 const crabThread = computed(() => threadsOf(CRAB)[0]);
+const groupThread = computed(() => store.threads.find(t => t.id === GROUP_TID));
 const when = ts => {
   if (!ts) return "";
   const d = new Date(ts), now = new Date();
@@ -136,6 +138,12 @@ const rows = computed(() => [
         <Avatar :img="crab.avatar" :name="crab.name" :color="crab.color" :size="36" class="flat" />
         <span class="txt"><b>{{ crab.name }}</b><small>{{ crabThread?.preview || "来小螃蟹的房间坐坐" }}</small></span>
         <span class="time">{{ when(crabThread?.updatedAt) }}</span>
+      </button>
+      <!-- 群聊：和两个主聊天并排的第三条 -->
+      <button class="row chat group" @click="router.push('/group')">
+        <GroupAvatar :size="36" />
+        <span class="txt"><b>{{ store.group.name }}</b><small>{{ groupThread?.preview || "三个人的小房间" }}</small></span>
+        <span class="time">{{ when(groupThread?.updatedAt) }}</span>
       </button>
       <button v-for="r in rows" :key="r.key" class="row plain" @click="r.go()">
         <b class="en">{{ r.title }}</b>
@@ -196,6 +204,10 @@ const rows = computed(() => [
 .row.chat.crab { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
 :root[data-theme="dark"] .row.chat.crab { background: #3a3029; }
 .row.chat + .row.chat.crab::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
+/* 群聊那条：淡淡的薰衣草紫，和上面两条一样细 */
+.row.chat.group { background: color-mix(in srgb, #e7e0f5 70%, var(--home-bg)); }
+:root[data-theme="dark"] .row.chat.group { background: #332e42; }
+.row.chat + .row.chat.group::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
 .meta { font-size: .8rem; color: var(--text-3); max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
