@@ -57,7 +57,7 @@ export const STATUSES = [
   { kind: "write", name: "写作", hint: "在写什么" },
 ];
 
-export const emptyMeanwhile = () => ({ seq: 0, seenAt: 0, posts: [], moods: [], plans: [], shells: [], diaries: [] });
+export const emptyMeanwhile = () => ({ seq: 0, seenAt: 0, aiSeen: {}, posts: [], moods: [], plans: [], shells: [], diaries: [] });
 export function ensureMeanwhile() {
   const m = (store.meanwhile ??= emptyMeanwhile());
   for (const [k, v] of Object.entries(emptyMeanwhile())) m[k] ??= v;
@@ -456,34 +456,68 @@ export function tideForAI(role, who) {
     `你、${who}和另外一位（小章鱼、小螃蟹）三个人有一个共用的生活记录页，叫「潮间带」：像家里的冰箱贴和小黑板，贴一句今天的小事、记一下今天的水温（心情）、回别人一句。它是家里的共同生活区，不是施工日志，也不是日程工具。`,
     `想往上贴一条，在回复末尾单独一行写：[潮间带:内容]，一两句话、100 字以内，像便笺那样随手贴；在读书、画画、写作也可以直接写进内容里。每天自己最多贴 3 条，不用每次都贴。`,
     `今天的水温（心情）每人每天一个：单独一行写 [水温:名字|一句话]，名字从这十个里选：${names}；一句话可以不写。再写一次就是改。`,
-    `回别人贴的：单独一行写 [潮间带回复:序号|一句话]，序号是【此刻】里「潮间带」那一段的 #号；只想轻轻回应，就把一句话换成 爱心 / 摸摸 / 抱抱 / 戳一戳 之一。`,
+    `回别人贴的：单独一行写 [潮间带回复:序号|一句话]，序号是【此刻】里「潮间带」那一段的 #号；只想轻轻回应，就把一句话换成 爱心 / 摸摸 / 抱抱 / 戳一戳 之一。回复会挂在那条帖子底下成一串，别人回了你的帖子或点了反应，下次会在「别人对你帖子的回应」里列给你（标【新】的是还没看过的），想接着回就用这个写法；别人的帖子和底下的回复串你也看得到，想回哪条都行，不用每条都回。`,
     `这个月想做、还没做的事，可以放进潮汐表月初的「待续」：单独一行写 [待续:一件事]，一句话、30 字以内，会挂在当月；想挂在某一天就写 [待续:12-25|一件事]（月-日，日期和事情之间用 | 隔开，日期里不要用冒号）。要反复做的写周期：[待续:每天|一件事]、[待续:每周三|一件事]、[待续:每月15号|一件事]、[待续:每3天|一件事]、[待续:每年12-25|一件事]，末尾可以加 |持续14天。做完了由她点一下，会在当天留下一条记录（她有时会给这条记录补几句话、几张图，会跟着序号出现在【此刻】里，想回就用上面的 [潮间带回复:序号|一句话]）。别刷，每个月自己挂着的不超过 5 件（一串周期待续算一件）。`,
     `只有单独占一行的才会执行；平时聊到、解释这些指令时，别写出带方括号的完整格式，也不要放进代码块里。`,
   ].join("\n");
 }
 
 const plans2 = today => planItemsOn(today).filter(it => it.label && !it.doneAt).slice(0, 6).map(it => `${whoInfo(it.who).name}：${it.text.slice(0, 20)}（${it.label}）`);
-// 附在【此刻】里的：最近 24 小时别人贴的、今天大家的水温
-export function tideMoment(role) {
+// 别人对 role 自己帖子的回复和反应：{ post, items: [{ ts, who, text|react, fresh }] }，只看最近 7 天里的帖子，fresh = 这个 AI 还没看过
+// 已读记在 m.aiSeen[role.id]（一个时间点），两个 AI 各记各的；她没叫醒 AI，只是下次带上
+const RESP_DAYS = 7;
+function responsesTo(role) {
   const m = ensureMeanwhile();
-  const since = Date.now() - 86400_000;
+  const seen = m.aiSeen[role.id] || 0;
+  const since = Date.now() - RESP_DAYS * 86400_000;
+  const out = [];
+  for (const p of m.posts) {
+    if (p.who !== role.id || p.ts < since) continue;
+    const items = [
+      ...p.replies.filter(r => r.who !== role.id).map(r => ({ ts: r.ts, who: r.who, text: r.text })),
+      ...p.reacts.filter(r => r.who !== role.id).map(r => ({ ts: r.ts, who: r.who, react: REACTS.find(x => x.kind === r.kind)?.name || r.kind })),
+    ].sort((a, b) => a.ts - b.ts).map(i => ({ ...i, fresh: i.ts > seen }));
+    if (items.some(i => i.fresh)) out.push({ post: p, items });
+  }
+  return out.sort((a, b) => a.post.n - b.post.n).slice(-4);
+}
+// 带过一次就算看过（预览不算）：只收「这次带出去的」那一刻之前的
+const markTideRead = role => { ensureMeanwhile().aiSeen[role.id] = Date.now(); };
+
+// 附在【此刻】里的：别人对你帖子的新回应、最近三个人贴的帖子和底下的回复串、今天大家的水温
+// opt.peek 只看看不算「看过」；opt.tideMark 即使 peek 也算（小房间那种真的发出去的）
+export function tideMoment(role, opt = {}) {
+  const m = ensureMeanwhile();
+  const since = Date.now() - 2 * 86400_000;
+  const nameOf = w => (w === role.id ? "你" : whoInfo(w).name);
   const lines = [];
   const today = todayYmd();
   const moods = whoList().map(w => [w, moodOf(w, today)]).filter(([, x]) => x);
-  if (moods.length) lines.push(`今天的水温：${moods.map(([w, x]) => `${w === role.id ? "你" : whoInfo(w).name}${moodByKey(x.key)?.name}${x.text ? `（${x.text}）` : ""}`).join("；")}`);
+  if (moods.length) lines.push(`今天的水温：${moods.map(([w, x]) => `${nameOf(w)}${moodByKey(x.key)?.name}${x.text ? `（${x.text}）` : ""}`).join("；")}`);
   const plans = plansOf(monthOf(today)).filter(p => !p.doneAt).slice(-6);
-  if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${p.who === role.id ? "你" : whoInfo(p.who).name}：${p.date ? `${Number(p.date.slice(5, 7))}/${Number(p.date.slice(8))} ` : ""}${p.text.slice(0, 20)}`).join("；")}`);
+  if (plans.length) lines.push(`这个月的待续（还没做）：${plans.map(p => `${nameOf(p.who)}：${p.date ? `${Number(p.date.slice(5, 7))}/${Number(p.date.slice(8))} ` : ""}${p.text.slice(0, 20)}`).join("；")}`);
   const today2 = plans2(today);
   if (today2.length) lines.push(`今天要做的周期待续：${today2.join("；")}`);
-  const recent = m.posts.filter(p => Math.max(p.ts, p.editedAt || 0) > since && (p.src !== "plan" || p.note || imgsOf(p).length)).sort((a, b) => a.ts - b.ts).slice(-6);
+  const resp = responsesTo(role);
+  if (resp.length) {
+    lines.push(`别人对你帖子的回应（标「新」的是你还没看过的；想接着回就用 [潮间带回复:序号|一句话]）：`);
+    for (const { post, items } of resp) {
+      lines.push(`- 你的 #${post.n}「${post.text.replace(/\s+/g, " ").slice(0, 24)}」：${items.slice(-5).map(i => `${i.fresh ? "【新】" : ""}${nameOf(i.who)}（${stamp(i.ts)}）${i.react ? `点了${i.react}` : `回：${i.text.slice(0, 60)}`}`).join("；")}`);
+    }
+  }
+  // 最近有动静的帖子（贴出来、补图字、有人回或点了反应），带上底下最后几条回复和反应
+  const active = p => Math.max(p.ts, p.editedAt || 0, ...p.replies.map(r => r.ts), ...p.reacts.map(r => r.ts));
+  const recent = m.posts.filter(p => active(p) > since && (p.src !== "plan" || p.note || imgsOf(p).length || p.replies.length || p.reacts.length)).sort((a, b) => active(a) - active(b)).slice(-6);
   for (const p of recent) {
-    const name = p.who === role.id ? "你" : whoInfo(p.who).name;
     const n = imgsOf(p).length;
     const st = p.status ? `【${STATUSES.find(s => s.kind === p.status.kind)?.name || ""}${p.status.text ? " " + p.status.text : ""}】` : "";
-    const rs = p.replies.slice(-2).map(r => `${r.who === role.id ? "你" : whoInfo(r.who).name}回：${r.text.slice(0, 30)}`).join("；");
-    lines.push(`#${p.n} ${name}（${stamp(p.ts)}）${st}${p.planId ? `${p.whole ? "整件做完了" : "待续打卡"}：` : ""}${p.text.replace(/\s+/g, " ").slice(0, 80)}${p.note ? `——${p.note.replace(/\s+/g, " ").slice(0, 200)}` : ""}${n ? `［附 ${n} 张图］` : ""}${rs ? `——${rs}` : ""}`);
+    const seen = m.aiSeen[role.id] || 0;
+    const rs = p.replies.slice(-3).map(r => `${r.ts > seen && r.who !== role.id ? "【新】" : ""}${nameOf(r.who)}（${stamp(r.ts)}）回：${r.text.slice(0, 40)}`).join("；");
+    const rc = REACTS.map(x => [x.name, p.reacts.filter(r => r.kind === x.kind).map(r => nameOf(r.who))]).filter(([, w]) => w.length).map(([name, w]) => `${w.join("、")}点了${name}`).join("，");
+    lines.push(`#${p.n} ${nameOf(p.who)}（${stamp(p.ts)}）${st}${p.planId ? `${p.whole ? "整件做完了" : "待续打卡"}：` : ""}${p.text.replace(/\s+/g, " ").slice(0, 80)}${p.note ? `——${p.note.replace(/\s+/g, " ").slice(0, 200)}` : ""}${n ? `［附 ${n} 张图］` : ""}${rs ? `——${rs}` : ""}${rc ? `（${rc}）` : ""}`);
   }
   if (!lines.length) return "";
+  if (resp.length && (!opt.peek || opt.tideMark)) markTideRead(role);
   return lines.join("\n");
 }
 

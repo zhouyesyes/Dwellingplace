@@ -94,7 +94,7 @@ export async function globalForRoom(role, me, query = "", skipRoom = "") {
   if (recalled.length) markUsed(recalled);
   const cards = [...pinned, ...recalled];
   const line = m => `- #${m.id.slice(0, 4)} [${m.date}] ${m.title}：${(m.content.length > 160 ? m.content.slice(0, 160) + "…" : m.content).replace(/\n+/g, " ")}`;
-  const moment = momentParts(role, me, { peek: true, brief: true }).filter(p => p.text).map(p => `【${p.title}】\n${p.text}`).join("\n");
+  const moment = momentParts(role, me, { peek: true, brief: true, tideMark: true }).filter(p => p.text).map(p => `【${p.title}】\n${p.text}`).join("\n");
   const thread = await mainThreadOf(role);
   let sumTail = "", recent = "";
   if (thread) {
