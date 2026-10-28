@@ -16,8 +16,8 @@ const tab = computed(() => route.meta.tab);
 // iPhone：聊天页是整屏固定的，键盘弹出时 iOS 会把整页（window / visualViewport）顶上去，
 // 键盘收起后有时不复原：顶栏不见了、下面空一截、触摸位置和画面对不上，输入框点不动。
 // 判断「键盘收起了」看屏幕高度（不看焦点：点别处收起键盘时，输入框有时还占着焦点）；收起了还偏着就复位
-const inChat = () => /^\/(chat|group)\//.test(route.path);
-const kbOpen = () => { const vv = window.visualViewport; return !!vv && vv.height < window.innerHeight * 0.8; };
+const inChat = () => /^\/(chat|group)(\/|$)/.test(route.path); // 群聊路径是 /group（后面没有斜杠），以前漏了它
+const kbOpen = () => { const vv = window.visualViewport; return !!vv && (vv.height < window.innerHeight * 0.8 || window.innerHeight - vv.height > 160); };
 const shifted = () => { const vv = window.visualViewport; return !!(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || (vv && (vv.offsetTop > 1 || vv.pageTop > 1))); };
 function resetViewport() {
   if (!inChat() || kbOpen() || !shifted()) return;
@@ -25,14 +25,14 @@ function resetViewport() {
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   // 光滚回去不够时：让聊天页按现在的屏幕高度重新排一次（iOS 会重新对准点哪里是哪里）
-  const chat = document.querySelector(".chat");
+  const chat = document.querySelector("div.chat");
   if (chat) { chat.style.height = `${window.innerHeight}px`; requestAnimationFrame(() => { chat.style.height = ""; }); }
 }
 function resetSoon() { [0, 60, 250, 500, 900, 1500].forEach(ms => setTimeout(resetViewport, ms)); }
 // 键盘开着：聊天页只占键盘上面看得见的那块（高度、位置跟着 visualViewport 走），输入框就贴在键盘上面
 // （以前靠 iOS 自己把整页顶上去露出输入框；有的键盘带翻译栏特别高，或者顶的时候被上面复位抢回去，输入框就被键盘盖住了）
 function fitChat() {
-  const chat = document.querySelector(".chat");
+  const chat = document.querySelector("div.chat"); // 主页的聊天条也叫 chat，只认聊天页那个 div
   if (!chat) return;
   const vv = window.visualViewport;
   if (inChat() && kbOpen()) {
@@ -47,6 +47,13 @@ function fitChat() {
   }
 }
 document.addEventListener("focusout", resetSoon);
+// 键盘弹出的那一下 iOS 的 resize 事件有时来得早或漏掉（这时屏幕高度还没缩够），输入框就留在键盘下面：
+// 点进输入框后的一小会儿里反复量一次，键盘开着期间也每隔一会儿校一次
+document.addEventListener("focusin", e => {
+  if (!inChat() || !e.target.closest?.("textarea,input,[contenteditable]")) return;
+  [0, 80, 200, 350, 550, 800, 1200, 1800].forEach(ms => setTimeout(fitChat, ms));
+});
+setInterval(() => { if (inChat() && kbOpen()) fitChat(); }, 600);
 window.visualViewport?.addEventListener("resize", () => { fitChat(); resetSoon(); });
 window.visualViewport?.addEventListener("scroll", () => { fitChat(); resetViewport(); });
 window.addEventListener("scroll", resetViewport, { passive: true });
