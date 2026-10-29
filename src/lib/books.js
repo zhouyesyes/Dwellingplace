@@ -72,7 +72,7 @@ export function txtChapters(text, rule = "auto", edits = null) {
   const lines = txtLines(text);
   return splitLines(lines, rule, undefined, edits).map(c => ({ id: uid(), title: c.title.slice(0, 60), ...headingOf(c, lines), ...noteOf(c, lines), paras: c.lines.map(i => lines[i]) }));
 }
-function parseTxt(buf, name, encoding, rule, edits) {
+export function parseTxt(buf, name, encoding, rule, edits) {
   const decoded = decodeTxt(buf, encoding);
   if (!decoded.usable) throw new Error("正文为空或损坏字符过多，请重新选择编码导入");
   return { title: name, chapters: txtChapters(decoded.text, rule, edits) };
