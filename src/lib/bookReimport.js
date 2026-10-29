@@ -1,7 +1,7 @@
 // 覆盖导入只处理选中的书；正文和笔记在事务成功前都保持原样。
 import { store, prepareBookPersistence, commitBookTransaction } from '../store/index.js';
 import { get } from './kv.js';
-import { parseEpub, replaceBookCache, shelfChapters } from './books.js';
+import { parseEpub, parseTxt, replaceBookCache, shelfChapters } from './books.js';
 import { saveImage } from './images.js';
 const copy = x => JSON.parse(JSON.stringify(x));
 const norm = s => (s || '').normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
@@ -87,9 +87,11 @@ export function migrateReading(book, notes, oldBody, body) {
   return { book: nextBook, notes: nextNotes, matches, moved, unresolved: nextNotes.filter(n => n.unlocated).length, approximate };
 }
 
-export async function previewReimport(id, file) {
-  if (!/\.epub$/i.test(file.name)) throw Error('请选择 EPUB 文件');
-  if (file.size > 100 * 1024 * 1024) throw Error('文件过大，请选择小于 100 MB 的 EPUB');
+// txtOptions：TXT 在分章预览里定下来的 { encoding, rule, edits }
+export async function previewReimport(id, file, txtOptions) {
+  if (!/\.(epub|txt)$/i.test(file.name)) throw Error('请选择 EPUB 或 TXT 文件');
+  if (file.size > 100 * 1024 * 1024) throw Error('文件过大，请选择小于 100 MB 的文件');
+  const isTxt = /\.txt$/i.test(file.name);
   await prepareBookPersistence();
   const book = store.books.find(b => b.id === id);
   if (!book) throw Error('这本书已不在书架上');
@@ -97,8 +99,11 @@ export async function previewReimport(id, file) {
   if (!saved?.chapters?.length) throw Error('旧书正文暂不可用，不能覆盖');
   const oldBody = copy(saved);
   let parsed;
-  try { parsed = await parseEpub(new Uint8Array(await file.arrayBuffer())); }
-  catch (e) {
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    parsed = isTxt ? parseTxt(buf, file.name.replace(/\.[^.]+$/, ''), txtOptions?.encoding, txtOptions?.rule, txtOptions?.edits) : await parseEpub(buf);
+  } catch (e) {
+    if (isTxt) throw e;
     if (e.code !== 'EPUB_STRUCTURE') throw e;
     return { id, title: book.title, newTitle: '文件异常', author: '无法读取', oldChapters: oldBody.chapters.length, newChapters: '无法读取', oldImages: imageCount(oldBody), newImages: '无法读取', moved: 0, unresolved: 0, approximate: 0, pending: [], allowed: false, reason: e.message };
   }
@@ -134,8 +139,14 @@ export async function previewReimport(id, file) {
   const overlap = anchors.filter(p => texts.has(norm(p))).length / Math.max(1, anchors.length);
   const titleOK = norm(book.title) === norm(parsed.title);
   const authorOK = !book.author || !parsed.author || norm(book.author) === norm(parsed.author);
-  const allowed = titleOK && authorOK && overlap >= .45;
-  const preview = { id, title: book.title, newTitle: parsed.title || '未提供书名', author: parsed.author || '未提供作者', oldChapters: oldBody.chapters.length, newChapters: body.chapters.length, oldImages: imageCount(oldBody), newImages: imageCount(body), moved: migration.moved, unresolved: migration.unresolved, approximate: migration.approximate, allowed, reason: allowed ? '书名与正文核对通过；已核对文件提供的作者信息' : '书名或作者不同，或正文相似度不足；为保护旧书，不能覆盖。', pending: migration.notes.filter(n => n.unlocated) };
+  // TXT 的书名只是文件名，对不上不拒，改看正文段落对上的比例；比例低就让她自己确认一下
+  const txtLow = isTxt && overlap < .45;
+  const allowed = isTxt ? true : titleOK && authorOK && overlap >= .45;
+  const pct = Math.round(overlap * 100);
+  const reason = isTxt
+    ? (txtLow ? `正文只有约 ${pct}% 的段落和书架上这本对得上，可能不是同一本，也可能是分段不一样。请确认后再覆盖。` : `正文约 ${pct}% 的段落和书架上这本对得上，核对通过。`)
+    : allowed ? '书名与正文核对通过；已核对文件提供的作者信息' : '书名或作者不同，或正文相似度不足；为保护旧书，不能覆盖。';
+  const preview = { id, title: book.title, newTitle: isTxt ? file.name : (parsed.title || '未提供书名'), author: isTxt ? 'TXT（没有作者信息）' : (parsed.author || '未提供作者'), oldChapters: oldBody.chapters.length, newChapters: body.chapters.length, oldImages: imageCount(oldBody), newImages: imageCount(body), moved: migration.moved, unresolved: migration.unresolved, approximate: migration.approximate, allowed, reason, isTxt, needSure: txtLow, overlap, pending: migration.notes.filter(n => n.unlocated) };
   plans.set(preview, { before, oldBody, body, migration, cover: book.cover ? null : parsed.cover });
   return preview;
 }

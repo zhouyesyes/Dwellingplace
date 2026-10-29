@@ -12,6 +12,7 @@ import { previewReimport, confirmReimport, restoreReimport } from "../../lib/boo
 import { pickFile } from "../../lib/images.js";
 import Sheet from "../Sheet.vue";
 import BookCover from "./BookCover.vue";
+import TxtPreview from "./TxtPreview.vue";
 
 const props = defineProps({ book: Object });
 const emit = defineEmits(["close", "read"]);
@@ -24,16 +25,27 @@ const notes = computed(() => (b.value ? notesOf(b.value.id) : []));
 const replacing = ref(false);
 const preview = shallowRef(null);
 const importError = ref('');
-watch(() => props.book?.id, () => { preview.value = null; importError.value = ''; });
+watch(() => props.book?.id, () => { preview.value = null; txtPick.value = null; importError.value = ''; });
+const txtPick = shallowRef(null); // 选了 TXT：先走分章预览 { file, bytes }
+const sure = ref(false); // 正文对不上的比例低时，她自己点头
 async function reimport() {
   const id = b.value.id;
-  const [file] = await pickFile('.epub,application/epub+zip');
+  const [file] = await pickFile('.epub,.txt,application/epub+zip,text/plain');
   if (!file || b.value?.id !== id) return;
-  replacing.value = true;
   preview.value = null;
   importError.value = '';
-  try { preview.value = await previewReimport(id, file); }
-  catch (e) { importError.value = `未覆盖：${e.message}`; }
+  if (/\.txt$/i.test(file.name)) {
+    try { txtPick.value = { file, bytes: new Uint8Array(await file.arrayBuffer()) }; }
+    catch (e) { importError.value = `未覆盖：${e.message}`; }
+    return;
+  }
+  await makePreview(id, file);
+}
+async function makePreview(id, file, txtOptions) {
+  replacing.value = true;
+  sure.value = false;
+  try { preview.value = await previewReimport(id, file, txtOptions); txtPick.value = null; }
+  catch (e) { importError.value = `未覆盖：${e.message}`; txtPick.value = null; }
   finally { replacing.value = false; }
 }
 async function applyImport() {
@@ -200,20 +212,22 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
         <p>新文件：{{ preview.newTitle }} · {{ preview.author }}</p>
         <p>章节 {{ preview.oldChapters }} → {{ preview.newChapters }}；插图 {{ preview.oldImages }} → {{ preview.newImages }}</p>
         <p>{{ preview.reason }}</p>
-        <p>可定位笔记 {{ preview.moved }} 条；待重新定位 {{ preview.unresolved }} 条。</p>
+        <p>便利贴 / 批注：{{ preview.moved }} 条能对上原句；{{ preview.unresolved }} 条待重新定位。</p>
+        <label v-if="preview.needSure" class="sure"><input v-model="sure" type="checkbox" /> 我确认这就是同一本书</label>
         <details v-if="preview.pending.length"><summary>查看待重新定位的笔记</summary><article v-for="n in preview.pending" :key="n.id" class="mem"><b>{{ n.unlocated.chapter }}</b><p>「{{ n.unlocated.quote }}」</p><p>{{ n.text || '（划线）' }}</p></article></details>
         <p v-if="preview.approximate">部分阅读位置将回到匹配章节的相近段落，未匹配章节回到书首。</p>
         <p>保留原书、封面、排序和全部笔记。确认时自动保存覆盖前备份，可恢复到覆盖前；失败时旧书不变。备份保存在当前设备，下次成功覆盖会更新。</p>
-        <div class="row"><button class="btn soft small" :disabled="replacing" @click="preview = null">取消</button><button class="btn small" :disabled="replacing || !preview.allowed" @click="applyImport">确认覆盖并保留笔记</button></div>
+        <div class="row"><button class="btn soft small" :disabled="replacing" @click="preview = null">取消</button><button class="btn small" :disabled="replacing || !preview.allowed || (preview.needSure && !sure)" @click="applyImport">确认覆盖并保留笔记</button></div>
       </section>
       <p v-if="importError" role="alert">{{ importError }}</p>
       <section class="acts">
-        <button class="list-row" :disabled="replacing" @click="reimport">{{ replacing ? "正在核对…" : "重新导入并覆盖 EPUB" }}</button>
+        <button class="list-row" :disabled="replacing" @click="reimport">{{ replacing ? "正在核对…" : "重新导入并覆盖（EPUB / TXT）" }}</button>
         <button class="list-row" @click="changeCover">换封面</button>
         <button class="list-row" @click="rename">改书名</button>
         <button class="list-row danger" @click="takeDown">从书架上拿下来</button>
       </section>
     </div>
+    <TxtPreview v-if="txtPick" :file="txtPick.file" :bytes="txtPick.bytes" :busy="replacing" title="覆盖前先看一眼分章" confirm-text="下一步：核对笔记" busy-text="在核对…" @cancel="txtPick = null" @confirm="o => makePreview(b.id, txtPick.file, o)" />
   </Sheet>
 </template>
 
@@ -229,6 +243,7 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
 .stats span { font-size: .72rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 section p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); overflow-wrap: anywhere; }
 .reimport-preview .btn:not(.soft) { color: var(--on-ink); }
+.sure { display: flex; gap: 8px; align-items: center; font-size: .85rem; color: var(--text); }
 .reimport-preview { padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
 section { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 h4 { margin: 0; font-size: .82rem; color: var(--text-2); font-weight: 600; }
