@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { syncState, syncNow, startSync, bindDevice, enableSync, disableSync } from '../lib/sync.js';
+import { syncState, syncNow, startSync, bindDevice, enableSync, disableSync, hasMigrationBackup, restoreMigrationBackup } from '../lib/sync.js';
 import { binding, createBindingCode, listDevices, revokeDevice } from '../lib/deviceSync.js';
 import { toast } from '../lib/toast.js';
 import SubHeader from '../components/SubHeader.vue';
@@ -29,8 +29,14 @@ const confirmScan = () => act(async () => {
   await bindDevice(result.code, name.value, result.origin);
   scanned.value = null; await listDevices(); toast('这台设备已绑定');
 });
+const backupAt = ref(false);
+const restore = () => act(async () => {
+  if (!confirm('把这台设备的数据恢复成同步升级之前的样子？升级之后新写的内容会被换掉。')) return;
+  await restoreMigrationBackup(); toast('已恢复'); location.reload();
+});
 let tick;
 onMounted(async () => {
+  hasMigrationBackup().then(v => { backupAt.value = v; }).catch(() => {});
   tick = setInterval(() => { clock.value = Date.now(); }, 1000);
   await startSync();
   if (bound.value) await listDevices().catch(e => { binding.error = e.message; });
@@ -71,6 +77,7 @@ async function revoke(d) {
         <p>{{ binding.device.name }}</p>
         <p class="desc">{{ syncState.busy ? '正在同步…' : syncState.lastAt ? '已经同步过' : '等待同步' }}<template v-if="syncState.pending"> · {{ syncState.pending }} 项待同步</template></p>
         <button class="btn wide" :disabled="busy || syncState.busy" @click="syncNow">现在同步</button>
+        <button v-if="backupAt" class="btn soft wide" :disabled="busy" @click="restore">恢复到同步升级之前</button>
       </template>
       <form v-else @submit.prevent="bind">
         <button type="button" class="btn soft wide" @click="scanned = null; scannerOpen = true">扫码或识别二维码图片</button>
