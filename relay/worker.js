@@ -920,6 +920,71 @@ async function bookWake(role, item) {
   }
 }
 
+// ---------- 小房间动静：醒来时先看一眼逛 / 玩 / 雾潮群岛里有没有事 ----------
+// 栖所同步时带着每间接上了工具的房间的服务（role.roomPeek）。这里只调「读」的工具，不替 TA 动手；
+// 哪个取不到（没接、超时、报错）就跳过那一项，不报错。工具返回的格式不固定，所以尽量宽松地摘几条给 TA 看
+const PEEK_TOOLS = {
+  stroll: [["list_notifications", "通知"], ["list_activity", "关注的人的动态"]],
+  play: [["get_my_status", "牌局和邀请"]],
+  nostos: [["nostos_status", "岛上"]],
+};
+const PEEK_BUDGET = 12_000; // 整个看一圈最多花这么久
+const peekClip = (t, n) => { const s = String(t ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
+const pickText = (o, keys) => { for (const k of keys) { const v = o?.[k]; if (v == null || v === "") continue; if (typeof v === "object") { const n = v.name || v.display_name || v.username || v.title; if (n) return String(n); continue; } return String(v); } return ""; };
+function brief(item) {
+  if (item == null || typeof item !== "object") return peekClip(item, 80);
+  const kind = pickText(item, ["type", "kind", "event", "action"]);
+  const who = pickText(item, ["actor", "from", "sender", "user", "author", "username", "name", "display_name", "player"]);
+  const what = pickText(item, ["text", "content", "body", "message", "title", "summary", "description", "game", "game_type", "status"]);
+  const when = pickText(item, ["created_at", "at", "time", "timestamp"]);
+  return peekClip([kind, who && `${who}`, what && `「${peekClip(what, 50)}」`, when].filter(Boolean).join(" "), 120) || peekClip(JSON.stringify(item), 100);
+}
+// 一个工具的返回 → { lines: [...], quiet: true/false }
+function digest(text, label) {
+  let data;
+  try { data = JSON.parse(text); } catch { const t = peekClip(text, 240); return /^(无|没有|暂无|none|no |empty|\[\]|\{\})/i.test(t) || !t ? { lines: [], quiet: true } : { lines: [`${label}：${t}`], quiet: false }; }
+  const unreadOnly = list => { const has = list.some(x => x && typeof x === "object" && ("read" in x || "is_read" in x || "unread" in x || "seen" in x)); return has ? list.filter(x => x && (x.read === false || x.is_read === false || x.unread === true || x.seen === false)) : list; };
+  const lines = [];
+  const arrays = Array.isArray(data) ? [[label, data]] : Object.entries(data || {}).filter(([, v]) => Array.isArray(v));
+  for (const [k, v] of arrays) {
+    const list = unreadOnly(v);
+    if (!list.length) continue;
+    const name = Array.isArray(data) ? label : `${label}·${k}`;
+    lines.push(`${name}（${list.length} 条）：${list.slice(0, 3).map(brief).join("；")}`);
+  }
+  if (!arrays.length && data && typeof data === "object") {
+    const kv = Object.entries(data).filter(([, v]) => v !== null && v !== false && v !== 0 && v !== "" && typeof v !== "object").map(([k, v]) => `${k}: ${peekClip(v, 50)}`);
+    if (kv.length) lines.push(`${label}：${kv.slice(0, 6).join("，")}`);
+  }
+  return { lines, quiet: !lines.length };
+}
+async function roomNewsText(role, sessions) {
+  const rooms = (role.roomPeek || []).filter(r => r.servers?.length);
+  if (!rooms.length) return "";
+  const deadline = Date.now() + PEEK_BUDGET;
+  const blocks = [];
+  let got = 0;
+  for (const room of rooms) {
+    const lines = [];
+    let ok = false;
+    for (const [tool, label] of PEEK_TOOLS[room.key] || []) {
+      const server = room.servers.find(s => (s.tools || []).includes(tool));
+      if (!server || Date.now() > deadline) continue;
+      try {
+        const r = await Promise.race([mcpCall(sessions, server, tool, {}), new Promise((_, no) => setTimeout(() => no(new Error("超时")), Math.max(1000, deadline - Date.now())))]);
+        if (r.isError) continue;
+        ok = true;
+        lines.push(...digest(r.text, label).lines);
+      } catch { /* 这一项取不到就跳过 */ }
+    }
+    if (ok) got++;
+    if (lines.length) blocks.push(`${room.label}：\n${lines.map(l => `  · ${l}`).join("\n")}`);
+  }
+  if (!got) return "";
+  return blocks.length ? `【小房间动静】（我替你先看了一眼，只是看，没动手）\n${blocks.join("\n")}` : "【小房间动静】各房间都安静。";
+}
+const ROOM_VISIT = (me) => `做完闹钟里写的事，如果想去小房间看看，就单独一行写对应的房间卡片去：[房间:逛]、[房间:玩] 或 [房间:雾潮群岛]（消息底下会出卡片，你会立刻在那间房里开工）。没事也可以去，不用非等有事；只在想去的时候写，不想去就不写。`;
+
 async function runWake(env, cfg, role, reasons, now = Date.now()) {
   await setBusy(env, role.id, reasons.map(r => r.text).join("；")).catch(() => {});
   try {
@@ -978,13 +1043,19 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     } catch { /* 取不到就算了 */ }
   }
 
+  // 小房间的动静：游戏轮到你 / 花园叫醒的那几次已经在房间里了，不再带
+  const inRoom = game || reasons.some(r => r.kind === "garden");
+  const roomNews = inRoom ? "" : await roomNewsText(role, sessions).catch(() => "");
+  const canVisit = !inRoom && (role.roomPeek || []).length > 0;
   const notice = [
     `（这条不是${me}发的消息）${nowLine}\n你醒来了：${reasonText}。`,
     mind ? `\n你此刻的内在状态（心潮，这是你自己的心境，不是要说给${me}听的数据；让它自然地影响你想做什么、想说什么，不用报数字）：\n${mind}\n` : "",
     game
       ? `这是游戏轮到你了：先用工具看局面，然后马上把你这一步交上去（每步有时限，拖久了系统会替你走）。交上去、工具说成功了就算做完，不用再查一遍状态确认；只有还要接着走（比如摸完牌还要出牌）才再看。做完这一步再决定要不要给${me}发消息。`
       : `${me}现在不一定在看手机。你可以给${me}发消息，也可以先用工具做点自己的事（看看邮箱、逛逛别的地方……），做什么都随你的心意。`,
+    roomNews ? `\n${roomNews}\n` : "",
     role.wakeHint || "",
+    canVisit ? ROOM_VISIT(me) : "",
     `上面是你们最近的聊天和你醒来的记录。别重复已经说过的意思（同样的问候、道歉、同一句惦记）；没有新的想说，就去做点自己的事，或者不发消息。`,
     `要发消息就像平时聊天一样直接写，可以分成几条，每条之间空一行。用了工具的话，等拿到结果再决定要不要发。`,
     `如果这次不想发消息，就只回复：[不发消息]`,
@@ -1150,7 +1221,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   await boxAdd(env, item);
 
   if (!silent) {
-    const first = visible(text).split(/\n\s*\n/)[0] || "";
+    const first = visible(text).replace(/\[房间[:：][^\]\n]{0,40}\]/g, "").trim().split(/\n\s*\n/)[0] || "去小房间看看了";
     const url = cfg.appUrl ? `${cfg.appUrl}#${role.pushHash || `/chat/${role.id}${role.threadId ? "/" + role.threadId : ""}`}` : undefined; // pushHash：在小房间里醒的，点通知直接进那间房
     item.push = await pushAll(env, { title: role.name, body: first.length > 40 ? first.slice(0, 40) + "…" : first, url, tag: "wake-" + role.id });
   }
@@ -1182,9 +1253,11 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
   const me = role.meName || "对方";
   const lastTs = (role.history || []).at(-1)?.ts || 0;
   const menu = rooms.map((r, i) => `${i + 1}. ${r.label}：${r.status}`).join("\n");
+  const roomNews = await roomNewsText(role, new Map()).catch(() => "");
   const lobby = [
     `（这条不是${me}发的消息）现在是 ${nowText(now)}（北京时间）${lastTs ? `，离你们上一条消息过去了 ${gapText(now - lastTs)}` : ""}。`,
     `这是你的自由时间：${reasons.map(r => r.text).join("；")}。想做点什么都随你，也可以接着睡。`,
+    roomNews ? `\n${roomNews}` : "",
     `\n可以去的地方：\n${menu}`,
     `\n只回一行：想去哪就写 [去:序号]（比如 [去:2]）；不想动就写 [继续睡]。别写别的。`,
   ].join("\n");
@@ -1206,7 +1279,7 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
   const into = [...reasons, { kind: "free", text: `自由时间，你自己选了去「${room.label}」` }];
   // 聊天、信箱：和平时醒来一样（那间的设定、聊天、工具）
   if (room.kind === "thread") {
-    const r = { ...role, ...(room.system ? { system: room.system, history: room.history, servers: room.servers, threadId: room.threadId } : {}) };
+    const r = { ...role, ...(room.system ? { system: room.system, history: room.history, servers: room.servers, threadId: room.threadId, roomPeek: [] } : {}) }; // 已经在小房间里了：不再带动静和「去房间」
     const item = await runWake(env, cfg, r, into, now);
     item.usage = { ...item.usage, input: (item.usage?.input || 0) + lobbyUsage.input, output: (item.usage?.output || 0) + lobbyUsage.output, rounds: (item.usage?.rounds || 1) + 1 };
     item.free = { pick: room.key, label: room.label };
@@ -1696,7 +1769,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 37, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 38, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

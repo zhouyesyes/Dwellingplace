@@ -264,8 +264,16 @@ async function snapshotRole(role) {
   writingMod ??= await import("./writing.js");
   const events = eventsOf(role, path);
   const api = apiFor(thread, role);
+  // 小房间动静：中转醒来时要去看一眼的房间（只带服务地址和工具名，勾了「醒来能进」的那几间）
+  let roomPeek = [];
+  try {
+    const G = await import("./rooms.js");
+    roomPeek = G.roomsOf(role).filter(g => G.roomOn(role, g.key)).map(g => ({ key: g.key, label: g.label,
+      servers: g.servers.filter(s => !s.builtin && s.url?.trim()).map(s => ({ name: s.name, url: s.url.trim(), headers: headerObj(s), tools: enabledTools(s).map(t => t.name) })) }));
+  } catch { /* 取不到就不看 */ }
   return {
     id: role.id,
+    roomPeek,
     name: role.name,
     meName: meName(role),
     wake: role.wake,
@@ -473,6 +481,7 @@ async function ingest(item) {
   const path = pathOf(thread, all);
   const last = path[path.length - 1];
   // 用工具、搜索的提示放在消息前面；定闹钟之类的放在后面
+  let wakeRoomCard = null; // 醒来时他写了房间卡片：存好以后马上在那间房里开工
   const before = item.notes.filter(n => n.detail || n.sources).map(n => ({ ...n, before: true }));
   const after = item.notes.filter(n => !(n.detail || n.sources));
   if (item.book && !item.book.ok) after.push({ text: `没能写进对话本：${item.book.error}` }); // 小螃蟹醒来的话写不进对话本时，说出原因
@@ -491,6 +500,7 @@ async function ingest(item) {
     msg.notes.push(...after, ...tagNotes);
     all.push(msg);
     thread.sel[parent] = msg.id;
+    wakeRoomCard = msg.rooms?.length ? msg : null;
   } else if (last) {
     const tmp = { text: item.text || "" };
     const xm = await applyXinchaoMemoryTags(role, tmp.text);
@@ -506,6 +516,11 @@ async function ingest(item) {
   if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
   if (!item.silent) touchThread(thread, all);
   saveMessages(thread.id);
+  if (wakeRoomCard) {
+    const him = role.name;
+    import("./gardenTalk.js").then(m => m.runRoomFromChat(role, thread, wakeRoomCard,
+      `（这是你醒来时（${item.reasons.join("；")}）自己想来的，请在这间房里照着做；${meName(role)}不在，不是她叫你来的）\n你在主聊天里写的：${String(wakeRoomCard.text || "（只发了房间卡片）").replace(/\s+/g, " ").slice(0, 300)}`)).catch(e => console.warn(`${him}醒来想去的房间没开成`, e));
+  }
 }
 
 // force：不管有没有新东西都去看一眼（打开栖所时）；否则只在中转说有新东西时才去取
