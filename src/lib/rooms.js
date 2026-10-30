@@ -62,7 +62,7 @@ export function applyRoomCardTags(msg) {
     if (k && !found.includes(k)) found.push(k);
     return "";
   }).replace(/\n{3,}/g, "\n\n").trim();
-  if (found.length && msg.id && !msg.wakeId) msg.rooms = found.slice(0, 1); // 一条消息一张
+  if (found.length && msg.id) msg.rooms = found.slice(0, 1); // 一条消息一张
 }
 // 提示词：花园三间房在哪、怎么带她去（chatgpt、CC 都有）
 export function roomsForAI(role, who) {
