@@ -9,6 +9,11 @@
 //   sync:known  { 键: { rev, h } }    每一样上次同步时的号和指纹（内容没变就不用交）
 //   sync:dirty  [键…]                 改了还没交的
 //   sync:base   上次同步时的 meta（两边都改了时，用来分清谁改了什么）
+// meta 在服务器上按板块拆开存（meta:books、meta:notes……，见 syncSections.js），只交改了的板块；
+// 旧的整份 meta 留在服务器上不动：还没升级的旧设备继续用它，升级了的设备会把旧设备改的合进来。
+//   sync:sections  { at }              这台设备已经迁到板块存法了
+//   sync:backup:premigrate             迁移前本机留的完整备份（设置页能一键恢复）
+//   sync:migration                     迁移时逐项核对的结果
 // 阅读计时、翻页进度、用量统计这类高频小改动（lazy）：只改了这些时先在本地攒着，
 // 最久 3 分钟合并交一次；离开书页、切到后台、关闭页面时（syncNow(true)）立刻补交，不丢。
 import { reactive, watch } from "vue";
@@ -18,6 +23,7 @@ import { store, applyRemoteMeta, messageCache, flushStore, hasPendingMeta, flush
 import { generating } from "./chat.js";
 import { serverBase } from "./server.js";
 import { migrateLegacy, redeemCode, showBinding } from "./deviceSync.js";
+import { splitMeta, joinMeta, countMeta, lazyPart, sectionKey, sectionName } from "./syncSections.js";
 
 export const syncState = reactive({ on: false, url: "", busy: false, lastAt: 0, error: "", pending: 0, revoked: false, updated: false, deferred: false });
 
@@ -29,6 +35,7 @@ let pushTimer = null, pollTimer = null, running = null, lazyTimer = null;
 const LAZY_MS = 180_000;
 const held = new Set(); // 只有高频小改动、先攒着的键
 let heldSince = 0, forceNext = false;
+let sectionMode = false; // 已迁到板块存法
 
 const trim = u => String(u || "").trim().replace(/\/+$/, "");
 const saveKnown = () => idbSet("sync:known", known);
@@ -161,8 +168,181 @@ async function fetchItem(k) {
   return { rev, val };
 }
 
+// ---------- 按板块存 meta ----------
+// 字段顺序不同不算不同
+const sameMeta = (a, b) => isObj(a) && isObj(b) && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => k in b && same(a[k], b[k]));
+const metaHash = val => hashStr(JSON.stringify(val ?? null));
+const stampSec = (name, rev, h, val) => { const lp = lazyPart(name, val); return lp === null ? { rev, h } : { rev, h, hs: hashStr(lp) }; };
+// 把几个板块的新内容换进本机的 meta（其余字段不动）；期间本机有新编辑就放弃，下一轮再来
+async function applySections(updates, generation) {
+  const cur = await idbGet("meta");
+  if ((edits.get("meta") || 0) !== generation) return false;
+  if (!await applyLocal("meta", { ...(isObj(cur) ? cur : {}), ...joinMeta(updates) }, generation)) return false;
+  await flushStore(); // 换进页面的数据会让页面以为有待保存的改动，先落盘，不然后面的板块会被当成「本机正在改」而停下
+  return true;
+}
+async function saveSecBase(k, val) { await idbSet(`sync:base:${k}`, val); }
+
+// 交 meta：拆成板块，哪块变了交哪块
+async function pushMeta(forced) {
+  const generation = edits.get("meta") || 0;
+  const meta = await idbGet("meta");
+  if (!isObj(meta)) { dirty.delete("meta"); return; }
+  const parts = splitMeta(meta);
+  let anyHeld = false, conflict = false;
+  for (const [name, val] of Object.entries(parts)) {
+    const k = sectionKey(name);
+    const kn = known[k];
+    const h = metaHash(val);
+    if (kn?.h === h) continue;
+    const lp = lazyPart(name, val);
+    if (!forced && lp !== null && kn?.hs && kn.hs === hashStr(lp)) {
+      heldSince ||= Date.now();
+      if (Date.now() - heldSince < LAZY_MS) { anyHeld = true; continue; }
+    }
+    const r = await call(`/item?${q(k)}&base=${kn?.rev || 0}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(val) });
+    if (r.ok) {
+      const { rev } = await r.json();
+      known[k] = stampSec(name, rev, h, val);
+      await saveSecBase(k, val);
+      continue;
+    }
+    if (r.status !== 409) throw new Error(`交「${k}」失败（${r.status}）`);
+    // 别的设备先改了这一块：取回来合并，下一轮再交
+    conflict = true;
+    const remote = await fetchItem(k);
+    if ((edits.get("meta") || 0) !== generation) return;
+    await idbSet(`sync:conflict:${Date.now()}:${k}`, { val, remote: remote.val, at: Date.now() });
+    const merged = remote.val === undefined ? val : merge3(await idbGet(`sync:base:${k}`), val, remote.val);
+    if (!same(merged, val) && !await applySections({ [name]: merged }, generation)) return;
+    if (remote.val !== undefined) { known[k] = stampSec(name, remote.rev, metaHash(remote.val), remote.val); await saveSecBase(k, remote.val); }
+    else known[k] = { rev: remote.rev, h: "del" };
+  }
+  if (anyHeld) held.add("meta");
+  else heldSince = 0;
+  if (!anyHeld && !conflict && (edits.get("meta") || 0) === generation) dirty.delete("meta");
+}
+
+// 取回改了的板块，换进本机 meta；本机这块也改了就三方合并
+async function pullSection(it) {
+  const name = sectionName(it.k);
+  const generation = edits.get("meta") || 0;
+  if (it.del) { known[it.k] = { rev: it.rev, h: "del" }; return true; }
+  const { rev, val } = await fetchItem(it.k);
+  if (val === undefined) { known[it.k] = { rev, h: "del" }; return true; }
+  const cur = await idbGet("meta");
+  const mine = splitMeta(cur)[name];
+  const merged = mine === undefined ? val : merge3(await idbGet(`sync:base:${it.k}`), mine, val);
+  if ((edits.get("meta") || 0) !== generation || busyKey("meta")) return false;
+  if (!same(merged, mine) && !await applySections({ [name]: merged }, generation)) return false;
+  known[it.k] = stampSec(name, rev, metaHash(val), val);
+  await saveSecBase(it.k, val);
+  if (!same(merged, val)) dirty.add("meta"); // 合并后和云端不一样，要再交
+  return true;
+}
+// 旧设备（还没升级）改了旧的整份 meta：合进来，不覆盖本机比它新的板块
+async function pullLegacyMeta(it) {
+  const generation = edits.get("meta") || 0;
+  const { rev, val } = await fetchItem("meta");
+  if (val === undefined) { known.meta = { rev, h: "del" }; return true; }
+  const cur = await idbGet("meta");
+  const merged = isObj(cur) ? merge3(await idbGet("sync:base"), cur, val) : val;
+  if ((edits.get("meta") || 0) !== generation || busyKey("meta")) return false;
+  if (!same(merged, cur)) { if (!await applyLocal("meta", merged, generation)) return false; await flushStore(); }
+  known.meta = { rev, h: await fingerprint(val) };
+  await idbSet("sync:base", val);
+  if (!same(merged, cur)) dirty.add("meta");
+  return true;
+}
+
+// 迁移前在本机留一份完整备份（图片、文件这类大块没动，不重复存）
+async function makeBackup() {
+  if (await idbGet("sync:backup:premigrate")) return;
+  const entries = [];
+  for (const k of await localData()) { const v = await idbGet(k); if (v !== undefined && !(v instanceof Blob)) entries.push([k, v]); }
+  await idbSet("sync:backup:premigrate", { at: Date.now(), entries });
+}
+export async function hasMigrationBackup() { return !!(await idbGet("sync:backup:premigrate")); }
+// 一键恢复：把备份里的东西原样写回（服务器上的旧整份大文件一直没动）
+export async function restoreMigrationBackup() {
+  const b = await idbGet("sync:backup:premigrate");
+  if (!b) throw new Error("没有迁移前的备份");
+  const meta = b.entries.find(([k]) => k === "meta")?.[1];
+  if (meta) applyRemoteMeta(JSON.parse(JSON.stringify(meta)));
+  for (const [k, v] of b.entries) { await idbSet(k, v); edits.set(k, (edits.get(k) || 0) + 1); dirty.add(k); }
+  await saveDirty();
+  if (syncState.on) schedulePush(0);
+  return b.entries.length;
+}
+
+// 旧的整份 meta → 板块。失败就留在旧存法，什么都不丢
+async function migrateSections() {
+  await makeBackup();
+  await flushStore();
+  let generation = edits.get("meta") || 0;
+  let local = await idbGet("meta");
+  const r = await call("/changes?since=0");
+  if (!r.ok) throw new Error(`迁移失败（${r.status}）`);
+  const all = (await r.json()).items.filter(x => !x.del);
+  // 先把服务器上旧的整份 meta 合进来（本机还没合过的话）
+  const legacy = all.find(x => x.k === "meta");
+  if (legacy && legacy.rev > (known.meta?.rev || 0)) {
+    const { rev, val } = await fetchItem("meta");
+    if (val !== undefined) {
+      const merged = isObj(local) ? merge3(await idbGet("sync:base"), local, val) : val;
+      if (!sameMeta(merged, local) && !await applyLocal("meta", merged, generation)) throw Object.assign(new Error("迁移时本机又有改动，稍后再试"), { retry: true });
+      local = merged;
+      await flushStore(); generation = edits.get("meta") || 0;
+      known.meta = { rev, h: await fingerprint(val) };
+      await idbSet("sync:base", val);
+    }
+  }
+  if (isObj(local)) {
+    let parts = splitMeta(local);
+    if (!sameMeta(joinMeta(parts), local)) throw new Error("迁移核对没过：拆开再拼回来和原来不一样，已停下");
+    // 服务器上已有的板块（别的设备先迁了）：也合进来
+    for (const it of all.filter(x => x.k.startsWith("meta:"))) {
+      const name = sectionName(it.k), { rev, val } = await fetchItem(it.k);
+      if (val === undefined) continue;
+      parts[name] = parts[name] === undefined ? val : merge3(undefined, parts[name], val);
+      known[it.k] = stampSec(name, rev, metaHash(val), val);
+      await saveSecBase(it.k, val);
+    }
+    const mergedMeta = joinMeta(parts, local);
+    if (!sameMeta(mergedMeta, local) && !await applySections(parts, generation)) throw Object.assign(new Error("迁移时本机又有改动，稍后再试"), { retry: true });
+    // 换进来的数据页面会补上新字段，以落盘后的为准再拆
+    parts = splitMeta(await idbGet("meta"));
+    generation = edits.get("meta") || 0;
+    // 交上去
+    for (const [name, val] of Object.entries(parts)) {
+      const k = sectionKey(name), h = metaHash(val);
+      if (known[k]?.h === h) continue;
+      const pr = await call(`/item?${q(k)}&base=${known[k]?.rev || 0}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(val) });
+      if (pr.status === 409) throw Object.assign(new Error("别的设备同时在迁移"), { retry: true }); // 重来一遍，会把它交的先合进来
+      if (!pr.ok) throw new Error(`迁移交「${k}」失败（${pr.status}）`);
+      known[k] = stampSec(name, (await pr.json()).rev, h, val);
+      await saveSecBase(k, val);
+    }
+    // 逐项核对：服务器上每个板块取回来，和本机逐个字段数量、内容都要一致
+    const back = {}, now = await idbGet("meta"), expect = splitMeta(now);
+    if ((edits.get("meta") || 0) !== generation) throw Object.assign(new Error("迁移时本机又有改动，稍后再试"), { retry: true });
+    for (const name of Object.keys(expect)) {
+      const { val } = await fetchItem(sectionKey(name));
+      back[name] = val;
+      if (!same(val, expect[name])) throw new Error(`迁移核对没过：「${name}」和本机不一致，已停下（旧数据没动）`);
+    }
+    if (!sameMeta(countMeta(joinMeta(back)), countMeta(now))) throw new Error("迁移核对没过：数量对不上，已停下（旧数据没动）");
+    await idbSet("sync:migration", { at: Date.now(), ok: true, counts: countMeta(now) });
+  }
+  await idbSet("sync:sections", { at: Date.now() });
+  sectionMode = true;
+  dirty.delete("meta");
+  await saveKnown();
+}
+
 // ---------- 交上去 ----------
 async function pushOne(k, forced = false) {
+  if (k === "meta" && sectionMode) return pushMeta(forced);
   const generation = edits.get(k) || 0;
   const val = await idbGet(k);
   const h = val === undefined ? "del" : await fingerprint(val);
@@ -218,6 +398,17 @@ async function pull() {
   const j = await r.json();
   let stopped = false;
   for (const it of j.items) {
+    if (it.k.startsWith("meta:") && !sectionMode) { seq = it.rev; continue; } // 还没迁移：板块等迁移时一起取
+    if (it.k.startsWith("meta:")) {
+      if (it.rev <= (known[it.k]?.rev || 0)) { seq = it.rev; continue; }
+      if (busyKey("meta") || !await pullSection(it)) { stopped = true; break; }
+      seq = it.rev; continue;
+    }
+    if (it.k === "meta" && sectionMode) {
+      if (it.rev <= (known.meta?.rev || 0)) { seq = it.rev; continue; }
+      if (busyKey("meta") || !await pullLegacyMeta(it)) { stopped = true; break; }
+      seq = it.rev; continue;
+    }
     if (busyKey(it.k)) { stopped = true; break; } // 正在回的对话：等 TA 回完再取，号先不往前挪
     if (it.rev <= (known[it.k]?.rev || 0) || dirty.has(it.k)) { seq = it.rev; continue; } // 自己交的 / 这边也改了（交的时候会合并）
     const generation = edits.get(it.k) || 0;
@@ -256,6 +447,11 @@ export function syncNow(force = false) {
       await flushStore();
       await flushMessages();
       await pull();
+      if (!sectionMode && !syncState.deferred && !busyKey("meta")) {
+        try {
+          for (let i = 0; ; i++) { try { await migrateSections(); break; } catch (e) { if (!e.retry || i >= 3) throw e; } }
+        } catch (e) { syncState.error = e.message || String(e); await idbSet("sync:migration", { at: Date.now(), ok: false, error: syncState.error }); throw e; }
+      }
       const forced = forceNext;
       forceNext = false;
       held.clear();
@@ -330,6 +526,7 @@ async function beginSync() {
   syncState.on = true;
   seq = (await idbGet("sync:seq")) || 0;
   known = (await idbGet("sync:known")) || {};
+  sectionMode = !!(await idbGet("sync:sections"));
   for (const k of (await idbGet("sync:dirty")) || []) dirty.add(k);
   // 浏览器可能在内容落盘后、待同步记账落盘前退出，启动时重新核对指纹。
   for (const k of await localData()) {
@@ -383,7 +580,7 @@ export async function enableSync(url) {
   await idbSet("sync:conf", conf);
   if (!previous || new URL(previous.url).origin !== new URL(conf.url).origin) {
     await idbSet("sync:seq", 0); await idbSet("sync:known", {});
-    await idbDel("sync:base");
+    await idbDel("sync:base"); await idbDel("sync:sections"); sectionMode = false;
     for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
   }
   dirty.clear();
@@ -402,7 +599,8 @@ export async function disableSync() {
   known = {};
   seq = 0;
   for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
-  for (const k of ["sync:conf", "sync:seq", "sync:known", "sync:dirty", "sync:base"]) await idbDel(k);
+  for (const k of ["sync:conf", "sync:seq", "sync:known", "sync:dirty", "sync:base", "sync:sections"]) await idbDel(k);
+  sectionMode = false;
   syncState.url = "";
   credential = "";
   showBinding(null);
@@ -434,7 +632,7 @@ export async function bindDevice(code, name, origin) {
   // 同一服务器的凭证更换不重置合并基线。
   if (!previous || new URL(previous.url).origin !== new URL(conf.url).origin) {
     await idbSet("sync:seq", 0); await idbSet("sync:known", {});
-    await idbDel("sync:base");
+    await idbDel("sync:base"); await idbDel("sync:sections"); sectionMode = false;
     for (const k of await idbKeys()) if (String(k).startsWith("sync:base:")) await idbDel(k);
   }
   dirty.clear();
