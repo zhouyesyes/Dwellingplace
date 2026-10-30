@@ -18,6 +18,9 @@ const findBook = title => {
   return (store.books || []).find(x => x.title === name) || (store.books || []).find(x => name && (name.includes(x.title) || x.title.includes(name)));
 };
 
+// 共读读书的口气（一起读、问问他、自由时间自己读都用这一句）
+const COREAD_TONE = me => `读的时候像跟${me}一起看书一样，跟着书走：爽文就跟着情绪反应、可以吐槽，正经文章就认真读；有反应就直接说，便利贴想写什么写什么，因为${me}想要的是有人陪着读，不是读后感。`;
+
 export function readingForAI(role, who) {
   if (!store.books?.length) return "";
   return [
@@ -255,7 +258,8 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
     around.length ? `（前后文：${around.join(" …… ")}）` : "",
     beside.length ? `这段旁边已经贴着的便利贴：\n${beside.map(x => `- ${x.line}`).join("\n")}` : "",
     thread ? `你之前在这句旁边贴过一张便利贴：「${thread}」\n${me}回你：${question}` : question ? `${me}在旁边写：${question}` : `${me}想听听你读到这里在想什么。`,
-    imageOnly ? `直接回应当前页的图片或图片失败占位，几句话就好（不超过 120 字）。未提供画面时明确说明看不到。` : thread ? `再写一张便利贴回${me}，贴在同一句旁边：用你自己的口吻，几句话就好（不超过 120 字）。` : `写一句批注回在这${part ? "句" : "段"}旁边：用你自己的口吻，像在书页边上随手写给${me}的，几句话就好（不超过 120 字）。`,
+    imageOnly ? `直接回应当前页的图片或图片失败占位，几句话就好。没提供画面的话，如实说看不到，因为编出来的画面${me}会当真。` : COREAD_TONE(me),
+    imageOnly ? "" : thread ? `再贴一张便利贴回${me}，贴在同一句旁边，几句话就好。` : `在这${part ? "句" : "段"}旁边写一句，像在书页边上随手写给${me}的，几句话就好。`,
   ].filter(Boolean).join("\n");
   const raw = await oneShot(role, prompt, { raw: true, parts: await readingPageParts(page) });
   const { text: t1, notes } = stripReadMemTags(raw);
@@ -431,8 +435,8 @@ export async function alongPrompt(role, b, items, from, { alone = false, self = 
         ? `\n下面是你自己挑的这一段（${self.how === "end" ? "结尾" : self.how === "chapter" ? `从「${book.chapters[from.ch]?.title || ""}」开头` : "接着你上次读到的地方"}，约 ${self.tokens} token），你一路留批注，${me}读到时会看到。每段前面方括号里是「章.段」号：`
         : `\n下面是从${me}现在读到的这一页开始、往后的十来页（${me}还没读到，你先读，一路留批注，${me}往后读时会看到）。每段前面方括号里是「章.段」号：`,
     lines.join("\n"),
-    `你读一读这一段。挑三五处真让你有感觉的句子，分散在前后不同的地方（不用每段都说），划下来，在旁边写一句批注，像在书页边上随手写给${me}的，每条不超过 100 字。`,
-    `每条另起一行写：[贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]。只写这些，别的不用写。`,
+    COREAD_TONE(me),
+    `有反应的地方就划一句、贴一张：另起一行写 [贴:章.段|照抄你划的那句原文（几个到二十几个字）|想说的话]，想写什么写什么，长短随意，多少处你自己定。系统只认这种格式的行，所以除了这些行不用写别的。`,
     alone ? `读多少你自己定：想停就停，另起一行写 [读到:章.段]（停在哪一段；不写就是读完了这一段）。下次想换个地方读（跳到某一章、去看结尾），再写一行 [下次从:章号] 或 [下次从:末尾]；接着往下读就不用写。` : "",
     hers ? `段落下面括号里的是已经贴着的便利贴。${me}贴的你都看得见；想回应哪张，就贴在同一句上（照抄她划的那句原文），算在这三五处里。` : "",
   ].filter(Boolean).join("\n");

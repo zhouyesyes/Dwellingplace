@@ -1245,6 +1245,25 @@ function gardenRoomFor(reason, msg) {
 
 // ---------- 自由时间：门厅 → 屋子 ----------
 // 先在门厅看一张小清单（不带聊天记录，很小的一次请求），自己挑去哪；挑了再带着那间屋子的小背包进去（第二次请求）。继续睡就只有门厅这一次
+// 最近几次自由时间去了哪（role.freeLog，新的在前，栖所同步时带来）：说给他听，让他想起自己最近的习惯
+const FREE_GROUP_NAME = { read: "读书", talk: "讨论室", write: "共写", chat: "聊天", mail: "信箱", tide: "潮间带" };
+const freeGroup = k => String(k).startsWith("garden:") ? k : String(k).split(":")[0];
+function freeHabit(role, rooms, now) {
+  const log = (role.freeLog || []).filter(x => x.key && x.ts);
+  if (!log.length) return "";
+  const nameOf = g => rooms.find(r => freeGroup(r.key) === g && g.startsWith("garden:"))?.label || FREE_GROUP_NAME[g] || g;
+  const [a, b] = log;
+  const ga = freeGroup(a.key);
+  const head = b && freeGroup(b.key) === ga ? `上两次自由时间你都去了「${nameOf(ga)}」`
+    : `上次自由时间你去了「${nameOf(ga)}」（${gapText(now - a.ts)}前）${b ? `，再上一次去的是「${nameOf(freeGroup(b.key))}」` : ""}`;
+  const seen = {};
+  for (const x of log) seen[freeGroup(x.key)] ??= x.ts;
+  const idle = [...new Set(rooms.map(r => freeGroup(r.key)))].filter(g => g !== ga)
+    .map(g => ({ g, gap: seen[g] ? now - seen[g] : Infinity })).filter(x => x.gap >= 86400_000)
+    .sort((x, y) => y.gap - x.gap).slice(0, 3)
+    .map(x => x.gap === Infinity ? `${nameOf(x.g)}最近几次都没去` : `${nameOf(x.g)}已经${gapText(x.gap)}没去了`);
+  return head + (idle.length ? `；${idle.join("，")}` : "") + "。";
+}
 const GO_RE = /\[去[:：]\s*(\d+)\s*\]/;
 const SLEEP_RE = /\[继续睡\]/;
 async function runFree(env, cfg, role, reasons, now = Date.now()) {
@@ -1252,20 +1271,24 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
   if (!rooms.length) return runWake(env, cfg, role, reasons, now); // 没同步屋子：照平时醒来
   const me = role.meName || "对方";
   const lastTs = (role.history || []).at(-1)?.ts || 0;
-  const menu = rooms.map((r, i) => `${i + 1}. ${r.label}：${r.status}`).join("\n");
+  // 单子每次随机打乱，序号跟着打乱后的顺序走（[去:序号] 在这里换回原来的屋子）
+  const order = rooms.map((_, i) => i).sort(() => Math.random() - 0.5);
+  const menu = order.map((ri, i) => `${i + 1}. ${rooms[ri].label}：${rooms[ri].status}`).join("\n");
+  const habit = freeHabit(role, rooms, now);
   const roomNews = await roomNewsText(role, new Map()).catch(() => "");
   const lobby = [
     `（这条不是${me}发的消息）现在是 ${nowText(now)}（北京时间）${lastTs ? `，离你们上一条消息过去了 ${gapText(now - lastTs)}` : ""}。`,
-    `这是你的自由时间：${reasons.map(r => r.text).join("；")}。想做点什么都随你，也可以接着睡。`,
+    `这是你的自由时间：${reasons.map(r => r.text).join("；")}。自由时间是你自己的时间，想去哪就去哪，想接着睡也可以。`,
     roomNews ? `\n${roomNews}` : "",
-    `\n可以去的地方：\n${menu}`,
-    `\n只回一行：想去哪就写 [去:序号]（比如 [去:2]）；不想动就写 [继续睡]。别写别的。`,
+    habit ? `\n${habit}` : "",
+    `\n可以去的地方（顺序是随机的）：\n${menu}`,
+    `\n回一行就好（系统只认这一行）：想去哪就写 [去:序号]（比如 [去:2]）；想接着睡就写 [继续睡]。`,
   ].join("\n");
   const system = `你是「${role.name}」。${role.style ? `\n（这是你写给自己的：${role.style}）` : ""}`;
   setBusy(env, role.id, "自由时间，在想去哪").catch(() => {});
   const r0 = await callModel(role.api, system, [{ role: "user", content: lobby }], false);
   const pick = Number(r0.text.match(GO_RE)?.[1]) - 1;
-  const room = rooms[pick];
+  const room = rooms[order[pick]];
   const lobbyUsage = { input: r0.usage.input, output: r0.usage.output, cached: r0.usage.cached || 0 };
   const why = reasons.map(r => r.text);
   if (!room || SLEEP_RE.test(r0.text) && !GO_RE.test(r0.text)) {
@@ -1769,7 +1792,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 38, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 39, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {
