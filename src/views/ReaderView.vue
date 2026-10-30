@@ -13,6 +13,7 @@ import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } 
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB, roleById } from "../store/index.js";
 import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading, addFont, useFont, removeFont } from "../lib/books.js";
+import { syncNow } from "../lib/sync.js";
 import { captureReadingPage } from "../lib/readingImages.js";
 import { safeBookImage } from "../lib/epubImages.js";
 import { askHim, readAlong, alongSlice, placeAlong, readOnHisOwn, hisAt, setHerPin, clearHerPin } from "../lib/reading.js";
@@ -544,7 +545,7 @@ const act = () => (lastAct = Date.now());
 const timer = setInterval(() => {
   if (b.value && document.visibilityState === "visible" && Date.now() - lastAct < 120_000) tickReading(b.value, 15);
 }, 15_000);
-onBeforeUnmount(() => clearInterval(timer));
+onBeforeUnmount(() => { clearInterval(timer); syncNow(true); }); // 离开书页：攒着的阅读时长、进度立刻补交
 
 // ---------- 背景、字号、字体 ----------
 const BGS = { white: ["#ffffff", "#2e2e34"], paper: ["#faf6ef", "#3b3128"], mist: ["#eef1f4", "#2f3640"], green: ["#e9efe6", "#2f3a2c"], night: ["#1c1d22", "#c9c6bf"] };

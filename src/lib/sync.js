@@ -9,6 +9,8 @@
 //   sync:known  { 键: { rev, h } }    每一样上次同步时的号和指纹（内容没变就不用交）
 //   sync:dirty  [键…]                 改了还没交的
 //   sync:base   上次同步时的 meta（两边都改了时，用来分清谁改了什么）
+// 阅读计时、翻页进度、用量统计这类高频小改动（lazy）：只改了这些时先在本地攒着，
+// 最久 3 分钟合并交一次；离开书页、切到后台、关闭页面时（syncNow(true)）立刻补交，不丢。
 import { reactive, watch } from "vue";
 import { get as idbGet, set as idbSet, del as idbDel, keys as idbKeys, update as idbUpdate } from "idb-keyval";
 import { onLocalChange, isLocalKey, notifyRemoteChange } from "./kv.js";
@@ -23,7 +25,10 @@ let credential = "";
 let known = {};
 let seq = 0;
 const dirty = new Set();
-let pushTimer = null, pollTimer = null, running = null;
+let pushTimer = null, pollTimer = null, running = null, lazyTimer = null;
+const LAZY_MS = 180_000;
+const held = new Set(); // 只有高频小改动、先攒着的键
+let heldSince = 0, forceNext = false;
 
 const trim = u => String(u || "").trim().replace(/\/+$/, "");
 const saveKnown = () => idbSet("sync:known", known);
@@ -44,6 +49,18 @@ const fingerprint = async v => {
   const digest = await crypto.subtle.digest("SHA-256", await v.arrayBuffer());
   return `blob:${v.type}:${Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, "0")).join("")}`;
 };
+
+// 高频小改动：用量统计、阅读时长、每本书的读到哪 / 最近读过。meta 去掉这些以后没变，就算「只是小改动」
+const LAZY_TOP = ["usage", "turnLog", "planSnap", "searchLog", "recallLog", "readingLog"];
+const LAZY_BOOK = ["pos", "readSecs", "readAt"];
+function stableHash(meta) {
+  if (!isObj(meta)) return "";
+  const o = { ...meta };
+  for (const k of LAZY_TOP) delete o[k];
+  if (Array.isArray(o.books)) o.books = o.books.map(b => { if (!isObj(b)) return b; const c = { ...b }; for (const f of LAZY_BOOK) delete c[f]; return c; });
+  return hashStr(JSON.stringify(o));
+}
+const stamp = (k, rev, h, val) => (k === "meta" && val !== undefined ? { rev, h, hs: stableHash(val) } : { rev, h });
 
 async function call(path, init = {}) {
   const r = await fetch(syncState.url + path, { cache: "no-store", signal: AbortSignal.timeout(30_000), ...init,
@@ -145,7 +162,7 @@ async function fetchItem(k) {
 }
 
 // ---------- 交上去 ----------
-async function pushOne(k) {
+async function pushOne(k, forced = false) {
   const generation = edits.get(k) || 0;
   const val = await idbGet(k);
   const h = val === undefined ? "del" : await fingerprint(val);
@@ -153,6 +170,10 @@ async function pushOne(k) {
   if ((edits.get(k) || 0) !== generation) return;
   if (kn && kn.h === h) { dirty.delete(k); return; }
   if (!kn && val === undefined) { dirty.delete(k); return; }
+  if (k === "meta" && !forced && kn?.hs && kn.hs === stableHash(val)) {
+    heldSince ||= Date.now();
+    if (Date.now() - heldSince < LAZY_MS) { held.add(k); return; }
+  }
   const base = kn?.rev || 0;
   const init = val === undefined ? { method: "DELETE" }
     : val instanceof Blob ? { method: "PUT", headers: { "Content-Type": val.type || "application/octet-stream" }, body: val }
@@ -160,7 +181,8 @@ async function pushOne(k) {
   const r = await call(`/item?${q(k)}&base=${base}`, init);
   if (r.ok) {
     const { rev } = await r.json();
-    known[k] = { rev, h };
+    known[k] = stamp(k, rev, h, val);
+    if (k === "meta") { held.delete(k); heldSince = 0; }
     if (listKey(k)) await idbSet(`sync:base:${k}`, val);
     if (k === "meta") await idbSet("sync:base", val);
     // 请求发出后仍可编辑；只确认刚刚发出去的那一版。
@@ -186,7 +208,7 @@ async function pushOne(k) {
   if (!same(merged, val) && !await applyLocal(k, merged, generation)) return;
   if (k === "meta" && remote.val !== undefined) await idbSet("sync:base", remote.val);
   if (listKey(k)) await idbSet(`sync:base:${k}`, remote.val);
-  known[k] = { rev: remote.rev, h: remoteHash };
+  known[k] = stamp(k, remote.rev, remoteHash, remote.val);
 }
 
 // ---------- 取回来 ----------
@@ -208,7 +230,7 @@ async function pull() {
       if (dirty.has(it.k) || (edits.get(it.k) || 0) !== generation || busyKey(it.k)) { stopped = true; break; }
       if (val !== undefined) {
         if (!await applyLocal(it.k, val, generation)) { stopped = true; break; }
-        known[it.k] = { rev, h: await fingerprint(val) };
+        known[it.k] = stamp(it.k, rev, await fingerprint(val), val);
         if (listKey(it.k)) await idbSet(`sync:base:${it.k}`, val);
         if (it.k === "meta") await idbSet("sync:base", val);
       }
@@ -222,8 +244,9 @@ async function pull() {
 }
 
 // 一轮：先取，再交
-export function syncNow() {
+export function syncNow(force = false) {
   if (!syncState.on) return Promise.resolve();
+  if (force) forceNext = true;
   if (running) return running;
   running = (async () => {
     syncState.busy = true;
@@ -233,8 +256,11 @@ export function syncNow() {
       await flushStore();
       await flushMessages();
       await pull();
-      for (const k of [...dirty]) if (!busyKey(k)) await pushOne(k);
-      if (dirty.size) for (const k of [...dirty]) if (!busyKey(k)) await pushOne(k); // 合并过的再交一次
+      const forced = forceNext;
+      forceNext = false;
+      held.clear();
+      for (const k of [...dirty]) if (!busyKey(k)) await pushOne(k, forced);
+      if (dirty.size - held.size > 0) for (const k of [...dirty]) if (!busyKey(k)) await pushOne(k, forced); // 合并过的再交一次
       await saveKnown();
       await saveDirty();
       syncState.lastAt = Date.now();
@@ -244,9 +270,12 @@ export function syncNow() {
     } finally {
       try { await saveKnown(); await saveDirty(); }
       catch (e) { syncState.error = e.message || String(e); }
-      if (syncState.error || dirty.size || syncState.deferred) schedulePush(5000);
       syncState.busy = false;
       running = null;
+      clearTimeout(lazyTimer);
+      if (forceNext) schedulePush(0);
+      else if (syncState.error || dirty.size > held.size || syncState.deferred) schedulePush(5000);
+      else if (held.size) lazyTimer = setTimeout(() => syncNow(true), Math.max(1000, LAZY_MS - (Date.now() - heldSince)));
     }
   })();
   return running;
@@ -311,16 +340,17 @@ async function beginSync() {
   await saveDirty();
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (document.visibilityState === "visible") syncNow(); }, 20_000);
-  if (started) return syncNow();
+  if (started) return syncNow(true);
   started = true;
   // 回完一条就交
   watch(() => Object.keys(generating).length, n => { if (!n) schedulePush(800); });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") resumeSync();
-    else if (dirty.size) syncNow(); // 切到后台前赶紧交
+    else if (dirty.size) syncNow(true); // 切到后台前赶紧交
   });
+  addEventListener("pagehide", () => { if (dirty.size) syncNow(true); });
 
-  return syncNow();
+  return syncNow(true);
 }
 
 // ---------- 设置页 ----------
