@@ -186,6 +186,9 @@ function eventsOf(role, path) {
 }
 let writingMod = null; // 共写的模块（同步前先载好，eventsOf 是同步的）
 
+// 没有对话可以回看的屋子：上次自由时间什么时候去的
+const visitText = (role, key) => { const x = (role.freeLog || []).find(x => x.key === key); return x ? `上次去是${ago(x.ts)}` : "没去过"; };
+
 async function roomsOf(role, thread, path, extra = []) {
   const me = meName(role);
   const rooms = [];
@@ -196,7 +199,7 @@ async function roomsOf(role, thread, path, extra = []) {
   if (mailServers.length) {
     const mt = mailThreadOf(role.id);
     const mpath = pathOf(mt, await loadMessages(mt.id));
-    rooms.push({ key: "mail", kind: "thread", label: "信箱", status: "看看邮件、回信（能用邮箱的工具）", threadId: mt.id,
+    rooms.push({ key: "mail", kind: "thread", label: "信箱", status: visitText(role, "mail"), threadId: mt.id,
       system: buildSystem(role, mpath, { wake: true, mail: true }), history: historyOf(mt, mpath), servers: serverPack(mailServers) });
   }
   // 自己读书：最近在读、还没读完的那本，按他自己的进度往后（他上次说了下次从哪，就从那），最多 8000 token；
@@ -210,7 +213,7 @@ async function roomsOf(role, thread, path, extra = []) {
     const items = await forwardSlice(reading, from, READ_MAX, estTokens);
     // maxChars 记成这一段的字数：取回来时按字数重新切，切出来是同一段
     if (items.length) rooms.push({ key: `read:${reading.id}`, kind: "read", label: `接着读《${reading.title}》`, bookId: reading.id, from: { ch: items[0].ch, p: items[0].p }, maxChars: items.reduce((a, it) => a + it.t.length, 0),
-      status: `${me}读到 ${Math.round(progressOf(reading) * 100)}%；你往后还有一段没读`, prompt: await alongPrompt(role, reading, items, from, { alone: true }) });
+      status: `${me}读到 ${Math.round(progressOf(reading) * 100)}%`, prompt: await alongPrompt(role, reading, items, from, { alone: true }) });
   }
   // 书的讨论室：最近读的那本；还有共读的大讨论室
   const { roomPrompt, loadRoom, HALL } = await import("./readTalk.js");
@@ -222,7 +225,7 @@ async function roomsOf(role, thread, path, extra = []) {
     const bk = (store.books || []).find(x => x.id === id);
     if (id !== HALL && !bk) continue;
     rooms.push({ key: `talk:${id}`, kind: "talk", room: "read", id, label: id === HALL ? "共读大讨论室" : `《${bk.title}》讨论室`,
-      status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没在这里聊过", prompt: await roomPrompt(role, id, "", true) });
+      status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "没去过", prompt: await roomPrompt(role, id, "", true) });
   }
   // 共写：最近在写的那本
   const { projects, writingPrompt, loadTalk } = await import("./writing.js");
@@ -231,7 +234,7 @@ async function roomsOf(role, thread, path, extra = []) {
   for (const p of roomOn(role, "write") ? [...new Set([latest, ...evProjects])].filter(Boolean) : []) {
     const last = (await loadTalk(p.id)).at(-1);
     rooms.push({ key: `write:${p.id}`, kind: "talk", room: "write", id: p.id, label: `共写《${p.title}》`,
-      status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "还没讨论过", prompt: await writingPrompt(role, p, [], true) });
+      status: last ? `上次聊到「${String(last.text || "").replace(/\s+/g, " ").slice(0, 24)}」，${ago(last.ts)}` : "没去过", prompt: await writingPrompt(role, p, [], true) });
   }
   // 潮间带（Meanwhile）：她在「醒来能进哪些屋子」里勾了才有
   if (role.wake?.rooms?.tide === true) {
@@ -247,7 +250,7 @@ async function roomsOf(role, thread, path, extra = []) {
       try { // 一间房出错只跳过那间，不让整包同步失败
         const w = await T.wakeRoom(role, g.key);
         rooms.push({ key: `garden:${g.key}`, kind: "thread", label: g.label, threadId: thread.id,
-          status: `${g.hint}${w.last ? `；上次在这间房聊到「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : "；还没在这间房聊过"}`,
+          status: w.last ? `上次${w.last.from === "me" ? "聊到" : "你在这儿说了"}「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : visitText(role, `garden:${g.key}`),
           system: w.system, history: w.history, servers: serverPack(w.servers) });
       } catch (e) {
         wakeStatus.skipped.push(`${wakeName(role)}的「${g.label}」房（${e.message}）`);
@@ -274,6 +277,7 @@ async function snapshotRole(role) {
   return {
     id: role.id,
     roomPeek,
+    freeLog: (role.freeLog || []).map(({ key, ts }) => ({ key, ts })),
     name: role.name,
     meName: meName(role),
     wake: role.wake,
@@ -339,6 +343,8 @@ function logWake(role, item) {
     { id: item.id, ts: item.ts, reasons: item.reasons, silent: item.silent, direct: !!item.direct, error: item.error || "", usage: item.usage, tools: item.notes.filter(n => n.detail || n.sources).map(n => n.text) },
     ...(role.wakeLog || []).filter(x => x.id !== item.id),
   ].slice(0, 30);
+  // 自由时间去了哪（醒来挑屋子时回头看）：最近 8 次
+  if (item.free?.pick && item.free.pick !== "sleep") role.freeLog = [{ id: item.id, key: item.free.pick, ts: item.ts }, ...(role.freeLog || []).filter(x => x.id !== item.id)].slice(0, 8);
   // 用量页「最近每一轮」：唤醒也记进去（为什么醒、发没发、带了多少上下文）
   const list = (store.turnLog ??= []);
   if (list.some(x => x.wakeId === item.id)) return;
