@@ -15,13 +15,18 @@ function fit() {
     setTimeout(() => document.activeElement?.scrollIntoView?.({ block: "nearest" }), 50);
   } else kb.value = null;
 }
+// 点进输入框的那一下 iOS 的 resize 有时来得晚或漏掉：点进去后的一小会儿里多量几次，输入框和按钮就都在键盘上面
+function onFocusIn(e) {
+  if (!e.target.closest?.("textarea,input,[contenteditable]")) return;
+  [0, 120, 300, 600, 1000].forEach(ms => setTimeout(() => props.open && fit(), ms));
+}
 watch(() => props.open, on => {
   const vv = window.visualViewport;
   if (!vv) return;
-  if (on) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); fit(); }
-  else { vv.removeEventListener("resize", fit); vv.removeEventListener("scroll", fit); kb.value = null; }
+  if (on) { vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); document.addEventListener("focusin", onFocusIn); fit(); }
+  else { vv.removeEventListener("resize", fit); vv.removeEventListener("scroll", fit); document.removeEventListener("focusin", onFocusIn); kb.value = null; }
 }, { immediate: true });
-onBeforeUnmount(() => { window.visualViewport?.removeEventListener("resize", fit); window.visualViewport?.removeEventListener("scroll", fit); });
+onBeforeUnmount(() => { window.visualViewport?.removeEventListener("resize", fit); window.visualViewport?.removeEventListener("scroll", fit); document.removeEventListener("focusin", onFocusIn); });
 const backdropStyle = computed(() => ({
   ...(props.z ? { zIndex: props.z } : null),
   ...(kb.value ? { top: `${kb.value.top}px`, height: `${kb.value.height}px`, bottom: "auto" } : null),

@@ -16,7 +16,6 @@ const props = defineProps({ open: Boolean, role: Object, thread: Object });
 const emit = defineEmits(["close", "threads", "search", "summary"]);
 const router = useRouter();
 
-const days = computed(() => Math.max(1, Math.ceil((Date.now() - (props.role?.createdAt || Date.now())) / 86400000)));
 const letters = computed(() => (props.role ? lettersOf(props.role.id) : []));
 const unread = computed(() => letters.value.filter(l => l.from !== "me" && !l.readAt).length);
 const todayCalls = computed(() => Object.values(store.usage[today()] || {}).reduce((a, u) => a + (u.calls || 0), 0));
@@ -87,7 +86,6 @@ function tapRack() {
               <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="52" />
               <div class="grow">
                 <div class="name">{{ role.name }} <i class="online" /></div>
-                <div class="days">{{ days }} days</div>
                 <div class="tiny">{{ role.signature || "still here" }}</div>
               </div>
               <Icon name="right" :size="16" class="chev" />
@@ -160,7 +158,6 @@ function tapRack() {
 .me-card { cursor: pointer;  flex: 1; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 18px; min-width: 0; }
 .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .online { width: 7px; height: 7px; border-radius: 50%; background: #5fc77a; display: inline-block; }
-.days { font-weight: 500; font-size: 1.6rem; line-height: 1.15; }
 .tiny { font-size: 0.72rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini { width: 72px; border-radius: 18px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; font-size: 0.75rem; color: var(--text-2); }
 .mini span + span { border-top: 1px solid var(--line); padding-top: 10px; }

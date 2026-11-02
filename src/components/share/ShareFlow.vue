@@ -46,7 +46,7 @@ function send() {
   <!-- 确认 -->
   <Sheet :open="open && !!picked" :title="picked ? `分享给 ${picked.kind === 'group' ? '群聊' : ''}${picked.name}` : ''" @close="emit('close')">
     <template v-if="picked">
-      <ShareCard :share="share" flat />
+      <div class="preview"><ShareCard :share="share" flat /></div>
       <textarea v-model="note" class="note" rows="2" maxlength="2000" placeholder="补一句话（可以不写）" />
       <div class="acts">
         <button class="btn soft" @click="picked = null">返回</button>
@@ -61,6 +61,7 @@ function send() {
 .list-row { width: 100%; border: 0; background: none; text-align: left; color: inherit; font: inherit; }
 .list-row .sub { display: block; font-size: .76rem; color: var(--text-3); font-weight: 300; }
 .tip { color: var(--text-3); font-size: .85rem; text-align: center; }
+.preview { max-height: 34dvh; overflow-y: auto; border-radius: 18px; }
 .note { width: 100%; box-sizing: border-box; margin-top: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--text); padding: 10px 12px; font: inherit; font-size: .93rem; resize: none; outline: none; }
 .note:focus { border-color: var(--text-3); }
 .acts { display: flex; gap: 10px; margin-top: 12px; }
