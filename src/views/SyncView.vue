@@ -1,4 +1,5 @@
 <script setup>
+const props = defineProps({ embedded: Boolean }); // 嵌在「数据」页里时不要自己的标题和外框
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { syncState, syncNow, startSync, bindDevice, enableSync, disableSync, hasMigrationBackup, restoreMigrationBackup } from '../lib/sync.js';
 import { binding, createBindingCode, listDevices, revokeDevice } from '../lib/deviceSync.js';
@@ -67,8 +68,8 @@ async function revoke(d) {
 </script>
 
 <template>
-  <div class="page">
-    <SubHeader title="设备与同步" />
+  <div :class="{ page: !props.embedded }">
+    <SubHeader v-if="!props.embedded" title="设备与同步" />
     <BindingScanner v-if="scannerOpen" @result="scannedResult" @close="scannerOpen = false" />
     <div class="card body">
       <h2>{{ bound ? '这台设备已绑定' : syncState.revoked ? '这台设备已被撤销' : '输入绑定码' }}</h2>

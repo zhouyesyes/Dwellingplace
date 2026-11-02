@@ -47,10 +47,9 @@ function defaults() {
     mcpServers: [], // 见 lib/mcp.js
     wake: { enabled: false, synced: false }, // 唤醒，见 lib/wake.js
     roles: [mainRole()],
-    // 旧居：以前住在这里的 AI（设定、聊天、群聊、日历、主页上写的话），只看不动
-    archive: emptyArchive(),
+    archive: emptyArchive(), // 旧居已去掉（11/2）：只留个空壳，让「清空」能通过同步传给别的设备，别的设备也就不会把旧的又写回来
     threads: [], // 一对一：{ roleId }；群聊：{ groupId, roleId: null }
-    groups: [], // 旧居里的老群聊（只读），现在的群聊见 group
+    groups: [], // 旧居的老群聊（已清空，同上），现在的群聊见 group
     group: defaultGroup(), // 现在的群聊：三个人的小房间（对话在 threads 里，id 是 GROUP_TID）
     apis: [],
     defaultApiId: null,
@@ -238,6 +237,26 @@ export function applyRemoteMeta(val) {
   migrate();
 }
 
+// 旧居数据（11/2 去掉）：archive 里的 AI、他们的聊天（含 IndexedDB 里的消息）、老群聊，和这些 AI 的记忆卡片
+export function oldHomeRoleIds() {
+  return new Set((store.archive?.roles || []).map(r => r.id).filter(id => id !== MAIN && id !== CRAB));
+}
+export function oldHomeThreadIds() {
+  return (store.archive?.threads || []).map(t => t.id);
+}
+export function wipeOldHome() {
+  const ids = oldHomeRoleIds();
+  const tids = oldHomeThreadIds();
+  const a = store.archive;
+  const had = !!(a && (a.roles?.length || a.threads?.length || a.groups?.length || a.events?.length || Object.keys(a.bios || {}).length)) || !!store.groups?.length || (store.memories || []).some(m => ids.has(m.roleId));
+  if (!had) return;
+  store.archive = emptyArchive();
+  store.groups = [];
+  store.memories = (store.memories || []).filter(m => !ids.has(m.roleId));
+  for (const id of tids) { delete messageCache[id]; del("msgs:" + id).catch(() => {}); }
+  migratedDirty = true;
+}
+
 // 旧版本数据补上新字段
 function migrate() {
   if (store.version < 2) {
@@ -267,24 +286,8 @@ function migrate() {
     store.version = 6;
   }
   if (store.version < 7) {
-    // 只留一个 AI：以前的 AI 连同 TA 们的对话、群聊、日历、写在主页上的话，一起搬进旧居（不删）
-    const old = store.roles.filter(r => r.id !== MAIN);
-    if (old.length) {
-      const a = store.archive || emptyArchive();
-      for (const r of old) r.wake = { ...(r.wake || {}), enabled: false }; // 不再醒来
-      const add = (list, items) => { for (const x of items) if (!list.some(y => y.id === x.id)) list.push(x); };
-      add(a.roles, old);
-      add(a.threads, store.threads.filter(t => t.roleId !== MAIN));
-      add(a.groups, store.groups || []);
-      add(a.events, store.events || []);
-      Object.assign(a.bios, store.profile.bios || {});
-      a.at = Date.now();
-      store.archive = a;
-      store.threads = store.threads.filter(t => t.roleId === MAIN);
-      store.groups = [];
-      store.events = [];
-      store.profile.bios = {};
-    }
+    // 只留一个 AI（以前的 AI 搬进过旧居，旧居 11/2 整个去掉了，见 wipeOldHome）
+    for (const r of store.roles) if (r.id !== MAIN) r.wake = { ...(r.wake || {}), enabled: false };
     if (!store.roles.some(r => r.id === MAIN)) store.roles = [mainRole()];
     else store.roles = store.roles.filter(r => r.id === MAIN);
     if (store.defaultApiId == null && store.apis[0]) store.defaultApiId = store.apis[0].id;
@@ -308,6 +311,7 @@ function migrate() {
     store.version = 10;
   }
   store.archive ??= emptyArchive();
+  if (store.fixes?.oldhomePurged) wipeOldHome(); // 备份存好、清过一次以后：另一台旧版设备又同步回来的旧居，每次载入都再清掉
   store.widgets = (store.widgets || []).filter(w => !["chick", "work", "calendar"].includes(w.type)); // 主页不再放小鸡；工作间拆掉了；日历搬进「记录」
   store.diary ??= []; // 日记本（见 lib/diary.js）
   store.settings ??= { fontSize: "standard" };
@@ -394,7 +398,7 @@ function migrate() {
   store.wake ??= { enabled: false, synced: false };
   store.tools = { ...defaultTools(), ...(store.tools || {}) };
   for (const s of store.mcpServers || []) s.disabledTools ??= [];
-  // 代表色写死：她粉色、他蓝色（旧居里以前的角色还是原来的颜色）
+  // 代表色写死：她粉色、他蓝色
   store.profile.color = PALETTE[0];
   store.profile.bubbleColor ??= null; // 她自己的气泡颜色（在聊天的「对话」里换；没选就是卡片色）
   for (const r of store.roles) {
@@ -470,12 +474,10 @@ function migrate() {
 
 // ---------- 查询 ----------
 export const roleById = id => store.roles.find(r => r.id === id);
-// 旧居里的 AI（只用来显示名字、颜色，不参与聊天）
-export const archivedRole = id => store.archive?.roles.find(r => r.id === id);
 // 日历等处的「作者」：me 或某个角色
 export function authorInfo(id) {
   if (id === "me") return { name: "我", color: store.profile.color };
-  const r = roleById(id) || archivedRole(id);
+  const r = roleById(id);
   return r ? { name: r.name, color: r.color } : { name: "（已删除）", color: "#c8c8d0" };
 }
 export const apiById = id => store.apis.find(a => a.id === id);

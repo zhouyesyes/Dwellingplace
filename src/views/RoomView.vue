@@ -2,7 +2,7 @@
 // 小世界：他的像素小屋。点点房间里的东西，他和小东西们会有反应
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById, archivedRole, CRAB } from "../store/index.js";
+import { store, roleById, CRAB } from "../store/index.js";
 import { serversForMode, isMailServer } from "../lib/mcp.js";
 import { hasXinchao, dashToken, refreshMind, snapOf, fetchCabin, xinchaoStatus } from "../lib/xinchao.js";
 import Icon from "../components/Icon.vue";
@@ -13,12 +13,11 @@ import BlackBoxSheet from "../components/room/BlackBoxSheet.vue";
 
 const route = useRoute();
 const router = useRouter();
-// 旧居里的人：还住在以前的像素小屋里；现在的他：小世界里先只有邮箱
-const archived = computed(() => !roleById(route.params.roleId) && !!archivedRole(route.params.roleId));
-const role = computed(() => roleById(route.params.roleId) || archivedRole(route.params.roleId));
+// 小世界里先只有邮箱
+const role = computed(() => roleById(route.params.roleId));
 if (!role.value) router.replace("/");
-const people = computed(() => (archived.value ? store.archive.roles : store.roles.filter(r => r.id !== CRAB))); // 小螃蟹还没有小屋
-const hasMail = computed(() => !archived.value && role.value && !!serversForMode(role.value.id, "mail").find(isMailServer));
+const people = computed(() => store.roles.filter(r => r.id !== CRAB)); // 小螃蟹还没有小屋
+const hasMail = computed(() => role.value && !!serversForMode(role.value.id, "mail").find(isMailServer));
 
 // 每个人住自己的房间（没设过就按名字认）
 const kind = computed(() => (["cui", "rowan"].includes(role.value?.room) ? role.value.room : /rowan/i.test(role.value?.name || "") ? "rowan" : "cui"));
@@ -31,7 +30,6 @@ function switchTo(r) {
 }
 // 退出：回到现在这个人的聊天
 function exit() {
-  if (archived.value) return router.replace(`/archive/${role.value.id}`);
   const target = `/chat/${role.value.id}`;
   const back = window.history.state?.back;
   if (back === target) return router.back();
@@ -95,7 +93,7 @@ function retry() {
 const lettersOpen = ref(false);
 const boxOpen = ref(false);
 function open(what) {
-  if (what === "mailbox") { if (!archived.value) router.push(`/mail/${role.value.id}`); } // 墙上的信箱：他自己的邮箱（旧居里的不再收信）
+  if (what === "mailbox") router.push(`/mail/${role.value.id}`); // 墙上的信箱：他自己的邮箱
   else if (what === "letters") { said.value = null; card.value = null; lettersOpen.value = true; } // 你们俩的书信
   else if (what === "blackbox") { said.value = null; boxOpen.value = true; }
 }
@@ -103,7 +101,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
 </script>
 
 <template>
-  <div v-if="role && !archived" class="page">
+  <div v-if="role" class="page">
     <header class="head">
       <button class="icon-btn" aria-label="返回" @click="exit"><Icon name="back" /></button>
       <h1>{{ role.name }} 的小世界</h1>
@@ -148,7 +146,7 @@ const goChat = () => router.push(`/chat/${role.value.id}`);
             <i class="dot" :class="status.tone" />心潮 · {{ status.text }}<span>{{ status.detail }}</span>
           </p>
         </div>
-        <button v-if="!archived" class="btn small" @click="goChat">{{ asleep ? "轻轻叫醒" : "去说话" }}</button>
+        <button class="btn small" @click="goChat">{{ asleep ? "轻轻叫醒" : "去说话" }}</button>
       </div>
     </div>
     <div v-else class="bubble" :class="kind">

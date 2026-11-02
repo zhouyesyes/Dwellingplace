@@ -1,7 +1,7 @@
 // 小螃蟹的对话本：栖所里和它的那一条聊天 ↔ 私人仓库 qisuo-memory（经过她的服务器，钥匙只在服务器上）
 // 栖所这边新说的写进去；Claude Code、云端、醒来时写进去的，拿回来按时间接在这条聊天后面。
 // 这条聊天就是对话本：太长了照栖所平时那样整理成摘要，两边读的都是「摘要 + 最近原话」。
-import { store, roleById, apiById, threadsOf, createThread, loadMessages, saveMessages, uid, CRAB } from "../store/index.js";
+import { store, roleById, apiById, threadsOf, createThread, loadMessages, saveMessages, uid, CRAB, oldHomeRoleIds, wipeOldHome } from "../store/index.js";
 import { activePath, ROOT } from "./tree.js";
 import { get, set } from "./kv.js";
 import { videoNote } from "./video.js";
@@ -112,6 +112,51 @@ async function purgeReadNotes(base) {
   store.fixes = { ...(store.fixes || {}), readNotesPurged: { count: list.length, at: Date.now(), backup: name } };
 }
 
+// 旧居去掉了（11/2）：里面的 AI（设定）、他们的聊天消息、老群聊、记忆卡片，先整份存进私人仓库 backup/oldhome-日期*.json，
+// 条数核对一致、服务器说每个文件都存好了才删；服务器还是旧的或连不上就什么都不删，下次再试。
+// 太大（服务器一个文件最多 4MB）就按消息分成几个文件。删掉靠平常的同步传给别的设备；
+// 之后 store.fixes.oldhomePurged 一直在，别的设备（含旧版又同步回来的）每次载入都会再清一遍
+const CHUNK = 3_000_000;
+async function purgeOldHome(base) {
+  if (store.fixes?.oldhomePurged) return;
+  const ids = oldHomeRoleIds();
+  const a = store.archive || {};
+  const mems = (store.memories || []).filter(m => ids.has(m.roleId));
+  const threads = a.threads || [];
+  const groups = [...(a.groups || []), ...(store.groups || [])];
+  if (!ids.size && !threads.length && !groups.length && !mems.length && !(a.events || []).length) { store.fixes = { ...(store.fixes || {}), oldhomePurged: { count: 0, at: Date.now() } }; return; }
+  const msgs = {};
+  for (const t of threads) msgs[t.id] = await loadMessages(t.id).then(l => l.filter(m => !m.pending)).catch(() => []);
+  const total = { roles: (a.roles || []).length, threads: threads.length, groups: groups.length, events: (a.events || []).length, memories: mems.length, messages: Object.values(msgs).reduce((n, l) => n + l.length, 0) };
+  // 分件：第一件放设定、群聊、日历、记忆；消息按大小接着装，装满换下一件
+  const parts = [{ archive: { ...a, threads }, groups: store.groups || [], memories: mems, messages: {} }];
+  let size = JSON.stringify(parts[0]).length;
+  for (const [tid, list] of Object.entries(msgs)) {
+    for (const m of list) {
+      const n = JSON.stringify(m).length + 2;
+      if (size + n > CHUNK && (parts.length > 1 || Object.keys(parts[0].messages).length)) { parts.push({ messages: {} }); size = 2; }
+      (parts[parts.length - 1].messages[tid] ??= []).push(m);
+      size += n;
+    }
+  }
+  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  const files = {};
+  parts.forEach((p, i) => { files[`backup/oldhome-${day}${parts.length > 1 ? `-${i + 1}` : ""}.json`] = JSON.stringify({ note: "旧居（以前住在栖所里的 AI）删除前的整份备份", at: new Date().toISOString(), part: i + 1, of: parts.length, total, ...p }); });
+  // 核对：把要送出去的文字读回来，数出来的条数要和手里的一样
+  const back = Object.values(files).map(t => JSON.parse(t));
+  const got = {
+    roles: back[0].archive.roles.length, threads: back[0].archive.threads.length, groups: back[0].archive.groups.length + back[0].groups.length, events: back[0].archive.events.length, memories: back[0].memories.length,
+    messages: back.reduce((n, p) => n + Object.values(p.messages).reduce((k, l) => k + l.length, 0), 0),
+  };
+  if (Object.keys(total).some(k => got[k] !== total[k])) return;
+  const names = Object.keys(files);
+  const r = await fetch(base + "/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entries: [], files }) });
+  const saved = r.ok ? (await r.json().catch(() => ({}))).saved || [] : [];
+  if (!names.every(n => saved.includes(n))) return;
+  store.fixes = { ...(store.fixes || {}), oldhomePurged: { ...total, at: Date.now(), backup: names } };
+  wipeOldHome();
+}
+
 let busy = false;
 export async function syncBook() {
   const role = roleById(CRAB);
@@ -121,6 +166,7 @@ export async function syncBook() {
   try {
     const st = (role.book ??= { pushedTs: 0, pulledTs: 0, sig: "" });
     await purgeReadNotes(base).catch(() => {});
+    await purgeOldHome(base).catch(() => {});
     const t = bookThread(role);
     if (st.thread !== t.id) { // 换了一条：这条的话从头写进去（按 id 去重，不会重复）；开这条前半小时以来别处写的也拿过来
       if (st.thread) st.pulledTs = Math.min(st.pulledTs, (t.createdAt || Date.now()) - 30 * 60_000);
