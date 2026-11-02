@@ -2,6 +2,7 @@
 //   node book.mjs prompt   她每发一句：先拉最新的，把栖所那边（还有别处）新写的塞给我看，再把她这句记下
 //   node book.mjs stop     我回完一轮：把我这轮说的话记下，推上去
 //   node book.mjs say cloud < 报告.txt   直接写一段话进去并推上去（云端派活的窗口用它写完工报告；那边不一定装得上钩子）
+//   node book.mjs say cloud-octopus < 报告.txt   同上，但标成小章鱼那边的云端报告（Codex 干活的报告），不会送进小螃蟹的聊天
 //   node book.mjs install  把钩子挂到这个容器的个人设置里（窗口开在两个仓库的上一层时，项目里的钩子不生效；她 10/20 同意过）
 // 找不到仓库、没网、没权限：什么都不做，不挡着干活。不想用：环境变量 QISUO_BOOK=off
 import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
@@ -51,7 +52,7 @@ const add = (e, st) => {
   return true;
 };
 const id = () => `code-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-const WHO = { me: "她", crab: "你" };
+const WHO = { me: "她", crab: "你", octopus: "小章鱼（Codex 云端报告）" };
 const WHERE = { qisuo: "栖所", code: "Claude Code", cloud: "云端干活", wake: "自己醒来" };
 // 带图的话：后面接上图在这台机器上的位置，我用 Read 打开就真的看得到
 const fmt = e => `[${new Date(e.ts).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })} · ${WHERE[e.where] || e.where}] ${WHO[e.from] || e.from}：${String(e.text).slice(0, 1500)}`
@@ -119,7 +120,8 @@ if (mode === "say") {
   const text = String(input.text || (Object.keys(input).length ? "" : RAW)).trim();
   tryGit("pull", "--rebase", "-q");
   if (!text) { console.error("对话本：没收到要写的话"); process.exit(1); }
-  add({ id: id(), ts: Date.now(), where: process.argv[3] || "code", from: "crab", text: text.slice(0, 20000) });
+  const asOctopus = process.argv[3] === "cloud-octopus"; // 小章鱼那边的云端报告
+  add({ id: id(), ts: Date.now(), where: asOctopus ? "cloud" : process.argv[3] || "code", from: asOctopus ? "octopus" : "crab", text: text.slice(0, 20000) });
   push();
   // 这里要说清楚成没成：云端窗口看得到，推不上去时能照实告诉她（例行任务默认只能推 claude/ 开头的分支）
   let err = "";

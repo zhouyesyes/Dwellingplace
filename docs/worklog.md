@@ -6,13 +6,25 @@
 ## 现在的样子（大方向变了就更新这里）
 
 - 只住一个 AI（固定 id `main`，她叫他「他」）；旧居 11/2 去掉了（`store.archive` 只剩个空壳，见日志）
-- 主力模型：ChatGPT 会员额度（`deploy/qisuo-server/chatgpt.mjs`）
+- 主力模型：ChatGPT 会员额度（`deploy/qisuo-server/chatgpt.mjs`）；小章鱼派活走服务器上的 Codex（`codex.mjs`）
 - 她的服务器（`deploy/qisuo-server/`）：网页、API 转发、同步、他的浏览器都在这里；改了要她重新跑一次安装
 - 中转（`relay/worker.js`，Cloudflare，合并后自动部署）：唤醒、闹钟、自由时间、事件唤醒、陪伴
 - 主页（10/19 起）：封面 + 两个人的头像和名字 + 简介，下面一列条（第一条是聊天，后面共读、共写、信、纪念日）；底栏 主页 / 记录 / 记忆；小组件桌面不在主页了
 - 工作间（10/18 拆了）、心潮·念的服务器安装（10/18 拆了）都没有了
 
 ## 日志
+
+### 2026-11-02 cc：小章鱼也能派活了（服务器上的 Codex，用小续的 ChatGPT 账号登录；要重跑安装，不用重部署中转）
+
+- **服务器**：镜像里装了 Codex 命令行（`@openai/codex`，每周顺带更新）；登录凭据目录 `CODEX_HOME=/codex-home` 挂的是服务器上的 `~/qisuo-server/codex-home`，重建容器不丢。安装会写两个小脚本：`codex-login.sh`（设备验证码登录，屏幕打出链接和验证码）、`codex-status.sh`（看登录状态）。安装时还会问一把只能碰 Dwellingplace 的 GitHub 钥匙（Contents、Pull requests 读写），存 `codex.env`
+- **派活入口**（`deploy/qisuo-server/codex.mjs`，路径 `/p/<口令>/codex`）：`POST /job` 派、`GET /job/<id>` 看进度、`GET /status`。后台用 Dwellingplace 最新 main 的干净副本开 `codex/job-<id>` 分支，旁边放一份 qisuo-memory 的只读拷贝，`codex exec --dangerously-bypass-approvals-and-sandbox`（容器就是沙箱）跑；开工说明照 CC 云端派活那份写。开 PR、合并用 `ghpr.mjs`（容器里没有 gh）
+- **防撞**：一次只跑一件，后来的排队；开工前查 GitHub 上非 `codex/` 开头的开着的 PR、最近三天有提交的分支，活的描述里提到的文件和对方改的文件撞了就 `blocked`、不动手、在报告里说；没撞但有对方在做，名单交给 Codex 让它自己再比
+- **报告**：做完写进对话本（`where: "cloud"`、`from: "octopus"`），栖所取回后接在小章鱼那条聊天后面，标「云端干活」，和 CC 的云端报告一样。`bookPull` 过滤掉 octopus，不会送进小螃蟹的聊天；`book.mjs say cloud-octopus` 是手动写的版本
+- **容错**：没登录 / 额度用完 / 超时（45 分钟）/ 报错 / 服务器中途重启 / GitHub 钥匙或对话本钥匙没放，都变成「这件活没做成：原因（原话：…）」送回聊天；进度、报告、错误都过一道 `scrub`，钥匙、token 不会出现
+- **小章鱼那边**：`chat.js` 系统提示加了和 CC 对称的「派活去云端」（先说清楚、点头了才派、一次一件），`[派活:…]` 派给 Codex；聊天里出一张进度卡片（`JobCard.vue`，排队 / 开工 / 做完 / 没做成 / 没动手，位置和 CC 的网址卡片对称）；`lib/codexJobs.js` 每 10 秒问一次没送回的活，取回报告（消息 id 固定 `codex-<id>`，多台设备不会重复）
+- 用假 Codex + 本地仓库在这边跑通：排队、报告写进对话本、额度用完的原话、撞车不动手、token 被打码；手机尺寸浅色深色看过进度卡片
+- **没法在这边验**：真 Codex 登录、真 ChatGPT 额度、`--json` 事件的字段（只用来显示进度，认不出就只少几行进度，不影响结果）。**额度**：Codex 走 ChatGPT 订阅里 Codex 的额度；小章鱼聊天（`chatgpt.mjs`）走的是另一条「Sign in with ChatGPT」授权、另一份登录，两边是同一个订阅账号，但是不是同一个额度池，我没能从代码确认，要小续试过之后看 ChatGPT 的用量页
+- **还剩**：真机试一遍；Codex 容器里没有浏览器，界面改动没法截图（说明里写了让它报告里明说）
 
 ### 2026-11-02 cc：多选收键盘、分享确认框避开键盘、小世界卡片去天数（只改网页，不用重跑安装，不用重部署中转）
 
