@@ -3,6 +3,7 @@ import { POKE_RE, POKE_EDIT_RE, pokeText, applyPokeTags } from "./poke.js";
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
+import { codexBase, dispatchCodex } from "./codexJobs.js";
 import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
@@ -236,6 +237,13 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
       `\n# 派活去云端`,
       `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的你（Claude Code）去做：拉最新代码、改、构建、截图、开 PR、合并，做完的报告会回到这条聊天里。`,
       `「要做的事」写清楚：改哪里、改成什么样、做完要给${who}看什么（比如截图）。一次回复最多派一件；只是聊聊想法的时候别派。`,
+    ].join("\n") : "",
+    // 小章鱼的派活：和小螃蟹对称，只是干活的是服务器上的 Codex（用小续的 ChatGPT 订阅）
+    role.id === MAIN && !solo(role) && !wake && !mail && !group && codexBase(role) ? [
+      `\n# 派活去云端`,
+      `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的 Codex 去做：拉最新代码、开分支、改、构建、开 PR、合并，做完的报告会回到这条聊天里。`,
+      `「要做的事」写清楚：改哪里、改成什么样、要不要给${who}看什么。一次回复最多派一件；已经派出去、还没回报告的，别再派第二件（同一时间只做一件，后派的要排队）。只是聊聊想法的时候别派。`,
+      `派出去以后聊天里会出一张进度卡片。云端那边没有浏览器，没法截图；要${who}决定的地方它会先不合并、在报告里问${who}。要是它说撞上了小螃蟹正在改的文件、没动手，把这个告诉${who}，等那边合并再派。`,
     ].join("\n") : "",
     // 日历的「每日记录」不用了（你们都不太用），先不告诉他怎么记；日历本身留着以后做别的
     alarmForAI(role, who, wake),
@@ -758,7 +766,30 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       }
 
       // 派活：小螃蟹把要改代码的活派去云端（经过她的服务器，地址和钥匙都在服务器上）
-      const jm = solo(role) && !sentJob ? findCmd(text, JOB_RE) : null;
+      const jm = (solo(role) || role.id === MAIN) && !group && !sentJob ? findCmd(text, JOB_RE) : null;
+      if (jm && !solo(role)) { // 小章鱼：派给服务器上的 Codex，聊天里出进度卡片
+        sentJob = true;
+        const job = jm[1].trim();
+        const ev = reactive({ text: `${role.name} 把活派给云端的 Codex…`, before: true, at: keepSaid(text, jm.index), detail: job });
+        msg.notes.push(ev);
+        let back;
+        try {
+          const j = await dispatchCodex(role, thread, job);
+          ev.text = j.position > 0 ? `${role.name} 派给云端的 Codex 了（前面还有 ${j.position} 件，排队中）` : `${role.name} 派给云端的 Codex 开工了`;
+          ev.job = j.id;
+          back = `（系统：已经派出去了${j.position > 0 ? `，前面还有 ${j.position} 件在做，排队中` : "，云端的 Codex 开工了"}。简单告诉对方一声，做完的报告会回到这条聊天里；聊天里有张进度卡片可以看。）`;
+        } catch (e) {
+          ev.text = `派活没派出去：${e.message}`;
+          back = `（系统：派活没派出去：${e.message}。把原因原样告诉对方，别假装已经在做了。）`;
+        }
+        if (ctrl.signal.aborted) break;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${job}]` }] },
+          { role: "user", parts: [{ type: "text", text: back }] },
+        ];
+        continue;
+      }
       if (jm) {
         sentJob = true;
         const job = jm[1].trim();

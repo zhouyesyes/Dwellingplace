@@ -100,7 +100,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 # CLAUDE_WEEK 每周变一次：每周顺带更新一次小螃蟹，其余时候直接用缓存
 ARG CLAUDE_WEEK=0
 RUN echo "第 $CLAUDE_WEEK 周" && npm install -g @anthropic-ai/claude-code --no-audit --no-fund && npm cache clean --force && rm -rf /root/.npm
-ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data DISABLE_AUTOUPDATER=1
+# 小章鱼派活：Codex 命令行（用 ChatGPT 订阅登录，凭据目录 /codex-home 挂的是服务器上的持久目录）。同样每周顺带更新一次
+RUN echo "第 $CLAUDE_WEEK 周 codex" && npm install -g @openai/codex --no-audit --no-fund && npm cache clean --force && rm -rf /root/.npm
+ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data DISABLE_AUTOUPDATER=1 CODEX_HOME=/codex-home
 CMD ["node", "/app/server.mjs"]
 COPY --from=build /src/deploy/qisuo-server/*.mjs /app/
 COPY --from=build /src/dist /app/dist
@@ -219,12 +221,54 @@ if [ "$CLAUDE" = "y" ]; then
   [ -n "$CLAUDE_ENV" ] && [ -s routine.env ] && CLAUDE_ENV="$CLAUDE_ENV --env-file $DIR/routine.env"
 fi
 
+# 小章鱼派活去 Codex：登录凭据放在服务器上的 codex-home（重建容器也不丢）；开分支、开 PR 要一把只能碰栖所仓库的 GitHub 钥匙，存在 codex.env（只有你能读）
+mkdir -p "$DIR/codex-home"; chmod 700 "$DIR/codex-home"
+CODEX_ENV=""
+if [ ! -s codex.env ]; then
+  say "小章鱼派活（Codex）的 GitHub 钥匙"
+  echo "  在 GitHub 生成一把只能碰 Dwellingplace（栖所仓库）的钥匙（Fine-grained，Contents 和 Pull requests 都给读写），github_pat_ 开头，粘在这里。"
+  read -r -s -p "  粘贴钥匙后回车（不会显示；不想现在弄就直接回车）: " GH_TOKEN_IN </dev/tty; echo
+  GH_TOKEN_IN=$(printf '%s' "$GH_TOKEN_IN" | tr -d '[:space:]')
+  if [ -n "$GH_TOKEN_IN" ]; then
+    if curl -fsS -o /dev/null -H "Authorization: Bearer $GH_TOKEN_IN" "https://api.github.com/repos/zhouyesyes/Dwellingplace"; then
+      ( umask 077; printf 'CODEX_GITHUB_TOKEN=%s\n' "$GH_TOKEN_IN" > codex.env )
+      echo "  记好了，试了一下也能打开栖所仓库 ✓"
+    else
+      echo "  这把钥匙打不开栖所仓库：看看是不是没勾这个仓库。没记下，下次运行再粘。"
+    fi
+  else
+    echo "  先跳过了：以后想接，再运行一次安装那一行。"
+  fi
+fi
+[ -s codex.env ] && CODEX_ENV="--env-file $DIR/codex.env"
+# 登录小脚本：在服务器终端跑一行，屏幕上打出链接和验证码（设备验证码方式，要先在 ChatGPT 网页「设置 → 安全」里打开）
+cat > codex-login.sh <<CODEX_LOGIN
+#!/usr/bin/env bash
+S=""; docker ps >/dev/null 2>&1 || S="sudo"
+mkdir -p "$DIR/codex-home"
+echo "下面会显示一个链接和一串验证码：在手机上打开链接、登录 ChatGPT、输入验证码。"
+\$S docker run --rm -it -v "$DIR/codex-home:/codex-home" -e CODEX_HOME=/codex-home qisuo-server codex login --device-auth
+echo; echo "登录好了没（下面一行显示 Logged in 就是好了）："
+\$S docker run --rm -v "$DIR/codex-home:/codex-home" -e CODEX_HOME=/codex-home qisuo-server codex login status
+CODEX_LOGIN
+cat > codex-status.sh <<CODEX_STATUS
+#!/usr/bin/env bash
+S=""; docker ps >/dev/null 2>&1 || S="sudo"
+\$S docker run --rm -v "$DIR/codex-home:/codex-home" -e CODEX_HOME=/codex-home qisuo-server codex login status
+CODEX_STATUS
+chmod +x codex-login.sh codex-status.sh
+if CODEX_TRY=$($SUDO docker run --rm -v "$DIR/codex-home:/codex-home" -e CODEX_HOME=/codex-home qisuo-server codex login status 2>&1); then
+  echo "  小章鱼的 Codex 登录还好着 ✓"
+else
+  echo "  小章鱼的 Codex 还没登录（或登录不通）：$(printf '%s' "$CODEX_TRY" | tail -n 1 | cut -c1-120)"
+fi
+
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker network rm codex-int >/dev/null 2>&1 || true # 旧的栖所服务器也连着它，拿掉服务器以后才删得掉
 # shellcheck disable=SC2086
 $SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
-  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV -v "$DIR/data:/app/data" qisuo-server >/dev/null
+  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV $CODEX_ENV -v "$DIR/data:/app/data" -v "$DIR/codex-home:/codex-home" qisuo-server >/dev/null
 
 ok=""
 for _ in $(seq 1 20); do
@@ -242,6 +286,7 @@ elif [ "$CLAUDE" = "y" ]; then CLAUDE_INFO="装好了但还没登录：再运行
 else CLAUDE_INFO="没接（想接：把 settings.env 里的 CLAUDE=n 改成 y，再运行一次安装那一行）"; fi
 if [ "$CHROME" = "y" ]; then CHROME_INFO="已安装：在栖所「设置 → 工具 → 浏览器」点「接上浏览器」"
 else CHROME_INFO="没装（想装：把 settings.env 里的 CHROME=n 改成 y，再运行一次安装那一行）"; fi
+if [ -n "$CODEX_ENV" ]; then CODEX_INFO="GitHub 钥匙已放好；登录状态见下面的命令"; else CODEX_INFO="还没放 GitHub 钥匙：再运行一次安装那一行，按提示粘贴"; fi
 INFO="$DIR/栖所服务器信息.txt"
 cat > "$INFO" <<INFO_EOF
 【还差一步：在 Cloudflare 隧道里加一条】
@@ -270,6 +315,11 @@ cat > "$INFO" <<INFO_EOF
 【小螃蟹（Claude Code）】
   $CLAUDE_INFO
   用的是你的 Claude 订阅额度，和 Claude 网页、Claude Code 共用
+
+【小章鱼派活（Codex，用你的 ChatGPT 订阅登录）】
+  $CODEX_INFO
+  登录：在服务器终端运行  bash ~/qisuo-server/codex-login.sh   （先在 ChatGPT 网页「设置 → 安全」里打开设备验证码登录）
+  看登录状态：bash ~/qisuo-server/codex-status.sh
 
 【把数据搬过来】
   1. 在旧的栖所（zhouyesyes.github.io）：设置 → 备份 → 导出

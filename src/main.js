@@ -5,6 +5,7 @@ import { loadStore } from "./store/index.js";
 import { startWake } from "./lib/wake.js";
 import { startSync } from "./lib/sync.js";
 import { startCrabBook } from "./lib/crabBook.js";
+import { startCodexJobs } from "./lib/codexJobs.js";
 import "@fontsource-variable/jost";
 import "./styles/base.css";
 import "./lib/theme.js"; // 深色 / 浅色：要在组件之前就定好
@@ -21,4 +22,5 @@ loadStore().then(() => {
   startWake(router);
   startSync();
   startCrabBook();
+  startCodexJobs();
 });

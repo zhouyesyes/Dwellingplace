@@ -174,8 +174,31 @@ function bookMedia(p) {
 // 栖所拿回去：别处（Claude Code、云端、醒来）写进来的、比 since 新的
 const bookPull = since => serial(async () => {
   await memPull();
-  return { entries: readLog().filter(e => e.where !== "qisuo" && (Number(e.ts) || 0) > since) };
+  return { entries: readLog().filter(e => e.where !== "qisuo" && e.from !== "octopus" && (Number(e.ts) || 0) > since) }; // 小章鱼那边的云端报告不送进小螃蟹的聊天
 });
+
+// 别的模块往对话本里写一条（小章鱼的 Codex 派活写完工报告用，from 记成 octopus）
+export const bookAppend = entry => serial(async () => {
+  await memPull(true);
+  if (readLog().some(e => e.id === entry.id)) return false;
+  mkdirSync(join(MEM_DIR, "book"), { recursive: true });
+  writeFileSync(join(MEM_DIR, LOG), JSON.stringify({ id: String(entry.id), ts: Number(entry.ts) || Date.now(), where: String(entry.where || "cloud"), from: String(entry.from || "octopus"), text: String(entry.text || "").slice(0, 20000) }) + "\n", { flag: "a" });
+  writeIfChanged(".gitattributes", "book/*.jsonl merge=union\n");
+  await mgit(["add", "-A"]);
+  await mgit(["commit", "-q", "-m", "小章鱼：云端干活的报告"]);
+  try { await mgit(["push", "-q"]); }
+  catch { await mgit(["pull", "--rebase", "-q"]); await mgit(["push", "-q"]); }
+  return true;
+});
+// 给 Codex 放一份对话本的只读拷贝（拉最新的再复制，拷贝里没有钥匙，推不上去）
+export const bookCopyTo = dest => serial(async () => {
+  await memPull(true);
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(dirname(dest), { recursive: true });
+  await new Promise((resolve, reject) => execFile("cp", ["-r", MEM_DIR, dest], err => (err ? reject(err) : resolve())));
+});
+export const bookReady = () => !!MEM_TOKEN;
+export const bookSecrets = () => [MEM_TOKEN, MEM_TOKEN && Buffer.from("x-access-token:" + MEM_TOKEN).toString("base64")].filter(Boolean);
 
 // ---------- 派活去云端：Claude Code 的例行任务（routines）开一个 API 触发，这里转一句话过去 ----------
 // 地址和钥匙只在服务器上（CRAB_ROUTINE_URL、CRAB_ROUTINE_TOKEN，安装时粘的），栖所只说「要做什么」。

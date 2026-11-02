@@ -36,6 +36,7 @@ import WorldDrawer from "../components/WorldDrawer.vue";
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SearchPanel from "../components/SearchPanel.vue";
 import LinkCard from "../components/LinkCard.vue";
+import JobCard from "../components/JobCard.vue";
 import AskCard from "../components/AskCard.vue";
 import GardenRoomCard from "../components/GardenRoomCard.vue";
 import { askAnswerText } from "../lib/ask.js";
@@ -845,6 +846,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
             <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
               {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
+            <JobCard v-if="it.m.job" :id="it.m.job" />
             <button v-if="it.m.href" class="cal-btn" @click="router.push(it.m.href)">去看 ›</button>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
             <div v-if="it.m.imgs?.length" class="note-imgs"><ImgThumb v-for="id in it.m.imgs" :key="id" :id="id" /></div>
