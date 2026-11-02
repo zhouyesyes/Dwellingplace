@@ -1,4 +1,5 @@
 <script setup>
+const props = defineProps({ embedded: Boolean }); // 嵌在「数据」页里时不要自己的标题和外框
 import { ref, onMounted } from "vue";
 import { exportAll, readBackup, restoreAll } from "../lib/backup.js";
 import { pickFile } from "../lib/images.js";
@@ -65,8 +66,8 @@ async function doImport() {
 </script>
 
 <template>
-  <div class="page">
-    <SubHeader title="备份" />
+  <div :class="{ page: !props.embedded }">
+    <SubHeader v-if="!props.embedded" title="备份" />
 
     <div class="card body">
       <p class="lead">数据存在这台设备的浏览器里（开了「同步」的话服务器上也有一份）。换手机、清理浏览器之前，记得先导出一份备份。</p>

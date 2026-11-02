@@ -82,23 +82,8 @@ function setHelper(v) {
     <div class="list-card">
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="lookOpen = true"><Icon name="palette" :size="20" /><span class="grow">外观<span class="sub">{{ { light: "浅色", dark: "深色", system: "跟随系统" }[themePref] }} · 字号{{ { small: "小", standard: "标准", large: "大" }[store.settings.fontSize] || "标准" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <div class="list-row">
-        <Icon name="heart" :size="20" /><span class="grow">桌宠小章鱼<span class="sub">站在输入框上面，他回复时敲键盘；共读时站在「一起读」上面</span></span>
-        <div class="seg">
-          <button :class="{ on: store.settings.pet !== false }" @click="store.settings.pet = true">开</button>
-          <button :class="{ on: store.settings.pet === false }" @click="store.settings.pet = false">关</button>
-        </div>
-      </div>
-      <div class="list-row">
-        <Icon name="heart" :size="20" /><span class="grow">桌宠小螃蟹<span class="sub">在 CC 的聊天页，站在输入框上面，动作和小章鱼一样</span></span>
-        <div class="seg">
-          <button :class="{ on: store.settings.petCrab !== false }" @click="store.settings.petCrab = true">开</button>
-          <button :class="{ on: store.settings.petCrab === false }" @click="store.settings.petCrab = false">关</button>
-        </div>
-      </div>
-      <button class="list-row" @click="router.push('/settings/sync')"><Icon name="refresh" :size="20" /><span class="grow">同步<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "已开启：几台设备共用一份") : "手机、iPad、电脑共用一份栖所" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <button v-if="store.archive?.roles.length" class="list-row" @click="router.push('/archive')"><Icon name="home" :size="20" /><span class="grow">旧居<span class="sub">{{ store.archive.roles.map(r => r.name).join("、") }} 的设定、聊天和记忆，都在这里</span></span><Icon name="right" class="chev" :size="18" /></button>
-      <button class="list-row" @click="router.push('/settings/backup')"><Icon name="box" :size="20" /><span class="grow">备份<span class="sub">导出 / 导入全部数据</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button class="list-row" @click="router.push('/settings/pet')"><Icon name="heart" :size="20" /><span class="grow">桌宠<span class="sub">小章鱼 {{ store.settings.pet === false ? "关" : "开" }} · 小螃蟹 {{ store.settings.petCrab === false ? "关" : "开" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button class="list-row" @click="router.push('/settings/data')"><Icon name="refresh" :size="20" /><span class="grow">数据<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "同步已开启") : "同步、导出、导入" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
     </div>
     <!-- 外观：点进来再调白天黑夜和字号 -->
     <Sheet :open="lookOpen" title="外观" @close="lookOpen = false">

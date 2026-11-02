@@ -8,8 +8,8 @@ import RecordView from "./views/RecordView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import RoleEditView from "./views/RoleEditView.vue";
 import ApiEditView from "./views/ApiEditView.vue";
-import BackupView from "./views/BackupView.vue";
-import SyncView from "./views/SyncView.vue";
+import DataView from "./views/DataView.vue";
+import PetView from "./views/PetView.vue";
 import ToolsView from "./views/ToolsView.vue";
 import McpEditView from "./views/McpEditView.vue";
 import WakeRoleView from "./views/WakeRoleView.vue";
@@ -32,11 +32,10 @@ export const router = createRouter({
     { path: "/settings", component: SettingsView, meta: { tab: "settings" } }, // 底栏最后一个（海星）
     { path: "/settings/role/:id", component: RoleEditView },
     { path: "/settings/api/:id", component: ApiEditView },
-    { path: "/settings/backup", component: BackupView },
-    { path: "/archive", component: () => import("./views/archive/ArchiveView.vue") },
-    { path: "/archive/thread/:tid", component: () => import("./views/archive/ArchiveThreadView.vue") },
-    { path: "/archive/:id", component: () => import("./views/archive/ArchiveRoleView.vue") },
-    { path: "/settings/sync", component: SyncView },
+    { path: "/settings/backup", redirect: "/settings/data" },
+    { path: "/settings/data", component: DataView },
+    { path: "/settings/pet", component: PetView },
+    { path: "/settings/sync", redirect: "/settings/data" },
     { path: "/meanwhile", redirect: "/record" }, // Meanwhile 搬进了 Record 页；推送、旧链接还指着这里
     { path: "/letters", component: () => import("./views/LettersView.vue") },
     { path: "/books", component: () => import("./views/BooksView.vue") },
