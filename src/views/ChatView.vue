@@ -679,6 +679,7 @@ const rowOn = it => selIds.value.includes(rowId(it));
 function enterSelect(m) {
   actionMsg.value = null;
   if (m.pending) return;
+  document.activeElement?.blur?.(); // 键盘先收起，选择条才不会浮在键盘上
   selecting.value = true;
   selIds.value = [m.id];
   nextTick(() => document.querySelector(`[data-sid="${m.id}"]`)?.scrollIntoView({ block: "center" })); // 分开显示后，高度变了，把选的这条放回眼前
@@ -689,6 +690,7 @@ function toggleSel(id) {
   else if (selIds.value.length >= SHARE_MAX) toast(`一次最多分享 ${SHARE_MAX} 条`);
   else selIds.value.push(id);
 }
+watch(selecting, on => { if (on) { inputEl.value?.blur(); document.activeElement?.blur?.(); } }); // 多选时输入框不再弹键盘
 function cancelSel() { selecting.value = false; selIds.value = []; }
 watch(threadId, cancelSel);
 // 卡片上的一行：谁说的、什么时候、说了什么（AI 的话去掉标签）
@@ -953,7 +955,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <div v-else class="row">
         <button class="tool" aria-label="添加图片或文件" @click="plusOpen = true"><Icon name="plus" :size="26" /></button>
         <button class="tool" aria-label="发语音" @click="startRec"><Icon name="mic" :size="22" /></button>
-        <textarea ref="inputEl" v-model="draft" rows="1" placeholder="What do you want to share?"
+        <textarea ref="inputEl" v-model="draft" :readonly="selecting" :inputmode="selecting ? 'none' : null" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <div class="sends">
           <button class="send small" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send(false)"><Icon name="send" :size="20" /></button>
