@@ -4,6 +4,7 @@
 //   共读、共写里带的主聊天：最近 sceneChatTokens（默认 6 千）
 // 摘要每整理、改动、退回一次，旧的那份都留一个版本（最多 30 个），整理坏了可以退回去
 import { store } from "../store/index.js";
+import { shareTokens } from "./share.js";
 
 // 粗估 token 数：中日韩文字大约一个字一个，其他大约 3.5 个字符一个（只用来看比例，不是计费数）
 export function estTokens(text) {
@@ -11,7 +12,7 @@ export function estTokens(text) {
   const cjk = (t.match(/[\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/g) || []).length;
   return Math.round(cjk + (t.length - cjk) / 3.5);
 }
-export const msgTokens = m => estTokens(m?.text) + ((m?.attachments || m?.atts)?.length || 0) * 200 + 4;
+export const msgTokens = m => estTokens(m?.text) + ((m?.attachments || m?.atts)?.length || 0) * 200 + (m?.share ? shareTokens(m.share) : 0) + 4;
 export const sumTokens = list => list.reduce((a, m) => a + msgTokens(m), 0);
 
 export const AUTO = 0.8; // 到上限的八成就整理

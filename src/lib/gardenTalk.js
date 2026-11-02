@@ -25,6 +25,7 @@ import { logTurn } from "./quota.js";
 import { tail, sumTokens, keepCount, AUTO, snapshotSum } from "./budget.js";
 import { recallWhyForCC, visibleText, findCmd, meName, helperApi, oneShot, sumSpanHead, pathOf, afterSummary, splitBubbles } from "./chat.js";
 import { takeSuggestions, roomSuggestRule } from "./memoryTags.js";
+import { shareLines } from "./share.js";
 
 export const roomKeys = ROOMS.map(r => r.key);
 const idOf = (role, key) => `${role.id}:${key}`;
@@ -102,7 +103,7 @@ export async function globalForRoom(role, me, query = "", skipRoom = "") {
     if (s) sumTail = s.length > 800 ? "……" + s.slice(-800) : s; // 摘要只带最后一小段
     const path = afterSummary(thread, pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error));
     recent = path.slice(-12).map(m => {
-      const t = m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
+      const t = m.from === "user" ? m.text || (m.share ? shareLines(m.share) : m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
       return t ? `${m.from === "user" ? me : "你"}：${t.length > 200 ? t.slice(0, 200) + "…" : t}` : "";
     }).filter(Boolean).join("\n");
   }

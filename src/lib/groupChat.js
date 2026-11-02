@@ -8,6 +8,7 @@ import { reactive } from "vue";
 import { store, roleById, loadMessages, MAIN, CRAB, GROUP_TID } from "../store/index.js";
 import { generate, generating, pathOf, splitBubbles, visibleText, findCmd, meName } from "./chat.js";
 import { ROOT } from "./tree.js";
+import { shareLines } from "./share.js";
 
 // 进群时带多少句：最近这么多句原样带，更早的整理进群摘要
 export const GROUP_TAIL = 24;
@@ -99,7 +100,7 @@ export async function groupRowsFor(role, from, to) {
     ts: m.ts,
     who: m.from === "user" ? "user" : m.who,
     name: m.from === "user" ? me : roleById(m.who)?.name || "?",
-    text: (m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ")).slice(0, 300),
+    text: (m.from === "user" ? m.text || (m.share ? shareLines(m.share, { me, selfId: role.id }) : m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ")).slice(0, m.share ? 2500 : 300),
   })).filter(r => r.text).slice(-40);
 }
 

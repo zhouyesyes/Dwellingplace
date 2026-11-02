@@ -7,6 +7,7 @@ import { tail, sceneChatTokens } from "./budget.js";
 import { store, uid, loadMessages } from "../store/index.js";
 import { todayYmd } from "./dates.js";
 import { lettersOf } from "./letters.js";
+import { shareLines } from "./share.js";
 
 export const MEM_TAG_RE = /\[(记忆|改记忆|过时记忆|归档记忆|常驻记忆)[:：]([^\]]{1,1200})\]/g;
 
@@ -209,7 +210,7 @@ export async function globalMemoryForScene(role, meName, { skip, query = "" } = 
     const { pathOf, afterSummary, visibleText, splitBubbles } = await import("./chat.js");
     const path = afterSummary(thread, pathOf(thread, await loadMessages(thread.id)).filter(m => m.from !== "event" && !m.pending && !m.error));
     recent = tail(path, sceneChatTokens()).map(m => {
-      const t = m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
+      const t = m.from === "user" ? m.text || (m.share ? shareLines(m.share) : m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" ");
       return t ? `${m.from === "user" ? meName : "你"}：${t.length > 300 ? t.slice(0, 300) + "…" : t}` : "";
     }).filter(Boolean).join("\n");
   }

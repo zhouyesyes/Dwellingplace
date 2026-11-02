@@ -38,6 +38,7 @@ export const router = createRouter({
     { path: "/settings/sync", redirect: "/settings/data" },
     { path: "/meanwhile", redirect: "/record" }, // Meanwhile 搬进了 Record 页；推送、旧链接还指着这里
     { path: "/letters", component: () => import("./views/LettersView.vue") },
+    { path: "/share/:threadId/:msgId", component: () => import("./views/ShareView.vue") }, // 分享的聊天记录卡片点开
     { path: "/books", component: () => import("./views/BooksView.vue") },
     { path: "/books/talk/:id", component: () => import("./views/ReadTalkView.vue") },
     { path: "/garden/:roleId/:room", component: () => import("./views/GardenRoomView.vue") }, // 小世界里花园的一间房（逛 / 玩 / 雾潮群岛）

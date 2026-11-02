@@ -13,6 +13,7 @@ import { serversFor, serversForMode, enabledTools, headerObj, toolDoc } from "./
 import { ROOT } from "./tree.js";
 import { buildSystem, pathOf, touchThread, applyReplyTags, meName, noteRecord, recentToolResults, afterSummary, summaryForAI } from "./chat.js";
 import { applyXinchaoMemoryTags, hasXinchao, xinchaoBase } from "./xinchao.js";
+import { shareLines } from "./share.js";
 
 export const ALARM_RE = /\[(定闹钟|取消闹钟)[:：]([^\]\n]{1,200})\]/g;
 export const MAX_ALARMS = 5;
@@ -119,7 +120,7 @@ const threadFor = role => threadsOf(role.id).find(t => t.id === role.lastThreadI
 
 function textOf(m) {
   const att = (m.attachments || []).map(a => (a.kind === "image" ? "[图片]" : a.kind === "video" ? "[视频]" : `[文件：${a.name}]`)).join(" ");
-  return [att, m.text].filter(Boolean).join(" ");
+  return [att, m.text || (m.share ? shareLines(m.share) : "")].filter(Boolean).join(" ");
 }
 
 // 醒来时带的聊天（小背包）：摘要 + 最近这么多 token 的聊天 + 最近用工具拿到的结果
