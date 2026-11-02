@@ -2,7 +2,7 @@
 // 和小螃蟹的云端派活对称：聊天里点头了就派，这里在后台开工，做完的报告写进对话本、送回小章鱼的聊天。
 //
 // 登录：登录凭据在 CODEX_HOME（服务器上的持久目录，挂进容器），只在服务器终端里跑登录脚本登一次，不经过浏览器。
-// 一次只做一件，后来的排队；开工前查 CC 那边有没有开着、改同一批文件的分支或 PR，撞上就先不动。
+// 一次只做一件，后来的排队；开工前查 CC 那边有没有开着、改同一个代码文件的 PR，撞上就先不动（已合并的、没开 PR 的旧分支、只在 worklog 末尾追加都不算）。
 //
 // 路径（都在 /p/<口令>/codex 下面）：
 //   GET  /status        装好了没、登录了没、GitHub 钥匙和对话本有没有、排队情况
@@ -71,21 +71,15 @@ async function loginStatus() {
   return { installed: true, loggedIn: r.code === 0 && /logged in/i.test(text) && !/not logged in/i.test(text), text };
 }
 
-// ---------- 防撞：CC 那边正开着的 PR、还没合的分支 ----------
+// ---------- 防撞：只看 CC 那边仍然开着、没合并的 PR ----------
+// 已合并的 PR、提交早已在 main 里的旧分支、没有开 PR 的分支都不算；docs/worklog.md 大家每单都会往末尾追加，也不算
+const SHARED_DOCS = new Set(["docs/worklog.md"]);
 async function ccWork() {
   const list = [];
-  const prs = (await ghApi("/pulls?state=open&per_page=30")).filter(p => !p.head.ref.startsWith("codex/"));
-  const heads = new Set(prs.map(p => p.head.ref));
+  const prs = (await ghApi("/pulls?state=open&per_page=30")).filter(p => !p.head.ref.startsWith("codex/") && !p.merged_at);
   for (const p of prs.slice(0, 12)) {
-    const files = await ghApi(`/pulls/${p.number}/files?per_page=100`).then(l => l.map(f => f.filename)).catch(() => []);
-    list.push({ kind: "PR", name: `#${p.number} ${p.title}`, branch: p.head.ref, files });
-  }
-  // 还没开 PR、但最近三天里有提交、领先 main 的分支
-  const branches = (await ghApi("/branches?per_page=50")).map(b => b.name).filter(n => n !== "main" && !n.startsWith("codex/") && !heads.has(n));
-  for (const n of branches.slice(0, 15)) {
-    const c = await ghApi(`/compare/main...${encodeURIComponent(n)}`).catch(() => null);
-    const last = c?.commits?.at(-1)?.commit?.committer?.date;
-    if (c && c.ahead_by > 0 && last && Date.now() - Date.parse(last) < 3 * 86400_000) list.push({ kind: "分支", name: n, branch: n, files: (c.files || []).map(f => f.filename) });
+    const files = await ghApi(`/pulls/${p.number}/files?per_page=100`).then(l => l.map(f => f.filename).filter(f => !SHARED_DOCS.has(f))).catch(() => []);
+    if (files.length) list.push({ kind: "PR", name: `#${p.number} ${p.title}`, branch: p.head.ref, files });
   }
   return list;
 }
@@ -116,7 +110,7 @@ function promptFor(job, others, dir) {
 1. 进栖所仓库目录，读 CLAUDE.md 和 AGENTS.md，按里面的规矩做（你不是 cc，所以其中「cc 的」那几条以本说明为准：分支用 ${job.branch}，不要自己换分支名）
 2. 读 ../qisuo-memory 里的 summary.md、memories.md，和 book/log.jsonl 最后几十行（tail -n 40），知道她们最近在聊什么
 3. 看一眼 docs/worklog.md 最上面几条，知道别人刚做了什么
-${others.length ? `4. 现在 CC 那边有这些还没合并的分支 / PR（改动文件在括号里）：\n${others.map(o => `   - ${o.kind} ${o.name}（${o.files.slice(0, 12).join("、")}${o.files.length > 12 ? "…" : ""}）`).join("\n")}\n   你要改的文件如果和它们撞了：**一个文件都别动**，直接在报告里说明撞在哪、建议等对方合并后再派。\n` : "4. 现在 CC 那边没有开着的分支 / PR。\n"}
+${others.length ? `4. 现在 CC 那边有这些还开着、没合并的 PR（改动文件在括号里，worklog 不算）：\n${others.map(o => `   - ${o.kind} ${o.name}（${o.files.slice(0, 12).join("、")}${o.files.length > 12 ? "…" : ""}）`).join("\n")}\n   你要改的文件如果和它们撞了：**一个文件都别动**，直接在报告里说明撞在哪、建议等对方合并后再派。\n` : "4. 现在 CC 那边没有开着的 PR。\n"}
 干活：
 - 改 → 跑 npm ci（第一次）→ npx vite build 必须通过 → 提交（中文说明，一件事一个提交）→ git push -u origin ${job.branch}
 - 开 PR 和合并用这个小工具（环境里已经有钥匙，不要打印、不要写进任何文件）：
@@ -164,10 +158,10 @@ async function runJob(job) {
     if (!GH_TOKEN) return await finish("failed", "这件活没做成：服务器上还没放 GitHub 钥匙（开分支、开 PR 要用）：再运行一次安装那一行。", "没有 GitHub 钥匙");
     if (!bookReady()) return await finish("failed", "这件活没做成：服务器上还没放对话本的钥匙（要读 qisuo-memory、写回报告）：再运行一次安装那一行。", "没有对话本钥匙");
 
-    setProgress(job, "查 CC 那边有没有撞车的分支和 PR");
+    setProgress(job, "查 CC 那边有没有开着的 PR 撞车");
     let others = [];
     try { others = await ccWork(); }
-    catch (e) { return await finish("failed", `这件活没做成：查 CC 那边的分支和 PR 时出错了（${scrub(e.message)}），为了不撞车先没动。`, e.message); }
+    catch (e) { return await finish("failed", `这件活没做成：查 CC 那边的 PR 时出错了（${scrub(e.message)}），为了不撞车先没动。`, e.message); }
     const hit = clash(job.text, others);
     if (hit.length) {
       return await finish("blocked", `我先没动手：这件活要改的文件，CC 那边正在改——\n${hit.map(h => `- ${h.kind} ${h.name}：${h.bad.slice(0, 6).join("、")}`).join("\n")}\n等 CC 那边合并（或你说可以一起改）以后，再让小章鱼派一次。`);

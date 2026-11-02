@@ -802,8 +802,8 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(j.error?.message || `返回 ${r.status}`);
           ev.text = `${role.name} 派去云端开工了`;
-          if (j.url) ev.sources = [{ title: "在 Claude App 里看过程", url: j.url }];
-          back = `（系统：已经派出去了，云端的你开工了${j.url ? `，过程在 ${j.url}` : ""}。简单告诉对方一声，做完的报告会回到这条聊天里。）`;
+          ev.cloud = { url: j.url || "", at: Date.now() }; // 聊天里是一张状态卡（网址收在卡片里，不再单发网址卡片）
+          back = `（系统：已经派出去了，云端的你开工了。别在回复里写网址。简单告诉对方一声，做完的报告会回到这条聊天里。）`;
         } catch (e) {
           ev.text = `派活没派出去：${e.message}`;
           back = `（系统：派活没派出去：${e.message}。告诉对方没派成，别假装已经在做了。）`;

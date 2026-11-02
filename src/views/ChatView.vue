@@ -616,6 +616,7 @@ const lastPt = window.__tapAt;
 const menuPos = ref({});
 function openActions(m, bubble = "") {
   if (m.pending) return;
+  if (String(getSelection?.() || "").trim()) return; // 正在选字（系统的选区）时，不弹菜单
   actionBubble.value = bubble;
   const w = 188, x = Math.min(Math.max(lastPt.x - w / 2, 12), innerWidth - w - 12);
   menuPos.value = lastPt.y > innerHeight * 0.55
@@ -671,8 +672,11 @@ async function removeMsg() {
   await deleteMessage(thread.value, m.id);
 }
 
+// CC 云端派活的卡片：开工以后，对话本里有了一条「云端干活」的报告，就算做完
+const cloudDone = c => messages.value.some(m => m.where === "cloud" && m.from === "ai" && m.ts > c.at);
+
 // ---------- 多选 / 分享聊天记录 ----------
-// 长按一条消息（或点一下选「多选」）进入多选：每条前面出现圈，勾几条，底下「分享」「取消」
+// 点一下气泡弹出小菜单，选「多选」进入多选（长按留给系统选字复制）：每条前面出现圈，勾几条，底下「分享」「取消」
 const shareDraft = ref(null); // 做好的卡片，选目标 / 确认框用
 const rowId = it => src(it.msgs[0]).id;
 const pickable = it => { const m = src(it.msgs[0]); return !m.pending && !m.error; };
@@ -707,27 +711,6 @@ function startShare() {
   shareDraft.value = makeShare(picked, { kind: isGroup ? "group" : "dm", role: role.value }, toItem);
 }
 const openShare = m => { if (!selecting.value) router.push(`/share/${threadId.value}/${m.id}`); };
-// 长按：气泡进多选，分享卡片弹出操作（删除、多选）。长按松手后那一下「点击」不再当成点了气泡
-let lp = null, longAt = 0;
-function lpDown(e) {
-  if (selecting.value || (e.pointerType === "mouse" && e.button !== 0)) return;
-  const el = e.target.closest?.("[data-mid]");
-  if (!el) return;
-  lpCancel();
-  const id = el.dataset.mid;
-  lp = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
-    lp = null;
-    const m = messages.value.find(x => x.id === id);
-    if (!m || m.pending) return;
-    longAt = Date.now();
-    navigator.vibrate?.(15);
-    if (m.share) { lastPt.x = e.clientX; lastPt.y = e.clientY; openActions(m); } else enterSelect(m);
-  }, 480) };
-}
-function lpMove(e) { if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 8) lpCancel(); }
-function lpCancel() { if (lp) { clearTimeout(lp.timer); lp = null; } }
-function swallowClick(e) { if (Date.now() - longAt < 700) { e.stopPropagation(); e.preventDefault(); longAt = 0; } }
-onBeforeUnmount(lpCancel);
 
 // ---------- 摘要记忆 ----------
 const sumEdit = ref(null);
@@ -828,7 +811,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     </header>
 
     <main ref="scroller" class="scroll" @scroll.passive="onScroll">
-      <div class="inner" @pointerdown="lpDown" @pointermove="lpMove" @pointerup="lpCancel" @pointercancel="lpCancel" @pointerleave="lpCancel" @click.capture="swallowClick">
+      <div class="inner">
         <div v-if="!messages.length && isGroup" class="hello">
           <GroupAvatar :size="72" />
           <p>三个人的小房间：你说一句，{{ roleById(MAIN)?.name }}和{{ roleById(CRAB)?.name }}轮流回；点名谁，谁先说</p>
@@ -847,6 +830,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
               {{ it.m.text }}<template v-if="it.m.sources?.length || it.m.detail"> {{ openSources[it.key] ? "▴" : "▾" }}</template>
             </span>
             <JobCard v-if="it.m.job" :id="it.m.job" />
+            <JobCard v-else-if="it.m.cloud" :cloud="{ url: it.m.cloud.url, done: cloudDone(it.m.cloud) }" />
             <button v-if="it.m.href" class="cal-btn" @click="router.push(it.m.href)">去看 ›</button>
             <button v-if="it.m.calAction && !it.m.calAction.done" class="cal-btn" @click="confirmCal(it.m)">{{ opButton(it.m.calAction) }}</button>
             <div v-if="it.m.imgs?.length" class="note-imgs"><ImgThumb v-for="id in it.m.imgs" :key="id" :id="id" /></div>
@@ -1139,7 +1123,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 </template>
 
 <style scoped>
-.bubble, .share-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.share-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .composer.hide { visibility: hidden; pointer-events: none; }
 .group { position: relative; }
 .group.selecting { padding-left: 34px; }
