@@ -4,12 +4,13 @@ import { activePath } from "./tree.js";
 import { memoriesOf, markUsed } from "./memoryTags.js";
 import { lettersOf } from "./letters.js";
 import { exactRank, bm25Rank, fuse, parseWhen, parseKinds, KINDS } from "./rank.js";
+import { shareLines } from "./share.js";
 
 const terms = q => String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
 const hit = (text, ts) => { const t = String(text || "").toLowerCase(); return ts.length && ts.every(w => t.includes(w)); };
 // 聊天里显示的文字：去掉签名、记忆这些标记，多条气泡连成一句
 export const plainOf = m => String(m.text || "").replace(/\[(签名|记忆|改记忆|日历|改日历|删日历|搜索|翻记忆|闹钟)[:：][^\]]*\]/g, "").replace(/\n{2,}/g, " ").trim()
-  || ((m.attachments || []).length ? "[图片/文件]" : "");
+  || (m.share ? shareLines(m.share) : (m.attachments || []).length ? "[图片/文件]" : "");
 // 关键词前后各留一点
 export function snippet(text, q, around = 60) {
   const t = String(text || "");

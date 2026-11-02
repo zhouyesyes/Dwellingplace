@@ -31,6 +31,7 @@ import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
 import { serversFor, serversForMode, toolsForAI, TOOL_CALL_RE, resolveToolCall, callTool, showRequest, showTool, toolDoc, normalizeToolCalls, SAID_NOT_DONE_RE, clipResult, stripCallJunk } from "./mcp.js";
 import { videoNote } from "./video.js";
+import { shareParts, shareLines, shareBrief } from "./share.js";
 import { ALARM_RE, alarmForAI, applyAlarmTags } from "./wake.js";
 import { hasXinchao, xinchaoMemoryForAI, applyXinchaoMemoryTags, reportExchange, refreshMind, mindForAI, dashToken, xcCache } from "./xinchao.js";
 
@@ -371,7 +372,18 @@ export function recentToolResults(list, n = 2) {
   ].join("\n");
 }
 
-async function buildMessages(list, speaker = null) {
+// 转来的聊天记录卡片 → 给模型的内容（原文 + 图片）。withImages：最近几条里的才真的放图，更早的写成 [图片]
+async function shareToParts(share, who, withImages) {
+  const out = [];
+  for (const p of shareParts(share, { me: meName(who), selfId: who?.id || null, images: withImages })) {
+    if (p.type !== "image") { out.push(p); continue; }
+    try { const { data, mime } = await imageBase64(p.id); out.push({ type: "image", data, mime }); }
+    catch { out.push({ type: "text", text: "[这张图读不到了]" }); }
+  }
+  return out;
+}
+
+async function buildMessages(list, speaker = null, who = null) {
   const out = [];
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
@@ -398,6 +410,9 @@ async function buildMessages(list, speaker = null) {
         else out.push({ role: "user", parts: [{ type: "text", text: pre }] });
       }
       parts = [{ type: "text", text: (m.quote ? `[引用:${m.quote.text}]\n` : "") + (win.indexOf(m) < win.length - 4 ? shrinkCode(stripCallJunk(m.text)) : stripCallJunk(m.text)) }];
+    }
+    else if (m.share) {
+      parts = await shareToParts(m.share, who, fresh.has(m));
     }
     else {
       parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "video") });
@@ -450,7 +465,7 @@ export function touchThread(thread, all) {
   if (last) {
     const att = last.attachments?.length ? "[附件] " : "";
     const who = thread.group && last.from === "ai" && roleById(last.who) ? `${roleById(last.who).name}：` : "";
-    thread.preview = att + who + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || "");
+    thread.preview = att + who + (last.from === "ai" ? splitBubbles(last.text).join(" ") : last.text || (last.share ? shareBrief(last.share) : ""));
   }
 }
 
@@ -538,7 +553,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
     const system = buildSystem(role, history, { mail: !!thread.mail, group });
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
-    const messages = await buildMessages(history, group ? role.id : null);
+    const messages = await buildMessages(history, group ? role.id : null, role);
     const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
     const tideImgs = await tideImageParts(role).catch(() => []);
@@ -959,7 +974,8 @@ export async function summarizeThread(thread, role, { keep, path, why = "manual"
     const rows = old.map(m => ({
       ts: m.ts,
       name: m.from === "user" ? me : group ? roleById(m.who)?.name || role.name : role.name,
-      t: m.from === "user" ? m.text || (m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" "),
+      t: m.from === "user" ? m.text || (m.share ? shareLines(m.share, { me, selfId: role.id }) : m.attachments?.length ? "[图片/文件]" : "") : splitBubbles(visibleText(m.text)).join(" "),
+      long: !!m.share,
     }));
     // 主聊天：群里说过的话也按时间排进来一起整理（标「群聊」）。从上一段摘要管到的地方往后
     if (!group && !thread.mail && !thread.studio) {
@@ -971,7 +987,8 @@ export async function summarizeThread(thread, role, { keep, path, why = "manual"
       if (!r.t) continue;
       const d = new Date(r.ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
       if (d !== day) { day = d; lines.push(`—— ${d} ——`); }
-      lines.push(`${r.name}：${r.t.length > 500 ? r.t.slice(0, 500) + "…" : r.t}`);
+      const cap = r.long ? 4000 : 500;
+      lines.push(`${r.name}：${r.t.length > cap ? r.t.slice(0, cap) + "…" : r.t}`);
     }
     // 只整理这一段新的，接在以前的摘要后面——以前的不再重写（一遍遍「摘要的摘要」，人和事会越压越混）
     const prev = thread.summary?.text;
@@ -1117,7 +1134,7 @@ export { describeError };
 
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）
-export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null, poke = false, speaker = null } = {}) {
+export async function sendMessage(thread, text, attachments = [], { reply = true, hug = false, quote = null, poke = false, speaker = null, share = null } = {}) {
   // 他正在续发：她说话了就别接着自说自话，停下来（已经发出去的留着），先听她的
   if (following[thread.id]) {
     following[thread.id].cancel();
@@ -1127,17 +1144,25 @@ export async function sendMessage(thread, text, attachments = [], { reply = true
   const all = await loadMessages(thread.id);
   const role = roleById(thread.roleId);
   thread.sel ??= {};
-  if (!all.some(m => m.from === "user")) thread.title = (text || "图片").slice(0, 16);
+  if (!all.some(m => m.from === "user")) thread.title = (text || (share ? share.title : "图片")).slice(0, 16);
   const path = pathOf(thread, all);
   const parent = path.length ? path[path.length - 1].id : ROOT;
-  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(poke ? { poke: "user" } : {}), ...(hug ? { hug: true } : {}), ...(quote ? { quote } : {}) };
+  const m = { id: uid(), parentId: parent, from: "user", text, attachments, ts: Date.now(), ...(poke ? { poke: "user" } : {}), ...(hug ? { hug: true } : {}), ...(quote ? { quote } : {}), ...(share ? { share } : {}) };
   all.push(m);
-  if (!thread.mail) petHears(text); // 桌宠：夸他、撒娇，他会开心或害羞一下
+  if (!thread.mail && text) petHears(text); // 桌宠：夸他、撒娇，他会开心或害羞一下
   thread.sel[parent] = m.id;
   if (role && !thread.mail) role.lastThreadId = thread.id;
   touchThread(thread, all);
   saveMessages(thread.id);
   if (reply) await generate(thread, m.id, speaker ? { speaker } : {}); // 群里戳了谁的头像，就只有谁回
+}
+
+// 分享聊天记录：先发卡片，再发补的那句（可以不补）。群聊 / 私聊都和她自己说了话一样照常回；
+// 补的那句是紧跟在卡片后面的一条普通消息
+export async function sendShare(thread, share, note = "") {
+  note = note.trim();
+  await sendMessage(thread, "", [], { reply: !note, share });
+  if (note) await sendMessage(thread, note, [], { reply: true });
 }
 
 // 重新生成：在同一个位置多一个新版本，旧的保留

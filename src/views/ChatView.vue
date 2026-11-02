@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary } from "../lib/chat.js";
+import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
 import { pokeText } from "../lib/poke.js";
 import { stopGroup, GROUP_TAIL } from "../lib/groupChat.js";
 import GroupAvatar from "../components/GroupAvatar.vue";
@@ -56,6 +56,9 @@ import BigTextarea from "../components/BigTextarea.vue";
 import { openEditor } from "../lib/editor.js";
 import { runCalendarOp, opButton } from "../lib/calendarTags.js";
 import { wakeStatus } from "../lib/wake.js";
+import ShareCard from "../components/share/ShareCard.vue";
+import ShareFlow from "../components/share/ShareFlow.vue";
+import { makeShare, shareItem, SHARE_MAX } from "../lib/share.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -140,12 +143,15 @@ function safeCut(text, at) {
   if (open >= line && open < near && text.indexOf("]", open) >= near) return line;
   return near;
 }
+// ---------- 多选（分享聊天记录）----------
+const selecting = ref(false);
+const selIds = ref([]); // 勾选的消息 id（按点的先后，分享时按聊天顺序排）
 const items = computed(() => {
   const out = [];
   let group = null;
   const event = (m, n, i) => { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; };
   const add = m => {
-    if (group && group.from === m.from && group.who === m.who && (group.where || "") === (m.where || "") && m.ts - group.lastTs < 5 * 60_000) {
+    if (!selecting.value && group && group.from === m.from && group.who === m.who && (group.where || "") === (m.where || "") && m.ts - group.lastTs < 5 * 60_000) {
       group.msgs.push(m);
       group.lastTs = m.ts;
     } else {
@@ -664,6 +670,62 @@ async function removeMsg() {
   await deleteMessage(thread.value, m.id);
 }
 
+// ---------- 多选 / 分享聊天记录 ----------
+// 长按一条消息（或点一下选「多选」）进入多选：每条前面出现圈，勾几条，底下「分享」「取消」
+const shareDraft = ref(null); // 做好的卡片，选目标 / 确认框用
+const rowId = it => src(it.msgs[0]).id;
+const pickable = it => { const m = src(it.msgs[0]); return !m.pending && !m.error; };
+const rowOn = it => selIds.value.includes(rowId(it));
+function enterSelect(m) {
+  actionMsg.value = null;
+  if (m.pending) return;
+  selecting.value = true;
+  selIds.value = [m.id];
+  nextTick(() => document.querySelector(`[data-sid="${m.id}"]`)?.scrollIntoView({ block: "center" })); // 分开显示后，高度变了，把选的这条放回眼前
+}
+function toggleSel(id) {
+  const i = selIds.value.indexOf(id);
+  if (i >= 0) selIds.value.splice(i, 1);
+  else if (selIds.value.length >= SHARE_MAX) toast(`一次最多分享 ${SHARE_MAX} 条`);
+  else selIds.value.push(id);
+}
+function cancelSel() { selecting.value = false; selIds.value = []; }
+watch(threadId, cancelSel);
+// 卡片上的一行：谁说的、什么时候、说了什么（AI 的话去掉标签）
+function toItem(m) {
+  const user = m.from === "user";
+  const name = user ? role.value.me?.name || store.profile.userName || store.profile.name || "我" : speakerOf(m.who).name;
+  const text = user ? (m.hug ? `抱了抱 ${role.value.name}` : m.text || "") : splitBubbles(visibleText(m.text)).join("\n");
+  return shareItem(m, { name, who: user ? null : isGroup ? m.who : role.value.id, text });
+}
+function startShare() {
+  const picked = messages.value.filter(m => selIds.value.includes(m.id) && !m.pending && !m.error);
+  if (!picked.length) return;
+  shareDraft.value = makeShare(picked, { kind: isGroup ? "group" : "dm", role: role.value }, toItem);
+}
+const openShare = m => { if (!selecting.value) router.push(`/share/${threadId.value}/${m.id}`); };
+// 长按：气泡进多选，分享卡片弹出操作（删除、多选）。长按松手后那一下「点击」不再当成点了气泡
+let lp = null, longAt = 0;
+function lpDown(e) {
+  if (selecting.value || (e.pointerType === "mouse" && e.button !== 0)) return;
+  const el = e.target.closest?.("[data-mid]");
+  if (!el) return;
+  lpCancel();
+  const id = el.dataset.mid;
+  lp = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+    lp = null;
+    const m = messages.value.find(x => x.id === id);
+    if (!m || m.pending) return;
+    longAt = Date.now();
+    navigator.vibrate?.(15);
+    if (m.share) { lastPt.x = e.clientX; lastPt.y = e.clientY; openActions(m); } else enterSelect(m);
+  }, 480) };
+}
+function lpMove(e) { if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 8) lpCancel(); }
+function lpCancel() { if (lp) { clearTimeout(lp.timer); lp = null; } }
+function swallowClick(e) { if (Date.now() - longAt < 700) { e.stopPropagation(); e.preventDefault(); longAt = 0; } }
+onBeforeUnmount(lpCancel);
+
 // ---------- 摘要记忆 ----------
 const sumEdit = ref(null);
 const sumBusy = ref(false);
@@ -763,7 +825,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     </header>
 
     <main ref="scroller" class="scroll" @scroll.passive="onScroll">
-      <div class="inner">
+      <div class="inner" @pointerdown="lpDown" @pointermove="lpMove" @pointerup="lpCancel" @pointercancel="lpCancel" @pointerleave="lpCancel" @click.capture="swallowClick">
         <div v-if="!messages.length && isGroup" class="hello">
           <GroupAvatar :size="72" />
           <p>三个人的小房间：你说一句，{{ roleById(MAIN)?.name }}和{{ roleById(CRAB)?.name }}轮流回；点名谁，谁先说</p>
@@ -775,7 +837,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
         </div>
 
-        <button v-if="hiddenCount" class="more-hint" @click="showMore">往上滑（或点这里）看更早的</button>
+        <button v-if="hiddenCount && !selecting" class="more-hint" @click="showMore">往上滑（或点这里）看更早的</button>
         <template v-for="it in shownItems" :key="it.key">
           <div v-if="it.type === 'event'" class="event">
             <span :class="{ link: it.m.sources?.length || it.m.detail }" @click="(it.m.sources?.length || it.m.detail) && (openSources[it.key] = !openSources[it.key])">
@@ -790,7 +852,11 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
             </div>
           </div>
 
-          <div v-else class="group" :class="it.from === 'user' ? 'mine' : 'theirs'" :style="it.from === 'user' ? null : aiBubble(it.who)">
+          <div v-else class="group" :class="[it.from === 'user' ? 'mine' : 'theirs', { selecting, picked: selecting && rowOn(it) }]" :data-sid="selecting ? rowId(it) : null" :style="it.from === 'user' ? null : aiBubble(it.who)">
+            <template v-if="selecting">
+              <span v-if="pickable(it)" class="sel-box" :class="{ on: rowOn(it) }"><Icon v-if="rowOn(it)" name="check" :size="15" /></span>
+              <div v-if="pickable(it)" class="sel-hit" @click.stop="toggleSel(rowId(it))" />
+            </template>
             <div class="ava" :class="{ poked: pokeAnimation === it.from }">
               <Avatar v-if="it.from === 'user'" :img="store.profile.avatar" :name="role.me?.name || store.profile.name" :color="store.profile.color" :size="42" />
               <Avatar v-else :img="speakerOf(it.who).avatar" :name="speakerOf(it.who).name" :color="speakerOf(it.who).color" :size="42" class="poke-target" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd($event, it.who)" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
@@ -812,6 +878,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                     <div class="file-chip"><Icon name="file" :size="18" />{{ a.name }}</div>
                   </div>
                   <div v-if="m.quote" class="quote mine" @click="jumpTo(m.quote.id)"><b>{{ nameOfQuote(m.quote) }}</b>{{ m.quote.text }}</div>
+                  <ShareCard v-if="m.share" :data-mid="m.id" :share="m.share" @click="openShare(m)" />
                   <div v-if="m.hug" class="bubble hug" @click="openActions(m)"><Icon name="heart" :size="16" />抱了抱 {{ role.name }}</div>
                   <img v-else-if="onlySticker(m.text)" :src="stickerUrl(onlySticker(m.text))" :alt="onlySticker(m.text).name" class="sticker" @click="openActions(m)" />
                   <template v-else-if="m.text"><div v-if="!onlyUrl(m.text)" class="bubble" :data-mid="m.id" @click="openActions(m)">{{ m.text }}</div><LinkCard v-for="u in urlsIn(m.text)" :key="u" :url="u" /></template>
@@ -855,7 +922,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     </main>
     <button v-if="win" class="latest-btn" @click="backToLatest">回到最新 ↓</button>
 
-    <footer ref="dock" class="composer">
+    <footer ref="dock" class="composer" :class="{ hide: selecting }">
       <!-- 桌宠：他（主角色）的小章鱼，站在输入框上面 -->
       <PetDock v-if="petOn() && role.id === MAIN && !thread?.mail" :work="petWork" />
       <!-- 小螃蟹（cc）：同样站在右边，和小章鱼一模一样的动作 -->
@@ -895,6 +962,14 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         </div>
       </div>
     </footer>
+
+    <!-- 多选：底下换成「取消 / 分享」 -->
+    <div v-if="selecting" class="sel-bar">
+      <button class="btn soft" @click="cancelSel">取消</button>
+      <span class="n">{{ selIds.length ? `已选 ${selIds.length} 条` : "点消息前面的圈来选" }}</span>
+      <button class="btn" :disabled="!selIds.length" @click="startShare">分享</button>
+    </div>
+    <ShareFlow :open="!!shareDraft" :share="shareDraft" :here="isGroup ? 'group' : role.id" @close="shareDraft = null" @done="shareDraft = null; cancelSel()" />
 
     <!-- ＋ -->
     <Sheet :open="plusOpen" @close="plusOpen = false">
@@ -1028,11 +1103,12 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <Teleport to="body">
       <div v-if="actionMsg" class="ctx-mask" @click="actionMsg = null" @contextmenu.prevent>
         <div class="ctx-menu" :style="menuPos" @click.stop>
-          <button v-if="!actionMsg.error" @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
-          <button v-if="!actionMsg.error" @click="quoteMsg"><Icon name="chat" :size="17" />引用</button>
+          <button v-if="!actionMsg.error && !actionMsg.share" @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
+          <button v-if="!actionMsg.error && !actionMsg.share" @click="quoteMsg"><Icon name="chat" :size="17" />引用</button>
+          <button @click="enterSelect(actionMsg)"><Icon name="check" :size="17" />多选</button>
           <button v-if="actionMsg.from === 'ai' && !actionMsg.error" @click="readAloud"><Icon name="volume" :size="17" />朗读</button>
-          <button v-if="!actionMsg.error" @click="favMsg"><Icon name="star" :size="17" />{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
-          <button v-if="!actionMsg.error" @click="startEdit"><Icon name="edit" :size="17" />修改</button>
+          <button v-if="!actionMsg.error && !actionMsg.share" @click="favMsg"><Icon name="star" :size="17" />{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
+          <button v-if="!actionMsg.error && !actionMsg.share" @click="startEdit"><Icon name="edit" :size="17" />修改</button>
           <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><Icon name="refresh" :size="17" />重新生成</button>
           <button class="danger" @click="removeMsg"><Icon name="trash" :size="17" />{{ vers(actionMsg).list.length > 1 ? "删除这个版本" : "删除" }}</button>
           <button v-if="vers(actionMsg).list.length > 1" class="danger" @click="removeAll"><Icon name="trash" :size="17" />删除全部 {{ vers(actionMsg).list.length }} 个</button>
@@ -1059,6 +1135,23 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 </template>
 
 <style scoped>
+.bubble, .share-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.composer.hide { visibility: hidden; pointer-events: none; }
+.group { position: relative; }
+.group.selecting { padding-left: 34px; }
+.sel-box { position: absolute; left: 4px; top: 12px; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.6px solid var(--text-3); background: var(--card); display: grid; place-items: center; color: var(--on-ink); }
+.sel-box.on { background: var(--ink); border-color: var(--ink); }
+.sel-hit { position: absolute; inset: 0; z-index: 3; cursor: pointer; }
+.group.picked .col { opacity: 1; }
+.group.selecting:not(.picked) .col { opacity: .62; }
+.sel-bar {
+  position: absolute; left: 0; right: 0; bottom: var(--dock-bottom); z-index: 6;
+  width: calc(100% - 28px); max-width: 800px; margin: 0 auto; box-sizing: border-box;
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  background: rgba(var(--glass-rgb), .97); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  border-radius: 28px; box-shadow: 0 8px 30px rgba(40, 40, 60, .12);
+}
+.sel-bar .n { flex: 1; text-align: center; font-size: .85rem; color: var(--text-2); }
 .poke-target { touch-action: manipulation; user-select: none; cursor: pointer; }
 .poked { animation: poke-wiggle .4s ease-out; }
 @keyframes poke-wiggle { 25% { transform: rotate(-7deg) scale(1.04); } 60% { transform: rotate(5deg); } 85% { transform: rotate(-2deg); } }
