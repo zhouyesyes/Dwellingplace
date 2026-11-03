@@ -4,6 +4,7 @@
 //   note:<id>  { id, title, body, folder, created, ts }     一篇笔记（folder 是文件夹 id，没有就是最外层）
 //   fold:<id>  { id, name, parent, ts }                      一个文件夹（可以嵌套，parent 是上一层的 id）
 //   benchcover { img, ts }                                   首页的首图（图本身是 img:<id>，和聊天发图一样压缩、单独同步）
+//   benchtitle { name, ts }                                  首页标题的名字（没改过就是「工作台」）
 //   tip:<id>   { id, note, by, kind, why, find, replace, folder, to, ts }   他们挂的建议小纸条
 // 改哪一篇只交那一篇；两台设备同时改同一篇，见 mergeNote（不会谁冲掉谁）。
 // 他们（小章鱼、小螃蟹）只能看和提议：列目录、读一篇、挂小纸条；改不改、挪不挪由她点头（applyTip）。
@@ -13,7 +14,7 @@ import { get, set, del, onRemoteChange } from "./kv.js";
 import { uid } from "../store/index.js";
 import { pickFile, saveImage, deleteImage, CHAT_IMAGE } from "./images.js";
 
-export const bench = reactive({ ready: false, notes: {}, folders: {}, tips: {}, cover: null });
+export const bench = reactive({ ready: false, notes: {}, folders: {}, tips: {}, cover: null, title: null });
 const kindOf = k => (k.startsWith("note:") ? "notes" : k.startsWith("fold:") ? "folders" : k.startsWith("tip:") ? "tips" : null);
 const idOfKey = k => k.slice(5);
 
@@ -23,6 +24,7 @@ export function loadBench() {
   if (bench.ready) return Promise.resolve();
   return (loading ||= (async () => {
     bench.cover = (await get(COVER_KEY)) || null;
+    bench.title = (await get(TITLE_KEY)) || null;
     for (const k of (await idbKeys()).map(String)) {
       const kind = kindOf(k);
       if (!kind) continue;
@@ -31,6 +33,17 @@ export function loadBench() {
     }
     bench.ready = true;
   })());
+}
+
+// ---------- 首页标题（可以改名）----------
+const TITLE_KEY = "benchtitle";
+export const DEFAULT_TITLE = "工作台";
+export const benchName = () => bench.title?.name || DEFAULT_TITLE;
+export async function renameBench(name) {
+  const t = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 16);
+  if (!t || t === DEFAULT_TITLE) { bench.title = null; await del(TITLE_KEY); return; } // 改回默认就不留着了
+  bench.title = { name: t, ts: Date.now() };
+  await set(TITLE_KEY, plain(bench.title));
 }
 
 // ---------- 首页首图 ----------
@@ -59,6 +72,7 @@ const timers = new Map();
 // 别的设备同步来了新的：换进来；这一篇我这边正改着，就合在一起
 onRemoteChange(async k => {
   if (k === COVER_KEY && bench.ready) { bench.cover = (await get(k)) || null; return; }
+  if (k === TITLE_KEY && bench.ready) { bench.title = (await get(k)) || null; return; }
   const kind = kindOf(k);
   if (!kind || !bench.ready) return;
   const id = idOfKey(k), v = await get(k);
@@ -118,21 +132,6 @@ export const folderList = () => Object.values(bench.folders);
 export const sortNotes = list => [...list].sort((a, b) => (b.ts || 0) - (a.ts || 0));
 export const sortFolders = list => [...list].sort((a, b) => a.name.localeCompare(b.name, "zh"));
 
-const LINK_RE = /\[\[([^\[\]\n]+?)\]\]/g;
-// 正文里所有 [[名字]] 的名字（去重）
-export function linksIn(body) {
-  const out = new Set();
-  for (const m of String(body || "").matchAll(LINK_RE)) { const t = cleanName(m[1].split("|")[0]); if (t) out.add(t); }
-  return [...out];
-}
-export const findNote = name => {
-  const t = cleanName(name).toLowerCase();
-  if (!t) return null;
-  const all = sortNotes(noteList());
-  return all.find(n => n.title.toLowerCase() === t) || null;
-};
-// 谁链到了这一篇（标题名一样；自己链自己不算）
-export const backlinks = n => (n ? sortNotes(noteList().filter(o => o.id !== n.id && linksIn(o.body).some(t => t.toLowerCase() === n.title.toLowerCase()))) : []);
 
 // 搜索：标题和正文都找，空格隔开表示都要有；标题命中的排前面，给一小段上下文
 export function searchNotes(q) {
@@ -209,30 +208,15 @@ export async function newNote({ title = "", body = "", folder = null } = {}) {
   await saveNow(n);
   return n;
 }
-// 改名：别的笔记里指向它的 [[旧名字]] 一起改成新名字（每篇改了的单独存）
+// 改名：只改这一篇的标题，别的笔记正文不动
 export async function renameNote(id, name) {
   const n = bench.notes[id];
   if (!n) return;
-  const old = n.title, t = uniqueTitle(name, id);
-  if (t === old) return n.title;
+  const t = uniqueTitle(name, id);
+  if (t === n.title) return n.title;
   await flushNote(id);
   n.title = t; n.ts = Date.now();
   await saveNow(n);
-  const re = /\[\[([^\[\]\n]+?)\]\]/g;
-  for (const o of noteList()) {
-    if (o.id === id || !String(o.body || "").includes("[[")) continue;
-    let hit = false;
-    const body = o.body.replace(re, (all, inner) => {
-      const [name0, ...rest] = inner.split("|");
-      if (cleanName(name0).toLowerCase() !== old.toLowerCase()) return all;
-      hit = true;
-      return `[[${[t, ...rest].join("|")}]]`;
-    });
-    if (!hit) continue;
-    await flushNote(o.id);
-    o.body = body; o.ts = Date.now();
-    await saveNow(o);
-  }
   return t;
 }
 export async function moveNote(id, folder) {
@@ -254,8 +238,8 @@ export const tipsOf = noteId => Object.values(bench.tips).filter(t => t.note ===
 export const tipCount = () => Object.keys(bench.tips).length;
 async function dropTip(id) { delete bench.tips[id]; await del(`tip:${id}`); }
 export const rejectTip = dropTip; // 点「不要」：收起来
-const KINDS = { link: "把两篇链起来", move: "挪进文件夹", edit: "改一段", note: "一句话建议" };
-export const tipKindLabel = k => KINDS[k] || "建议";
+const KINDS = { move: "挪进文件夹", edit: "改一段", note: "一句话建议" };
+export const tipKindLabel = k => (k === "link" ? "建议" : KINDS[k] || "建议");
 // 按名字找文件夹：「生活」或「创作/小说」这样的路径；「最外层」「根目录」是不放在任何文件夹里
 export function findFolder(name) {
   const t = String(name || "").trim();
@@ -275,10 +259,9 @@ export async function applyTip(id) {
   if (!t) return { ok: false, msg: "这张小纸条已经不在了" };
   if (!n) { await dropTip(id); return { ok: false, msg: "那篇笔记已经不在了，小纸条收起了" }; }
   if (t.kind === "link") {
-    if (!t.to) return { ok: false, msg: "纸条上没写要链到哪一篇" };
-    if (linksIn(n.body).some(x => x.toLowerCase() === cleanName(t.to).toLowerCase())) { await dropTip(id); return { ok: true, msg: "已经链着了" }; }
-    editNote(n, { body: `${String(n.body || "").replace(/\s+$/, "")}${n.body ? "\n\n" : ""}相关：[[${cleanName(t.to)}]]\n` });
-    await flushNote(n.id);
+    // 双链已经去掉了：旧的「把两篇链起来」纸条不再执行，点好只是收起
+    await dropTip(id);
+    return { ok: true, msg: "这类建议已经不用了，收起了" };
   } else if (t.kind === "move") {
     const f = findFolder(t.folder);
     if (!f) return { ok: false, msg: `没找到「${t.folder}」这个文件夹，先建好再点好` };
@@ -301,12 +284,11 @@ export const BUILTIN_BENCH = {
   disabledTools: [],
   tools: [
     { name: "列目录", description: "看工作台（她的笔记本）里有哪些文件夹和笔记标题，不含正文。她提到笔记、或者聊到想翻翻笔记的时候先用这个；不要每次聊天都翻。", inputSchema: { type: "object", properties: { folder: { type: "string", description: "只看某个文件夹，写名字或「生活/日记」这样的路径；不写就看全部" } } } },
-    { name: "读笔记", description: "读某一篇笔记的正文，附上它的文件夹、指向的笔记和谁链到了它。她提到某篇、或者聊到相关内容时才读，一次只读需要的那一篇。", inputSchema: { type: "object", properties: { title: { type: "string", description: "笔记的标题" } }, required: ["title"] } },
+    { name: "读笔记", description: "读某一篇笔记的正文，附上它的文件夹。她提到某篇、或者聊到相关内容时才读，一次只读需要的那一篇。", inputSchema: { type: "object", properties: { title: { type: "string", description: "笔记的标题" } }, required: ["title"] } },
     { name: "挂建议", description: "在某篇笔记旁边挂一张建议小纸条，她点「好」才生效、点「不要」就收起。你们不能直接改正文、不能新建、删除或挪动。", inputSchema: { type: "object", properties: {
       title: { type: "string", description: "要挂在哪一篇笔记上（标题）" },
-      kind: { type: "string", enum: ["link", "move", "edit", "note"], description: "link 把这篇链到另一篇（写 to）；move 挪进某个文件夹（写 folder）；edit 改一段（写 find 和 replace）；note 只是一句话建议" },
+      kind: { type: "string", enum: ["move", "edit", "note"], description: "move 挪进某个文件夹（写 folder）；edit 改一段（写 find 和 replace）；note 只是一句话建议" },
       why: { type: "string", description: "写清楚建议什么、为什么，她看这句话来决定" },
-      to: { type: "string", description: "kind 是 link 时：要链到的笔记标题" },
       folder: { type: "string", description: "kind 是 move 时：目标文件夹的名字或路径，已经存在的" },
       find: { type: "string", description: "kind 是 edit 时：正文里要改的那一段原文，要和原文一字不差" },
       replace: { type: "string", description: "kind 是 edit 时：改成什么" },
@@ -342,11 +324,8 @@ export async function benchTool(name, args = {}, by = "") {
     const r = lookup(args.title);
     if (r.err) return { text: r.err, isError: true };
     const n = r.n, fp = pathOf(n.folder);
-    const outs = linksIn(n.body), back = backlinks(n);
     return { text: [
       `标题：${n.title}`, `所在：${fp.length ? fp.join(" / ") : "最外层"}`,
-      outs.length && `链到：${outs.map(t => `[[${t}]]${findNote(t) ? "" : "（还没有这篇）"}`).join("、")}`,
-      back.length && `谁链到了这里：${back.map(b => `[[${b.title}]]`).join("、")}`,
       `\n${clip(n.body || "（空的）", 8000)}`,
     ].filter(Boolean).join("\n"), isError: false };
   }
@@ -354,15 +333,10 @@ export async function benchTool(name, args = {}, by = "") {
     const r = lookup(args.title);
     if (r.err) return { text: r.err, isError: true };
     const n = r.n, kind = String(args.kind || "note"), why = String(args.why || "").trim().slice(0, 400);
-    if (!KINDS[kind]) return { text: "kind 只能是 link / move / edit / note。", isError: true };
+    if (!KINDS[kind]) return { text: "kind 只能是 move / edit / note。", isError: true };
     if (!why) return { text: "why 要写清楚建议什么、为什么。", isError: true };
     const tip = { id: uid(), note: n.id, by: by || "ai", kind, why, ts: Date.now() };
-    if (kind === "link") {
-      tip.to = cleanName(args.to);
-      if (!tip.to) return { text: "kind 是 link 时要写 to（要链到的笔记标题）。", isError: true };
-      if (tip.to.toLowerCase() === n.title.toLowerCase()) return { text: "不能链到自己。", isError: true };
-      if (linksIn(n.body).some(x => x.toLowerCase() === tip.to.toLowerCase())) return { text: "这篇已经链着它了，不用再提。", isError: true };
-    } else if (kind === "move") {
+    if (kind === "move") {
       const f = findFolder(args.folder);
       if (!f) return { text: `没有「${args.folder}」这个文件夹（你们不能新建）。可以改成 note 建议她新建一个。`, isError: true };
       if ((n.folder || null) === f.id) return { text: "它已经在那个文件夹里了。", isError: true };
@@ -372,7 +346,7 @@ export async function benchTool(name, args = {}, by = "") {
       if (!tip.find || !String(n.body || "").includes(tip.find)) return { text: "find 在正文里没找到，要和原文一字不差；请先用读笔记再看一遍。", isError: true };
     }
     if (tipsOf(n.id).length >= 6) return { text: "这篇笔记旁边已经挂了不少没处理的小纸条，先等她看完。", isError: true };
-    if (tipsOf(n.id).some(x => x.kind === kind && x.to === tip.to && x.folder === tip.folder && x.find === tip.find && x.why === why)) return { text: "这张小纸条已经挂着了。", isError: false };
+    if (tipsOf(n.id).some(x => x.kind === kind && x.folder === tip.folder && x.find === tip.find && x.why === why)) return { text: "这张小纸条已经挂着了。", isError: false };
     bench.tips[tip.id] = tip;
     await set(`tip:${tip.id}`, plain(tip));
     return { text: `已经在「${n.title}」旁边挂了一张小纸条，等她点好或不要。`, isError: false };

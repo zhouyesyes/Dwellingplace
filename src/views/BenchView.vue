@@ -11,7 +11,7 @@ import { useImage } from "../lib/images.js";
 import { goBack, useSwipeBack } from "../lib/nav.js";
 import {
   bench, loadBench, childFolders, notesIn, newNote, newFolder, renameFolder, moveFolder, deleteFolder, folderStats,
-  deleteNote, moveNote, renameNote, searchNotes, tipsOf, pathOf, tipCount, noteList, pickCover, clearCover,
+  deleteNote, moveNote, renameNote, searchNotes, tipsOf, pathOf, tipCount, noteList, pickCover, clearCover, benchName, renameBench,
 } from "../lib/notes.js";
 
 const route = useRoute(), router = useRouter();
@@ -28,14 +28,14 @@ const hits = computed(() => searchNotes(q.value));
 const folders = computed(() => (bench.ready ? childFolders(folderId.value) : []));
 const notes = computed(() => (!bench.ready ? [] : notesIn(folderId.value)));
 const withTips = computed(() => (bench.ready ? noteList().filter(n => tipsOf(n.id).length) : []));
-const title = computed(() => folder.value?.name || "工作台");
+const title = computed(() => folder.value?.name || benchName());
 const crumb = computed(() => (folderId.value ? pathOf(folderId.value).slice(0, -1).join(" / ") : ""));
 
 const up = () => goBack(router, folder.value ? (folder.value.parent ? `/bench?f=${folder.value.parent}` : "/bench") : "/bench");
 useSwipeBack(() => { if (inSub.value) up(); });
 
 const count = f => { const s = folderStats(f.id); return s.notes + s.folders ? `${notesIn(f.id).length} 篇${s.folders ? ` · ${s.folders} 个文件夹` : ""}` : "空的"; };
-const snip = n => String(n.body || "").replace(/\s+/g, " ").replace(/\[\[([^\]|]+)(\|[^\]]*)?\]\]/g, "$1").trim().slice(0, 40) || "（还没写）";
+const snip = n => String(n.body || "").replace(/\s+/g, " ").trim().slice(0, 40) || "（还没写）";
 const when = ts => { const d = new Date(ts), n = new Date(); return d.toDateString() === n.toDateString() ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : `${d.getMonth() + 1}.${d.getDate()}`; };
 
 // ---------- 新建 ----------
@@ -56,7 +56,7 @@ const menu = ref(null); // { kind: "note" | "folder", item }
 const picking = ref(false);
 async function rename() {
   const m = menu.value; menu.value = null;
-  const name = prompt(m.kind === "note" ? "笔记改成什么名字？（别的笔记里的链接会跟着改）" : "文件夹改成什么名字？", m.kind === "note" ? m.item.title : m.item.name);
+  const name = prompt(m.kind === "note" ? "笔记改成什么名字？" : "文件夹改成什么名字？", m.kind === "note" ? m.item.title : m.item.name);
   if (!name?.trim()) return;
   if (m.kind === "note") await renameNote(m.item.id, name); else await renameFolder(m.item.id, name);
 }
@@ -83,6 +83,12 @@ async function setCover() {
   try { await pickCover(); } catch (e) { alert("图没保存：" + (e?.message || "请重试")); }
 }
 async function dropCover() { coverMenu.value = false; await clearCover(); }
+// 点标题改名（单独同步，两台设备都显示新名字；清空或写回「工作台」就是默认）
+async function renameHome() {
+  const name = prompt("给这里起个名字？（留空就是「工作台」）", benchName());
+  if (name === null) return;
+  await renameBench(name);
+}
 const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
 </script>
 
@@ -91,10 +97,10 @@ const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
     <!-- 最外层：和底栏别的页一样的大标题；里面一层换成返回键 -->
     <!-- 首页：有首图就铺满顶部、往下淡进页面底色，标题压在图的下沿；没图只留一个淡淡的入口 -->
     <div v-if="!inSub && bench.cover && coverUrl" class="hero" :style="{ backgroundImage: `url(${coverUrl})` }" @click="coverMenu = true">
-      <h1 class="tab-title">工作台</h1>
+      <h1 class="tab-title lefty" @click.stop="renameHome">{{ benchName() }}</h1>
     </div>
     <template v-else-if="!inSub">
-      <h1 class="tab-title">工作台</h1>
+      <h1 class="tab-title lefty plain" @click="renameHome">{{ benchName() }}</h1>
       <button v-if="bench.ready && !bench.cover" class="addcover" @click="setCover"><Icon name="image" :size="15" />加一张首图</button>
     </template>
     <header v-else class="sub">
@@ -188,9 +194,11 @@ const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
 .hero { position: relative; height: calc(var(--safe-top) + 250px); margin: calc(-1 * (var(--safe-top) + 18px)) -18px 8px; background-size: cover; background-position: center; display: flex; align-items: flex-end; cursor: pointer; }
 /* 往下淡进页面底色：用 --bg，浅色深色都自然 */
 .hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 0%, transparent) 35%, color-mix(in srgb, var(--bg) 70%, transparent) 75%, var(--bg) 100%); pointer-events: none; }
-.hero .tab-title { position: relative; z-index: 1; width: 100%; height: auto; padding: 0 60px 4px; margin: 0; text-shadow: 0 1px 8px color-mix(in srgb, var(--bg) 70%, transparent); }
-.addcover { display: flex; align-items: center; gap: 6px; margin: -10px auto 10px; border: 0; background: none; color: var(--text-3); font-size: .8rem; padding: 6px 12px; }
-.sub { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding-top: calc(var(--safe-top) + 18px); }
+.hero .tab-title { position: relative; z-index: 1; width: 100%; height: auto; padding: 0 18px 4px; margin: 0; text-shadow: 0 1px 8px color-mix(in srgb, var(--bg) 70%, transparent); }
+.tab-title.lefty { text-align: left; font-size: 1.3rem; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.tab-title.lefty.plain { padding-left: 4px; padding-right: 4px; margin-bottom: 8px; }
+.addcover { display: flex; align-items: center; gap: 6px; margin: -6px 0 10px; border: 0; background: none; color: var(--text-3); font-size: .8rem; padding: 6px 12px; }
+.sub { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
 .sub .t { flex: 1; min-width: 0; }
 .sub h1 { margin: 0; font-size: 1.2rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub small { color: var(--text-3); font-size: .78rem; }
