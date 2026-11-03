@@ -2,7 +2,7 @@
 const props = defineProps({ embedded: Boolean }); // 嵌在「数据」页里时不要自己的标题和外框
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { syncState, syncNow, startSync, bindDevice, enableSync, disableSync, hasMigrationBackup, restoreMigrationBackup } from '../lib/sync.js';
-import { binding, createBindingCode, listDevices, revokeDevice } from '../lib/deviceSync.js';
+import { binding, createBindingCode, listDevices, revokeDevice, renameDevice } from '../lib/deviceSync.js';
 import { toast } from '../lib/toast.js';
 import SubHeader from '../components/SubHeader.vue';
 import BindingScanner from '../components/BindingScanner.vue';
@@ -57,6 +57,11 @@ const migrate = () => act(async () => {
   await enableSync(url.value); url.value = '';
   if (binding.device) await listDevices();
 });
+async function rename(d) {
+  const n = prompt('给这台设备改个名字', d.name)?.trim();
+  if (!n || n === d.name) return;
+  await act(async () => { await renameDevice(d.id, n); toast('已改名，别的设备刷新后会看到'); });
+}
 async function revoke(d) {
   const self = d.id === binding.device?.id;
   if (!confirm(self ? '撤销这台设备？本地内容会保留，再次访问云端需要新的绑定码。' : `撤销「${d.name}」？它将不能再读取或修改云端数据，已下载的本地副本无法远程删除。`)) return;
@@ -75,7 +80,7 @@ async function revoke(d) {
       <h2>{{ bound ? '这台设备已绑定' : syncState.revoked ? '这台设备已被撤销' : '输入绑定码' }}</h2>
       <p class="desc">所有设备共用云端同一份栖所。本地保留离线副本，重新联网后自动合并。</p>
       <template v-if="bound">
-        <p>{{ binding.device.name }}</p>
+        <p><button class="namebtn" :disabled="busy" @click="rename(binding.device)">{{ binding.device.name }} ✎</button></p>
         <p class="desc">{{ syncState.busy ? '正在同步…' : syncState.lastAt ? '已经同步过' : '等待同步' }}<template v-if="syncState.pending"> · {{ syncState.pending }} 项待同步</template></p>
         <button class="btn wide" :disabled="busy || syncState.busy" @click="syncNow">现在同步</button>
         <button v-if="backupAt" class="btn soft wide" :disabled="busy" @click="restore">恢复到同步升级之前</button>
@@ -113,7 +118,7 @@ async function revoke(d) {
       <div class="section-label devices-heading">已绑定设备<button class="btn soft" :disabled="busy" @click="act(listDevices)">刷新</button></div>
       <div class="card body">
         <div v-for="d in binding.devices" :key="d.id" class="device">
-          <div class="grow"><b>{{ d.name }}</b><small>{{ d.id === binding.device.id ? '这台设备 · ' : '' }}{{ d.revokedAt ? '已撤销' : '可同步' }}<br />绑定于 {{ new Date(d.createdAt).toLocaleDateString() }}</small></div>
+          <div class="grow"><b :class="{ namebtn: !d.revokedAt }" @click="!d.revokedAt && !busy && rename(d)">{{ d.name }}<template v-if="!d.revokedAt"> ✎</template></b><small>{{ d.id === binding.device.id ? '这台设备 · ' : '' }}{{ d.revokedAt ? '已撤销' : '可同步' }}<br />绑定于 {{ new Date(d.createdAt).toLocaleDateString() }}</small></div>
           <button v-if="!d.revokedAt" class="btn soft danger" :disabled="busy" @click="revoke(d)">撤销</button>
         </div>
         <p class="tip">撤销会阻止后续云端访问，无法抹掉设备已经下载的内容。</p>
@@ -147,6 +152,7 @@ label { display: block; margin-top: 12px; font-size: .85rem; color: var(--text-2
 .device { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .device small { display: block; color: var(--text-3); font-size: .75rem; }
+.namebtn { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--text); cursor: pointer; text-align: left; }
 .danger { color: var(--danger); }
 .tip { color: var(--text-3); font-size: .8rem; line-height: 1.7; margin: 12px 6px; }
 .advanced { margin-top: 24px; }
