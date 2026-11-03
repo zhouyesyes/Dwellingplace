@@ -5,6 +5,7 @@
 import { store, uid } from "../store/index.js";
 import { relayFetch } from "./search.js";
 import { isRoomTool } from "./toolRooms.js";
+import { BUILTIN_BENCH, benchTool } from "./notes.js";
 
 const PROTOCOL = "2025-06-18";
 const sessions = new Map(); // serverId -> { sessionId, protocolVersion }
@@ -48,7 +49,8 @@ const withoutGarden = (roleId, list) => list.flatMap(s => {
 export function serversForMode(roleId, mode = "chat", { garden = false } = {}) {
   const all = serversFor(roleId);
   if (mode === "mail") return all.filter(s => isMailServer(s) || isMemoryServer(s));
-  if (mode === "chat") return (garden ? all : withoutGarden(roleId, all)).filter(s => !isMailServer(s));
+  // 工作台（她的笔记本）：两边对称，只在主聊天里带，只能看和挂建议
+  if (mode === "chat") return [...(garden ? all : withoutGarden(roleId, all)).filter(s => !isMailServer(s)), ...(garden ? [] : [BUILTIN_BENCH])];
   return garden ? all : withoutGarden(roleId, all); // 醒来（含读书、共写）也不带花园的工具
 }
 
@@ -190,6 +192,7 @@ async function takeLease(server, who, release = false) {
 
 // 调用一个工具，返回给 AI 看的文字
 export async function callTool(server, name, args, who = "") {
+  if (server.id === BUILTIN_BENCH.id) return benchTool(name, args, who);
   if (server.builtin) {
     const url = String(args?.url || "").trim();
     if (!url) return { text: "没有给网址", isError: true };
