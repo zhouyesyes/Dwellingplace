@@ -1,7 +1,7 @@
 <script setup>
 // API 管理：每个 API 在这台手机上每天用了多少次、多少 tokens；DeepSeek、OpenRouter 还能直接查账户余额和花费
 import { ref, computed, onMounted } from "vue";
-import { store, fmtTokens, today } from "../store/index.js";
+import { store, fmtTokens, today, roleById, MAIN, CRAB } from "../store/index.js";
 import { isPlan, isCrabApi } from "../lib/providers.js";
 import { planPercents } from "../lib/quota.js";
 import { useRouter } from "vue-router";
@@ -9,7 +9,10 @@ import Icon from "../components/Icon.vue";
 const router = useRouter();
 import SubHeader from "../components/SubHeader.vue";
 
-// ---------- ChatGPT 会员额度：放在最上面 ----------
+// 两张卡片的称呼：读她在设置里给两个 AI 起的名字，改名后跟着变
+const heName = computed(() => roleById(MAIN)?.name || "他");
+const crabName = computed(() => roleById(CRAB)?.name || "小螃蟹");
+// ---------- ChatGPT 订阅额度：放在最上面 ----------
 const planApis = computed(() => store.apis.filter(a => a.type === "openai" && isPlan(a)));
 // 小螃蟹：聊天和工作室是两个接口，但用的是同一份 Claude 订阅，合成一张卡
 const crabApis = computed(() => store.apis.filter(isCrabApi));
@@ -119,12 +122,12 @@ const showTurns = ref(false);
     <div v-for="a in planApis" :key="a.id" class="card plan api-item">
       <button class="api-edit" @click="router.push(`/settings/api/${a.id}`)">
         <Icon :name="a.id === store.defaultApiId ? 'star' : 'key'" :size="20" />
-        <span class="grow"><b>{{ a.name || "未命名" }}</b><span v-if="a.id === store.defaultApiId" class="tag">默认</span><span class="model">{{ a.model || "未选模型" }}</span></span>
+        <span class="grow"><b>{{ heName }}（ChatGPT 订阅）</b><span v-if="a.id === store.defaultApiId" class="tag">默认</span><span class="model">{{ a.model || "未选模型" }}</span></span>
         <span class="edit-label">编辑</span><Icon name="right" :size="18" />
       </button>
 
       <div class="plan-top">
-        <b>ChatGPT 会员额度</b>
+        <b>ChatGPT 订阅额度</b>
 
       </div>
       <p v-if="plan[a.id]?.loading" class="muted">正在查…</p>
@@ -169,19 +172,19 @@ const showTurns = ref(false);
     <div v-if="crabApi" class="card plan api-item">
       <button class="api-edit" @click="router.push(`/settings/api/${crabApi.id}`)">
         <Icon :name="crabApi.id === store.defaultApiId ? 'star' : 'key'" :size="20" />
-        <span class="grow"><b>小螃蟹（Claude 订阅）</b><span class="model">聊天和工作室一起算 · {{ crabApi.model || "sonnet" }}</span></span>
+        <span class="grow"><b>{{ crabName }}（Claude 订阅）</b><span class="model">聊天和工作室一起算 · {{ crabApi.model || "sonnet" }}</span></span>
         <span class="edit-label">编辑</span><Icon name="right" :size="18" />
       </button>
       <div class="plan-top"><b>Claude 订阅额度</b></div>
       <p v-if="plan[crabApi.id]?.loading" class="muted">正在查…</p>
       <p v-else-if="plan[crabApi.id]?.error" class="bad">查不到：{{ plan[crabApi.id].error }}</p>
-      <p v-else-if="plan[crabApi.id]?.st && !plan[crabApi.id].st.loggedIn" class="bad">小螃蟹还没登录：在服务器终端里再运行一次安装那一行</p>
+      <p v-else-if="plan[crabApi.id]?.st && !plan[crabApi.id].st.loggedIn" class="bad">{{ crabName }}还没登录：在服务器终端里再运行一次安装那一行</p>
       <template v-if="plan[crabApi.id]?.st">
         <div v-for="b in bars(plan[crabApi.id].st.limits)" :key="b.label" class="bar-row">
           <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
           <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
         </div>
-        <p v-if="!bars(plan[crabApi.id].st.limits).length" class="muted small">和小螃蟹聊一句以后，这里就有「5 小时」和「每周」还剩多少了</p>
+        <p v-if="!bars(plan[crabApi.id].st.limits).length" class="muted small">和{{ crabName }}聊一句以后，这里就有「5 小时」和「每周」还剩多少了</p>
         <p v-else-if="plan[crabApi.id].st.limits?.at" class="muted small">（{{ ago(plan[crabApi.id].st.limits.at) }}聊天时 Claude 带回来的，和 Claude 网页、Claude Code 共用）</p>
       </template>
       <div class="total">最近 14 天：{{ sum(crabApi, crabIds).calls }} 次 · 输入 {{ fmtTokens(sum(crabApi, crabIds).input) }} · 输出 {{ fmtTokens(sum(crabApi, crabIds).output) }}</div>
@@ -242,7 +245,7 @@ const showTurns = ref(false);
     <details class="card body how">
       <summary>额度到底怎么算</summary>
       <template v-if="planApis.length">
-        <p><i>ChatGPT 会员额度</i>不按次数、也不按条数。OpenAI 按这一轮让模型算了多少来扣：输入、输出（连同思考）的 tokens，模型越大、思考越多扣得越多，折成「5 小时」和「每周」两个百分比。具体怎么换算 OpenAI 没公开；下面「最近每一轮」里，栖所在每轮之后看一眼百分比，记下这一轮大概用掉了多少。</p>
+        <p><i>ChatGPT 订阅额度</i>不按次数、也不按条数。OpenAI 按这一轮让模型算了多少来扣：输入、输出（连同思考）的 tokens，模型越大、思考越多扣得越多，折成「5 小时」和「每周」两个百分比。具体怎么换算 OpenAI 没公开；下面「最近每一轮」里，栖所在每轮之后看一眼百分比，记下这一轮大概用掉了多少。</p>
       </template>
       <p v-if="otherApis.length"><i>用 Key 的 API</i>（DeepSeek、OpenRouter、Claude 等）按 tokens 收钱：输入多少、输出多少（思考也算输出），命中缓存的输入便宜很多。请求次数本身不收钱。</p>
       <p>两种都一样的一点：<b>每多请求一次，前面的设定、记忆、摘要和最近的聊天就要再发一遍输入</b>。用工具、翻记忆、搜索、续发，每一步都要多请求一次；按空行分气泡、[停顿] 都是同一次生成，不多花。</p>
@@ -260,7 +263,7 @@ const showTurns = ref(false);
     </div>
 
     <p v-if="!store.apis.length" class="muted center">还没有添加 API。</p>
-    <p v-if="planApis.length" class="note">会员额度是 OpenAI 按自己的方式算的（和 ChatGPT 本身共用），栖所只能显示 OpenAI 告诉它的部分。</p>
+    <p v-if="planApis.length" class="note">订阅额度是 OpenAI 按自己的方式算的（和 ChatGPT 本身共用），栖所只能显示 OpenAI 告诉它的部分。</p>
     <p class="note">次数和 tokens 是栖所在这台手机上记的（聊天、群聊都算）；唤醒是中转去调用的，记在「唤醒」页每次醒来的那一条里。余额和花费是服务商那边的数字。</p>
   </div>
 </template>
