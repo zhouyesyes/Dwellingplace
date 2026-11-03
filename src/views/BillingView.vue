@@ -29,6 +29,22 @@ async function checkPlan(a) {
     plan.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上服务器" : e.message };
   }
 }
+// 小章鱼额度：服务器问 Codex 命令行要来的（和聊天共用一个池子）；问不到就说原因，不显示假数
+const codexLim = ref({}); // apiId -> { loading, error, windows, at }
+async function checkCodex(a) {
+  const base = String(a.baseUrl || "").match(/^(.*\/p\/[^/]+)\/[a-z]+(\/|$)/i)?.[1];
+  if (!base) { codexLim.value[a.id] = { error: "找不到栖所服务器的地址" }; return; }
+  codexLim.value[a.id] = { ...codexLim.value[a.id], loading: true };
+  try {
+    const r = await fetch(base + "/codex/limits", { cache: "no-store" });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j) throw new Error(r.status === 404 ? "服务器还没升级，在服务器上再运行一次安装那一行" : j?.error?.message || `返回 ${r.status}`);
+    codexLim.value[a.id] = j.windows?.length ? { windows: j.windows, at: j.at } : { error: j.error || "Codex 没有返回额度", at: j.at };
+  } catch (e) {
+    codexLim.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上服务器" : e.message };
+  }
+}
+const codexBars = a => (codexLim.value[a.id]?.windows || []).map(w => ({ label: w.label, left: Math.round(100 - w.used), reset: w.resetsAt && w.resetsAt > Date.now() ? untilText((w.resetsAt - Date.now()) / 1000) : "" }));
 // OpenAI 回复时带的额度：认得出百分比的画成进度条
 const bars = limits => planPercents(limits).map(p => ({ label: p.label, left: Math.round(100 - p.used), reset: Number.isFinite(p.secs) && p.secs > 0 ? untilText(p.secs) : "" }));
 const untilText = s => (s < 3600 ? `${Math.ceil(s / 60)} 分钟后恢复` : s < 86400 ? `${Math.round(s / 3600)} 小时后恢复` : `${Math.round(s / 86400)} 天后恢复`);
@@ -70,7 +86,7 @@ async function check(a) {
     account.value[a.id] = { error: /Failed to fetch|NetworkError|Load failed/i.test(e.message) ? "连不上（可能要开梯子）" : e.message };
   }
 }
-const refresh = () => { store.apis.forEach(check); planApis.value.forEach(checkPlan); if (crabApi.value) checkPlan(crabApi.value); };
+const refresh = () => { store.apis.forEach(check); planApis.value.forEach(a => { checkPlan(a); checkCodex(a); }); if (crabApi.value) checkPlan(crabApi.value); };
 onMounted(refresh);
 
 // 这台手机上记下来的：最近 14 天，每天每个 API 的次数和 tokens（点开看每个模型）
@@ -114,7 +130,15 @@ const showTurns = ref(false);
       <p v-if="plan[a.id]?.loading" class="muted">正在查…</p>
       <p v-else-if="plan[a.id]?.error" class="bad">查不到：{{ plan[a.id].error }}</p>
       <p v-else-if="plan[a.id]?.st && !plan[a.id].st.connected" class="bad">还没登录：去「设置 → API → {{ a.name }}」里用 ChatGPT 登录</p>
-      <template v-if="plan[a.id]?.st">
+      <template v-if="codexBars(a).length">
+        <div v-for="b in codexBars(a)" :key="b.label" class="bar-row">
+          <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
+          <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>
+        </div>
+        <p class="muted small">（{{ ago(codexLim[a.id].at) }}问 Codex 要来的，和 ChatGPT、Codex 共用）</p>
+      </template>
+      <p v-else-if="codexLim[a.id]?.error" class="muted small">额度条暂时没有：{{ codexLim[a.id].error }}</p>
+      <template v-if="plan[a.id]?.st && !codexBars(a).length">
         <div v-for="b in bars(plan[a.id].st.limits)" :key="b.label" class="bar-row">
           <div class="bar-label"><span>{{ b.label }}</span><span>还剩 {{ b.left }}%<template v-if="b.reset"> · {{ b.reset }}</template></span></div>
           <div class="bar"><i :style="{ width: b.left + '%' }" :class="{ low: b.left < 20 }" /></div>

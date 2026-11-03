@@ -115,6 +115,15 @@ export function createDeviceSync({ dir = process.env.DATA_DIR || '/app/data', ma
           s.codes.push({ hash: hash(code), issuer: device.id, expiresAt }); save();
           return send(200, { code: code.match(/.{4}/g).join('-'), expiresAt });
         }
+        if (path.startsWith('/devices/') && req.method === 'PATCH') {
+          // 改设备名：只改显示的名字，设备标识和凭证不动
+          const target = load().devices.find(d => d.id === path.slice(9) && !d.revokedAt);
+          if (!target) fail(404, '找不到这台设备');
+          const name = String((await bodyOf(req))?.name || '').trim().slice(0, 60);
+          if (!name) fail(400, '名字不能是空的');
+          target.name = name; save();
+          return send(200, { device: publicDevice(target) });
+        }
         if (path.startsWith('/devices/') && req.method === 'DELETE') {
           const target = load().devices.find(d => d.id === path.slice(9));
           if (!target) fail(404, '找不到这台设备');

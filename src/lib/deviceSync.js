@@ -79,6 +79,13 @@ async function deviceRequest(path, options = {}) {
 export async function listDevices() {
   const result = await deviceRequest('/devices');
   binding.devices = result.devices;
+  // 别的设备改了这台的名字：跟着更新
+  const me = result.devices.find(d => d.id === binding.device?.id);
+  if (me && me.name !== binding.device.name) {
+    binding.device = { ...binding.device, name: me.name };
+    const conf = await get('sync:conf');
+    if (conf?.device?.id === me.id) await set('sync:conf', { ...conf, device: { ...conf.device, name: me.name } });
+  }
   return result;
 }
 export async function createBindingCode() {
@@ -89,4 +96,8 @@ export async function revokeDevice(id) {
   await deviceRequest(`/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (id === binding.device?.id) { binding.code = ''; binding.expiresAt = 0; }
   await listDevices().catch(e => { if (id !== binding.device?.id) throw e; });
+}
+export async function renameDevice(id, name) {
+  await deviceRequest(`/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: { name } });
+  await listDevices();
 }

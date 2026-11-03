@@ -238,6 +238,72 @@ async function submit(text) {
   return pub(job, false);
 }
 
+
+// ---------- 额度：问 Codex 命令行（app-server 的 account/rateLimits/read）要当前账号的 5 小时 / 每周用了多少 ----------
+// 这个请求只是读，不烧额度。最多每 10 分钟真的问一次，结果存在 DATA 里给网页读；问不到就记原因，不编数字
+const LIMITS_FILE = join(DATA, "codex-limits.json");
+const LIMITS_EVERY = 10 * 60_000;
+let limitsCache = null, limitsBusy = null;
+try { limitsCache = JSON.parse(readFileSync(LIMITS_FILE, "utf8")); } catch { /* 还没问过 */ }
+
+function windowOf(w) {
+  if (!w || typeof w.usedPercent !== "number") return null;
+  const mins = Number(w.windowDurationMins);
+  const label = mins ? (mins <= 600 ? `${Math.round(mins / 60)} 小时` : mins >= 7 * 1440 - 60 ? "每周" : `${Math.round(mins / 1440)} 天`) : "";
+  return { label, used: Math.max(0, Math.min(100, w.usedPercent)), resetsAt: w.resetsAt ? w.resetsAt * 1000 : null };
+}
+export function parseRateLimits(res) {
+  const snap = res?.rateLimitsByLimitId?.codex || res?.rateLimits;
+  const list = [windowOf(snap?.primary), windowOf(snap?.secondary)].filter(Boolean);
+  list.forEach((w, i) => { if (!w.label) w.label = i === 0 ? "5 小时" : "每周"; });
+  return list;
+}
+// 开一个 app-server 子进程，握手、问一次、关掉
+function askRateLimits() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(BIN, ["app-server"], { env: codexEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    let buf = "", done = false;
+    const end = (fn, v) => { if (done) return; done = true; clearTimeout(timer); try { child.kill(); } catch { /* 已经退出 */ } fn(v); };
+    const timer = setTimeout(() => end(reject, new Error("Codex 命令行 30 秒没有回应")), 30_000);
+    const send = o => child.stdin.write(JSON.stringify(o) + "\n");
+    child.on("error", e => end(reject, new Error(e.code === "ENOENT" ? "服务器上还没装 Codex" : scrub(e.message))));
+    child.on("exit", () => end(reject, new Error("Codex 命令行提前退出了")));
+    child.stdout.on("data", d => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        if (m.id === 1) { send({ method: "initialized" }); send({ id: 2, method: "account/rateLimits/read", params: null }); }
+        else if (m.id === 2) {
+          if (m.error) end(reject, new Error(scrub(String(m.error.message || "Codex 不肯给额度")).slice(0, 200)));
+          else end(resolve, m.result);
+        }
+      }
+    });
+    send({ id: 1, method: "initialize", params: { clientInfo: { name: "qisuo", title: "栖所", version: "1" } } });
+  });
+}
+async function refreshLimits() {
+  const at = Date.now();
+  try {
+    const st = await loginStatus();
+    if (!st.installed) throw new Error(st.text);
+    if (!st.loggedIn) throw new Error("服务器上的 Codex 还没登录");
+    const windows = parseRateLimits(await askRateLimits());
+    if (!windows.length) throw new Error("Codex 没有返回 5 小时 / 每周的额度");
+    limitsCache = { at, windows };
+  } catch (e) {
+    limitsCache = { at, error: scrub(e.message).slice(0, 200), windows: [] };
+  }
+  try { writeFileSync(LIMITS_FILE, JSON.stringify(limitsCache)); } catch { /* 写不了就只放内存 */ }
+  return limitsCache;
+}
+async function getLimits() {
+  if (limitsCache && Date.now() - limitsCache.at < LIMITS_EVERY) return limitsCache;
+  return (limitsBusy ??= refreshLimits().finally(() => { limitsBusy = null; }));
+}
+
 export async function handleCodex(req, res, rest, CORS) {
   const send = (code, obj) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(obj)); };
   const body = async () => { const cs = []; for await (const c of req) cs.push(c); try { return JSON.parse(Buffer.concat(cs).toString() || "{}"); } catch { return {}; } };
@@ -246,6 +312,7 @@ export async function handleCodex(req, res, rest, CORS) {
       const st = await loginStatus();
       return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: current ? current.id : null, queued: queue.length });
     }
+    if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
     if (rest === "/job" && req.method === "POST") return send(200, await submit((await body()).text));
     const m = rest.match(/^\/job\/([\w-]+)$/);
     if (m && req.method === "GET") {
