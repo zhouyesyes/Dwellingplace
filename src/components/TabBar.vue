@@ -1,7 +1,8 @@
 <script setup>
-// 底栏：四样海边的小东西（她生成的水彩图）——扇贝是家、海螺是记录、漂流瓶是记忆、海星是设置
+// 底栏：五样海边的小东西（她生成的水彩图）——扇贝是家、海螺是记录、珊瑚是工作台、漂流瓶是记忆、海星是设置
 import home from "../assets/tabbar/home.png";
 import record from "../assets/tabbar/record.png";
+import bench from "../assets/tabbar/workbench.png";
 import memory from "../assets/tabbar/memory.png";
 import settings from "../assets/tabbar/settings.png";
 import { unseenCount } from "../lib/meanwhile.js";
@@ -10,6 +11,7 @@ const tabs = [
   // tilt：有两个随手歪一点，不是每个都歪
   { key: "home", to: "/", img: home, label: "Home", tilt: 0 },
   { key: "record", to: "/record", img: record, label: "Record", tilt: -9 },
+  { key: "bench", to: "/bench", img: bench, label: "Bench", tilt: -4 },
   { key: "memory", to: "/memory", img: memory, label: "Memory", tilt: 10 },
   { key: "settings", to: "/settings", img: settings, label: "Settings", tilt: 0 },
 ];
@@ -46,7 +48,7 @@ const tabs = [
   height: calc(var(--safe-bottom) + 112px);
   background: linear-gradient(to bottom, transparent, var(--bg) 58%);
 }
-.tab { display: flex; flex-direction: column; align-items: center; gap: 0; width: 72px; color: var(--text-2); text-decoration: none; }
+.tab { display: flex; flex-direction: column; align-items: center; gap: 0; width: 64px; color: var(--text-2); text-decoration: none; }
 /* 不分深浅：选中的只是大一点点 */
 .tab img { width: 36px; height: 36px; filter: drop-shadow(0 2px 3px rgba(60, 50, 40, .08)); transform: rotate(var(--tilt, 0deg)); transition: transform .2s; -webkit-user-select: none; user-select: none; }
 .tab .ic { position: relative; display: block; line-height: 0; }

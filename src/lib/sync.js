@@ -23,6 +23,7 @@ import { store, applyRemoteMeta, messageCache, flushStore, hasPendingMeta, flush
 import { generating } from "./chat.js";
 import { serverBase } from "./server.js";
 import { migrateLegacy, redeemCode, showBinding } from "./deviceSync.js";
+import { mergeNote } from "./notes.js";
 import { splitMeta, joinMeta, countMeta, lazyPart, sectionKey, sectionName } from "./syncSections.js";
 
 export const syncState = reactive({ on: false, url: "", busy: false, lastAt: 0, error: "", pending: 0, revoked: false, updated: false, deferred: false });
@@ -131,7 +132,7 @@ function mergeMsgs(mine, theirs) {
 // ---------- 把取回来的东西换上 ----------
 const threadOf = k => (k.startsWith("msgs:") ? k.slice(5) : null);
 // 一条一条往下接的对话记录（聊天、各种讨论室、小房间）：两边都改了按 id 合在一起，不整份覆盖
-const listKey = k => /^(msgs|gtalk|rtalk|wtalk):/.test(k);
+const listKey = k => /^(msgs|gtalk|rtalk|wtalk|note):/.test(k);
 const busyKey = k => { const t = threadOf(k); return (k === "meta" && hasPendingMeta()) || !!(t && (generating[t] || hasPendingMessages(t))); }; // 正在回的对话先不动
 
 async function applyLocal(k, val, generation = edits.get(k) || 0) {
@@ -380,6 +381,7 @@ async function pushOne(k, forced = false) {
   let merged;
   if (val === undefined || remote.val === undefined) merged = val ?? remote.val; // 一边删了一边改了：留着改了的
   else if (k === "meta") merged = merge3(await idbGet("sync:base"), val, remote.val);
+  else if (k.startsWith("note:")) merged = mergeNote(await idbGet(`sync:base:${k}`), val, remote.val); // 笔记：标题、正文分开合，不冲掉
   else if (listKey(k) && Array.isArray(val) && Array.isArray(remote.val)) merged = (await idbGet(`sync:base:${k}`)) === undefined
     ? mergeMsgs(remote.val, val) : merge3(await idbGet(`sync:base:${k}`), val, remote.val);
   else merged = val; // 图片、文件：同一个 id 内容是一样的
