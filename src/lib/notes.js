@@ -3,6 +3,7 @@
 // 存法：每一篇笔记、每一个文件夹、每一张小纸条都是 IndexedDB 里单独的一样，同步也一样一样交：
 //   note:<id>  { id, title, body, folder, created, ts }     一篇笔记（folder 是文件夹 id，没有就是最外层）
 //   fold:<id>  { id, name, parent, ts }                      一个文件夹（可以嵌套，parent 是上一层的 id）
+//   benchcover { img, ts }                                   首页的首图（图本身是 img:<id>，和聊天发图一样压缩、单独同步）
 //   tip:<id>   { id, note, by, kind, why, find, replace, folder, to, ts }   他们挂的建议小纸条
 // 改哪一篇只交那一篇；两台设备同时改同一篇，见 mergeNote（不会谁冲掉谁）。
 // 他们（小章鱼、小螃蟹）只能看和提议：列目录、读一篇、挂小纸条；改不改、挪不挪由她点头（applyTip）。
@@ -10,8 +11,9 @@ import { reactive } from "vue";
 import { keys as idbKeys } from "idb-keyval";
 import { get, set, del, onRemoteChange } from "./kv.js";
 import { uid } from "../store/index.js";
+import { pickFile, saveImage, deleteImage, CHAT_IMAGE } from "./images.js";
 
-export const bench = reactive({ ready: false, notes: {}, folders: {}, tips: {} });
+export const bench = reactive({ ready: false, notes: {}, folders: {}, tips: {}, cover: null });
 const kindOf = k => (k.startsWith("note:") ? "notes" : k.startsWith("fold:") ? "folders" : k.startsWith("tip:") ? "tips" : null);
 const idOfKey = k => k.slice(5);
 
@@ -20,6 +22,7 @@ let loading = null;
 export function loadBench() {
   if (bench.ready) return Promise.resolve();
   return (loading ||= (async () => {
+    bench.cover = (await get(COVER_KEY)) || null;
     for (const k of (await idbKeys()).map(String)) {
       const kind = kindOf(k);
       if (!kind) continue;
@@ -30,11 +33,32 @@ export function loadBench() {
   })());
 }
 
+// ---------- 首页首图 ----------
+const COVER_KEY = "benchcover";
+// 从相册选一张（先压缩再存）；换图时旧的那张图删掉。取消了返回 false
+export async function pickCover() {
+  const [file] = await pickFile("image/*");
+  if (!file) return false;
+  const img = await saveImage(file, CHAT_IMAGE);
+  const old = bench.cover?.img;
+  bench.cover = { img, ts: Date.now() };
+  await set(COVER_KEY, plain(bench.cover));
+  if (old) deleteImage(old);
+  return true;
+}
+export async function clearCover() {
+  const old = bench.cover?.img;
+  bench.cover = null;
+  await del(COVER_KEY);
+  if (old) deleteImage(old);
+}
+
 // 正在编辑、还没存盘的笔记：id → 开始改之前的样子（别的设备同时改了，用来三方合并）
 const pending = new Map();
 const timers = new Map();
 // 别的设备同步来了新的：换进来；这一篇我这边正改着，就合在一起
 onRemoteChange(async k => {
+  if (k === COVER_KEY && bench.ready) { bench.cover = (await get(k)) || null; return; }
   const kind = kindOf(k);
   if (!kind || !bench.ready) return;
   const id = idOfKey(k), v = await get(k);
@@ -87,7 +111,7 @@ export function mergeNote(base, mine, theirs) {
   return { ...theirs, title: pick("title"), folder: pick("folder"), body, created: Math.min(...[mine.created, theirs.created].filter(Boolean)) || Date.now(), ts: Math.max(mine.ts || 0, theirs.ts || 0) };
 }
 
-// ---------- 标题、链接、标签 ----------
+// ---------- 标题、链接 ----------
 const cleanName = s => String(s ?? "").replace(/[\[\]|#\n\r]/g, " ").replace(/\s+/g, " ").trim();
 export const noteList = () => Object.values(bench.notes);
 export const folderList = () => Object.values(bench.folders);
@@ -101,13 +125,6 @@ export function linksIn(body) {
   for (const m of String(body || "").matchAll(LINK_RE)) { const t = cleanName(m[1].split("|")[0]); if (t) out.add(t); }
   return [...out];
 }
-// # 后面紧跟文字才是标签（「# 标题」带空格的不算）；前面得是开头、空白或标点，网址里的 #xx 不算
-const TAG_RE = /(^|[\s,，。.;；:：!！?？()（）「」\[\]])#([\p{L}\p{N}_\-/]+)/gu;
-export function tagsIn(body) {
-  const out = new Set();
-  for (const m of String(body || "").matchAll(TAG_RE)) if (!/^\d+$/.test(m[2])) out.add(m[2]);
-  return [...out];
-}
 export const findNote = name => {
   const t = cleanName(name).toLowerCase();
   if (!t) return null;
@@ -116,12 +133,6 @@ export const findNote = name => {
 };
 // 谁链到了这一篇（标题名一样；自己链自己不算）
 export const backlinks = n => (n ? sortNotes(noteList().filter(o => o.id !== n.id && linksIn(o.body).some(t => t.toLowerCase() === n.title.toLowerCase()))) : []);
-export const allTags = () => {
-  const m = new Map();
-  for (const n of noteList()) for (const t of tagsIn(n.body)) m.set(t, (m.get(t) || 0) + 1);
-  return [...m].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, "zh"));
-};
-export const notesWithTag = tag => sortNotes(noteList().filter(n => tagsIn(n.body).includes(tag)));
 
 // 搜索：标题和正文都找，空格隔开表示都要有；标题命中的排前面，给一小段上下文
 export function searchNotes(q) {
@@ -290,7 +301,7 @@ export const BUILTIN_BENCH = {
   disabledTools: [],
   tools: [
     { name: "列目录", description: "看工作台（她的笔记本）里有哪些文件夹和笔记标题，不含正文。她提到笔记、或者聊到想翻翻笔记的时候先用这个；不要每次聊天都翻。", inputSchema: { type: "object", properties: { folder: { type: "string", description: "只看某个文件夹，写名字或「生活/日记」这样的路径；不写就看全部" } } } },
-    { name: "读笔记", description: "读某一篇笔记的正文，附上它的文件夹、标签、指向的笔记和谁链到了它。她提到某篇、或者聊到相关内容时才读，一次只读需要的那一篇。", inputSchema: { type: "object", properties: { title: { type: "string", description: "笔记的标题" } }, required: ["title"] } },
+    { name: "读笔记", description: "读某一篇笔记的正文，附上它的文件夹、指向的笔记和谁链到了它。她提到某篇、或者聊到相关内容时才读，一次只读需要的那一篇。", inputSchema: { type: "object", properties: { title: { type: "string", description: "笔记的标题" } }, required: ["title"] } },
     { name: "挂建议", description: "在某篇笔记旁边挂一张建议小纸条，她点「好」才生效、点「不要」就收起。你们不能直接改正文、不能新建、删除或挪动。", inputSchema: { type: "object", properties: {
       title: { type: "string", description: "要挂在哪一篇笔记上（标题）" },
       kind: { type: "string", enum: ["link", "move", "edit", "note"], description: "link 把这篇链到另一篇（写 to）；move 挪进某个文件夹（写 folder）；edit 改一段（写 find 和 replace）；note 只是一句话建议" },
@@ -331,10 +342,9 @@ export async function benchTool(name, args = {}, by = "") {
     const r = lookup(args.title);
     if (r.err) return { text: r.err, isError: true };
     const n = r.n, fp = pathOf(n.folder);
-    const outs = linksIn(n.body), back = backlinks(n), tags = tagsIn(n.body);
+    const outs = linksIn(n.body), back = backlinks(n);
     return { text: [
       `标题：${n.title}`, `所在：${fp.length ? fp.join(" / ") : "最外层"}`,
-      tags.length && `标签：${tags.map(t => "#" + t).join(" ")}`,
       outs.length && `链到：${outs.map(t => `[[${t}]]${findNote(t) ? "" : "（还没有这篇）"}`).join("、")}`,
       back.length && `谁链到了这里：${back.map(b => `[[${b.title}]]`).join("、")}`,
       `\n${clip(n.body || "（空的）", 8000)}`,

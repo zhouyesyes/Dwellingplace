@@ -1,16 +1,17 @@
 <script setup>
 // 工作台：她的笔记本。手机上一次看一列：最外层 → 点文件夹进去 → 返回 / 左边缘右划回来。
-// 路由 /bench?f=<文件夹 id>（文件夹）、?tag=<标签>（带这个标签的笔记）、?tags=1（标签总览）；笔记本身在 /bench/n/:id
+// 路由 /bench?f=<文件夹 id>（文件夹）；首页最上面可以放一张首图（只有首页有）；笔记本身在 /bench/n/:id
 import { ref, computed, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
 import Sheet from "../components/Sheet.vue";
 import FolderPicker from "../components/bench/FolderPicker.vue";
 import { store } from "../store/index.js";
+import { useImage } from "../lib/images.js";
 import { goBack, useSwipeBack } from "../lib/nav.js";
 import {
   bench, loadBench, childFolders, notesIn, newNote, newFolder, renameFolder, moveFolder, deleteFolder, folderStats,
-  deleteNote, moveNote, renameNote, searchNotes, allTags, notesWithTag, tagsIn, tipsOf, pathOf, tipCount, noteList,
+  deleteNote, moveNote, renameNote, searchNotes, tipsOf, pathOf, tipCount, noteList, pickCover, clearCover,
 } from "../lib/notes.js";
 
 const route = useRoute(), router = useRouter();
@@ -18,19 +19,16 @@ onMounted(loadBench);
 
 const folderId = computed(() => route.query.f || null);
 const folder = computed(() => (folderId.value ? bench.folders[folderId.value] : null));
-const tag = computed(() => route.query.tag || "");
-const showTags = computed(() => !!route.query.tags);
-const inSub = computed(() => !!(folderId.value || tag.value || showTags.value));
+const inSub = computed(() => !!folderId.value);
 // 文件夹被别的设备删了：回到最外层
 watch(() => [bench.ready, folder.value, folderId.value], () => { if (bench.ready && folderId.value && !folder.value) router.replace("/bench"); });
 
 const q = ref("");
 const hits = computed(() => searchNotes(q.value));
 const folders = computed(() => (bench.ready ? childFolders(folderId.value) : []));
-const notes = computed(() => (!bench.ready ? [] : tag.value ? notesWithTag(tag.value) : notesIn(folderId.value)));
-const tags = computed(() => (bench.ready ? allTags() : []));
+const notes = computed(() => (!bench.ready ? [] : notesIn(folderId.value)));
 const withTips = computed(() => (bench.ready ? noteList().filter(n => tipsOf(n.id).length) : []));
-const title = computed(() => (tag.value ? `#${tag.value}` : showTags.value ? "标签" : folder.value?.name || "工作台"));
+const title = computed(() => folder.value?.name || "工作台");
 const crumb = computed(() => (folderId.value ? pathOf(folderId.value).slice(0, -1).join(" / ") : ""));
 
 const up = () => goBack(router, folder.value ? (folder.value.parent ? `/bench?f=${folder.value.parent}` : "/bench") : "/bench");
@@ -77,18 +75,32 @@ async function remove() {
   if (confirm(`删掉文件夹「${m.item.name}」？${more}删了就找不回来了。`)) await deleteFolder(m.item.id);
 }
 const go = n => router.push(`/bench/n/${n.id}`);
+// ---------- 首页首图（只有首页有）----------
+const coverUrl = useImage(() => bench.cover?.img);
+const coverMenu = ref(false);
+async function setCover() {
+  coverMenu.value = false;
+  try { await pickCover(); } catch (e) { alert("图没保存：" + (e?.message || "请重试")); }
+}
+async function dropCover() { coverMenu.value = false; await clearCover(); }
 const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
 </script>
 
 <template>
   <div class="page bench">
     <!-- 最外层：和底栏别的页一样的大标题；里面一层换成返回键 -->
-    <h1 v-if="!inSub" class="tab-title">工作台</h1>
+    <!-- 首页：有首图就铺满顶部、往下淡进页面底色，标题压在图的下沿；没图只留一个淡淡的入口 -->
+    <div v-if="!inSub && bench.cover && coverUrl" class="hero" :style="{ backgroundImage: `url(${coverUrl})` }" @click="coverMenu = true">
+      <h1 class="tab-title">工作台</h1>
+    </div>
+    <template v-else-if="!inSub">
+      <h1 class="tab-title">工作台</h1>
+      <button v-if="bench.ready && !bench.cover" class="addcover" @click="setCover"><Icon name="image" :size="15" />加一张首图</button>
+    </template>
     <header v-else class="sub">
       <button class="icon-btn" aria-label="返回" @click="up"><Icon name="back" /></button>
       <div class="t"><h1>{{ title }}</h1><small v-if="crumb">{{ crumb }}</small></div>
-      <button v-if="!tag && !showTags" class="icon-btn" aria-label="新建" @click="addOpen = true"><Icon name="plus" /></button>
-      <span v-else class="sp" />
+      <button class="icon-btn" aria-label="新建" @click="addOpen = true"><Icon name="plus" /></button>
     </header>
 
     <div class="search">
@@ -108,17 +120,10 @@ const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
       <p v-if="!hits.length" class="empty-hint">没有找到「{{ q }}」</p>
     </section>
 
-    <!-- 标签总览 -->
-    <section v-else-if="showTags" class="tags-all">
-      <button v-for="t in tags" :key="t.tag" class="chip" @click="router.push({ path: '/bench', query: { tag: t.tag } })">#{{ t.tag }}<i>{{ t.count }}</i></button>
-      <p v-if="!tags.length" class="empty-hint">正文里写「#词」（比如 #人物 #生活）就是标签，会出现在这里</p>
-    </section>
-
-    <!-- 某个文件夹 / 最外层 / 某个标签 -->
+    <!-- 某个文件夹 / 最外层 -->
     <template v-else>
-      <div v-if="!inSub" class="quick">
-        <button class="chip" @click="router.push({ path: '/bench', query: { tags: 1 } })">#标签<i>{{ tags.length }}</i></button>
-        <span v-if="tipCount()" class="chip tipchip">小纸条<i>{{ tipCount() }}</i></span>
+      <div v-if="!inSub && tipCount()" class="quick">
+        <span class="chip tipchip">小纸条<i>{{ tipCount() }}</i></span>
       </div>
 
       <section v-if="!inSub && withTips.length" class="tipbox">
@@ -149,10 +154,17 @@ const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
           <button class="more" aria-label="更多" @click="menu = { kind: 'note', item: n }"><Icon name="more" :size="18" /></button>
         </div>
         <p v-if="bench.ready && !folders.length && !notes.length" class="empty-hint">
-          {{ tag ? `还没有带 #${tag} 的笔记` : folder ? "这个文件夹是空的" : "还没有笔记，点右上的 + 新建第一篇" }}
+          {{ folder ? "这个文件夹是空的" : "还没有笔记，点右上的 + 新建第一篇" }}
         </p>
       </section>
     </template>
+
+    <Sheet :open="coverMenu" title="首图" @close="coverMenu = false">
+      <div class="acts">
+        <button class="act" @click="setCover"><Icon name="image" :size="20" />换一张</button>
+        <button class="act danger" @click="dropCover"><Icon name="trash" :size="20" />去掉首图</button>
+      </div>
+    </Sheet>
 
     <Sheet :open="addOpen" title="新建" @close="addOpen = false">
       <div class="acts">
@@ -173,6 +185,11 @@ const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
 </template>
 
 <style scoped>
+.hero { position: relative; height: calc(var(--safe-top) + 250px); margin: calc(-1 * (var(--safe-top) + 18px)) -18px 8px; background-size: cover; background-position: center; display: flex; align-items: flex-end; cursor: pointer; }
+/* 往下淡进页面底色：用 --bg，浅色深色都自然 */
+.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 0%, transparent) 35%, color-mix(in srgb, var(--bg) 70%, transparent) 75%, var(--bg) 100%); pointer-events: none; }
+.hero .tab-title { position: relative; z-index: 1; width: 100%; height: auto; padding: 0 60px 4px; margin: 0; text-shadow: 0 1px 8px color-mix(in srgb, var(--bg) 70%, transparent); }
+.addcover { display: flex; align-items: center; gap: 6px; margin: -10px auto 10px; border: 0; background: none; color: var(--text-3); font-size: .8rem; padding: 6px 12px; }
 .sub { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding-top: calc(var(--safe-top) + 18px); }
 .sub .t { flex: 1; min-width: 0; }
 .sub h1 { margin: 0; font-size: 1.2rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -187,7 +204,6 @@ const aiName = id => store.roles.find(r => r.id === id)?.name || "他";
 .chip i { font-style: normal; color: var(--text-3); font-size: .78rem; }
 .tipchip { background: var(--yellow); border-color: transparent; color: #6b5a1a; }
 :root[data-theme="dark"] .tipchip { color: #e8d792; }
-.tags-all { display: flex; flex-wrap: wrap; gap: 8px; }
 .cap { margin: 0 4px 8px; font-size: .8rem; color: var(--text-2); }
 .tipbox { margin-bottom: 16px; }
 .list { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow-soft); overflow: hidden; }
