@@ -1,5 +1,5 @@
 <script setup>
-// 一篇笔记：纯文字，自动保存。看的时候 [[双链]] 和 #标签 可以点；点正文别处进入编辑。
+// 一篇笔记：纯文字，自动保存。看的时候 [[双链]] 可以点；点正文别处进入编辑。
 // 底下：他们挂的小纸条（她点好才改）、这篇链到哪些、谁链到了这里
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -11,7 +11,7 @@ import { toast } from "../lib/toast.js";
 import { vAutoGrow } from "../lib/autogrow.js";
 import { goBack, useSwipeBack } from "../lib/nav.js";
 import {
-  bench, loadBench, editNote, flushNote, newNote, renameNote, moveNote, deleteNote, linksIn, tagsIn, findNote,
+  bench, loadBench, editNote, flushNote, newNote, renameNote, moveNote, deleteNote, linksIn, findNote,
   backlinks, tipsOf, applyTip, rejectTip, tipKindLabel, pathOf,
 } from "../lib/notes.js";
 
@@ -41,16 +41,14 @@ const text = computed({
   get: () => note.value?.body ?? "",
   set: v => note.value && editNote(note.value, { body: v }),
 });
-// 阅读状态下把正文切成「文字 / 链接 / 标签」几段
+// 阅读状态下把正文切成「文字 / 链接」几段（#词 就是普通文字）
 const LINK = /\[\[([^\[\]\n]+?)\]\]/g;
-const TAG = /(^|[\s,，。.;；:：!！?？()（）「」\[\]])#([\p{L}\p{N}_\-/]+)/gu;
 const tokens = computed(() => {
   const s = text.value, marks = [];
   for (const m of s.matchAll(LINK)) { const [name, ...alias] = m[1].split("|"); marks.push({ i: m.index, end: m.index + m[0].length, t: "link", name: name.trim(), v: (alias.join("|") || name).trim() }); }
-  for (const m of s.matchAll(TAG)) { if (/^\d+$/.test(m[2])) continue; const i = m.index + m[1].length; if (!marks.some(k => i >= k.i && i < k.end)) marks.push({ i, end: i + 1 + m[2].length, t: "tag", name: m[2], v: "#" + m[2] }); }
   marks.sort((a, b) => a.i - b.i);
   const out = []; let at = 0;
-  for (const k of marks) { if (k.i > at) out.push({ t: "text", v: s.slice(at, k.i) }); out.push({ ...k, ok: k.t === "link" ? !!findNote(k.name) : true }); at = k.end; }
+  for (const k of marks) { if (k.i > at) out.push({ t: "text", v: s.slice(at, k.i) }); out.push({ ...k, ok: !!findNote(k.name) }); at = k.end; }
   if (at < s.length) out.push({ t: "text", v: s.slice(at) });
   return out;
 });
@@ -69,7 +67,6 @@ async function openLink(name) {
   await flushNote(id.value);
   router.push(`/bench/n/${n.id}`);
 }
-const openTag = t => { flushNote(id.value); router.push({ path: "/bench", query: { tag: t } }); };
 
 // ---------- 标题（改名时别的笔记里的链接一起改）----------
 async function saveTitle() {
@@ -87,10 +84,9 @@ const aiName = idv => store.roles.find(r => r.id === idv)?.name || "他";
 async function yes(t) { const r = await applyTip(t.id); toast(r.msg); }
 const tipLine = t => t.kind === "link" ? `链到 [[${t.to}]]` : t.kind === "move" ? `挪进「${t.folder}」` : t.kind === "edit" ? "改这一段" : "";
 
-// ---------- 链接和标签 ----------
+// ---------- 链接 ----------
 const outs = computed(() => linksIn(text.value).map(name => ({ name, ok: !!findNote(name) })));
 const backs = computed(() => (note.value ? backlinks(note.value) : []));
-const tags = computed(() => tagsIn(text.value));
 const crumb = computed(() => { const p = pathOf(note.value?.folder); return p.length ? p.join(" / ") : "最外层"; });
 
 // ---------- ⋯ ----------
@@ -116,12 +112,11 @@ async function remove() {
 
     <input ref="titleEl" v-model="titleText" class="title" placeholder="标题" enterkeyhint="done" @blur="saveTitle" @keydown.enter.prevent="$event.target.blur()" />
 
-    <textarea v-if="editing" ref="body" v-model="text" v-auto-grow class="body" placeholder="写点什么…　用 [[名字]] 链到另一篇，用 #词 打标签" @blur="flushNote(id)" />
+    <textarea v-if="editing" ref="body" v-model="text" v-auto-grow class="body" placeholder="写点什么…　用 [[名字]] 链到另一篇" @blur="flushNote(id)" />
     <div v-else class="body read" @click="startEdit">
       <template v-for="(k, i) in tokens" :key="i">
         <span v-if="k.t === 'text'">{{ k.v }}</span>
-        <a v-else-if="k.t === 'link'" data-tok class="lk" :class="{ miss: !k.ok }" @click.stop="openLink(k.name)">{{ k.v }}</a>
-        <a v-else data-tok class="tg" @click.stop="openTag(k.name)">{{ k.v }}</a>
+        <a v-else data-tok class="lk" :class="{ miss: !k.ok }" @click.stop="openLink(k.name)">{{ k.v }}</a>
       </template>
       <span v-if="!text" class="ph">点一下开始写…</span>
     </div>
@@ -140,10 +135,6 @@ async function remove() {
       </div>
     </section>
 
-    <section v-if="tags.length" class="blk">
-      <h3>标签</h3>
-      <div class="chips"><button v-for="t in tags" :key="t" class="chip" @click="openTag(t)">#{{ t }}</button></div>
-    </section>
     <section v-if="outs.length" class="blk">
       <h3>链到</h3>
       <div class="chips"><button v-for="o in outs" :key="o.name" class="chip" :class="{ miss: !o.ok }" @click="openLink(o.name)">{{ o.name }}<i v-if="!o.ok">新建</i></button></div>
@@ -173,8 +164,6 @@ async function remove() {
 .ph { color: var(--text-3); }
 .lk { color: var(--accent); border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); cursor: pointer; }
 .lk.miss { color: var(--text-2); border-bottom-style: dashed; }
-.tg { color: #c0728a; cursor: pointer; }
-:root[data-theme="dark"] .tg { color: #e59ab3; }
 .blk { margin-top: 18px; }
 .blk h3 { margin: 0 4px 8px; font-size: .82rem; font-weight: 500; color: var(--text-2); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
