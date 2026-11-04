@@ -955,7 +955,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .note.flash { animation: flash 1.4s ease-out; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 4px rgba(92, 142, 205, .55), 0 6px 14px rgba(60, 45, 30, .14); } }
 /* 深色：纸暗下来一点，字还看得清 */
-:root[data-theme="dark"] .note, .night .note { filter: brightness(.78) saturate(.85); }
+:root[data-theme="dark"] .note, .night .note { filter: brightness(.86) saturate(.9); }
+:root[data-theme="dark"] .note span, .night .note span, :root[data-theme="dark"] .note .re, .night .note .re { color: rgba(60, 45, 30, .72); }
 .pet-read { position: fixed; right: 18px; bottom: calc(var(--safe-bottom) + 22px + 42px); width: 180px; height: 0; z-index: 3; pointer-events: none; }
 /* 他一起读读到的地方：段落末尾一个淡淡的小记号 */
 .his-end::after { content: " · " attr(data-his) "读到这里"; font-size: .62em; letter-spacing: .05em; color: rgba(92, 142, 205, .75); white-space: nowrap; }

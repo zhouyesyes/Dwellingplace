@@ -488,13 +488,15 @@ h4 { margin: 8px 0 0; font-size: .82rem; color: var(--text-2); font-weight: 600;
 .notes { display: flex; flex-direction: column; gap: 12px; }
 .note { position: relative; padding: 14px 14px 8px; border-radius: 2px; box-shadow: 0 6px 14px rgba(60, 45, 30, .12); transform: rotate(-.8deg); }
 .note:nth-child(even) { transform: rotate(.8deg); }
-.note.mine { background: color-mix(in srgb, #fff1a8 var(--pastel), var(--card)); }
+.note.mine { background: #fff1a8; }
 .note.his { background: #dcebfc; }
-.note p { margin: 0; font-size: .9rem; line-height: 1.7; white-space: pre-wrap; }
+.note p { margin: 0; font-size: .9rem; line-height: 1.7; white-space: pre-wrap; color: #3b3128; }
 .tape { position: absolute; top: -8px; left: 50%; width: 46px; height: 16px; transform: translateX(-50%) rotate(-3deg); background: rgba(var(--glass-rgb), .55); }
 .nf { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-.nf small { flex: 1; font-size: .68rem; color: rgba(60, 45, 30, .5); }
-.nf button { border: 0; background: rgba(var(--glass-rgb), .6); border-radius: 999px; padding: 3px 10px; font-size: .72rem; }
+.nf small { flex: 1; font-size: .68rem; color: rgba(60, 45, 30, .7); }
+.nf button { border: 0; background: rgba(255, 255, 255, .7); color: #3b3128; border-radius: 999px; padding: 3px 10px; font-size: .72rem; }
+/* 深色：纸还是浅的，只压暗一点点，字和按钮保持深色 */
+:root[data-theme="dark"] .note { filter: brightness(.88) saturate(.9); }
 .add-note { display: flex; gap: 8px; }
 .add-note .input { flex: 1; }
 .danger { color: var(--danger); }
