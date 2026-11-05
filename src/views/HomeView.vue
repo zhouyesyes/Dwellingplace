@@ -162,11 +162,11 @@ const rows = computed(() => [
 <style scoped>
 .home {
   /* 聊天那条用底栏海星的淡粉，和底栏统一 */
-  --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #e2edf7; --home-line: var(--line);
+  --home-bg: var(--bg); --home-card: #fbfaf8; --home-chat: #e0e0df; --home-line: var(--line);
   font-family: "Poppins", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
   min-height: 100%; max-width: 680px; margin: 0 auto; background: var(--home-bg); padding: 0 0 calc(var(--tabbar-h) + var(--safe-bottom) + 36px); }
 @media (min-width: 1000px) { .home { padding-bottom: 40px; } }
-:root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #2c3642; }
+:root[data-theme="dark"] .home { --home-card: var(--card); --home-chat: #2b2c2f; }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translate(-50%, -8px); z-index: 5; padding: 6px 14px; border-radius: 999px; background: rgba(var(--glass-rgb), .92); box-shadow: var(--shadow-soft); font-size: .8rem; color: var(--text-2); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
 .pull.on { opacity: 1; transform: translate(-50%, 0); }
 
@@ -200,13 +200,8 @@ const rows = computed(() => [
 .row + .row::before { content: ""; position: absolute; top: 0; left: 24px; right: 0; height: 1px; background: var(--home-line); }
 .row.chat { background: var(--home-chat); padding: 10px 24px; gap: 12px; }
 .row.chat :deep(.avatar.flat) { box-shadow: none; }
-/* 小螃蟹那条：淡淡的珊瑚橘，和他那条一样细；两条之间一道细线 */
-.row.chat.crab { background: color-mix(in srgb, #f7e3d6 70%, var(--home-bg)); }
-:root[data-theme="dark"] .row.chat.crab { background: #3a3029; }
+/* 三条聊天同一种灰（颜色在 --home-chat）；条与条之间一道细线 */
 .row.chat + .row.chat.crab::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
-/* 群聊那条：淡淡的薰衣草紫，和上面两条一样细 */
-.row.chat.group { background: color-mix(in srgb, #e7e0f5 70%, var(--home-bg)); }
-:root[data-theme="dark"] .row.chat.group { background: #332e42; }
 .row.chat + .row.chat.group::before { display: block; left: 24px; background: rgba(var(--tint-rgb), .05); }
 .row.plain { padding: 13px 24px; }
 .en { flex: 1; font-size: .92rem; font-weight: 600; letter-spacing: .1px; }
