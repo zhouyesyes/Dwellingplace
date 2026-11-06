@@ -57,7 +57,10 @@ function cmdLines(text, re) {
     .replace(/`[^`\n]*`/g, m => " ".repeat(m.length))
     .replace(/^[ \t]*>.*$/gm, m => " ".repeat(m.length));
   const out = [];
-  for (const m of masked.matchAll(new RegExp(re.source, "g"))) {
+  // 在原文上找：指令正文里自己带了 ``` 或 `（比如派活要改的就是代码块）时，遮住以后会找不到或正文被抹成空格。
+  // 只要指令的开头那个「[」没被遮住（不在代码、引用里），就算数
+  for (const m of text.matchAll(new RegExp(re.source, "g"))) {
+    if (masked[m.index] !== text[m.index]) continue;
     const ls = masked.lastIndexOf("\n", m.index - 1) + 1;
     let le = masked.indexOf("\n", m.index);
     if (le < 0) le = masked.length;
