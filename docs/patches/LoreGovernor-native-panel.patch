@@ -1,0 +1,335 @@
+From 70944956ac2ca0b1462059dcb98e7d5f85c0a2fc Mon Sep 17 00:00:00 2001
+From: Codex <codex@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 09:22:30 +0000
+Subject: [PATCH] =?UTF-8?q?=E5=90=8C=E6=AD=A5=E5=8E=9F=E7=94=9F=E4=B8=96?=
+ =?UTF-8?q?=E7=95=8C=E4=B9=A6=E9=9D=A2=E6=9D=BF=E7=9A=84=E8=81=8A=E5=A4=A9?=
+ =?UTF-8?q?=E9=85=8D=E7=BD=AE=E8=A7=86=E8=A7=89=E7=8A=B6=E6=80=81?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ README.md                   |  37 +++++++++++++
+ index.js                    |  17 +++++-
+ native-panel.mjs            | 104 ++++++++++++++++++++++++++++++++++++
+ style.css                   |  10 ++++
+ tests/native-panel.test.mjs |  66 +++++++++++++++++++++++
+ 5 files changed, 232 insertions(+), 2 deletions(-)
+ create mode 100644 native-panel.mjs
+ create mode 100644 tests/native-panel.test.mjs
+
+diff --git a/README.md b/README.md
+index a350f6f..db3bcca 100644
+--- a/README.md
++++ b/README.md
+@@ -66,3 +66,40 @@ To change a chat's selection later, use the **Configure lore for current chat**
+ ## License
+ 
+ MIT — see [LICENSE](LICENSE).
++
++## 原生世界书面板：聊天配置视觉同步（此 Fork）
++
++此 Fork 基于 Zeaden 的 Lore Governor，保留原作者署名与 MIT License。
++
++- 在酒馆原生世界书编辑面板，按**世界书名 + 条目 UID**核对身份，受管条目的开关和灰显状态显示当前聊天经 Governor 计算后的启用/关闭状态。旁边有「聊天配置 · 不写回原书」标记。
++- 受管开关是只读显示；修改本聊天选择请用扩展中的「为聊天配置世界书」或 `/loregovernor`。标题、正文等其他编辑控件仍是原生编辑器，手动编辑它们仍会保存原书。未管理条目的开关保持原生行为。
++- 切换聊天、保存聊天选择或分组配置、打开/刷新面板、翻页/搜索后自动同步。生成后优先显示本次 WORLDINFO_ENTRIES_LOADED 捕获的状态；尚未生成时按当前配置计算。整本开启仍保留原书条目的关闭状态，条目级管理优先于整本管理，与原有生成逻辑一致。
++- 「启用」只表示未被关闭，**不保证已进入提示词**：关键词、概率、预算等仍由酒馆判断。此功能仅操作 DOM，不调用世界书保存接口、不写文件，也不额外注入提示词。
++- 兼容性核对依据：SillyTavern release 分支的 `public/scripts/world-info.js` 中 `getWorldEntry` / `handleEntryKillSwitchHelper`。需要 `#world_editor_select`、`#world_popup_entries_list .world_entry[uid]`、`entryKillSwitch` 以及带书名和 UID 的移动按钮。找不到或身份不一致时保持原样，不猜测匹配。其他扩展再次修改生成状态时，此显示不代表那些扩展的最终结果。
++
++### 安装测试补丁
++
++Fork 推送被 GitHub 拒绝（403），测试代码以可应用补丁提供，尚无远程测试分支。不要同时加载两份 Governor；备份现有扩展目录，使用本 Fork 的 main（基线 fea3fd7），在扩展目录运行：
++
++```sh
++curl -fL https://raw.githubusercontent.com/zhouyesyes/Dwellingplace/codex/job-3042f421/docs/patches/LoreGovernor-native-panel.patch -o /tmp/LoreGovernor-native-panel.patch
++git apply --check /tmp/LoreGovernor-native-panel.patch
++git apply /tmp/LoreGovernor-native-panel.patch
++```
++
++首次安装：酒馆扩展安装器填入 `https://github.com/zhouyesyes/LoreGovernor`，再在安装的扩展目录应用上面的补丁。重新加载酒馆页面；测试期间不要点扩展自动更新。若检查提示不匹配，不要强行应用；本补丁只对上述基线验证。
++
++### 验收与退回
++
++1. 同一本书建立两个聊天，各选不同条目。再加入始终启用/关闭、不受管理条目及整本开关；检查同 UID 不同书不会串状态。
++2. 在原生面板检查开关、灰显和标记；切聊天、保存选择、换书、搜索、翻页、关闭重开面板、生成一次后都应更新。受管开关点击应无保存请求；未管理条目仍能原生切换。
++3. 浏览器网络面板确认仅视觉同步不产生世界书保存请求；比较测试前后世界书文件。提示词中不应出现重复条目。浅/深色都看一眼。当前容器无浏览器，**没截图，也未实机验证**。
++4. 退回：在扩展目录执行 `git apply -R --check /tmp/LoreGovernor-native-panel.patch`，检查通过再执行 `git apply -R /tmp/LoreGovernor-native-panel.patch`，重新加载页面。首次安装则通过酒馆卸载测试扩展后，按上文原作者 URL 重装。聊天选择及扩展设置不由此视觉功能修改；卸载前可另行备份酒馆数据。
++
++静态检查与无依赖逻辑/DOM 检查：
++
++```sh
++node --input-type=module --check < index.js
++node --check native-panel.mjs
++node --test tests/native-panel.test.mjs
++```
+diff --git a/index.js b/index.js
+index 118e4e7..9841bf3 100644
+--- a/index.js
++++ b/index.js
+@@ -1,3 +1,4 @@
++import { createNativePanelSync } from './native-panel.mjs';
+ import { eventSource, event_types } from '../../../../script.js';
+ import { getContext } from '../../../extensions.js';
+ import { world_names, loadWorldInfo, updateWorldInfoList } from '../../../world-info.js';
+@@ -11,6 +12,13 @@ const BUCKET_ALWAYS_OFF = 'always_off';
+ const BUCKET_UNMANAGED = 'unmanaged';
+ let lastEffectiveStates = new Map();
+ let hasCapturedEffectiveStates = false;
++let syncNativePanel = () => {};
++
++function invalidateVisualState() {
++    lastEffectiveStates = new Map();
++    hasCapturedEffectiveStates = false;
++    syncNativePanel();
++}
+ 
+ const BUCKET_LABELS = {
+     [BUCKET_ALWAYS_ON]: '始终启用',
+@@ -45,6 +53,7 @@ function getSettings() {
+ }
+ 
+ function saveSettings() {
++    invalidateVisualState();
+     getContext().saveSettingsDebounced();
+ }
+ 
+@@ -71,6 +80,7 @@ function saveChatSelection(selection) {
+     const context = getContext();
+     context.updateChatMetadata({ [CHAT_METADATA_KEY]: selection }, false);
+     context.saveMetadataDebounced();
++    invalidateVisualState();
+ }
+ 
+ async function getBookEntries(bookName) {
+@@ -129,6 +139,7 @@ function onWorldInfoEntriesLoaded(payload) {
+             }
+         }
+     }
++    syncNativePanel();
+ }
+ 
+ function statusForEntry(bookName, uid) {
+@@ -238,8 +249,7 @@ async function openStatusPanel() {
+ }
+ 
+ function onChatChanged() {
+-    lastEffectiveStates = new Map();
+-    hasCapturedEffectiveStates = false;
++    invalidateVisualState();
+ }
+ 
+ /**
+@@ -636,6 +646,9 @@ async function renderSettings() {
+ }
+ 
+ jQuery(async () => {
++    syncNativePanel = createNativePanelSync({
++        document, worldNames: world_names, getSettings, getSelection: getChatSelection, getCaptured: statusForEntry,
++    });
+     await renderSettings();
+     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, onWorldInfoEntriesLoaded);
+     eventSource.on(event_types.CHAT_CREATED, onChatCreated);
+diff --git a/native-panel.mjs b/native-panel.mjs
+new file mode 100644
+index 0000000..895a219
+--- /dev/null
++++ b/native-panel.mjs
+@@ -0,0 +1,104 @@
++// 只计算接管后的开关状态；null 表示保持酒馆原生行为。
++export function governedState(settings, selection, book, uid, originalEnabled) {
++    const cfg = settings.entryBooks.find(item => item.name === book);
++    if (cfg) {
++        const bucket = cfg.assignments[String(uid)] ?? 'unmanaged';
++        if (bucket === 'unmanaged') return null;
++        if (bucket === 'always_on') return true;
++        if (bucket === 'always_off') return false;
++        return (selection?.groups?.[book]?.[bucket] ?? []).includes(String(uid));
++    }
++    if (settings.toggleBooks.includes(book)) {
++        return selection?.toggles?.[book] !== false && originalEnabled;
++    }
++    return null;
++}
++
++// 不触发原生 click/input/change，不接触世界书数据或保存接口。
++export function createNativePanelSync({ document, worldNames, getSettings, getSelection, getCaptured }) {
++    if (!document?.body || typeof MutationObserver !== 'function') return () => {};
++    const managed = new Map();
++    let queued = false;
++    const observer = new MutationObserver(schedule);
++    const observe = () => observer.observe(document.body, {
++        childList: true, subtree: true, attributes: true,
++        attributeFilter: ['class', 'uid', 'data-current-world', 'data-uid'],
++    });
++    function restore(row, state) {
++        state.visual.remove();
++        state.badge.remove();
++        state.original.hidden = state.hidden;
++        if (state.display) state.original.style.setProperty('display', state.display, state.priority);
++        else state.original.style.removeProperty('display');
++        row.classList.toggle('disabledWIEntry', state.disabled);
++        managed.delete(row);
++    }
++    function sync() {
++        queued = false;
++        observer.disconnect();
++        try {
++            const select = document.querySelector('#world_editor_select');
++            const book = select && select.value !== '' ? worldNames[select.value] : null;
++            const settings = getSettings();
++            const selection = getSelection();
++            const rows = new Set(document.querySelectorAll('#world_popup_entries_list .world_entry[uid]'));
++            for (const [row, state] of managed) {
++                if (!rows.has(row) || state.book !== book || state.uid !== row.getAttribute('uid') ||
++                    !row.contains(state.original) || !row.contains(state.visual)) restore(row, state);
++            }
++            for (const row of rows) {
++                const uid = row.getAttribute('uid');
++                const original = row.querySelector('div[name="entryKillSwitch"]');
++                const identity = row.querySelector('.move_entry_button[data-current-world][data-uid]');
++                // 同时核对书名和 UID，不用标题、行号或模糊匹配猜身份。
++                const compatible = book && original && identity &&
++                    identity.getAttribute('data-current-world') === book && identity.getAttribute('data-uid') === uid;
++                let state = managed.get(row);
++                const originalEnabled = state ? !state.disabled : !row.classList.contains('disabledWIEntry');
++                const expected = compatible ? governedState(settings, selection, book, uid, originalEnabled) : null;
++                if (expected === null || (!state && !original.classList.contains('fa-toggle-on') && !original.classList.contains('fa-toggle-off'))) {
++                    if (state) restore(row, state);
++                    continue;
++                }
++                if (!state) {
++                    const visual = document.createElement('span');
++                    visual.className = 'fa-solid lg-native-toggle';
++                    visual.setAttribute('role', 'img');
++                    // 不复制原生节点或事件，防止误触发写回。
++                    visual.addEventListener('click', event => { event.preventDefault(); event.stopImmediatePropagation(); });
++                    const badge = document.createElement('small');
++                    badge.className = 'lg-native-badge';
++                    badge.textContent = '聊天配置 · 不写回原书';
++                    state = { book, uid, original, visual, badge, hidden: original.hidden, display: original.style.getPropertyValue('display'), priority: original.style.getPropertyPriority('display'), disabled: row.classList.contains('disabledWIEntry') };
++                    managed.set(row, state);
++                    original.hidden = true;
++                    original.style.setProperty('display', 'none', 'important');
++                    original.after(visual, badge);
++                }
++                const enabled = getCaptured(book, uid)?.enabled ?? expected;
++                state.visual.classList.toggle('fa-toggle-on', enabled);
++                state.visual.classList.toggle('fa-toggle-off', !enabled);
++                state.visual.setAttribute('aria-label', '聊天配置：' + (enabled ? '启用' : '关闭'));
++                state.visual.title = 'Lore Governor 当前聊天：' + (enabled ? '启用' : '关闭') + '。请在扩展中配置；不写回原始世界书。启用仍需满足关键词、概率等原生触发条件。';
++                state.badge.title = state.visual.title;
++                row.classList.toggle('disabledWIEntry', !enabled);
++            }
++        } catch {
++            // 遇到未知版本或 DOM 时，撤下自己的显示，归还原生控件。
++            for (const [row, state] of managed) restore(row, state);
++        } finally {
++            observe();
++        }
++    }
++    function schedule() {
++        if (queued) return;
++        queued = true;
++        queueMicrotask(sync);
++    }
++    document.addEventListener('change', event => {
++        if (event.target?.id === 'world_editor_select') schedule();
++    });
++    observe();
++    schedule();
++    return schedule;
++}
+diff --git a/style.css b/style.css
+index 5325d2a..bd48485 100644
+--- a/style.css
++++ b/style.css
+@@ -219,3 +219,13 @@
+ .lore-governor-status-filter select {
+     width: 100%;
+ }
++
++/* 跟随酒馆主题；标记保持轻量，但不暗示会保存到原书。 */
++.lg-native-toggle { cursor: default; }
++.lg-native-badge {
++    font-size: 0.72em;
++    opacity: 0.8;
++    margin-inline: 0.35em;
++    white-space: nowrap;
++    color: inherit;
++}
+diff --git a/tests/native-panel.test.mjs b/tests/native-panel.test.mjs
+new file mode 100644
+index 0000000..27c1242
+--- /dev/null
++++ b/tests/native-panel.test.mjs
+@@ -0,0 +1,66 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { governedState, createNativePanelSync } from '../native-panel.mjs';
++
++const settings = { entryBooks: [{ name: '甲', assignments: { 1: 'always_on', 2: 'always_off', 3: '组' } }], toggleBooks: ['乙'] };
++test('书名与 UID、默认值、分组和整本开关遵循生成逻辑', () => {
++    const selection = { groups: { 甲: { 组: ['3'] } }, toggles: { 乙: false } };
++    assert.equal(governedState(settings, selection, '甲', 1, false), true);
++    assert.equal(governedState(settings, selection, '甲', 2, true), false);
++    assert.equal(governedState(settings, selection, '甲', 3, false), true);
++    assert.equal(governedState(settings, null, '甲', 3, true), false);
++    assert.equal(governedState(settings, selection, '甲', 4, true), null);
++    assert.equal(governedState(settings, selection, '丙', 1, true), null);
++    assert.equal(governedState(settings, selection, '乙', 1, true), false);
++    assert.equal(governedState(settings, null, '乙', 1, false), false);
++    assert.equal(governedState(settings, null, '乙', 1, true), true);
++});
++
++// 最小 DOM 替身：只支持适配层用到的接口；意外写入或派发事件会直接报错。
++class Element {
++    constructor(classes = '') {
++        this.attrs = {}; this.children = []; this.hidden = false;
++        const set = new Set(classes.split(' ').filter(Boolean));
++        this.classList = { contains: x => set.has(x), toggle: (x, on) => on ? set.add(x) : set.delete(x) };
++        const style = new Map();
++        this.style = { getPropertyValue: x => style.get(x)?.[0] ?? '', getPropertyPriority: x => style.get(x)?.[1] ?? '', setProperty: (x,v,p) => style.set(x,[v,p]), removeProperty: x => style.delete(x) };
++    }
++    setAttribute(k,v) { this.attrs[k] = v; }
++    getAttribute(k) { return this.attrs[k] ?? null; }
++    contains(el) { return this.children.includes(el); }
++    after(...els) { for (const el of els) { el.parent = this.parent; this.parent.children.push(el); } }
++    remove() { if (this.parent) this.parent.children = this.parent.children.filter(x => x !== this); }
++    addEventListener() {}
++    dispatchEvent() { throw Error('不应派发原生事件'); }
++}
++
++test('同步捕获状态、切聊天、取消接管、DOM 不兼容时恢复且不触发保存', async () => {
++    globalThis.MutationObserver = class { observe() {} disconnect() {} };
++    const row = new Element('disabledWIEntry'); row.setAttribute('uid', '1');
++    const toggle = new Element('fa-toggle-off'); toggle.parent = row;
++    const identity = new Element(); identity.setAttribute('data-current-world','甲'); identity.setAttribute('data-uid','1');
++    row.children = [toggle, identity];
++    row.querySelector = selector => selector.startsWith('div') ? toggle : identity;
++    const select = { value: '0' };
++    const document = { body: {}, addEventListener() {}, createElement: () => new Element(), querySelector: () => select, querySelectorAll: () => [row] };
++    let captured = { enabled: false };
++    let config = settings;
++    const schedule = createNativePanelSync({ document, worldNames: ['甲','乙'], getSettings: () => config, getSelection: () => null, getCaptured: () => captured });
++    await Promise.resolve();
++    assert.equal(toggle.hidden, true);
++    assert.equal(toggle.style.getPropertyValue('display'), 'none');
++    assert.equal(row.children[2].classList.contains('fa-toggle-off'), true);
++    captured = null; schedule(); await Promise.resolve();
++    assert.equal(row.children[2].classList.contains('fa-toggle-on'), true);
++    assert.equal(row.classList.contains('disabledWIEntry'), false);
++    config = { entryBooks: [], toggleBooks: [] }; schedule(); await Promise.resolve();
++    assert.equal(toggle.hidden, false);
++    assert.equal(row.children.length, 2);
++    assert.equal(row.classList.contains('disabledWIEntry'), true);
++    config = settings; schedule(); await Promise.resolve();
++    select.value = '1'; schedule(); await Promise.resolve();
++    assert.equal(toggle.hidden, false); // 书名不一致，绝不串 UID
++    assert.equal(row.children.length, 2);
++    select.value = '0'; identity.setAttribute('data-uid','9'); schedule(); await Promise.resolve();
++    assert.equal(row.children.length, 2);
++});
+-- 
+2.39.5
+
