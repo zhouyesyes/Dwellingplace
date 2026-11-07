@@ -16,10 +16,10 @@ export function codexBase(role, thread) {
 export const jobState = reactive({});
 const END = ["done", "failed", "blocked"];
 
-export async function dispatchCodex(role, thread, text) {
+export async function dispatchCodex(role, thread, text, repo = "") {
   const base = codexBase(role, thread);
   if (!base) throw new Error("找不到栖所服务器的地址");
-  const r = await fetch(base + "/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+  const r = await fetch(base + "/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, repo }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message || `返回 ${r.status}`);
   (store.codexJobs ??= []).push({ id: j.id, roleId: role.id, threadId: thread.id, text: text.slice(0, 200), at: Date.now() });

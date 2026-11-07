@@ -13,14 +13,15 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync 
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { bookAppend, bookCopyTo, bookReady, bookSecrets } from "./claude.mjs";
+import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
 
 const BIN = process.env.CODEX_BIN || "codex";
 const DATA = process.env.DATA_DIR || "/app/data";
 const CODEX_HOME = process.env.CODEX_HOME || "/codex-home";
 const GH_TOKEN = process.env.CODEX_GITHUB_TOKEN || "";
-const GH_REPO = process.env.CODEX_GITHUB_REPO || "zhouyesyes/Dwellingplace";
+const GH_REPO = DEFAULT_REPO; // 默认仓库：栖所；别的仓库由派活指定（见 repos.mjs）
 const GH_API = process.env.GITHUB_API || "https://api.github.com";
-const REPO_URL = process.env.CODEX_REPO_URL || `https://github.com/${GH_REPO}.git`;
+const repoUrl = full => (full === GH_REPO && process.env.CODEX_REPO_URL) || `https://github.com/${full}.git`;
 const WORK = process.env.CODEX_WORK || join(DATA, "codex-work");
 const JOBS_FILE = join(DATA, "codex-jobs.json");
 const TIMEOUT = (Number(process.env.CODEX_TIMEOUT_MIN) || 45) * 60_000;
@@ -46,7 +47,7 @@ for (const j of jobs) if (j.status === "queued" || j.status === "running") {
 save();
 const pub = (j, full = true) => {
   const pos = j.status === "queued" ? queue.indexOf(j) + 1 : 0;
-  return { id: j.id, status: j.status, createdAt: j.createdAt, startedAt: j.startedAt, endedAt: j.endedAt, position: pos, progress: (j.progress || []).slice(-6), ...(full ? { report: j.report || "", error: j.error || "" } : {}) };
+  return { id: j.id, repo: j.repo || GH_REPO, status: j.status, createdAt: j.createdAt, startedAt: j.startedAt, endedAt: j.endedAt, position: pos, progress: (j.progress || []).slice(-6), ...(full ? { report: j.report || "", error: j.error || "" } : {}) };
 };
 const setProgress = (j, line) => { const l = scrub(line).replace(/\s+/g, " ").trim().slice(0, 120); if (l && j.progress.at(-1) !== l) { j.progress.push(l); if (j.progress.length > 30) j.progress.shift(); } };
 
@@ -57,8 +58,8 @@ const run = (cmd, args, opts = {}) => new Promise(resolve => {
 const codexEnv = extra => ({ ...process.env, CODEX_HOME, HOME: process.env.CODEX_USER_HOME || "/tmp", ...extra });
 const authHeader = () => `AUTHORIZATION: basic ${Buffer.from("x-access-token:" + GH_TOKEN).toString("base64")}`;
 
-async function ghApi(path) {
-  const r = await fetch(`${GH_API}/repos/${GH_REPO}${path}`, { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "qisuo-codex" } });
+async function ghApi(path, repo = GH_REPO) {
+  const r = await fetch(`${GH_API}/repos/${repo}${path}`, { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "qisuo-codex" } });
   if (!r.ok) throw new Error(`GitHub 返回 ${r.status}（${path.split("?")[0]}）`);
   return r.json();
 }
@@ -74,11 +75,11 @@ async function loginStatus() {
 // ---------- 防撞：只看 CC 那边仍然开着、没合并的 PR ----------
 // 已合并的 PR、提交早已在 main 里的旧分支、没有开 PR 的分支都不算；docs/worklog.md 大家每单都会往末尾追加，也不算
 const SHARED_DOCS = new Set(["docs/worklog.md"]);
-async function ccWork() {
+async function ccWork(repo = GH_REPO) {
   const list = [];
-  const prs = (await ghApi("/pulls?state=open&per_page=30")).filter(p => !p.head.ref.startsWith("codex/") && !p.merged_at);
+  const prs = (await ghApi("/pulls?state=open&per_page=30", repo)).filter(p => !p.head.ref.startsWith("codex/") && !p.merged_at);
   for (const p of prs.slice(0, 12)) {
-    const files = await ghApi(`/pulls/${p.number}/files?per_page=100`).then(l => l.map(f => f.filename).filter(f => !SHARED_DOCS.has(f))).catch(() => []);
+    const files = await ghApi(`/pulls/${p.number}/files?per_page=100`, repo).then(l => l.map(f => f.filename).filter(f => !SHARED_DOCS.has(f))).catch(() => []);
     if (files.length) list.push({ kind: "PR", name: `#${p.number} ${p.title}`, branch: p.head.ref, files });
   }
   return list;
@@ -96,7 +97,41 @@ function clash(text, others) {
 }
 
 // ---------- 给 Codex 的开工说明（照 CC 云端派活那份写） ----------
+// 别的仓库：没有栖所那套规矩，有什么照什么做，没有的步骤跳过（不加 worklog、不加 CLAUDE.md）
+function promptForOther(job, others, dir) {
+  const name = job.repo.split("/")[1];
+  return `【云端派活】
+你是 Codex，在仓库 ${job.repo} 里干活（小续的 AI 伙伴小章鱼把活派给你；小续叫小章鱼「他」，叫 CC「小螃蟹」）。这次要改的**不是栖所**，是另一个仓库。她在栖所里和小章鱼商量好、派过来的活，写在最后「要做的事」里。
+你在一台服务器的容器里，没有人守着，也不能向任何人提问：拿不准、要她决定的地方别猜，先别合并，在报告里写清楚要问她什么。
+
+工作目录：
+- ${dir}/${name}：这个仓库的最新 ${job.base} 的干净副本，当前在分支 ${job.branch}（从最新 ${job.base} 开的）
+- 旁边 ${dir}/qisuo-memory 是她私人对话本的只读拷贝，只用来了解她们最近在聊什么；你推不上去也不要往里写，里面的私人内容不要写进 ${name}（它可能是公开仓库）
+
+开工前：
+1. 进 ${name} 目录，有 CLAUDE.md、AGENTS.md、README 就先读，里面有规矩（提交怎么写、怎么构建、怎么测）就照做；**没有的就跳过，不要新建它们**
+2. 读 ../qisuo-memory 里的 summary.md，和 book/log.jsonl 最后几十行（tail -n 40），知道她们最近在聊什么
+${others.length ? `3. 这个仓库现在有这些别人开着、没合并的 PR（改动文件在括号里）：\n${others.map(o => `   - ${o.kind} ${o.name}（${o.files.slice(0, 12).join("、")}${o.files.length > 12 ? "…" : ""}）`).join("\n")}\n   你要改的文件如果和它们撞了：**一个文件都别动**，直接在报告里说明撞在哪。\n` : ""}
+干活：
+- 改 → 仓库里有构建或测试（看 package.json、README）就跑到通过，没有就跳过 → 提交（中文说明，一件事一个提交，沿用仓库里已有的写法）→ git push -u origin ${job.branch}
+- 开 PR 和合并用这个小工具（环境里已经有钥匙，不要打印、不要写进任何文件）：
+  node /app/ghpr.mjs open ${job.branch} "标题" 正文文件   （开 PR 合到 ${job.base}，正文用中文写清楚改了什么）
+  node /app/ghpr.mjs merge 编号                            （squash 合并）
+- 能合并就 squash 合并；拿不准、要她决定的就先不合并，PR 留着。这个仓库如果不允许你合并（分支保护、要审核），也留着，在报告里说
+- **不要**往这个仓库里加 docs/worklog.md 之类的施工日志，也不要为了栖所的规矩加文件
+- 这个容器里没有浏览器，没法截图：改了界面的话，报告里明说「没截图」，让她自己看
+- 只做被要求的这件事；不碰密钥、口令，不把她的邮箱、口令写进代码、提交或报告
+- 做完不要留一堆临时文件在仓库里
+
+做完：你最后一条回复就是给她看的完工报告，用中文，自称「我」，尽量短：先说改的是 ${job.repo}，再说改了什么（合并了的写 PR 编号）、要她试什么、还剩什么。有要她决定的事，单独写一段「想问你」。不要把命令输出整段贴进去。
+
+要做的事：
+${job.text}
+`;
+}
+
 function promptFor(job, others, dir) {
+  if (job.repo && job.repo !== GH_REPO) return promptForOther(job, others, dir);
   const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
   return `【云端派活】
 你是 Codex，在栖所仓库里干活（小续的 AI 伙伴小章鱼把活派给你；小续叫小章鱼「他」，叫 CC「小螃蟹」）。她在栖所里和小章鱼商量好、派过来的活，写在最后「要做的事」里。
@@ -144,7 +179,8 @@ function friendly(t) {
 
 async function runJob(job) {
   job.status = "running"; job.startedAt = Date.now(); save();
-  const dir = join(WORK, job.id);
+  const repoName = (job.repo || GH_REPO).split("/").pop().replace(/[^\w.-]/g, "_");
+  const dir = join(WORK, repoName, job.id); // 每个仓库一个单独的工作文件夹，互不碰
   const finish = async (status, report, error = "") => {
     job.status = status; job.endedAt = Date.now(); job.report = scrub(report).slice(0, 20000); job.error = scrub(error).slice(0, 2000); save();
     rmSync(dir, { recursive: true, force: true });
@@ -160,7 +196,7 @@ async function runJob(job) {
 
     setProgress(job, "查 CC 那边有没有开着的 PR 撞车");
     let others = [];
-    try { others = await ccWork(); }
+    try { others = await ccWork(job.repo || GH_REPO); }
     catch (e) { return await finish("failed", `这件活没做成：查 CC 那边的 PR 时出错了（${scrub(e.message)}），为了不撞车先没动。`, e.message); }
     const hit = clash(job.text, others);
     if (hit.length) {
@@ -169,8 +205,8 @@ async function runJob(job) {
 
     setProgress(job, "拉最新的 main");
     mkdirSync(dir, { recursive: true });
-    const repo = join(dir, "Dwellingplace");
-    await sh(dir, ["-c", `http.https://github.com/.extraheader=${authHeader()}`, "clone", "-q", "--depth", "200", REPO_URL, repo], gitEnv);
+    const repo = join(dir, repoName);
+    await sh(dir, ["-c", `http.https://github.com/.extraheader=${authHeader()}`, "clone", "-q", "--depth", "200", repoUrl(job.repo || GH_REPO), repo], gitEnv);
     await sh(repo, ["config", "user.name", "Codex"], gitEnv);
     await sh(repo, ["config", "user.email", "codex@qisuo.local"], gitEnv);
     await sh(repo, ["config", "http.https://github.com/.extraheader", authHeader()], gitEnv); // 只在这份临时拷贝里，做完整个删掉
@@ -180,7 +216,7 @@ async function runJob(job) {
     setProgress(job, "Codex 开工");
     const outFile = join(dir, "report.txt");
     const child = spawn(BIN, ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--json", "-C", repo, "-o", outFile, "-"], {
-      cwd: repo, env: codexEnv({ GITHUB_TOKEN: GH_TOKEN, GITHUB_REPO: GH_REPO, GITHUB_API: GH_API, ...gitEnv }), stdio: ["pipe", "pipe", "pipe"],
+      cwd: repo, env: codexEnv({ GITHUB_TOKEN: GH_TOKEN, GITHUB_REPO: job.repo || GH_REPO, GITHUB_API: GH_API, ...gitEnv }), stdio: ["pipe", "pipe", "pipe"],
     });
     child.stdin.end(promptFor(job, others, dir));
     let timedOut = false, errs = [], stderr = "", buf = "";
@@ -226,14 +262,15 @@ function pump() {
   runJob(job).catch(e => { job.status = "failed"; job.error = scrub(e.message); job.report = `这件活没做成：${scrub(e.message)}`; job.endedAt = Date.now(); save(); }).finally(() => { current = null; pump(); });
 }
 
-async function submit(text) {
+async function submit(text, repoWant) {
   text = String(text || "").trim();
   if (text.length < 4) throw Object.assign(new Error("要做的事太短了"), { status: 400 });
   const st = await loginStatus();
   if (!st.installed) throw Object.assign(new Error(st.text), { status: 409 });
   if (!st.loggedIn) throw Object.assign(new Error(`Codex 还没登录 ChatGPT：在服务器终端运行 ~/qisuo-server/codex-login.sh 登录一次（${st.text}）`), { status: 409 });
+  const target = await resolveRepo(repoWant); // 没写 = 栖所；写了的必须是设置里开着「能派活」的
   const id = randomUUID().slice(0, 8);
-  const job = { id, text: text.slice(0, 8000), branch: `codex/job-${id}`, status: "queued", createdAt: Date.now(), progress: [] };
+  const job = { id, repo: target.full, base: target.branch, text: text.slice(0, 8000), branch: `codex/job-${id}`, status: "queued", createdAt: Date.now(), progress: [] };
   jobs.push(job); queue.push(job); save(); pump();
   return pub(job, false);
 }
@@ -313,7 +350,9 @@ export async function handleCodex(req, res, rest, CORS) {
       return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: current ? current.id : null, queued: queue.length });
     }
     if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
-    if (rest === "/job" && req.method === "POST") return send(200, await submit((await body()).text));
+    if (rest === "/job" && req.method === "POST") { const b = await body(); return send(200, await submit(b.text, b.repo)); }
+    if (rest === "/repos" && req.method === "GET") return send(200, { repos: await listRepos(new URL(req.url, "http://x").searchParams.has("fresh")) });
+    if (rest === "/repos" && req.method === "POST") { const b = await body(); return send(200, { repos: await setRepo(b.name, b.enabled) }); }
     const m = rest.match(/^\/job\/([\w-]+)$/);
     if (m && req.method === "GET") {
       const j = jobs.find(x => x.id === m[1]);

@@ -224,9 +224,14 @@ fi
 # 小章鱼派活去 Codex：登录凭据放在服务器上的 codex-home（重建容器也不丢）；开分支、开 PR 要一把只能碰栖所仓库的 GitHub 钥匙，存在 codex.env（只有你能读）
 mkdir -p "$DIR/codex-home"; chmod 700 "$DIR/codex-home"
 CODEX_ENV=""
-if [ ! -s codex.env ]; then
+if [ -s codex.env ]; then
+  say "小章鱼派活（Codex）的 GitHub 钥匙：已经有一把了"
+  echo "  想让派活能改栖所以外的仓库，就在 GitHub 把这把钥匙的仓库范围加上它们（或者新生成一把，Contents 和 Pull requests 读写），新的粘在这里；不换就直接回车。"
+else
   say "小章鱼派活（Codex）的 GitHub 钥匙"
-  echo "  在 GitHub 生成一把只能碰 Dwellingplace（栖所仓库）的钥匙（Fine-grained，Contents 和 Pull requests 都给读写），github_pat_ 开头，粘在这里。"
+  echo "  在 GitHub 生成一把钥匙（Fine-grained，Contents 和 Pull requests 都给读写），至少要能碰 Dwellingplace（栖所仓库）；想让派活也能改别的仓库就一起勾上，别勾 qisuo-memory。github_pat_ 开头，粘在这里。"
+fi
+if true; then
   read -r -s -p "  粘贴钥匙后回车（不会显示；不想现在弄就直接回车）: " GH_TOKEN_IN </dev/tty; echo
   GH_TOKEN_IN=$(printf '%s' "$GH_TOKEN_IN" | tr -d '[:space:]')
   if [ -n "$GH_TOKEN_IN" ]; then

@@ -22,7 +22,8 @@ const [cmd, a, b, c] = process.argv.slice(2);
 try {
   if (!TOKEN) throw new Error("没有 GITHUB_TOKEN");
   if (cmd === "open") {
-    const pr = await gh("/pulls", "POST", { head: a, base: "main", title: b, body: c ? readFileSync(c, "utf8") : "" });
+    const base = (await gh("")).default_branch || "main"; // 别的仓库的主分支不一定叫 main
+    const pr = await gh("/pulls", "POST", { head: a, base, title: b, body: c ? readFileSync(c, "utf8") : "" });
     console.log(`#${pr.number} ${pr.html_url}`);
   } else if (cmd === "list") {
     const list = await gh("/pulls?state=open&per_page=30");

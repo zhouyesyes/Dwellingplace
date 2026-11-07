@@ -83,6 +83,7 @@ function setHelper(v) {
       <button class="list-row" @click="router.push('/settings/tools')"><Icon name="tool" :size="20" /><span class="grow">工具<span class="sub">联网搜索{{ store.tools.search?.enabled || store.tools.webSearch ? "（已开启）" : "" }}、浏览器、MCP</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="lookOpen = true"><Icon name="palette" :size="20" /><span class="grow">外观<span class="sub">{{ { light: "浅色", dark: "深色", system: "跟随系统" }[themePref] }} · 字号{{ { small: "小", standard: "标准", large: "大" }[store.settings.fontSize] || "标准" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/pet')"><Icon name="heart" :size="20" /><span class="grow">桌宠<span class="sub">小章鱼 {{ store.settings.pet === false ? "关" : "开" }} · 小螃蟹 {{ store.settings.petCrab === false ? "关" : "开" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
+      <button class="list-row" @click="router.push('/settings/repos')"><Icon name="tool" :size="20" /><span class="grow">仓库<span class="sub">派活能改哪些仓库</span></span><Icon name="right" class="chev" :size="18" /></button>
       <button class="list-row" @click="router.push('/settings/data')"><Icon name="refresh" :size="20" /><span class="grow">数据<span class="sub">{{ syncState.on ? (syncState.error ? "同步出错了，点进来看看" : "同步已开启") : "同步、导出、导入" }}</span></span><Icon name="right" class="chev" :size="18" /></button>
     </div>
     <!-- 外观：点进来再调白天黑夜和字号 -->
