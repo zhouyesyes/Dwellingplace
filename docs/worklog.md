@@ -14,6 +14,12 @@
 
 ## 日志
 
+### 2026-11-07 · Codex：导出 #337 的 LoreGovernor 视觉同步完整文件，供 GitHub 网页上传
+- 核对 zhouyesyes/LoreGovernor 当前 main 仍为 fea3fd7，应用原补丁，导出 index.js、style.css、native-panel.mjs 到 public/downloads/loregovernor-visual-sync/；ZIP 根目录仅这三个完整运行文件，另有三个单文件下载链接及网页上传说明。各文件附 Zeaden 的完整 MIT 许可，不含私人资料。
+- 验证：补丁兼容检查、导出文件与应用结果比对、运行文件语法、原补丁逻辑/DOM 检查、ZIP 内容与 CRC 校验、npm ci 和 vite build 通过。
+- **还剩**：没截图，未在真实酒馆验收；请在 GitHub 网页把三份文件一起上传到 LoreGovernor 根目录，再试浅深色、切聊天、保存选择、刷新面板及视觉同步无世界书保存请求。
+- **注意**：这里只发布下载件，没有修改 LoreGovernor 仓库；若目标三个文件之后有新改动，应先比对再上传。不改 deploy/qisuo-server/ 或 relay/，不用重跑栖所安装或重部署中转。
+
 ### 2026-11-07 · Codex：把 #337 的 LoreGovernor 视觉同步补丁整理成一键安装与完整回退
 - 收录原补丁，新增 `scripts/loregovernor/install.mjs` 与中文说明；自动搜索唯一扩展，严格校验基线文件和补丁哈希，在临时副本试装、语法/逻辑检查后按时间完整保留原目录，再替换。MIT 许可证及 Zeaden 署名保留；完整回退验证备份，恢复隐藏文件、权限、属主及 .git，保留回退前目录。手机复制安装/回退各一行，不需要手动搬文件、拉仓库或操作 GitHub。
 - 验证：真实公开基线副本上的不兼容拒绝、多目录拒绝、正常安装、重复安装、备份损坏拒绝、完整回退检查通过；npm ci、vite build 通过。
