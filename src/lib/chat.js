@@ -4,6 +4,7 @@ import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
 import { codexBase, dispatchCodex } from "./codexJobs.js";
+import { otherRepoNames, splitRepo } from "./repos.js";
 import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
@@ -240,12 +241,14 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
       `\n# 派活去云端`,
       `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的你（Claude Code）去做：拉最新代码、改、构建、截图、开 PR、合并，做完的报告会回到这条聊天里。`,
       `「要做的事」写清楚：改哪里、改成什么样、做完要给${who}看什么（比如截图）。一次回复最多派一件；只是聊聊想法的时候别派。`,
+      otherRepoNames().length ? `要改别的仓库（不是栖所）时，在「要做的事」最前面单独写一行「仓库：名字」，比如「仓库：${otherRepoNames()[0]}」；不写就是改栖所。现在只能选这些：${otherRepoNames().join("、")}。选了不在里面的（没打开或不存在）系统不会派，会告诉你。别的仓库不一定有 CLAUDE.md、施工日志或构建，有什么规矩照什么做，没有就跳过。` : "",
     ].join("\n") : "",
     // 小章鱼的派活：和小螃蟹对称，只是干活的是服务器上的 Codex（用小续的 ChatGPT 订阅）
     role.id === MAIN && !solo(role) && !wake && !mail && !group && codexBase(role) ? [
       `\n# 派活去云端`,
       `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的 Codex 去做：拉最新代码、开分支、改、构建、开 PR、合并，做完的报告会回到这条聊天里。`,
       `「要做的事」写清楚：改哪里、改成什么样、要不要给${who}看什么。一次回复最多派一件；已经派出去、还没回报告的，别再派第二件（同一时间只做一件，后派的要排队）。只是聊聊想法的时候别派。`,
+      otherRepoNames().length ? `要改别的仓库（不是栖所）时，在「要做的事」最前面单独写一行「仓库：名字」，比如「仓库：${otherRepoNames()[0]}」；不写就是改栖所。现在只能选这些：${otherRepoNames().join("、")}。选了不在里面的（没打开或不存在）系统不会派，会告诉你。别的仓库不一定有 CLAUDE.md、施工日志或构建，有什么规矩照什么做，没有就跳过。` : "",
       `派出去以后聊天里会出一张进度卡片。云端那边没有浏览器，没法截图；要${who}决定的地方它会先不合并、在报告里问${who}。要是它说撞上了小螃蟹正在改的文件、没动手，把这个告诉${who}，等那边合并再派。`,
     ].join("\n") : "",
     // 工作台（她的笔记本）：小章鱼和小螃蟹一模一样的规矩，工具在下面的目录里（工作台.列目录 / 读笔记 / 挂建议）
@@ -780,12 +783,12 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       const jm = (solo(role) || role.id === MAIN) && !group && !sentJob ? findCmd(text, JOB_RE) : null;
       if (jm && !solo(role)) { // 小章鱼：派给服务器上的 Codex，聊天里出进度卡片
         sentJob = true;
-        const job = jm[1].trim();
+        const { repo: jobRepo, text: job } = splitRepo(jm[1]);
         const ev = reactive({ text: `${role.name} 把活派给云端的 Codex…`, before: true, at: keepSaid(text, jm.index), detail: job });
         msg.notes.push(ev);
         let back;
         try {
-          const j = await dispatchCodex(role, thread, job);
+          const j = await dispatchCodex(role, thread, job, jobRepo);
           ev.text = j.position > 0 ? `${role.name} 派给云端的 Codex 了（前面还有 ${j.position} 件，排队中）` : `${role.name} 派给云端的 Codex 开工了`;
           ev.job = j.id;
           back = `（系统：已经派出去了${j.position > 0 ? `，前面还有 ${j.position} 件在做，排队中` : "，云端的 Codex 开工了"}。简单告诉对方一声，做完的报告会回到这条聊天里；聊天里有张进度卡片可以看。）`;
@@ -796,24 +799,24 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
         if (ctrl.signal.aborted) break;
         convo = [
           ...convo,
-          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${job}]` }] },
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${jm[1].trim()}]` }] },
           { role: "user", parts: [{ type: "text", text: back }] },
         ];
         continue;
       }
       if (jm) {
         sentJob = true;
-        const job = jm[1].trim();
+        const { repo: jobRepo, text: job } = splitRepo(jm[1]);
         const ev = reactive({ text: `${role.name} 把活派去云端…`, before: true, at: keepSaid(text, jm.index), detail: job });
         msg.notes.push(ev);
         let back;
         try {
           const base = String(apiFor(thread, role)?.baseUrl || "").replace(/\/+$/, "").replace(/\/v1$/i, "");
-          const r = await fetch(base + "/cloud/fire", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: job }) });
+          const r = await fetch(base + "/cloud/fire", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: job, repo: jobRepo }) });
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(j.error?.message || `返回 ${r.status}`);
           ev.text = `${role.name} 派去云端开工了`;
-          ev.cloud = { url: j.url || "", at: Date.now() }; // 聊天里是一张状态卡（网址收在卡片里，不再单发网址卡片）
+          ev.cloud = { url: j.url || "", at: Date.now(), repo: j.repo || "" }; // 聊天里是一张状态卡（网址收在卡片里，不再单发网址卡片）
           back = `（系统：已经派出去了，云端的你开工了。别在回复里写网址。简单告诉对方一声，做完的报告会回到这条聊天里。）`;
         } catch (e) {
           ev.text = `派活没派出去：${e.message}`;
@@ -822,7 +825,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
         if (ctrl.signal.aborted) break;
         convo = [
           ...convo,
-          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${job}]` }] },
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${jm[1].trim()}]` }] },
           { role: "user", parts: [{ type: "text", text: back }] },
         ];
         continue;

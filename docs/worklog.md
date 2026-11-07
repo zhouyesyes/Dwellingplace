@@ -14,6 +14,12 @@
 
 ## 日志
 
+### 2026-11-07 · cc：派活能改别的仓库（设置里「仓库」一栏 + 派活指定仓库 + 卡片显示仓库）——**要重跑服务器安装**；中转没动，不用重部署
+- 服务器：新 `repos.mjs`——用服务器上那把 GitHub 钥匙问 GitHub「能看到哪些仓库」，每个仓库一个「能派活」开关（存 DATA/repos.json）；Dwellingplace 永远开、是默认；qisuo-memory 和新出现的仓库默认关着。接口 `GET/POST /codex/repos`（钥匙不出服务器）。`codex.mjs`：`/job` 收 `repo`，不写 = 栖所，写了就必须是开着的，否则报错并列出能选的；每个仓库一个工作文件夹（`codex-work/<仓库名>/<活id>`）；别的仓库用另一份开工说明（有 CLAUDE.md/README 就照做，没有的步骤跳过，不加 worklog，合并到那个仓库自己的主分支）；防撞检查也按仓库查。`ghpr.mjs` 开 PR 时去查仓库的主分支名。`claude.mjs`：`/cloud/fire` 收 `repo`，同样校验，不是栖所时在派活正文最前面加一段「这次改的是 X、拉不到代码就不硬做并说清楚去哪勾」。`setup.sh`：已有钥匙时也会问要不要换成范围更大的新钥匙（回车不换）
+- 网页：设置 → 「仓库」（`ReposView.vue`，`lib/repos.js`）；两边系统提示各加一句「仓库：名字」的用法和现在能选的仓库；`splitRepo` 把正文开头的「仓库：xx」拆出来；派活卡片（`JobCard.vue`）显示「仓库：xx」（老的没写过的显示 Dwellingplace）
+- **还剩**：没在真服务器上试（只用假 GitHub 测了单子、开关、选仓库的几种报错）；要她把钥匙范围加上别的仓库、重跑安装后，在设置里看单子。claude.ai 例行任务那边要勾上新仓库（见报告）
+- **注意**：新仓库默认关着，是我定的（想默认开告诉我）；栖所自己的流程没变
+
 ### 2026-11-07 · Codex：导出 #337 的 LoreGovernor 视觉同步完整文件，供 GitHub 网页上传
 - 核对 zhouyesyes/LoreGovernor 当前 main 仍为 fea3fd7，应用原补丁，导出 index.js、style.css、native-panel.mjs 到 public/downloads/loregovernor-visual-sync/；ZIP 根目录仅这三个完整运行文件，另有三个单文件下载链接及网页上传说明。各文件附 Zeaden 的完整 MIT 许可，不含私人资料。
 - 验证：补丁兼容检查、导出文件与应用结果比对、运行文件语法、原补丁逻辑/DOM 检查、ZIP 内容与 CRC 校验、npm ci 和 vite build 通过。

@@ -21,6 +21,7 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
+import { resolveRepo } from "./repos.mjs";
 
 const BIN = process.env.CLAUDE_BIN || "claude";
 const WORK = join(tmpdir(), "qisuo-crab"); // 空文件夹：不读任何项目、任何 CLAUDE.md
@@ -204,16 +205,23 @@ export const bookSecrets = () => [MEM_TOKEN, MEM_TOKEN && Buffer.from("x-access-
 // 地址和钥匙只在服务器上（CRAB_ROUTINE_URL、CRAB_ROUTINE_TOKEN，安装时粘的），栖所只说「要做什么」。
 const ROUTINE_URL = process.env.CRAB_ROUTINE_URL || "";
 const ROUTINE_TOKEN = process.env.CRAB_ROUTINE_TOKEN || "";
-async function cloudFire(text) {
+async function cloudFire(text, repoWant) {
   if (!ROUTINE_URL || !ROUTINE_TOKEN) throw Object.assign(new Error("服务器上还没放派活的地址和钥匙：再运行一次安装那一行"), { status: 409 });
+  const target = await resolveRepo(repoWant); // 没写 = 栖所；写了的必须是设置里开着「能派活」的
+  // 改的不是栖所：把仓库名写在最前面，云端照着去那个仓库干活；例行任务没勾这个仓库、拉不到代码就不硬做
+  const head = target.isDefault ? "" : `【这次要改的仓库不是栖所，是 ${target.full}（主分支 ${target.branch}）】
+去 ${target.full} 干活，不是 Dwellingplace。如果这个会话里拉不到 ${target.full} 的代码（例行任务没勾这个仓库），就不要硬做、不要改别的仓库：在报告里写清楚「小续要去 claude.ai → Claude Code → 例行任务 → 这个任务 → 仓库，把 ${target.full} 勾上」，然后结束。
+这个仓库可能没有 CLAUDE.md、worklog 或构建：有什么规矩照什么做，没有的步骤就跳过；不要往 ${target.full} 里加 docs/worklog.md，也不要在栖所仓库里记这件事。分支、PR、squash 合并照常做（合到 ${target.branch}）；拿不准就别合并。私人仓库 qisuo-memory 里的内容不要写进 ${target.full}。
+要做的事：
+`;
   const r = await fetch(ROUTINE_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${ROUTINE_TOKEN}`, "anthropic-beta": "experimental-cc-routine-2026-04-01", "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({ text: String(text || "").slice(0, 8000) }),
+    body: JSON.stringify({ text: (head + String(text || "")).slice(0, 8000) }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(`派活没派出去：${j.error?.message || `返回 ${r.status}`}`), { status: 502 });
-  return { session: j.claude_code_session_id || "", url: j.claude_code_session_url || "" };
+  return { session: j.claude_code_session_id || "", url: j.claude_code_session_url || "", repo: target.full };
 }
 
 // ---------- 额度：每次回复 Claude Code 都会带上「5 小时」「每周」用了多少，记下最近一次 ----------
@@ -358,7 +366,7 @@ export async function handleClaude(req, res, rest, CORS) {
     if (rest === "/v1/models" && req.method === "GET") return send(200, { object: "list", data: MODELS.map(m => ({ ...m, object: "model", context_window: 200000 })) });
     if (rest === "/v1/chat/completions" && req.method === "POST") return await chat(await body(), res, CORS);
     if (rest === "/cloud/status" && req.method === "GET") return send(200, { ready: !!(ROUTINE_URL && ROUTINE_TOKEN) });
-    if (rest === "/cloud/fire" && req.method === "POST") return send(200, await cloudFire((await body()).text));
+    if (rest === "/cloud/fire" && req.method === "POST") return send(200, await cloudFire(...(b => [b.text, b.repo])(await body())));
     if (rest === "/book/status" && req.method === "GET") return send(200, { token: !!MEM_TOKEN, repo: MEM_REPO, ...(MEM_TOKEN ? await serial(async () => { await memPull(); return { count: readLog().length }; }).catch(e => ({ error: e.message })) : {}) });
     if (rest === "/book/push" && req.method === "POST") return send(200, await bookPush(await body()));
     if (rest.startsWith("/book/pull") && req.method === "GET") return send(200, await bookPull(Number(new URL(req.url, "http://x").searchParams.get("since")) || 0));

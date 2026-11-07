@@ -37,6 +37,7 @@ export const router = createRouter({
     { path: "/settings/backup", redirect: "/settings/data" },
     { path: "/settings/data", component: DataView },
     { path: "/settings/pet", component: PetView },
+    { path: "/settings/repos", component: () => import("./views/ReposView.vue") },
     { path: "/settings/sync", redirect: "/settings/data" },
     { path: "/meanwhile", redirect: "/record" }, // Meanwhile 搬进了 Record 页；推送、旧链接还指着这里
     { path: "/letters", component: () => import("./views/LettersView.vue") },
