@@ -175,7 +175,7 @@ function bookMedia(p) {
 // 栖所拿回去：别处（Claude Code、云端、醒来）写进来的、比 since 新的
 const bookPull = since => serial(async () => {
   await memPull();
-  return { entries: readLog().filter(e => e.where !== "qisuo" && e.from !== "octopus" && (Number(e.ts) || 0) > since) }; // 小章鱼那边的云端报告不送进小螃蟹的聊天
+  return { entries: readLog().filter(e => e.where !== "qisuo" && e.from !== "octopus" && !String(e.id).startsWith("tavern-") && (Number(e.ts) || 0) > since) }; // 小章鱼那边的云端报告不送进小螃蟹的聊天
 });
 
 // 别的模块往对话本里写一条（小章鱼的 Codex 派活写完工报告用，from 记成 octopus）
