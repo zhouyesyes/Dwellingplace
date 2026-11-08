@@ -798,8 +798,23 @@ async function readBoxIndex(env) {
   return idx;
 }
 
+// 定时器和重试只记角色；每次执行、入箱前都重查当前配置。
+// 旧版配置没有主聊天校验信息，先安全跳过，等新版网页自动同步。
+async function assertWakeCurrent(env, role) {
+  const cfg = await env.KV.get("cfg", "json");
+  const current = cfg?.roles?.find(r => r.id === role.id);
+  if (cfg?.v !== 2 || !current?.wake?.enabled || !current.mainThreadId
+    || current.mainThreadId !== role.mainThreadId
+    || JSON.stringify(current.wake) !== JSON.stringify(role.wake)) {
+    const e = new Error("唤醒设置或最新聊天已变化，跳过旧任务");
+    e.wakeCancelled = true;
+    throw e;
+  }
+}
+
 // 存一条消息进收件箱，并在目录里记一笔
-async function boxAdd(env, item) {
+async function boxAdd(env, item, role) {
+  await assertWakeCurrent(env, role);
   const key = `box:${item.ts.toString(36)}:${item.id}`;
   await env.KV.put(key, JSON.stringify(item), { expirationTtl: 30 * 86400 });
   const idx = await readBoxIndex(env);
@@ -986,6 +1001,7 @@ async function roomNewsText(role, sessions) {
 const ROOM_VISIT = (me) => `做完闹钟里写的事，如果想去小房间看看，就单独一行写对应的房间卡片去：[房间:逛]、[房间:玩] 或 [房间:雾潮群岛]（消息底下会出卡片，你会立刻在那间房里开工）。没事也可以去，不用非等有事；只在想去的时候写，不想去就不写。`;
 
 async function runWake(env, cfg, role, reasons, now = Date.now()) {
+  await assertWakeCurrent(env, role);
   await setBusy(env, role.id, reasons.map(r => r.text).join("；")).catch(() => {});
   try {
     const item = await runWakeInner(env, cfg, role, reasons, now);
@@ -1000,7 +1016,7 @@ async function runWake(env, cfg, role, reasons, now = Date.now()) {
 async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
   const me = role.meName || "对方";
   // 栖所还没取走的：说过的话，还有悄悄醒来过、用过的工具（写成系统记录，TA 才知道自己刚做过什么）
-  const box = (await pendingBox(env)).filter(x => x.roleId === role.id);
+  const box = (await pendingBox(env)).filter(x => x.roleId === role.id && x.threadId === role.threadId);
   const history = [...(role.history || [])];
   for (const x of box) {
     const rec = noteRecord([{ text: `你醒来了（${(x.reasons || []).join("；")}）${x.silent ? "，这次没发消息" : ""}` }, ...(x.notes || [])]);
@@ -1218,7 +1234,7 @@ async function runWakeInner(env, cfg, role, reasons, now = Date.now()) {
     alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, Date.now())),
     ...(handoff ? { handoff: true } : {}),
   };
-  await boxAdd(env, item);
+  await boxAdd(env, item, role);
 
   if (!silent) {
     const first = visible(text).replace(/\[房间[:：][^\]\n]{0,40}\]/g, "").trim().split(/\n\s*\n/)[0] || "去小房间看看了";
@@ -1267,6 +1283,7 @@ function freeHabit(role, rooms, now) {
 const GO_RE = /\[去[:：]\s*(\d+)\s*\]/;
 const SLEEP_RE = /\[继续睡\]/;
 async function runFree(env, cfg, role, reasons, now = Date.now()) {
+  await assertWakeCurrent(env, role);
   const rooms = role.rooms || [];
   if (!rooms.length) return runWake(env, cfg, role, reasons, now); // 没同步屋子：照平时醒来
   const me = role.meName || "对方";
@@ -1284,6 +1301,7 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
     `\n可以去的地方（顺序是随机的）：\n${menu}`,
     `\n回一行就好（系统只认这一行）：想去哪就写 [去:序号]（比如 [去:2]）；想接着睡就写 [继续睡]。`,
   ].join("\n");
+  await assertWakeCurrent(env, role);
   const system = `你是「${role.name}」。${role.style ? `\n（这是你写给自己的：${role.style}）` : ""}`;
   setBusy(env, role.id, "自由时间，在想去哪").catch(() => {});
   const r0 = await callModel(role.api, system, [{ role: "user", content: lobby }], false);
@@ -1295,8 +1313,9 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
     setBusy(env, role.id, "").catch(() => {});
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: why, silent: true, text: "",
       notes: [{ text: `自由时间：${role.name} 想了想，接着睡了` }], usage: { ...lobbyUsage, rounds: 1, ctx0: lobbyUsage.input }, apiId: role.api?.id || null, model: role.api?.model || "", free: { pick: "sleep" } };
+    await assertWakeCurrent(env, role);
     await bookWake(role, item);
-    await boxAdd(env, item);
+    await boxAdd(env, item, role);
     return item;
   }
   const into = [...reasons, { kind: "free", text: `自由时间，你自己选了去「${room.label}」` }];
@@ -1316,6 +1335,7 @@ async function runFree(env, cfg, role, reasons, now = Date.now()) {
 
 // 一起读、讨论室、共写：一次请求，写下的东西交给栖所放进那间屋子（extra：这次叫醒的事，接在提示后面）
 async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, output: 0, cached: 0 }, extra = "", free = null, now = Date.now()) {
+  await assertWakeCurrent(env, role);
   const system = `你是「${role.name}」。${role.style ? `\n（这是你写给自己的：${role.style}）` : ""}`;
   await setBusy(env, role.id, `去了${room.label}`).catch(() => {});
   try {
@@ -1328,8 +1348,9 @@ async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, outp
       notes: [], usage: { input: lobbyUsage.input + r1.usage.input, output: lobbyUsage.output + r1.usage.output, cached: lobbyUsage.cached + (r1.usage.cached || 0), rounds: lobbyUsage.input ? 2 : 1, ctx0: r1.usage.input },
       apiId: role.api?.id || null, model: role.api?.model || "", ...(free ? { free } : {}),
     };
+    await assertWakeCurrent(env, role);
     await bookWake(role, item);
-    await boxAdd(env, item);
+    await boxAdd(env, item, role);
     if (!silent) {
       const path = room.kind === "read" ? `/read/${room.bookId}` : room.room === "write" ? `/write/${room.id}` : room.room === "tide" ? "/meanwhile" : `/books/talk/${room.id}`;
       const body = room.kind === "read" ? `去读了一会儿书，在书里留了批注` : `在${room.label}留了话：${visible(text).split(/\n\s*\n/)[0].slice(0, 30)}`;
@@ -1347,6 +1368,7 @@ async function runRoom(env, cfg, role, room, into, lobbyUsage = { input: 0, outp
 const EVENT_QUIET = 30 * 60_000;
 const EVENT_PER_DAY = 3;
 async function runEvent(env, cfg, role, reasons, now = Date.now()) {
+  await assertWakeCurrent(env, role);
   const evs = reasons.flatMap(r => r.events || []).sort((a, b) => a.ts - b.ts);
   const newest = evs[evs.length - 1];
   const room = (role.rooms || []).find(r => r.key === newest?.room);
@@ -1376,7 +1398,7 @@ async function gardenMissItem(env, role, why) {
     note: `花园叫醒：${role.id === "crab" ? "CC" : "chatgpt"} 有一手没接上（${why}）`,
     usage: { input: 0, output: 0, rounds: 0 }, apiId: null, model: "", alarms: [],
   };
-  await boxAdd(env, item);
+  await boxAdd(env, item, role);
   return item;
 }
 
@@ -1392,6 +1414,7 @@ async function logPoke(env, rec) {
 // ---------- 到点直接发的话：不叫醒 TA、不请求模型 ----------
 // 固定提醒（你在唤醒页写了「到点直接发的话」、TA 定闹钟时写了第三段）：内容早就定好了，不用再想一遍
 async function deliverSay(env, cfg, role, says, now = Date.now()) {
+  await assertWakeCurrent(env, role);
   const text = says.map(x => x.say).join("\n\n");
   const item = {
     id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: now,
@@ -1399,7 +1422,7 @@ async function deliverSay(env, cfg, role, says, now = Date.now()) {
     notes: [{ text: "到点直接发的，没有叫醒他（不花额度）" }], usage: { input: 0, output: 0, rounds: 0 },
     apiId: null, model: "", alarms: (await listAlarms(env, role.id)).map(a => alarmView(a, now)),
   };
-  await boxAdd(env, item);
+  await boxAdd(env, item, role);
   const first = text.split(/\n\s*\n/)[0] || "";
   const url = cfg.appUrl ? `${cfg.appUrl}#/chat/${role.id}${role.threadId ? "/" + role.threadId : ""}` : undefined;
   item.push = await pushAll(env, { title: role.name, body: first.length > 40 ? first.slice(0, 40) + "…" : first, url, tag: "say-" + role.id + "-" + item.id });
@@ -1422,13 +1445,13 @@ async function tick(env, now = Date.now()) {
   if (now - last > 3600_000) await env.KV.put("tick", String(now));
 
   const cfg = await env.KV.get("cfg", "json");
-  if (!cfg?.roles?.length) return null;
+  if (cfg?.v !== 2 || !cfg.roles?.length) return null;
   const alarms = await listAlarms(env);
   const seen = Number(await env.KV.get("seen")) || 0; // 她最近一次在栖所里（栖所开着时报的）
   const due = [];
   for (const role of cfg.roles) {
     const w = role.wake;
-    if (!w?.enabled) continue;
+    if (!w?.enabled || !role.mainThreadId) continue;
     const key = `sched:${role.id}`;
     const sched = (await env.KV.get(key, "json")) || {};
     const reasons = [];
@@ -1497,7 +1520,7 @@ async function tick(env, now = Date.now()) {
       else reasons.push({ kind: "alarm", text: `你给自己定的闹钟响了（${a.note || "没写要做什么"}）`, key: a.key });
     }
     if (says.length) {
-      try { await deliverSay(env, cfg, role, says, now); } catch (e) { sched.sayError = String(e.message || e).slice(0, 120); }
+      try { await deliverSay(env, cfg, role, says, now); } catch (e) { if (e.wakeCancelled) continue; sched.sayError = String(e.message || e).slice(0, 120); }
       changed = true;
     }
     // 事件：她离开 30 分钟、事情也过了 30 分钟；一天最多 3 次
@@ -1571,6 +1594,8 @@ async function tick(env, now = Date.now()) {
     }
     if (bridgeIds.length) await ackBridge(role.bridge, bridgeIds);
   } catch (e) {
+    if (e.wakeCancelled) return null; // 不重试、不把取消写成唤醒错误
+    try { await assertWakeCurrent(env, role); } catch { return null; }
     if (bridgeIds.length) await ackBridge(role.bridge, bridgeIds, "retryable_failed", "wake_failed");
     // 失败了：10 分钟后再试一次；再试也失败就算了，不反复试
     const again = reasons.filter(r => !r.retry && !r.deliveryId && r.kind !== "bridge").map(({ key: _k, ...r }) => ({ ...r, retry: true }));
@@ -1580,7 +1605,7 @@ async function tick(env, now = Date.now()) {
     // 出错也告诉栖所一声
     const item = { id: rid() + rid(), roleId: role.id, threadId: role.threadId || null, ts: Date.now(), reasons: reasons.map(r => r.text), silent: true, error: errText, text: "", notes: [], usage: { input: 0, output: 0 } };
     await bookWake(role, item).catch(() => {});
-    await boxAdd(env, item);
+    await boxAdd(env, item, role);
   }
   await env.KV.put(key, JSON.stringify(sched));
   return sched.last;
@@ -1595,7 +1620,19 @@ async function wakeRoute(path, req, env) {
 
   if (path === "/wake/sync") {
     if (!Array.isArray(body.roles)) return json({ error: "请求格式不对" }, 400);
+    const prev = await env.KV.get("cfg", "json");
     await env.KV.put("cfg", JSON.stringify({ ...body, syncedAt: Date.now() }));
+    // 换窗或关闭时丢掉旧重试，保留当天已响记录，避免重复唤醒。
+    for (const old of prev?.roles || []) {
+      const next = body.roles.find(r => r.id === old.id);
+      if (next?.wake?.enabled && next.mainThreadId === old.mainThreadId) continue;
+      const key = `sched:${old.id}`;
+      const sched = (await env.KV.get(key, "json")) || {};
+      delete sched.retry;
+      delete sched.nextAt;
+      delete sched.ih;
+      await env.KV.put(key, JSON.stringify(sched));
+    }
     // 间隔改了：马上按新的间隔排下一次（不用等定时任务，栖所里立刻能看到新的「下次醒来」）
     const now = Date.now();
     for (const role of body.roles) {
@@ -1642,7 +1679,7 @@ async function wakeRoute(path, req, env) {
   if (path === "/wake/now") {
     const cfg = await env.KV.get("cfg", "json");
     const role = cfg?.roles?.find(r => r.id === body.roleId);
-    if (!role) return json({ error: "还没有同步这个角色：先打开 TA 的唤醒，等几秒再试" }, 404);
+    if (!role?.wake?.enabled) return json({ error: "还没有同步这个角色：先打开 TA 的唤醒，等几秒再试" }, 404);
     try {
       const item = body.free
         ? await runFree(env, cfg, role, [{ kind: "free", text: "对方在栖所里点了「试试自由时间」" }])
@@ -1657,7 +1694,7 @@ async function wakeRoute(path, req, env) {
   if (path === "/wake/poke") {
     const cfg = await env.KV.get("cfg", "json");
     const role = cfg?.roles?.find(r => r.id === body.roleId);
-    if (!role) { await logPoke(env, { reason: String(body.reason || "").slice(0, 60), to: "none", error: `中转里没有角色「${body.roleId}」（QISUO_ROLE_ID 对不对？栖所有没有同步？）` }); return json({ error: "还没有同步这个角色：先在栖所打开 TA 的唤醒" }, 404); }
+    if (!role?.wake?.enabled) { await logPoke(env, { reason: String(body.reason || "").slice(0, 60), to: "none", error: `中转里没有角色「${body.roleId}」（QISUO_ROLE_ID 对不对？栖所有没有同步？）` }); return json({ error: "还没有同步这个角色：先在栖所打开 TA 的唤醒" }, 404); }
     const msg = String(body.message || "").slice(0, 4000) || "花园那边有事找你。";
     try {
       const why = [{ kind: "garden", text: `花园那边来了提醒（${String(body.reason || "wake").slice(0, 60)}）：${msg}` }];
@@ -1792,7 +1829,7 @@ export default {
         const get = k => (t.match(new RegExp(`^${k}=(.*)$`, "m")) || [])[1] || "";
         where = { colo: get("colo"), loc: get("loc") };
       } catch { /* 查不到就算了 */ }
-      return json({ ok: true, version: 39, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
+      return json({ ok: true, version: 40, features: ["search", "mcp", "fetch", ...(env.KV ? ["wake", "bridge"] : [])], providers: Object.keys(PROVIDERS), ready, kv: !!env.KV, tick, where });
     }
 
     if (path === "/search" && req.method === "POST") {

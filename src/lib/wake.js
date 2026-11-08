@@ -6,7 +6,7 @@
 //   3. 订阅推送通知
 //   4. 聊天时 TA 写的 [定闹钟:…] / [取消闹钟:…]
 import { reactive, watch } from "vue";
-import { store, CRAB, uid, roleById, threadsOf, mailThreadOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
+import { store, CRAB, uid, roleById, latestThreadOf, mailThreadOf, createThread, loadMessages, saveMessages, apiFor, modelFor, recordUsage } from "../store/index.js";
 import { relayCall, searchEnabled } from "./search.js";
 import { tail, chatTokens } from "./budget.js";
 import { serversFor, serversForMode, enabledTools, headerObj, toolDoc } from "./mcp.js";
@@ -116,7 +116,7 @@ export async function applyAlarmTags(role, text) {
 }
 
 // ---------- 同步到中转 ----------
-const threadFor = role => threadsOf(role.id).find(t => t.id === role.lastThreadId) || threadsOf(role.id)[0] || null;
+const threadFor = role => latestThreadOf(role.id);
 
 function textOf(m) {
   const att = (m.attachments || []).map(a => (a.kind === "image" ? "[图片]" : a.kind === "video" ? "[视频]" : `[文件：${a.name}]`)).join(" ");
@@ -285,6 +285,7 @@ async function snapshotRole(role) {
     bridge: role.wake?.bridgeOn && hasXinchao(role) && role.xinchao?.bridgeToken?.trim()
       ? { url: xinchaoBase(role), token: role.xinchao.bridgeToken.trim() } : null,
     threadId: thread?.id || null,
+    mainThreadId: thread?.id || null,
     system: buildSystem(role, path, { wake: true }),
     history,
     style: (role.style || "").trim().slice(0, 1500), // 门厅里只带这个（他是谁）
@@ -295,6 +296,7 @@ async function snapshotRole(role) {
   };
 }
 
+const wakeControl = () => JSON.stringify(store.roles.map(r => [r.id, r.wake, threadFor(r)?.id || null]));
 let lastSent = "";
 let syncTimer = null;
 
@@ -304,25 +306,30 @@ export const wakeName = r => (r?.id === CRAB ? "CC" : "chatgpt");
 export async function syncNow() {
   clearTimeout(syncTimer);
   if (!relayReady()) return;
-  // 从来没开过唤醒，就不用同步；关掉以后同步一次空的，让中转不再叫醒
+  // 即使本机没记得同步过，也要把关闭状态送上去，清掉中转残留。
   const awake = store.roles.filter(r => r.wake?.enabled); // 开关开着的才醒
-  if (!awake.length && !store.wake.synced) return;
   if (wakeStatus.syncing) { scheduleSync(2000); return; }
   wakeStatus.syncing = true;
   wakeStatus.skipped = [];
   try {
-    const roles = await Promise.all(awake.map(snapshotRole));
+    const control = wakeControl();
+    const roles = await Promise.all(store.roles.map(r => r.wake?.enabled ? snapshotRole(r)
+      : { id: r.id, wake: { enabled: false }, mainThreadId: threadFor(r)?.id || null }));
+    // 打包期间可能又建了聊天、关了开关，旧包不再发送。
+    if (control !== wakeControl()) { scheduleSync(0); return; }
     const snap = {
-      v: 1,
+      v: 2,
       appUrl: location.href.split("#")[0],
       search: { enabled: searchEnabled(), provider: store.tools.search?.provider, key: store.tools.search?.key || "" },
       webSearch: !!store.tools.webSearch,
       roles,
     };
     const body = JSON.stringify(snap);
-    if (body === lastSent) return;
+    const destination = JSON.stringify(store.tools.relay);
+    if (destination + body === lastSent) return;
     await relayCall("/wake/sync", snap);
-    lastSent = body;
+    lastSent = destination + body;
+    if (control !== wakeControl()) scheduleSync(0);
     store.wake.synced = awake.length > 0;
     wakeStatus.syncedAt = Date.now();
     wakeStatus.error = "";
@@ -480,7 +487,9 @@ async function ingest(item) {
   const gardenKey = /^garden:(\w+)$/.exec(item.free?.pick || "")?.[1]; // 自由时间走进了花园的一间房：话放进那间房的对话框
   if (gardenKey) return ingestGardenWake(role, item, gardenKey);
   if (item.alarms) role.wakeAlarms = item.alarms;
-  const thread = store.threads.find(t => t.id === item.threadId && t.roleId === role.id) || threadFor(role) || createThread(role.id);
+  // 信箱仍回信箱；历史任务携带的主聊天 ID 一律不再采用。
+  const thread = store.threads.find(t => t.id === item.threadId && t.roleId === role.id && t.mail)
+    || threadFor(role) || createThread(role.id);
   const all = await loadMessages(thread.id);
   if (all.some(m => m.wakeId === item.id || m.notes?.some(n => n.wakeId === item.id))) return; // 已经取过了
   logWake(role, item);
@@ -611,6 +620,8 @@ export const testPush = () => relayCall("/push/test", {});
 
 // ---------- 启动 ----------
 export function startWake(router) {
+  // 换聊天、关开关要尽快同步，不等普通聊天的 30 秒防抖。
+  watch(wakeControl, () => scheduleSync(0), { flush: "post" });
   // 设定、记忆、聊天变了 → 过一会儿同步一次（中间再变就重新计时）
   watch(
     () => [store.roles, store.memories, store.events, store.settings, store.tools, store.mcpServers, store.apis, store.threads.map(t => t.updatedAt + ":" + t.id)],
