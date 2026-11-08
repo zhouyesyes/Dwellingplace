@@ -7,7 +7,7 @@ import { jobState, refreshJob } from "../lib/codexJobs.js";
 const props = defineProps({ id: String, cloud: Object });
 const j = computed(() => (props.id ? jobState[props.id] : null));
 onMounted(() => props.id && refreshJob(props.id));
-const who = computed(() => (props.cloud ? "云端 CC" : "云端 Codex"));
+const who = computed(() => (props.cloud ? "云端 CC" : j.value?.kind === "tavern" ? "服务器上的 CC" : "云端 Codex"));
 // 改的是哪个仓库（没写过的老活就是栖所）
 const repo = computed(() => (props.id && !j.value ? "" : String((props.cloud ? props.cloud.repo : j.value?.repo) || "Dwellingplace").split("/").pop()));
 function open() { if (props.cloud?.url) window.open(props.cloud.url, "_blank", "noopener"); }

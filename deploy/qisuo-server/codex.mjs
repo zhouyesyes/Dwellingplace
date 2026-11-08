@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { bookAppend, bookCopyTo, bookReady, bookSecrets } from "./claude.mjs";
 import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
+import { TAVERN_REPO, cleanTavern, runTavernJob, tavernStatus, tavernTest } from "./tavern.mjs";
 
 const BIN = process.env.CODEX_BIN || "codex";
 const DATA = process.env.DATA_DIR || "/app/data";
@@ -47,7 +48,7 @@ for (const j of jobs) if (j.status === "queued" || j.status === "running") {
 save();
 const pub = (j, full = true) => {
   const pos = j.status === "queued" ? queue.indexOf(j) + 1 : 0;
-  return { id: j.id, repo: j.repo || GH_REPO, status: j.status, createdAt: j.createdAt, startedAt: j.startedAt, endedAt: j.endedAt, position: pos, progress: (j.progress || []).slice(-6), ...(full ? { report: j.report || "", error: j.error || "" } : {}) };
+  return { id: j.id, kind: j.kind || "codex", repo: j.repo || GH_REPO, status: j.status, createdAt: j.createdAt, startedAt: j.startedAt, endedAt: j.endedAt, position: pos, progress: (j.progress || []).slice(-6), ...(full ? { report: j.report || "", error: j.error || "" } : {}) };
 };
 const setProgress = (j, line) => { const l = scrub(line).replace(/\s+/g, " ").trim().slice(0, 120); if (l && j.progress.at(-1) !== l) { j.progress.push(l); if (j.progress.length > 30) j.progress.shift(); } };
 
@@ -184,10 +185,13 @@ async function runJob(job) {
   const finish = async (status, report, error = "") => {
     job.status = status; job.endedAt = Date.now(); job.report = scrub(report).slice(0, 20000); job.error = scrub(error).slice(0, 2000); save();
     rmSync(dir, { recursive: true, force: true });
-    try { await bookAppend({ id: `codex-${job.id}`, ts: job.endedAt, where: "cloud", from: "octopus", text: job.report }); }
+    try { await bookAppend(job.kind === "tavern" // 酒馆的活是小螃蟹（服务器上的 CC）做的：记成小螃蟹的；id 以 tavern- 开头，送回聊天时不再重复（网页自己会把报告接在聊天后面）
+      ? { id: `tavern-${job.id}`, ts: job.endedAt, where: "cloud", from: "crab", text: job.report }
+      : { id: `codex-${job.id}`, ts: job.endedAt, where: "cloud", from: "octopus", text: job.report }); }
     catch (e) { console.error("codex 报告没写进对话本：", scrub(e.message)); }
   };
   try {
+    if (job.kind === "tavern") return await runTavernJob(job, { setProgress, finish, scrubText: scrub, timeoutMs: TIMEOUT, dir });
     const st = await loginStatus();
     if (!st.installed) return await finish("failed", `这件活没做成：${st.text}`, st.text);
     if (!st.loggedIn) return await finish("failed", `这件活没做成：${friendly("not logged in")}`, st.text);
@@ -262,9 +266,22 @@ function pump() {
   runJob(job).catch(e => { job.status = "failed"; job.error = scrub(e.message); job.report = `这件活没做成：${scrub(e.message)}`; job.endedAt = Date.now(); save(); }).finally(() => { current = null; pump(); });
 }
 
-async function submit(text, repoWant) {
+// 酒馆服务器的活：交给服务器上的 Claude Code（不走 Codex，也不走 claude.ai 云端），和 Codex 共用这条队
+function submitTavern(text, cfg) {
+  const c = cleanTavern(cfg);
+  if (!tavernStatus().keyReady) throw Object.assign(new Error("服务器上还没有专用的 ssh 钥匙：再运行一次安装那一行，选装「酒馆服务器上的 CC」"), { status: 409 });
+  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) throw Object.assign(new Error("服务器上的 Claude 还没登录：再运行一次安装那一行，按提示登录"), { status: 409 });
+  if (!bookReady()) throw Object.assign(new Error("服务器上还没放对话本的钥匙（开工前要读 qisuo-memory）：再运行一次安装那一行"), { status: 409 });
+  const id = randomUUID().slice(0, 8);
+  const job = { id, kind: "tavern", repo: TAVERN_REPO, tavern: c, text: text.slice(0, 8000), status: "queued", createdAt: Date.now(), progress: [] };
+  jobs.push(job); queue.push(job); save(); pump();
+  return pub(job, false);
+}
+
+async function submit(text, repoWant, tavern) {
   text = String(text || "").trim();
   if (text.length < 4) throw Object.assign(new Error("要做的事太短了"), { status: 400 });
+  if (String(repoWant || "").trim() === TAVERN_REPO) return submitTavern(text, tavern);
   const st = await loginStatus();
   if (!st.installed) throw Object.assign(new Error(st.text), { status: 409 });
   if (!st.loggedIn) throw Object.assign(new Error(`Codex 还没登录 ChatGPT：在服务器终端运行 ~/qisuo-server/codex-login.sh 登录一次（${st.text}）`), { status: 409 });
@@ -350,7 +367,9 @@ export async function handleCodex(req, res, rest, CORS) {
       return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: current ? current.id : null, queued: queue.length });
     }
     if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
-    if (rest === "/job" && req.method === "POST") { const b = await body(); return send(200, await submit(b.text, b.repo)); }
+    if (rest === "/job" && req.method === "POST") { const b = await body(); return send(200, await submit(b.text, b.repo, b.tavern)); }
+    if (rest === "/tavern/status" && req.method === "GET") return send(200, tavernStatus());
+    if (rest === "/tavern/test" && req.method === "POST") return send(200, await tavernTest(await body()));
     if (rest === "/repos" && req.method === "GET") return send(200, { repos: await listRepos(new URL(req.url, "http://x").searchParams.has("fresh")) });
     if (rest === "/repos" && req.method === "POST") { const b = await body(); return send(200, { repos: await setRepo(b.name, b.enabled) }); }
     const m = rest.match(/^\/job\/([\w-]+)$/);

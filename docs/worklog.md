@@ -14,6 +14,14 @@
 
 ## 日志
 
+### 2026-11-08 · cc：加了「服务器上的 CC」，专门去酒馆服务器（SillyTavern）干活——**要重跑服务器安装**；中转没动
+- 派活第一行写「仓库：酒馆服务器」，就交给栖所服务器上临时起的 `claude -p`（`tavern.mjs`），不走 claude.ai 云端；和 Codex 共用 `codex.mjs` 那条队，一次只做一件，不跑构建；不派活时不常驻。卡片和 Codex 一样（显示「服务器上的 CC」+进度），报告接回这条聊天，对话本里记成小螃蟹的（id 以 `tavern-` 开头，不会重复送回聊天）
+- 它只有 Read/Glob/Grep（看对话本拷贝）和一个 `tavern` 命令（专用 ssh 钥匙 + 写死的地址/指纹，别的 ssh 不放行）；子进程环境里没有 GitHub/对话本钥匙。固定规矩写在 `tavern.mjs` 的 RULES：只碰 SillyTavern、改前先在目录外备份并写明怎么恢复、不删数据、重启/装东西先问、拿不准只读、对话本内容不写到酒馆那台
+- `setup.sh`：第一次问「装不装酒馆上的 CC」（settings.env `TAVERN_CC`）；镜像装 openssh-client；生成专用 ed25519 钥匙 `~/qisuo-server/tavern-ssh/id_ed25519_qisuo_tavern`（已有不覆盖），结束时打印公钥并提示「第二段」；Claude 登录和小螃蟹共用同一个 token（没登录会一步步提示 `claude setup-token`）
+- 设置 → 仓库 底部「酒馆服务器」：开关（默认关）、地址、端口、用户名（存在 `store.settings.tavern`，只在她的数据里）、「试连一下」（说清连上没、没连上的原因）、显示并可复制公钥
+- **还剩**：没在真服务器上跑过（只用假 ssh 测了试连和报错）；第二段（酒馆那台建账号、放公钥、给 SillyTavern 文件夹权限）要她手动做。酒馆地址会出现在服务器的活记录里（`codex-jobs.json`，只在服务器），报告写进对话本前已把地址替换掉
+- **注意**：host 首次连接自动记指纹（`DATA/tavern_known_hosts`），酒馆那台重装后要清这个文件
+
 ### 2026-11-07 · cc：派活能改别的仓库（设置里「仓库」一栏 + 派活指定仓库 + 卡片显示仓库）——**要重跑服务器安装**；中转没动，不用重部署
 - 服务器：新 `repos.mjs`——用服务器上那把 GitHub 钥匙问 GitHub「能看到哪些仓库」，每个仓库一个「能派活」开关（存 DATA/repos.json）；Dwellingplace 永远开、是默认；qisuo-memory 和新出现的仓库默认关着。接口 `GET/POST /codex/repos`（钥匙不出服务器）。`codex.mjs`：`/job` 收 `repo`，不写 = 栖所，写了就必须是开着的，否则报错并列出能选的；每个仓库一个工作文件夹（`codex-work/<仓库名>/<活id>`）；别的仓库用另一份开工说明（有 CLAUDE.md/README 就照做，没有的步骤跳过，不加 worklog，合并到那个仓库自己的主分支）；防撞检查也按仓库查。`ghpr.mjs` 开 PR 时去查仓库的主分支名。`claude.mjs`：`/cloud/fire` 收 `repo`，同样校验，不是栖所时在派活正文最前面加一段「这次改的是 X、拉不到代码就不硬做并说清楚去哪勾」。`setup.sh`：已有钥匙时也会问要不要换成范围更大的新钥匙（回车不换）
 - 网页：设置 → 「仓库」（`ReposView.vue`，`lib/repos.js`）；两边系统提示各加一句「仓库：名字」的用法和现在能选的仓库；`splitRepo` 把正文开头的「仓库：xx」拆出来；派活卡片（`JobCard.vue`）显示「仓库：xx」（老的没写过的显示 Dwellingplace）

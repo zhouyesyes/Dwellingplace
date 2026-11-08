@@ -5,6 +5,7 @@ import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
 import { codexBase, dispatchCodex } from "./codexJobs.js";
 import { otherRepoNames, splitRepo } from "./repos.js";
+import { TAVERN_REPO, tavernReady, tavernBody } from "./tavern.js";
 import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
@@ -242,6 +243,7 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
       `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的你（Claude Code）去做：拉最新代码、改、构建、截图、开 PR、合并，做完的报告会回到这条聊天里。`,
       `「要做的事」写清楚：改哪里、改成什么样、做完要给${who}看什么（比如截图）。一次回复最多派一件；只是聊聊想法的时候别派。`,
       otherRepoNames().length ? `要改别的仓库（不是栖所）时，在「要做的事」最前面单独写一行「仓库：名字」，比如「仓库：${otherRepoNames()[0]}」；不写就是改栖所。现在只能选这些：${otherRepoNames().join("、")}。选了不在里面的（没打开或不存在）系统不会派，会告诉你。别的仓库不一定有 CLAUDE.md、施工日志或构建，有什么规矩照什么做，没有就跳过。` : "",
+      tavernReady() ? `${who}想让你去弄${who}的酒馆服务器（SillyTavern，另一台服务器）时，点头之后派活，「要做的事」第一行写「仓库：${TAVERN_REPO}」。这样不走云端，交给栖所服务器上的 Claude Code 去酒馆那台干活（和小章鱼的 Codex 共用一条队，一次只做一件，不跑构建）。它改文件前会先备份、不删数据，要重启 SillyTavern 或装东西会在报告里先问${who}。要做的事写清楚：改哪个文件 / 哪个设置、改成什么样；拿不准的它会只读、只写报告。` : "",
     ].join("\n") : "",
     // 小章鱼的派活：和小螃蟹对称，只是干活的是服务器上的 Codex（用小续的 ChatGPT 订阅）
     role.id === MAIN && !solo(role) && !wake && !mail && !group && codexBase(role) ? [
@@ -792,6 +794,30 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
           ev.text = j.position > 0 ? `${role.name} 派给云端的 Codex 了（前面还有 ${j.position} 件，排队中）` : `${role.name} 派给云端的 Codex 开工了`;
           ev.job = j.id;
           back = `（系统：已经派出去了${j.position > 0 ? `，前面还有 ${j.position} 件在做，排队中` : "，云端的 Codex 开工了"}。简单告诉对方一声，做完的报告会回到这条聊天里；聊天里有张进度卡片可以看。）`;
+        } catch (e) {
+          ev.text = `派活没派出去：${e.message}`;
+          back = `（系统：派活没派出去：${e.message}。把原因原样告诉对方，别假装已经在做了。）`;
+        }
+        if (ctrl.signal.aborted) break;
+        convo = [
+          ...convo,
+          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${jm[1].trim()}]` }] },
+          { role: "user", parts: [{ type: "text", text: back }] },
+        ];
+        continue;
+      }
+      if (jm && splitRepo(jm[1]).repo === TAVERN_REPO) { // 酒馆服务器：交给栖所服务器上的 Claude Code（和小章鱼的 Codex 共用排队），不走 claude.ai 云端
+        sentJob = true;
+        const { text: job } = splitRepo(jm[1]);
+        const ev = reactive({ text: `${role.name} 把活派给服务器上的 CC…`, before: true, at: keepSaid(text, jm.index), detail: job });
+        msg.notes.push(ev);
+        let back;
+        try {
+          if (!tavernReady()) throw new Error("设置 → 仓库 → 酒馆服务器 还没打开，或者地址 / 用户名没填");
+          const j = await dispatchCodex(role, thread, job, TAVERN_REPO, tavernBody());
+          ev.text = j.position > 0 ? `${role.name} 派给服务器上的 CC 了（前面还有 ${j.position} 件，排队中）` : `${role.name} 派给服务器上的 CC 开工了`;
+          ev.job = j.id;
+          back = `（系统：已经派给服务器上的 CC 了${j.position > 0 ? `，前面还有 ${j.position} 件在做，排队中` : "，开工了"}。简单告诉对方一声，做完的报告会回到这条聊天里；聊天里有张进度卡片。它改东西前会先备份，要重启 SillyTavern 或装东西会先在报告里问对方。）`;
         } catch (e) {
           ev.text = `派活没派出去：${e.message}`;
           back = `（系统：派活没派出去：${e.message}。把原因原样告诉对方，别假装已经在做了。）`;
