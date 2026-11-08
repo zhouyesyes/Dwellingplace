@@ -484,6 +484,10 @@ export const apiById = id => store.apis.find(a => a.id === id);
 // 邮箱页自己的小对话（mail: true）、小螃蟹的工作室（studio: true）不算在聊天列表里
 export const threadsOf = roleId =>
   store.threads.filter(t => t.roleId === roleId && !t.mail && !t.studio).sort((a, b) => b.updatedAt - a.updatedAt);
+// 自动唤醒只去最新建立的主聊天，翻看旧聊天或收到消息不会改变目的地。
+export const latestThreadOf = roleId =>
+  store.threads.filter(t => t.roleId === roleId && !t.mail && !t.studio)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0) || String(b.id).localeCompare(String(a.id)))[0] || null;
 // 小螃蟹的工作室：单独一个对话，走工作室的接口（能翻栖所仓库）
 export function studioThreadOf(roleId, apiId) {
   let t = store.threads.find(x => x.roleId === roleId && x.studio);
