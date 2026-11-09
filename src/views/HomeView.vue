@@ -2,6 +2,7 @@
 // 主页：最上面「Dwelling place」，一张封面（点了换图；设置在底栏），我和他的头像挨在一起、两个人的名字、一句简介；
 // 下面一列紧挨着的条：第一条颜色不一样，是和他的聊天（点了就进去），后面几条只有一个英文粗标题（共读、共写、信、纪念日）。英文用 Poppins
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { tavernWebUrl } from "../lib/tavern.js";
 import { useRouter } from "vue-router";
 import { store, roleById, threadsOf, MAIN, CRAB, GROUP_TID } from "../store/index.js";
 import { useImage, pickAndCrop, deleteImage } from "../lib/images.js";
@@ -104,6 +105,8 @@ const rows = computed(() => [
   { key: "write", title: "Writing", meta: project.value ? `《${project.value.title}》` : "", badge: writeNotes.value, go: () => router.push("/write") },
   { key: "letter", title: "Letters", meta: (store.letters || []).length ? `${store.letters.length} 封` : "", badge: unreadLetters.value, go: () => router.push("/letters") },
   { key: "days", title: "Days", meta: dayInfo.value ? (dayInfo.value.future ? `还有 ${dayInfo.value.until} 天` : `第 ${dayInfo.value.day} 天`) : "", badge: 0, go: () => anniv.value?.openManage() },
+  // 酒馆（SillyTavern）：设置里填了网址才有这一条；酒馆是 http，栖所是 https，嵌不进来，所以在新页面打开
+  ...(tavernWebUrl() ? [{ key: "tavern", title: "Tavern", meta: "SillyTavern", badge: 0, go: () => window.open(tavernWebUrl(), "_blank", "noopener") }] : []),
 ]);
 </script>
 

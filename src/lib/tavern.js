@@ -6,6 +6,12 @@ import { codexBase } from "./codexJobs.js";
 export const TAVERN_REPO = "酒馆服务器";
 
 export const tavernCfg = () => (store.settings.tavern ??= { enabled: false, host: "", port: "22", user: "" });
+// 酒馆网页的网址（主页最后一条 Tavern 点了打开它）：也只存在她自己的数据里；没填就不显示那一条
+export const tavernWebUrl = () => {
+  const u = (store.settings?.tavern?.web || "").trim();
+  if (!u) return "";
+  return /^https?:\/\//i.test(u) ? u : "http://" + u;
+};
 // 开着、而且三项都填了，才算能派活
 export const tavernReady = () => { const c = store.settings?.tavern; return !!(c?.enabled && c.host?.trim() && c.user?.trim()); };
 export const tavernBody = () => { const c = tavernCfg(); return { host: c.host.trim(), port: String(c.port || "22").trim(), user: c.user.trim() }; };

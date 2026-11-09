@@ -50,6 +50,7 @@ async function flip(r) {
     <button class="refresh" :disabled="repoState.loading" @click="loadRepos(true)">刷新单子</button>
 
     <h3 class="sec">酒馆服务器</h3>
+    <label class="field"><span>酒馆网址<span class="sub">填了以后，主页最后多一条 Tavern，点了打开你的酒馆</span></span><input v-model="tv.web" class="input" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="打开酒馆用的网址，比如 http://地址:8000" /></label>
     <p class="hint">小螃蟹派活时第一行写「仓库：酒馆服务器」，就交给栖所服务器上的 Claude Code，通过一把专用钥匙去你的 SillyTavern 那台干活。地址、端口、用户名只存在你自己的数据里。</p>
     <div class="list-card">
       <div class="list-row">
