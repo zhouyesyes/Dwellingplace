@@ -1,4 +1,4 @@
-// 小章鱼派活：把活交给服务器上的 Codex（…/codex），和小螃蟹的云端派活对称。
+// GPT 的 Codex 对话和历史任务报告。
 // 派出去以后聊天里出一张进度卡片；做完（或没做成）的报告，由这里取回来，作为一条「云端干活」的消息接在那条聊天后面。
 import { reactive } from "vue";
 import { store, apiFor, roleById, loadMessages, saveMessages } from "../store/index.js";
@@ -44,19 +44,6 @@ export async function codexReply(role, thread, input, signal, onProgress) {
       }
     }
   } finally { await reader.cancel().catch(() => {}); }
-}
-
-export async function dispatchCodex(role, thread, text, repo = "", tavern = null) {
-  const base = codexBase(role, thread);
-  if (!base) throw new Error("找不到栖所服务器的地址");
-  const r = await fetch(base + "/job", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, repo, ...(tavern ? { tavern } : {}) }) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error?.message || `返回 ${r.status}`);
-  (store.codexJobs ??= []).push({ id: j.id, roleId: role.id, threadId: thread.id, text: text.slice(0, 200), at: Date.now() });
-  if (store.codexJobs.length > 30) store.codexJobs.splice(0, store.codexJobs.length - 30);
-  jobState[j.id] = j;
-  setTimeout(pollJobs, 1500);
-  return j;
 }
 
 // 报告接在那条聊天后面（消息 id 固定，几台设备都取到也只会有一条）

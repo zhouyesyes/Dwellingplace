@@ -67,13 +67,6 @@ if [ -z "${CLAUDE:-}" ]; then
   case "$CLAUDE" in [Yy]*) CLAUDE=y ;; *) CLAUDE=n ;; esac
   echo "CLAUDE=$CLAUDE" >> settings.env
 fi
-# 酒馆服务器上的 CC：第一次问一下装不装（以后不再问；想改就编辑 settings.env 里的 TAVERN_CC=y / n）
-# 用 Claude Code 去小续的另一台酒馆服务器（SillyTavern）干活；只在派活时才临时跑一下，平时不占内存
-if [ -z "${TAVERN_CC:-}" ]; then
-  ask TAVERN_CC "要装「酒馆服务器上的 CC」吗？（专门去你另一台酒馆服务器干活，用你的 Claude 订阅；不派活时不占内存）y / n" "n"
-  case "$TAVERN_CC" in [Yy]*) TAVERN_CC=y ;; *) TAVERN_CC=n ;; esac
-  echo "TAVERN_CC=$TAVERN_CC" >> settings.env
-fi
 # 工作间已经拆掉了：settings.env 里以前记的工作间设置也清掉
 sed -i -E '/^(CODEX|CODEX_KEY|CODEX_GITHUB|GATE_ALLOW)=/d' settings.env
 BRIDGE_REF="8db89c1a3c516a8ae7ddeb7adb070c98caafe3f2" # chrome-mcp-bridge 2.4.1
@@ -103,8 +96,7 @@ RUN npm run build
 FROM node:22-slim
 WORKDIR /app
 # 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）；git 给小螃蟹拉对话本用
-# openssh-client：「酒馆服务器上的 CC」用它连酒馆那台
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client bubblewrap chromium && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates bubblewrap chromium && rm -rf /var/lib/apt/lists/*
 # CLAUDE_WEEK 每周变一次：每周顺带更新一次小螃蟹，其余时候直接用缓存
 ARG CLAUDE_WEEK=0
 RUN echo "第 $CLAUDE_WEEK 周" && npm install -g @anthropic-ai/claude-code --no-audit --no-fund && npm cache clean --force && rm -rf /root/.npm
@@ -146,8 +138,7 @@ $SUDO docker rmi qisuo-codex qisuo-codex-gate >/dev/null 2>&1 || true
 
 # 小螃蟹登录：只在服务器终端里做一次。token 存在 claude.env（只有你能读），不经过浏览器、不用发给任何人
 CLAUDE_ENV=""
-if [ "$CLAUDE" = "y" ] || [ "$TAVERN_CC" = "y" ]; then
-  [ "$CLAUDE" = "y" ] || echo "  （酒馆服务器上的 CC 要用 Claude 订阅登录，下面和小螃蟹共用同一个登录，只做一次）"
+if [ "$CLAUDE" = "y" ]; then
   # 已经登录过：先试一句，不通就问要不要重新登录
   if [ -s claude.env ]; then
     if CLAUDE_TRY=$($SUDO docker run --rm --env-file claude.env -w /tmp qisuo-server claude -p "只回复 ok" --tools "" --model haiku 2>&1); then
@@ -234,32 +225,6 @@ if [ "$CLAUDE" = "y" ] || [ "$TAVERN_CC" = "y" ]; then
   [ -n "$CLAUDE_ENV" ] && [ -s routine.env ] && CLAUDE_ENV="$CLAUDE_ENV --env-file $DIR/routine.env"
 fi
 
-# 酒馆服务器上的 CC：专用 ssh 密钥（ed25519，只给去酒馆用）。重复跑安装不覆盖已有的密钥
-TAVERN_MOUNT=""; TAVERN_PUB=""
-TAVERN_KEY="$DIR/tavern-ssh/id_ed25519_qisuo_tavern"
-if [ "$TAVERN_CC" = "y" ]; then
-  say "酒馆服务器上的 CC：专用 ssh 密钥"
-  mkdir -p "$DIR/tavern-ssh"; chmod 700 "$DIR/tavern-ssh"
-  if [ -s "$TAVERN_KEY" ] && [ -s "$TAVERN_KEY.pub" ]; then
-    echo "  专用密钥已经有了，不动它 ✓（文件：$TAVERN_KEY）"
-  else
-    rm -f "$TAVERN_KEY" "$TAVERN_KEY.pub"
-    if command -v ssh-keygen >/dev/null 2>&1; then
-      ssh-keygen -q -t ed25519 -N "" -C "qisuo-tavern-cc" -f "$TAVERN_KEY"
-    else
-      $SUDO docker run --rm -v "$DIR/tavern-ssh:/k" qisuo-server ssh-keygen -q -t ed25519 -N "" -C "qisuo-tavern-cc" -f /k/id_ed25519_qisuo_tavern
-    fi
-    echo "  生成好了 ✓（私钥只在这台服务器上，不会离开）"
-  fi
-  $SUDO chmod 600 "$TAVERN_KEY" 2>/dev/null || true
-  $SUDO chmod 644 "$TAVERN_KEY.pub" 2>/dev/null || true
-  TAVERN_PUB=$(cat "$TAVERN_KEY.pub")
-  TAVERN_MOUNT="-v $DIR/tavern-ssh:/tavern-ssh:ro"
-  if [ ! -s memory.env ]; then
-    echo "  提醒：服务器上的 CC 开工前要读对话本，需要对话本的钥匙（上面「小螃蟹的对话本」那一步，要粘一次）。"
-  fi
-fi
-
 # 小章鱼派活去 Codex：登录凭据放在服务器上的 codex-home（重建容器也不丢）；开分支、开 PR 要一把只能碰栖所仓库的 GitHub 钥匙，存在 codex.env（只有你能读）
 mkdir -p "$DIR/codex-home"; chmod 700 "$DIR/codex-home"
 CODEX_ENV=""
@@ -312,7 +277,7 @@ $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker network rm codex-int >/dev/null 2>&1 || true # 旧的栖所服务器也连着它，拿掉服务器以后才删得掉
 # shellcheck disable=SC2086
 $SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
-  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV $CODEX_ENV $TAVERN_MOUNT -v "$DIR/data:/app/data" -v "$DIR/codex-home:/codex-home" qisuo-server >/dev/null
+  -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV $CODEX_ENV -v "$DIR/data:/app/data" -v "$DIR/codex-home:/codex-home" qisuo-server >/dev/null
 
 ok=""
 for _ in $(seq 1 20); do
@@ -331,11 +296,6 @@ else CLAUDE_INFO="没接（想接：把 settings.env 里的 CLAUDE=n 改成 y，
 if [ "$CHROME" = "y" ]; then CHROME_INFO="已安装：在栖所「设置 → 工具 → 浏览器」点「接上浏览器」"
 else CHROME_INFO="没装（想装：把 settings.env 里的 CHROME=n 改成 y，再运行一次安装那一行）"; fi
 if [ -n "$CODEX_ENV" ]; then CODEX_INFO="GitHub 钥匙已放好；登录状态见下面的命令"; else CODEX_INFO="还没放 GitHub 钥匙：再运行一次安装那一行，按提示粘贴"; fi
-if [ "$TAVERN_CC" = "y" ]; then TAVERN_INFO="专用密钥已放好：$TAVERN_KEY
-  公钥（第二段要把这一整行放到酒馆那台那个用户的 ~/.ssh/authorized_keys 里）：
-  $TAVERN_PUB
-  栖所里：设置 → 仓库 → 酒馆服务器：填地址、端口、登录用户名，点「试连一下」，通了再打开开关"
-else TAVERN_INFO="没装（想装：把 settings.env 里的 TAVERN_CC=n 改成 y，再运行一次安装那一行）"; fi
 INFO="$DIR/栖所服务器信息.txt"
 cat > "$INFO" <<INFO_EOF
 【还差一步：在 Cloudflare 隧道里加一条】
@@ -370,9 +330,6 @@ cat > "$INFO" <<INFO_EOF
   登录：在服务器终端运行  bash ~/qisuo-server/codex-login.sh   （先在 ChatGPT 网页「设置 → 安全」里打开设备验证码登录）
   看登录状态：bash ~/qisuo-server/codex-status.sh
 
-【酒馆服务器上的 CC（专门去你另一台酒馆服务器干活，用你的 Claude 订阅）】
-  $TAVERN_INFO
-
 【把数据搬过来】
   1. 在旧的栖所（zhouyesyes.github.io）：设置 → 备份 → 导出
   2. 在新网址打开栖所：设置 → 备份 → 导入刚才的文件
@@ -386,8 +343,3 @@ say "好了！"
 cat "$INFO"
 echo
 echo "以上内容存在：$INFO"
-if [ -n "$TAVERN_PUB" ]; then
-  say "【第二段要做的】把下面这一整行，放到酒馆那台（建一个只管 SillyTavern 的用户，放进它的 ~/.ssh/authorized_keys）："
-  echo "$TAVERN_PUB"
-  echo "  （这是公钥，可以复制；私钥不会离开这台服务器。放好以后回栖所：设置 → 仓库 → 酒馆服务器 → 试连一下。）"
-fi

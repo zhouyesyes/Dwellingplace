@@ -1,13 +1,12 @@
-// GPT 的 Codex 对话、订阅额度，以及 CC 的酒馆任务（含旧报告查询）。
+// GPT 的 Codex 对话、订阅额度和旧任务报告。
 import { spawn, execFile } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync, mkdtempSync, lstatSync, readdirSync, openSync, fstatSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { bookAppend, bookReady, bookSecrets } from "./claude.mjs";
+import { bookReady, bookSecrets } from "./claude.mjs";
 import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
-import { TAVERN_REPO, cleanTavern, runTavernJob, tavernStatus, tavernTest } from "./tavern.mjs";
 
 const BIN = process.env.CODEX_BIN || "codex";
 const DATA = process.env.DATA_DIR || "/app/data";
@@ -15,9 +14,7 @@ const CODEX_HOME = process.env.CODEX_HOME || "/codex-home";
 const GH_TOKEN = process.env.CODEX_GITHUB_TOKEN || "";
 const GH_REPO = DEFAULT_REPO; // 默认仓库：栖所；别的仓库由派活指定（见 repos.mjs）
 const repoUrl = full => (full === GH_REPO && process.env.CODEX_REPO_URL) || `https://github.com/${full}.git`;
-const WORK = process.env.CODEX_WORK || join(DATA, "codex-work");
 const JOBS_FILE = join(DATA, "codex-jobs.json");
-const TIMEOUT = (Number(process.env.CODEX_TIMEOUT_MIN) || 45) * 60_000;
 const KEEP = 40; // 最多留多少件的记录
 
 // ---------- 凭据不进日志、不进报告 ----------
@@ -35,14 +32,12 @@ const save = () => {
 };
 // 服务器中途重启过：还在排队、开工的都没了，明说，别让聊天那边一直转圈
 for (const j of jobs) if (j.status === "queued" || j.status === "running") {
-  Object.assign(j, { status: "failed", endedAt: Date.now(), report: "这件活没做成：服务器中途重启了（重跑安装或掉电都会这样），做到一半的不算数。需要的话让小章鱼再派一次。", error: "服务器中途重启" });
+  Object.assign(j, { status: "failed", endedAt: Date.now(), report: "这件旧任务已停止，旧派活入口已关闭。", error: "服务器中途重启" });
 }
 save();
 const pub = (j, full = true) => {
-  const pos = j.status === "queued" ? queue.indexOf(j) + 1 : 0;
-  return { id: j.id, kind: j.kind || "codex", repo: j.repo || GH_REPO, status: j.status, createdAt: j.createdAt, startedAt: j.startedAt, endedAt: j.endedAt, position: pos, progress: (j.progress || []).slice(-6), ...(full ? { report: j.report || "", error: j.error || "" } : {}) };
+  return { id: j.id, kind: j.kind || "codex", repo: j.repo || GH_REPO, status: j.status, createdAt: j.createdAt, startedAt: j.startedAt, endedAt: j.endedAt, position: 0, progress: (j.progress || []).slice(-6), ...(full ? { report: j.report || "", error: j.error || "" } : {}) };
 };
-const setProgress = (j, line) => { const l = scrub(line).replace(/\s+/g, " ").trim().slice(0, 120); if (l && j.progress.at(-1) !== l) { j.progress.push(l); if (j.progress.length > 30) j.progress.shift(); } };
 
 // ---------- 小工具 ----------
 const run = (cmd, args, opts = {}) => new Promise(resolve => {
@@ -63,49 +58,6 @@ async function loginStatus() {
 // 已合并的 PR、提交早已在 main 里的旧分支、没有开 PR 的分支都不算；docs/worklog.md 大家每单都会往末尾追加，也不算
 const sh = async (cwd, args, env) => { const r = await run("git", args, { cwd, env: { ...process.env, ...env } }); if (r.code) throw new Error(`git ${args[0]} 没成：${scrub(r.err || r.out).trim().slice(-300)}`); return r.out; };
 const gitEnv = { GIT_TERMINAL_PROMPT: "0" };
-
-async function runJob(job) {
-  job.status = "running"; job.startedAt = Date.now(); save();
-  const dir = join(WORK, "tavern", job.id);
-  const finish = async (status, report, error = "") => {
-    job.status = status; job.endedAt = Date.now(); job.report = scrub(report).slice(0, 20000); job.error = scrub(error).slice(0, 2000); save();
-    rmSync(dir, { recursive: true, force: true });
-    try { await bookAppend({ id: `tavern-${job.id}`, ts: job.endedAt, where: "cloud", from: "crab", text: job.report }); }
-    catch (e) { console.error("酒馆报告没写进对话本：", scrub(e.message)); }
-  };
-  try { await runTavernJob(job, { setProgress, finish, scrubText: scrub, timeoutMs: TIMEOUT, dir }); }
-  catch (e) { await finish("failed", `这件活没做成：${scrub(e.message)}`, e.message); }
-}
-
-// ---------- 排队：一次只做一件 ----------
-const queue = [];
-let current = null;
-function pump() {
-  if (current || !queue.length) return;
-  const job = queue.shift();
-  current = job;
-  runJob(job).catch(e => { job.status = "failed"; job.error = scrub(e.message); job.report = `这件活没做成：${scrub(e.message)}`; job.endedAt = Date.now(); save(); }).finally(() => { current = null; pump(); });
-}
-
-// 酒馆服务器的活由服务器上的 Claude Code 排队执行。
-function submitTavern(text, cfg) {
-  const c = cleanTavern(cfg);
-  if (!tavernStatus().keyReady) throw Object.assign(new Error("服务器上还没有专用的 ssh 钥匙：再运行一次安装那一行，选装「酒馆服务器上的 CC」"), { status: 409 });
-  if (!process.env.CLAUDE_CODE_OAUTH_TOKEN) throw Object.assign(new Error("服务器上的 Claude 还没登录：再运行一次安装那一行，按提示登录"), { status: 409 });
-  if (!bookReady()) throw Object.assign(new Error("服务器上还没放对话本的钥匙（开工前要读 qisuo-memory）：再运行一次安装那一行"), { status: 409 });
-  const id = randomUUID().slice(0, 8);
-  const job = { id, kind: "tavern", repo: TAVERN_REPO, tavern: c, text: text.slice(0, 8000), status: "queued", createdAt: Date.now(), progress: [] };
-  jobs.push(job); queue.push(job); save(); pump();
-  return pub(job, false);
-}
-
-async function submit(text, repoWant, tavern) {
-  text = String(text || "").trim();
-  if (text.length < 4) throw Object.assign(new Error("要做的事太短了"), { status: 400 });
-  if (String(repoWant || "").trim() === TAVERN_REPO) return submitTavern(text, tavern);
-  throw Object.assign(new Error("GPT 已改为在 Codex 对话里直接连接仓库"), { status: 410 });
-}
-
 
 // ---------- 额度：问 Codex 命令行（app-server 的 account/rateLimits/read）要当前账号的 5 小时 / 每周用了多少 ----------
 // 这个请求只是读，不烧额度。最多每 10 分钟真的问一次，结果存在 DATA 里给网页读；问不到就记原因，不编数字
@@ -380,15 +332,13 @@ export async function handleCodex(req, res, rest, CORS) {
   try {
     if (rest === "/status" && req.method === "GET") {
       const st = await loginStatus();
-      return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: current ? current.id : null, queued: queue.length });
+      return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: null, queued: 0 });
     }
     if (rest === "/chat" && req.method === "POST") {
       return await codexChat(req, res, CORS);
     }
     if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
-    if (rest === "/job" && req.method === "POST") { const b = await body(); return send(200, await submit(b.text, b.repo, b.tavern)); }
-    if (rest === "/tavern/status" && req.method === "GET") return send(200, tavernStatus());
-    if (rest === "/tavern/test" && req.method === "POST") return send(200, await tavernTest(await body()));
+    if (rest === "/job" && req.method === "POST") { return send(410, { error: { message: "旧派活入口已关闭，请在 Codex 对话里连接仓库" } }); }
     if (rest === "/repos" && req.method === "GET") return send(200, { repos: await listRepos(new URL(req.url, "http://x").searchParams.has("fresh")) });
     if (rest === "/repos" && req.method === "POST") { const b = await body(); return send(200, { repos: await setRepo(b.name, b.enabled) }); }
     const m = rest.match(/^\/job\/([\w-]+)$/);
