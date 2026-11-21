@@ -9,8 +9,9 @@
 //   POST /job {text}    派一件活 → { id, status, position }
 //   GET  /job/<id>      这件活做到哪了（排队 / 开工 / 完成 / 没做成 / 没动）、最后的报告
 import { spawn, execFile } from "node:child_process";
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { bookAppend, bookCopyTo, bookReady, bookSecrets } from "./claude.mjs";
 import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
@@ -358,6 +359,55 @@ async function getLimits() {
   return (limitsBusy ??= refreshLimits().finally(() => { limitsBusy = null; }));
 }
 
+// 聊天在空目录运行，派活的仓库和 GitHub 凭据不交给这次进程。
+let chatBusy = false;
+async function codexChat(req, res) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 96_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
+    chunks.push(chunk);
+  }
+  const { prompt } = JSON.parse(Buffer.concat(chunks).toString());
+  if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 24_000) throw new Error("聊天内容为空或太长了");
+  if (chatBusy) throw Object.assign(new Error("已有一条 Codex 聊天在回复"), { status: 429 });
+  const cwd = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
+  chatBusy = true;
+  const ctrl = new AbortController();
+  const stop = () => ctrl.abort();
+  res.once("close", stop);
+  try {
+    const env = { PATH: process.env.PATH, CODEX_HOME, HOME: cwd };
+    const { out, err, code } = await new Promise(resolve => {
+      const child = execFile(BIN, [
+        "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--json",
+        "--disable", "shell_tool", "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
+        "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
+        "-c", 'approval_policy="never"', "-c", 'model_reasoning_effort="low"', "-",
+      ], { cwd, env, signal: ctrl.signal, timeout: 120_000, maxBuffer: 2_000_000, killSignal: "SIGKILL" },
+      (error, out, err) => resolve({ code: error ? 1 : 0, out, err: err || error?.message }));
+      child.stdin.on("error", () => {});
+      child.stdin.end(prompt);
+    });
+    if (ctrl.signal.aborted) return null;
+    const events = out.split("\n").flatMap(line => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+    const text = events.filter(e => e.type === "item.completed" && e.item?.type === "agent_message").at(-1)?.item.text;
+    if (code || !text) {
+      const detail = scrub(err || events.find(e => e.type === "error")?.message || "没有收到回复").slice(-500);
+      throw new Error("Codex 聊天没有完成：" + detail);
+    }
+    const usage = events.findLast(e => e.type === "turn.completed")?.usage;
+    return { text, usage: { input: usage?.input_tokens || 0, output: usage?.output_tokens || 0, cached: usage?.cached_input_tokens || 0 } };
+  } finally {
+    res.off("close", stop);
+    chatBusy = false;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 export async function handleCodex(req, res, rest, CORS) {
   const send = (code, obj) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(obj)); };
   const body = async () => { const cs = []; for await (const c of req) cs.push(c); try { return JSON.parse(Buffer.concat(cs).toString() || "{}"); } catch { return {}; } };
@@ -365,6 +415,11 @@ export async function handleCodex(req, res, rest, CORS) {
     if (rest === "/status" && req.method === "GET") {
       const st = await loginStatus();
       return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: current ? current.id : null, queued: queue.length });
+    }
+    if (rest === "/chat" && req.method === "POST") {
+      const reply = await codexChat(req, res);
+      if (reply) return send(200, reply);
+      return;
     }
     if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
     if (rest === "/job" && req.method === "POST") { const b = await body(); return send(200, await submit(b.text, b.repo, b.tavern)); }

@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } 
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
+import { codexBase } from "../lib/codexJobs.js";
 import { pokeText } from "../lib/poke.js";
 import { stopGroup, GROUP_TAIL } from "../lib/groupChat.js";
 import GroupAvatar from "../components/GroupAvatar.vue";
@@ -930,6 +931,12 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
         <button v-else class="ctx" @click="ctxOpen = true">用量</button>
+        <label v-if="role.id === MAIN && thread && !thread.group && !thread.mail && !thread.studio && codexBase(role, thread)">
+          <select class="ctx" aria-label="回复模式" :value="thread.replyBackend || 'chat'" :disabled="busy" @change="thread.replyBackend = $event.target.value">
+            <option value="chat">Chat</option>
+            <option value="codex">Codex</option>
+          </select>
+        </label>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div v-if="recording" class="rec-bar">

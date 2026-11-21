@@ -16,6 +16,18 @@ export function codexBase(role, thread) {
 export const jobState = reactive({});
 const END = ["done", "failed", "blocked"];
 
+export async function codexReply(role, thread, prompt, signal) {
+  const base = codexBase(role, thread);
+  if (!base) throw new Error("找不到栖所服务器的地址");
+  const res = await fetch(base + "/chat", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }), signal,
+  });
+  const reply = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(reply.error?.message || `Codex 聊天接口返回 ${res.status}`);
+  if (!reply.text) throw new Error("Codex 没有返回聊天回复");
+  return reply;
+}
+
 export async function dispatchCodex(role, thread, text, repo = "", tavern = null) {
   const base = codexBase(role, thread);
   if (!base) throw new Error("找不到栖所服务器的地址");

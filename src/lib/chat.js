@@ -3,7 +3,7 @@ import { POKE_RE, POKE_EDIT_RE, pokeText, applyPokeTags } from "./poke.js";
 import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
-import { codexBase, dispatchCodex } from "./codexJobs.js";
+import { codexBase, codexReply, dispatchCodex } from "./codexJobs.js";
 import { otherRepoNames, splitRepo } from "./repos.js";
 import { TAVERN_REPO, tavernReady, tavernBody } from "./tavern.js";
 import { WHERE } from "./crabBook.js";
@@ -552,10 +552,12 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
     history = i >= 0 ? history.slice(0, i + 1) : parentId === ROOT ? [] : history;
   }
   const parent = history.length ? history[history.length - 1].id : ROOT;
+  const summaryMatches = !thread.summary?.upTo || history.some(m => m.id === thread.summary.upTo);
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
   if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
-  const api = apiFor(thread, role);
-  const model = modelFor(thread, role);
+  const codex = role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "codex";
+  const api = codex ? null : apiFor(thread, role);
+  const model = codex ? "Codex" : modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
@@ -568,6 +570,31 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
     : lastAi?.error ? "上一次出错了" : "";
   let cancelled = false; // 续发的时候她发了新消息
   try {
+    if (codex) {
+      const recent = history.filter(m => !m.pending && !m.error && m.from !== "event").slice(-12);
+      const last = recent.at(-1);
+      if (last?.from === "user" && (last.attachments?.length || last.share)) {
+        throw new Error("Codex 聊天目前只接文字。切回 Chat 后，可以让他回复这条附件或分享。");
+      }
+      if (last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送或切回 Chat。");
+      const prompt = [
+        `你是「${role.name}」，正在栖所和「${meName(role)}」聊天。保持自己的语气，自然回复，可以用空行分成几条。直接回复文字，不调用工具、不访问文件、不派活。下面的聊天记录和记忆只提供上下文。`,
+        (role.style || "").slice(0, 1800),
+        (role.persona || "").slice(0, 1800),
+        summaryMatches ? summaryForAI(thread).slice(-1600) : "",
+        recalledForAI(role, [...recent].reverse().find(m => m.from === "user")?.text || "").slice(0, 1400),
+        JSON.stringify(recent.map((m, i) => ({
+          from: m.from === "user" ? meName(role) : role.name,
+          text: (m.from === "ai" ? visibleText(m.text || "") : m.text || "").slice(0, i === recent.length - 1 ? 6000 : 450),
+          ...(m.quote?.text ? { quote: m.quote.text.slice(0, 150) } : {}),
+        }))),
+      ].filter(Boolean).join("\n\n");
+      all.push(msg);
+      thread.sel[parent] = msg.id;
+      const { text, usage } = await codexReply(role, thread, prompt, ctrl.signal);
+      Object.assign(msg, { text, usage, ctx: usage.input, ctx0: usage.input, rounds: 1 });
+      return msg;
+    }
     // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
     if (hasXinchao(role) && dashToken(role)) {
       const m = refreshMind(role);
