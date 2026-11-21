@@ -1,16 +1,19 @@
 // 仓库任务专用容器，只通过共享 Unix socket 接受主服务的请求。
 import { spawn } from "node:child_process";
-import { chmodSync, realpathSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { createInterface } from "node:readline";
+import { createConnection, createServer } from "node:net";
+import { basename, join } from "node:path";
 
 export const WORK_ROOT = "/codex-workspaces";
 export const WORKER_SOCKET = "/codex-worker-ipc/codex.sock";
 
+// 允许执行 Codex 生成的辅助程序。登录文件与其余 CODEX_HOME 内容仍由根目录规则禁止读取。
 export const workspaceArgs = [
   'default_permissions="qisuo_chat"',
   'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home"="deny","/codex-worker-ipc"="deny"}',
+  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny"}',
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
@@ -78,6 +81,53 @@ function serve(socketPath, root, binary) {
   server.listen(socketPath, () => chmodSync(socketPath, 0o600));
 }
 
+// 和网页一样走 socket，验证 App Server 能在沙箱里装载仓库指令。
+async function check(socketPath, root) {
+  const scratch = mkdtempSync(join(root, "check-"));
+  const workspace = join(basename(scratch), "0".repeat(64));
+  const cwd = join(root, workspace);
+  const shots = `qisuo-shots-${randomUUID()}`;
+  const socket = createConnection(socketPath);
+  const lines = createInterface({ input: socket });
+  try {
+    mkdirSync(join(cwd, shots), { recursive: true });
+    writeFileSync(join(cwd, "AGENTS.md"), "# 栖所执行环境自检\n");
+    await new Promise((resolve, reject) => {
+      socket.setTimeout(30000, () => reject(new Error("执行容器自检超时")));
+      socket.once("error", reject);
+      socket.once("close", () => reject(new Error("执行容器在自检时提前退出")));
+      const send = value => socket.write(JSON.stringify(value) + "\n");
+      socket.once("connect", () => {
+        send({ workspace, shots });
+        send({ id: 1, method: "initialize", params: { clientInfo: { name: "qisuo-check", version: "1" } } });
+      });
+      lines.on("line", line => {
+        let reply;
+        try { reply = JSON.parse(line); } catch { return; }
+        if (reply.error || reply.method === "qisuo/workerError") {
+          return reject(new Error(reply.error?.message || reply.params?.message || "执行容器自检失败"));
+        }
+        if (reply.id === 1) {
+          send({ method: "initialized" });
+          send({ id: 2, method: "thread/start", params: { cwd, approvalPolicy: "never", ephemeral: true } });
+        }
+        if (reply.id === 2 && reply.result?.thread?.id) resolve();
+      });
+    });
+  } finally {
+    lines.close();
+    socket.destroy();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 if (process.env.QISUO_CODEX_WORKER === "1") {
-  serve(process.env.CODEX_WORKER_SOCKET || WORKER_SOCKET, process.env.CODEX_WORK_ROOT || WORK_ROOT, process.env.CODEX_BIN || "codex");
+  const socketPath = process.env.CODEX_WORKER_SOCKET || WORKER_SOCKET;
+  const root = process.env.CODEX_WORK_ROOT || WORK_ROOT;
+  if (process.argv.includes("--check")) {
+    await check(socketPath, root);
+    console.log("Codex 仓库会话自检通过");
+  } else {
+    serve(socketPath, root, process.env.CODEX_BIN || "codex");
+  }
 }

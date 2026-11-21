@@ -307,6 +307,11 @@ for _ in $(seq 1 20); do
 done
 [ -S "$DIR/codex-worker-ipc/codex.sock" ] || { say "仓库执行容器没启动，栖所主容器还在运行"; $SUDO docker logs --tail 20 qisuo-codex-worker; exit 1; }
 
+if ! $SUDO docker exec qisuo-codex-worker node /app/codex-worker.mjs --check; then
+  say "Codex 没能在仓库里创建会话，栖所主容器还在运行。"
+  exit 1
+fi
+
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker network rm codex-int >/dev/null 2>&1 || true # 旧的栖所服务器也连着它，拿掉服务器以后才删得掉
