@@ -274,7 +274,8 @@ fi
 
 # 仓库执行单独隔离。先验证 Bubblewrap，再替换主容器。
 say "检查 Codex 仓库执行环境…"
-WORKER_SECURITY=(--security-opt seccomp=unconfined --security-opt no-new-privileges)
+# Bubblewrap 要在自己的 PID 命名空间里挂载 proc，Docker 的路径遮蔽会拦住它。
+WORKER_SECURITY=(--security-opt seccomp=unconfined --security-opt no-new-privileges --security-opt systempaths=unconfined)
 if [ -r /sys/module/apparmor/parameters/enabled ] && grep -q '^Y' /sys/module/apparmor/parameters/enabled; then
   need apparmor_parser
   # Ubuntu 的 unprivileged_userns 规则需要一个显式声明 userns 的专用 profile。
