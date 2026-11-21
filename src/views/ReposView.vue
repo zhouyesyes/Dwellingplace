@@ -32,7 +32,7 @@ async function flip(r) {
 <template>
   <div class="page repos">
     <SubHeader title="仓库" />
-    <p class="hint">小章鱼和小螃蟹派活时，可以改这里打开的仓库。不指定就改栖所。</p>
+    <p class="hint">GPT 在 Codex 对话里可以连接这里打开的仓库。小螃蟹派活也使用这里的设置。默认仓库是栖所。</p>
     <div v-if="repoState.list" class="list-card">
       <div v-for="r in repoState.list" :key="r.full" class="list-row">
         <Icon name="tool" :size="20" />

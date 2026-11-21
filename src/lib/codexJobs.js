@@ -16,16 +16,34 @@ export function codexBase(role, thread) {
 export const jobState = reactive({});
 const END = ["done", "failed", "blocked"];
 
-export async function codexReply(role, thread, prompt, signal, workspace) {
+export async function codexReply(role, thread, input, signal, onProgress) {
   const base = codexBase(role, thread);
   if (!base) throw new Error("找不到栖所服务器的地址");
   const res = await fetch(base + "/chat", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, workspace }), signal,
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...input, thread: thread.id }), signal,
   });
-  const reply = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(reply.error?.message || `Codex 聊天接口返回 ${res.status}`);
-  if (!reply.text) throw new Error("Codex 没有返回聊天回复");
-  return reply;
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Codex 聊天接口返回 ${res.status}`);
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error("Codex 没有返回聊天回复");
+      pending += value;
+      const lines = pending.split("\n");
+      pending = lines.pop();
+      for (const line of lines) {
+        const event = JSON.parse(line);
+        if (event.type === "progress") onProgress(event.text);
+        if (event.type === "error") throw new Error(event.text);
+        if (event.type === "result") return event;
+      }
+    }
+  } finally { await reader.cancel().catch(() => {}); }
 }
 
 export async function dispatchCodex(role, thread, text, repo = "", tavern = null) {

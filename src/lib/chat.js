@@ -243,16 +243,11 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
       `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的你（Claude Code）去做：拉最新代码、改、构建、截图、开 PR、合并，做完的报告会回到这条聊天里。`,
       `「要做的事」写清楚：改哪里、改成什么样、做完要给${who}看什么（比如截图）。一次回复最多派一件；只是聊聊想法的时候别派。`,
       otherRepoNames().length ? `要改别的仓库（不是栖所）时，在「要做的事」最前面单独写一行「仓库：名字」，比如「仓库：${otherRepoNames()[0]}」；不写就是改栖所。现在只能选这些：${otherRepoNames().join("、")}。选了不在里面的（没打开或不存在）系统不会派，会告诉你。别的仓库不一定有 CLAUDE.md、施工日志或构建，有什么规矩照什么做，没有就跳过。` : "",
-      tavernReady() ? `${who}想让你去弄${who}的酒馆服务器（SillyTavern，另一台服务器）时，点头之后派活，「要做的事」第一行写「仓库：${TAVERN_REPO}」。这样不走云端，交给栖所服务器上的 Claude Code 去酒馆那台干活（和小章鱼的 Codex 共用一条队，一次只做一件，不跑构建）。它改文件前会先备份、不删数据，要重启 SillyTavern 或装东西会在报告里先问${who}。要做的事写清楚：改哪个文件 / 哪个设置、改成什么样；拿不准的它会只读、只写报告。` : "",
+      tavernReady() ? `${who}想让你去弄${who}的酒馆服务器（SillyTavern，另一台服务器）时，点头之后派活，「要做的事」第一行写「仓库：${TAVERN_REPO}」。这样不走云端，交给栖所服务器上的 Claude Code 去酒馆那台干活（一次只做一件，不跑构建）。它改文件前会先备份、不删数据，要重启 SillyTavern 或装东西会在报告里先问${who}。要做的事写清楚：改哪个文件 / 哪个设置、改成什么样；拿不准的它会只读、只写报告。` : "",
     ].join("\n") : "",
-    // 小章鱼的派活：和小螃蟹对称，只是干活的是服务器上的 Codex（用小续的 ChatGPT 订阅）
-    role.id === MAIN && !solo(role) && !wake && !mail && !group && codexBase(role) ? [
-      `\n# 派活去云端`,
-      `${who}要你改栖所的代码（加功能、改界面、修 bug）时，先在聊天里把要做的事和${who}说清楚；${who}点头了，单独一行写：[派活:要做的事]。系统会开一个云端的 Codex 去做：拉最新代码、开分支、改、构建、开 PR、合并，做完的报告会回到这条聊天里。`,
-      `「要做的事」写清楚：改哪里、改成什么样、要不要给${who}看什么。一次回复最多派一件；已经派出去、还没回报告的，别再派第二件（同一时间只做一件，后派的要排队）。只是聊聊想法的时候别派。`,
-      otherRepoNames().length ? `要改别的仓库（不是栖所）时，在「要做的事」最前面单独写一行「仓库：名字」，比如「仓库：${otherRepoNames()[0]}」；不写就是改栖所。现在只能选这些：${otherRepoNames().join("、")}。选了不在里面的（没打开或不存在）系统不会派，会告诉你。别的仓库不一定有 CLAUDE.md、施工日志或构建，有什么规矩照什么做，没有就跳过。` : "",
-      `派出去以后聊天里会出一张进度卡片。云端那边没有浏览器，没法截图；要${who}决定的地方它会先不合并、在报告里问${who}。要是它说撞上了小螃蟹正在改的文件、没动手，把这个告诉${who}，等那边合并再派。`,
-    ].join("\n") : "",
+    role.id === MAIN && !solo(role) && !wake && !mail && !group && codexBase(role)
+      ? "需要操作仓库时，请对方在这条聊天里切到 Codex 并连接仓库。"
+      : "",
     // 工作台（她的笔记本）：小章鱼和小螃蟹一模一样的规矩，工具在下面的目录里（工作台.列目录 / 读笔记 / 挂建议）
     !wake && !mail ? [
       `\n# 工作台（${who}的笔记本）`,
@@ -592,7 +587,16 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       ].filter(Boolean).join("\n\n");
       all.push(msg);
       thread.sel[parent] = msg.id;
-      const { text, usage, images = [] } = await codexReply(role, thread, prompt, ctrl.signal, workspace);
+      const previous = [...recent].reverse().find(m => m.from === "ai");
+      const continuation = previous?.codexReceipt ? previous.codexReceipt : undefined;
+      const next = recent.slice(continuation ? recent.indexOf(previous) + 1 : -1);
+      const followup = next.map(m => `${m.from === "user" ? meName(role) : role.name}：${(m.text || "").slice(-6000)}`).join("\n").slice(-10000);
+      const { text, usage, images = [], receipt } = await codexReply(role, thread, {
+        prompt, workspace, previous: continuation, followup,
+      }, ctrl.signal, progress => {
+        msg.notes = [{ text: progress, before: true }];
+      }).finally(() => { msg.notes = []; });
+      if (receipt) msg.codexReceipt = receipt;
       for (const { name, data } of images) {
         try {
           const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" });
@@ -602,7 +606,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
           msg.notes.push({ text: "有一张 Codex 截图没能保存" });
         }
       }
-      Object.assign(msg, { text, usage, ctx: usage.input, ctx0: usage.input, rounds: 1 });
+      Object.assign(msg, { text: text || (msg.attachments?.length ? "截图在这里。" : "这轮没有文字回复。"), usage, ctx: usage.input, ctx0: usage.input, rounds: 1 });
       return msg;
     }
     // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
@@ -819,31 +823,8 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       }
 
       // 派活：小螃蟹把要改代码的活派去云端（经过她的服务器，地址和钥匙都在服务器上）
-      const jm = (solo(role) || role.id === MAIN) && !group && !sentJob ? findCmd(text, JOB_RE) : null;
-      if (jm && !solo(role)) { // 小章鱼：派给服务器上的 Codex，聊天里出进度卡片
-        sentJob = true;
-        const { repo: jobRepo, text: job } = splitRepo(jm[1]);
-        const ev = reactive({ text: `${role.name} 把活派给云端的 Codex…`, before: true, at: keepSaid(text, jm.index), detail: job });
-        msg.notes.push(ev);
-        let back;
-        try {
-          const j = await dispatchCodex(role, thread, job, jobRepo);
-          ev.text = j.position > 0 ? `${role.name} 派给云端的 Codex 了（前面还有 ${j.position} 件，排队中）` : `${role.name} 派给云端的 Codex 开工了`;
-          ev.job = j.id;
-          back = `（系统：已经派出去了${j.position > 0 ? `，前面还有 ${j.position} 件在做，排队中` : "，云端的 Codex 开工了"}。简单告诉对方一声，做完的报告会回到这条聊天里；聊天里有张进度卡片可以看。）`;
-        } catch (e) {
-          ev.text = `派活没派出去：${e.message}`;
-          back = `（系统：派活没派出去：${e.message}。把原因原样告诉对方，别假装已经在做了。）`;
-        }
-        if (ctrl.signal.aborted) break;
-        convo = [
-          ...convo,
-          { role: "assistant", parts: [{ type: "text", text: `${text.slice(0, jm.index)}[派活:${jm[1].trim()}]` }] },
-          { role: "user", parts: [{ type: "text", text: back }] },
-        ];
-        continue;
-      }
-      if (jm && splitRepo(jm[1]).repo === TAVERN_REPO) { // 酒馆服务器：交给栖所服务器上的 Claude Code（和小章鱼的 Codex 共用排队），不走 claude.ai 云端
+      const jm = solo(role) && !group && !sentJob ? findCmd(text, JOB_RE) : null;
+      if (jm && splitRepo(jm[1]).repo === TAVERN_REPO) { // 酒馆服务器：交给栖所服务器上的 Claude Code，不走 claude.ai 云端
         sentJob = true;
         const { text: job } = splitRepo(jm[1]);
         const ev = reactive({ text: `${role.name} 把活派给服务器上的 CC…`, before: true, at: keepSaid(text, jm.index), detail: job });

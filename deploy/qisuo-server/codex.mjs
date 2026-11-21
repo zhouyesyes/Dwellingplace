@@ -1,19 +1,11 @@
-// 小章鱼（ChatGPT）派活：服务器上的 Codex 命令行，用小续的 ChatGPT 账号登录（设备验证码方式，不用 API 钥匙）。
-// 和小螃蟹的云端派活对称：聊天里点头了就派，这里在后台开工，做完的报告写进对话本、送回小章鱼的聊天。
-//
-// 登录：登录凭据在 CODEX_HOME（服务器上的持久目录，挂进容器），只在服务器终端里跑登录脚本登一次，不经过浏览器。
-// 一次只做一件，后来的排队；开工前查 CC 那边有没有开着、改同一个代码文件的 PR，撞上就先不动（已合并的、没开 PR 的旧分支、只在 worklog 末尾追加都不算）。
-//
-// 路径（都在 /p/<口令>/codex 下面）：
-//   GET  /status        装好了没、登录了没、GitHub 钥匙和对话本有没有、排队情况
-//   POST /job {text}    派一件活 → { id, status, position }
-//   GET  /job/<id>      这件活做到哪了（排队 / 开工 / 完成 / 没做成 / 没动）、最后的报告
+// GPT 的 Codex 对话、订阅额度，以及 CC 的酒馆任务（含旧报告查询）。
 import { spawn, execFile } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync, mkdtempSync, lstatSync, readdirSync, openSync, fstatSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { bookAppend, bookCopyTo, bookReady, bookSecrets } from "./claude.mjs";
+import { bookAppend, bookReady, bookSecrets } from "./claude.mjs";
 import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
 import { TAVERN_REPO, cleanTavern, runTavernJob, tavernStatus, tavernTest } from "./tavern.mjs";
 
@@ -22,7 +14,6 @@ const DATA = process.env.DATA_DIR || "/app/data";
 const CODEX_HOME = process.env.CODEX_HOME || "/codex-home";
 const GH_TOKEN = process.env.CODEX_GITHUB_TOKEN || "";
 const GH_REPO = DEFAULT_REPO; // 默认仓库：栖所；别的仓库由派活指定（见 repos.mjs）
-const GH_API = process.env.GITHUB_API || "https://api.github.com";
 const repoUrl = full => (full === GH_REPO && process.env.CODEX_REPO_URL) || `https://github.com/${full}.git`;
 const WORK = process.env.CODEX_WORK || join(DATA, "codex-work");
 const JOBS_FILE = join(DATA, "codex-jobs.json");
@@ -60,12 +51,6 @@ const run = (cmd, args, opts = {}) => new Promise(resolve => {
 const codexEnv = extra => ({ ...process.env, CODEX_HOME, HOME: process.env.CODEX_USER_HOME || "/tmp", ...extra });
 const authHeader = () => `AUTHORIZATION: basic ${Buffer.from("x-access-token:" + GH_TOKEN).toString("base64")}`;
 
-async function ghApi(path, repo = GH_REPO) {
-  const r = await fetch(`${GH_API}/repos/${repo}${path}`, { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "qisuo-codex" } });
-  if (!r.ok) throw new Error(`GitHub 返回 ${r.status}（${path.split("?")[0]}）`);
-  return r.json();
-}
-
 async function loginStatus() {
   if (!existsSync(CODEX_HOME)) return { installed: true, loggedIn: false, text: "还没有登录凭据目录" };
   const r = await run(BIN, ["login", "status"], { env: codexEnv(), timeout: 20_000 });
@@ -76,185 +61,20 @@ async function loginStatus() {
 
 // ---------- 防撞：只看 CC 那边仍然开着、没合并的 PR ----------
 // 已合并的 PR、提交早已在 main 里的旧分支、没有开 PR 的分支都不算；docs/worklog.md 大家每单都会往末尾追加，也不算
-const SHARED_DOCS = new Set(["docs/worklog.md"]);
-async function ccWork(repo = GH_REPO) {
-  const list = [];
-  const prs = (await ghApi("/pulls?state=open&per_page=30", repo)).filter(p => !p.head.ref.startsWith("codex/") && !p.merged_at);
-  for (const p of prs.slice(0, 12)) {
-    const files = await ghApi(`/pulls/${p.number}/files?per_page=100`, repo).then(l => l.map(f => f.filename).filter(f => !SHARED_DOCS.has(f))).catch(() => []);
-    if (files.length) list.push({ kind: "PR", name: `#${p.number} ${p.title}`, branch: p.head.ref, files });
-  }
-  return list;
-}
-// 活的描述里提到的文件，和对方改的文件撞不撞（认文件名，或者长一点的文件主名，比如 ChatView）
-function clash(text, others) {
-  const named = new Set((String(text).match(/[\w./-]+\.(?:vue|js|mjs|css|sh|md|json|html|toml)/gi) || []).map(s => s.toLowerCase()));
-  const stems = [...String(text).matchAll(/\b([A-Z][A-Za-z]{4,}(?:View|Drawer|Sheet|Card|Panel|Room|Page))\b/g)].map(m => m[1].toLowerCase());
-  const hits = [];
-  for (const o of others) {
-    const bad = o.files.filter(f => { const lf = f.toLowerCase(); const base = lf.split("/").pop(); return named.has(lf) || named.has(base) || stems.some(s => base.startsWith(s + ".")); });
-    if (bad.length) hits.push({ ...o, bad });
-  }
-  return hits;
-}
-
-// ---------- 给 Codex 的开工说明（照 CC 云端派活那份写） ----------
-// 别的仓库：没有栖所那套规矩，有什么照什么做，没有的步骤跳过（不加 worklog、不加 CLAUDE.md）
-function promptForOther(job, others, dir) {
-  const name = job.repo.split("/")[1];
-  return `【云端派活】
-你是 Codex，在仓库 ${job.repo} 里干活（小续的 AI 伙伴小章鱼把活派给你；小续叫小章鱼「他」，叫 CC「小螃蟹」）。这次要改的**不是栖所**，是另一个仓库。她在栖所里和小章鱼商量好、派过来的活，写在最后「要做的事」里。
-你在一台服务器的容器里，没有人守着，也不能向任何人提问：拿不准、要她决定的地方别猜，先别合并，在报告里写清楚要问她什么。
-
-工作目录：
-- ${dir}/${name}：这个仓库的最新 ${job.base} 的干净副本，当前在分支 ${job.branch}（从最新 ${job.base} 开的）
-- 旁边 ${dir}/qisuo-memory 是她私人对话本的只读拷贝，只用来了解她们最近在聊什么；你推不上去也不要往里写，里面的私人内容不要写进 ${name}（它可能是公开仓库）
-
-开工前：
-1. 进 ${name} 目录，有 CLAUDE.md、AGENTS.md、README 就先读，里面有规矩（提交怎么写、怎么构建、怎么测）就照做；**没有的就跳过，不要新建它们**
-2. 读 ../qisuo-memory 里的 summary.md，和 book/log.jsonl 最后几十行（tail -n 40），知道她们最近在聊什么
-${others.length ? `3. 这个仓库现在有这些别人开着、没合并的 PR（改动文件在括号里）：\n${others.map(o => `   - ${o.kind} ${o.name}（${o.files.slice(0, 12).join("、")}${o.files.length > 12 ? "…" : ""}）`).join("\n")}\n   你要改的文件如果和它们撞了：**一个文件都别动**，直接在报告里说明撞在哪。\n` : ""}
-干活：
-- 改 → 仓库里有构建或测试（看 package.json、README）就跑到通过，没有就跳过 → 提交（中文说明，一件事一个提交，沿用仓库里已有的写法）→ git push -u origin ${job.branch}
-- 开 PR 和合并用这个小工具（环境里已经有钥匙，不要打印、不要写进任何文件）：
-  node /app/ghpr.mjs open ${job.branch} "标题" 正文文件   （开 PR 合到 ${job.base}，正文用中文写清楚改了什么）
-  node /app/ghpr.mjs merge 编号                            （squash 合并）
-- 能合并就 squash 合并；拿不准、要她决定的就先不合并，PR 留着。这个仓库如果不允许你合并（分支保护、要审核），也留着，在报告里说
-- **不要**往这个仓库里加 docs/worklog.md 之类的施工日志，也不要为了栖所的规矩加文件
-- 这个容器里没有浏览器，没法截图：改了界面的话，报告里明说「没截图」，让她自己看
-- 只做被要求的这件事；不碰密钥、口令，不把她的邮箱、口令写进代码、提交或报告
-- 做完不要留一堆临时文件在仓库里
-
-做完：你最后一条回复就是给她看的完工报告，用中文，自称「我」，尽量短：先说改的是 ${job.repo}，再说改了什么（合并了的写 PR 编号）、要她试什么、还剩什么。有要她决定的事，单独写一段「想问你」。不要把命令输出整段贴进去。
-
-要做的事：
-${job.text}
-`;
-}
-
-function promptFor(job, others, dir) {
-  if (job.repo && job.repo !== GH_REPO) return promptForOther(job, others, dir);
-  const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
-  return `【云端派活】
-你是 Codex，在栖所仓库里干活（小续的 AI 伙伴小章鱼把活派给你；小续叫小章鱼「他」，叫 CC「小螃蟹」）。她在栖所里和小章鱼商量好、派过来的活，写在最后「要做的事」里。
-你在一台服务器的容器里，没有人守着，也不能向任何人提问：拿不准、要她决定的地方别猜，先别合并，在报告里写清楚要问她什么。
-
-工作目录：
-- 栖所仓库（Dwellingplace）：${dir}/Dwellingplace，已经是最新 main 的干净副本，当前在分支 ${job.branch}（从最新 main 开的）
-- 旁边是私人仓库的只读拷贝：${dir}/qisuo-memory。你推不上去也不要往里写；私人仓库里的内容不要写进公开仓库（Dwellingplace）
-
-开工前：
-1. 进栖所仓库目录，读 CLAUDE.md 和 AGENTS.md，按里面的规矩做（你不是 cc，所以其中「cc 的」那几条以本说明为准：分支用 ${job.branch}，不要自己换分支名）
-2. 读 ../qisuo-memory 里的 summary.md、memories.md，和 book/log.jsonl 最后几十行（tail -n 40），知道她们最近在聊什么
-3. 看一眼 docs/worklog.md 最上面几条，知道别人刚做了什么
-${others.length ? `4. 现在 CC 那边有这些还开着、没合并的 PR（改动文件在括号里，worklog 不算）：\n${others.map(o => `   - ${o.kind} ${o.name}（${o.files.slice(0, 12).join("、")}${o.files.length > 12 ? "…" : ""}）`).join("\n")}\n   你要改的文件如果和它们撞了：**一个文件都别动**，直接在报告里说明撞在哪、建议等对方合并后再派。\n` : "4. 现在 CC 那边没有开着的 PR。\n"}
-干活：
-- 改 → 跑 npm ci（第一次）→ npx vite build 必须通过 → 提交（中文说明，一件事一个提交）→ git push -u origin ${job.branch}
-- 开 PR 和合并用这个小工具（环境里已经有钥匙，不要打印、不要写进任何文件）：
-  node /app/ghpr.mjs open ${job.branch} "标题" 正文文件   （开 PR 合到 main，正文用中文写清楚改了什么）
-  node /app/ghpr.mjs merge 编号                            （squash 合并）
-- 能合并就 squash 合并；拿不准、要她决定的就先不合并，PR 留着
-- 在 docs/worklog.md 最上面记一条（${day} · Codex：做了什么、还剩什么、要别人注意什么；规矩看文件里已有的写法），和代码改动一起提交
-- 这个容器里没有浏览器，没法截图：改了界面的话，报告里明说「没截图」，让她自己看
-- 只做被要求的这件事；不碰密钥、口令、settings.env，不把她的邮箱、口令写进代码、提交或报告
-- 做完不要留一堆临时文件在仓库里
-
-做完：你最后一条回复就是给她看的完工报告，用中文，自称「我」，尽量短：改了什么（合并了的写 PR 编号）、看起来什么样、要她试什么、还剩什么、要不要重跑服务器安装（deploy/qisuo-server/ 下面有改动才要）、要不要重部署中转（relay/ 有改动才要）。有要她决定的事，单独写一段「想问你」。不要把命令输出整段贴进去。
-
-要做的事：
-${job.text}
-`;
-}
-
-// ---------- 做一件活 ----------
 const sh = async (cwd, args, env) => { const r = await run("git", args, { cwd, env: { ...process.env, ...env } }); if (r.code) throw new Error(`git ${args[0]} 没成：${scrub(r.err || r.out).trim().slice(-300)}`); return r.out; };
 const gitEnv = { GIT_TERMINAL_PROMPT: "0" };
 
-function friendly(t) {
-  const s = scrub(t).trim();
-  const nice = [
-    [/not logged in|401|unauthori[sz]ed|sign in again|token.*(expired|invalid)/i, "Codex 的 ChatGPT 登录不通了：在服务器终端运行 ~/qisuo-server/codex-login.sh 重新登录"],
-    [/usage limit|rate limit|429|quota|limit reached|try again (later|in)/i, "ChatGPT 订阅里 Codex 的额度这阵子用完了，过一会儿再派"],
-  ].find(([re]) => re.test(s))?.[1];
-  return nice ? `${nice}（原话：${s.slice(0, 400)}）` : s.slice(0, 800);
-}
-
 async function runJob(job) {
   job.status = "running"; job.startedAt = Date.now(); save();
-  const repoName = (job.repo || GH_REPO).split("/").pop().replace(/[^\w.-]/g, "_");
-  const dir = join(WORK, repoName, job.id); // 每个仓库一个单独的工作文件夹，互不碰
+  const dir = join(WORK, "tavern", job.id);
   const finish = async (status, report, error = "") => {
     job.status = status; job.endedAt = Date.now(); job.report = scrub(report).slice(0, 20000); job.error = scrub(error).slice(0, 2000); save();
     rmSync(dir, { recursive: true, force: true });
-    try { await bookAppend(job.kind === "tavern" // 酒馆的活是小螃蟹（服务器上的 CC）做的：记成小螃蟹的；id 以 tavern- 开头，送回聊天时不再重复（网页自己会把报告接在聊天后面）
-      ? { id: `tavern-${job.id}`, ts: job.endedAt, where: "cloud", from: "crab", text: job.report }
-      : { id: `codex-${job.id}`, ts: job.endedAt, where: "cloud", from: "octopus", text: job.report }); }
-    catch (e) { console.error("codex 报告没写进对话本：", scrub(e.message)); }
+    try { await bookAppend({ id: `tavern-${job.id}`, ts: job.endedAt, where: "cloud", from: "crab", text: job.report }); }
+    catch (e) { console.error("酒馆报告没写进对话本：", scrub(e.message)); }
   };
-  try {
-    if (job.kind === "tavern") return await runTavernJob(job, { setProgress, finish, scrubText: scrub, timeoutMs: TIMEOUT, dir });
-    const st = await loginStatus();
-    if (!st.installed) return await finish("failed", `这件活没做成：${st.text}`, st.text);
-    if (!st.loggedIn) return await finish("failed", `这件活没做成：${friendly("not logged in")}`, st.text);
-    if (!GH_TOKEN) return await finish("failed", "这件活没做成：服务器上还没放 GitHub 钥匙（开分支、开 PR 要用）：再运行一次安装那一行。", "没有 GitHub 钥匙");
-    if (!bookReady()) return await finish("failed", "这件活没做成：服务器上还没放对话本的钥匙（要读 qisuo-memory、写回报告）：再运行一次安装那一行。", "没有对话本钥匙");
-
-    setProgress(job, "查 CC 那边有没有开着的 PR 撞车");
-    let others = [];
-    try { others = await ccWork(job.repo || GH_REPO); }
-    catch (e) { return await finish("failed", `这件活没做成：查 CC 那边的 PR 时出错了（${scrub(e.message)}），为了不撞车先没动。`, e.message); }
-    const hit = clash(job.text, others);
-    if (hit.length) {
-      return await finish("blocked", `我先没动手：这件活要改的文件，CC 那边正在改——\n${hit.map(h => `- ${h.kind} ${h.name}：${h.bad.slice(0, 6).join("、")}`).join("\n")}\n等 CC 那边合并（或你说可以一起改）以后，再让小章鱼派一次。`);
-    }
-
-    setProgress(job, "拉最新的 main");
-    mkdirSync(dir, { recursive: true });
-    const repo = join(dir, repoName);
-    await sh(dir, ["-c", `http.https://github.com/.extraheader=${authHeader()}`, "clone", "-q", "--depth", "200", repoUrl(job.repo || GH_REPO), repo], gitEnv);
-    await sh(repo, ["config", "user.name", "Codex"], gitEnv);
-    await sh(repo, ["config", "user.email", "codex@qisuo.local"], gitEnv);
-    await sh(repo, ["config", "http.https://github.com/.extraheader", authHeader()], gitEnv); // 只在这份临时拷贝里，做完整个删掉
-    await sh(repo, ["checkout", "-q", "-b", job.branch], gitEnv);
-    await bookCopyTo(join(dir, "qisuo-memory"));
-
-    setProgress(job, "Codex 开工");
-    const outFile = join(dir, "report.txt");
-    const child = spawn(BIN, ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--json", "-C", repo, "-o", outFile, "-"], {
-      cwd: repo, env: codexEnv({ GITHUB_TOKEN: GH_TOKEN, GITHUB_REPO: job.repo || GH_REPO, GITHUB_API: GH_API, ...gitEnv }), stdio: ["pipe", "pipe", "pipe"],
-    });
-    child.stdin.end(promptFor(job, others, dir));
-    let timedOut = false, errs = [], stderr = "", buf = "";
-    const timer = setTimeout(() => { timedOut = true; child.kill("SIGTERM"); setTimeout(() => child.kill("SIGKILL"), 5000); }, TIMEOUT);
-    child.stderr.on("data", d => { stderr = (stderr + d).slice(-3000); });
-    const onLine = line => {
-      let ev; try { ev = JSON.parse(line); } catch { return; }
-      const it = ev.item || ev.msg || {};
-      const kind = String(ev.type || "");
-      if (it.type === "command_execution" && kind.endsWith("completed")) setProgress(job, `跑：${String(it.command || "").replace(/^\S*sh -lc\s+/, "")}`);
-      else if (it.type === "agent_message" && kind.endsWith("completed") && it.text) setProgress(job, `Codex：${it.text}`);
-      else if (it.type === "file_change" && kind.endsWith("completed")) setProgress(job, `改了 ${(it.changes || []).length || ""} 个文件`);
-      if (/error|fail/i.test(kind)) { const m = ev.message || ev.error?.message || it.message || ev.error; if (m) errs.push(typeof m === "string" ? m : JSON.stringify(m)); }
-    };
-    child.stdout.on("data", d => {
-      buf += d;
-      let i;
-      while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (l) onLine(l); }
-    });
-    const code = await new Promise(resolve => { child.on("close", resolve); child.on("error", e => { errs.push(e.code === "ENOENT" ? "服务器上还没装 Codex：再运行一次安装那一行" : e.message); resolve(-1); }); });
-    clearTimeout(timer);
-    if (buf.trim()) onLine(buf.trim());
-    const said = existsSync(outFile) ? readFileSync(outFile, "utf8").trim() : "";
-    if (timedOut) return await finish("failed", `这件活没做成：做了 ${Math.round(TIMEOUT / 60000)} 分钟还没做完，超时停掉了。${said ? `\n它停下前最后说的：\n${said}` : ""}\n分支 ${job.branch} 上做到哪了，可以去 GitHub 看。`, "超时");
-    if (code !== 0 && !said) {
-      const why = errs.at(-1) || stderr.trim().split("\n").filter(l => !/^WARNING/.test(l)).pop() || `退出码 ${code}`;
-      return await finish("failed", `这件活没做成：${friendly(why)}`, why);
-    }
-    if (!said) return await finish("failed", "这件活没做成：Codex 跑完了，但没留下报告。分支 " + job.branch + " 上有没有改动，可以去 GitHub 看。", "没有报告");
-    return await finish("done", said);
-  } catch (e) {
-    return await finish("failed", `这件活没做成：${friendly(e.message)}`, e.message);
-  }
+  try { await runTavernJob(job, { setProgress, finish, scrubText: scrub, timeoutMs: TIMEOUT, dir }); }
+  catch (e) { await finish("failed", `这件活没做成：${scrub(e.message)}`, e.message); }
 }
 
 // ---------- 排队：一次只做一件 ----------
@@ -267,7 +87,7 @@ function pump() {
   runJob(job).catch(e => { job.status = "failed"; job.error = scrub(e.message); job.report = `这件活没做成：${scrub(e.message)}`; job.endedAt = Date.now(); save(); }).finally(() => { current = null; pump(); });
 }
 
-// 酒馆服务器的活：交给服务器上的 Claude Code（不走 Codex，也不走 claude.ai 云端），和 Codex 共用这条队
+// 酒馆服务器的活由服务器上的 Claude Code 排队执行。
 function submitTavern(text, cfg) {
   const c = cleanTavern(cfg);
   if (!tavernStatus().keyReady) throw Object.assign(new Error("服务器上还没有专用的 ssh 钥匙：再运行一次安装那一行，选装「酒馆服务器上的 CC」"), { status: 409 });
@@ -283,14 +103,7 @@ async function submit(text, repoWant, tavern) {
   text = String(text || "").trim();
   if (text.length < 4) throw Object.assign(new Error("要做的事太短了"), { status: 400 });
   if (String(repoWant || "").trim() === TAVERN_REPO) return submitTavern(text, tavern);
-  const st = await loginStatus();
-  if (!st.installed) throw Object.assign(new Error(st.text), { status: 409 });
-  if (!st.loggedIn) throw Object.assign(new Error(`Codex 还没登录 ChatGPT：在服务器终端运行 ~/qisuo-server/codex-login.sh 登录一次（${st.text}）`), { status: 409 });
-  const target = await resolveRepo(repoWant); // 没写 = 栖所；写了的必须是设置里开着「能派活」的
-  const id = randomUUID().slice(0, 8);
-  const job = { id, repo: target.full, base: target.branch, text: text.slice(0, 8000), branch: `codex/job-${id}`, status: "queued", createdAt: Date.now(), progress: [] };
-  jobs.push(job); queue.push(job); save(); pump();
-  return pub(job, false);
+  throw Object.assign(new Error("GPT 已改为在 Codex 对话里直接连接仓库"), { status: 410 });
 }
 
 
@@ -413,9 +226,82 @@ const chatWorkspaceConfig = [
   'permissions.qisuo_chat.network.domains."localhost"="allow"',
 ].flatMap(value => ["-c", value]);
 
+// 每轮拉起 App Server，续接它保存的线程，空闲时不常驻。
+function runChatTurn({ cwd, env, args, prompt, followup, threadId, signal, progress, timeout }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(BIN, ["app-server", ...args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const lines = createInterface({ input: child.stdout });
+    let turnId, answer = "", usage = {}, stderr = "", done = false, stopping = false;
+    const send = (method, params, id) => child.stdin.write(JSON.stringify({ method, params, id }) + "\n");
+    const finish = (error, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearTimeout(stopTimer);
+      signal.removeEventListener("abort", stop);
+      lines.close();
+      child.kill("SIGTERM");
+      const kill = setTimeout(() => child.kill("SIGKILL"), 2000);
+      kill.unref();
+      child.once("close", () => clearTimeout(kill));
+      if (error) reject(error); else resolve(value);
+    };
+    let stopTimer;
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      if (turnId) send("turn/interrupt", { threadId, turnId }, 4);
+      stopTimer = setTimeout(() => finish(null, null), 1500);
+    };
+    const timer = setTimeout(() => finish(new Error("Codex 等待超时")), timeout);
+    child.stdin.on("error", e => finish(stopping ? null : e, null));
+    child.stderr.on("data", d => { stderr = (stderr + d).slice(-500); });
+    child.on("error", e => finish(stopping ? null : e, null));
+    child.on("close", () => finish(stopping ? null : new Error(stderr || "Codex App Server 提前退出"), null));
+    signal.addEventListener("abort", stop, { once: true });
+    lines.on("line", line => {
+      let m;
+      try { m = JSON.parse(line); } catch { return; }
+      const p = m.params || {};
+      if (m.method && m.id !== undefined) {
+        // 此入口按工作区权限运行，不交互批准额外权限。
+        child.stdin.write(JSON.stringify({ id: m.id, error: { code: -32601, message: "Approval unavailable" } }) + "\n");
+        return;
+      }
+      if (stopping && m.method === "turn/completed") return finish(null, null);
+      if (stopping || done) return;
+      if (m.error && m.id === 2 && threadId && /not found|no rollout|does not exist|unknown thread/i.test(m.error.message)) {
+        threadId = undefined;
+        send("thread/start", { cwd, approvalPolicy: "never" }, 2);
+      } else if (m.error) finish(new Error(m.error.message || "Codex 请求失败"));
+      else if (m.id === 1) {
+        send("initialized");
+        send(threadId ? "thread/resume" : "thread/start", { ...(threadId ? { threadId, excludeTurns: true } : {}), cwd, approvalPolicy: "never" }, 2);
+      } else if (m.id === 2) {
+        const text = threadId ? followup || prompt : prompt;
+        threadId = m.result.thread.id;
+        send("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }], effort: "low" }, 3);
+      } else if (m.id === 3) turnId = m.result.turn.id;
+      else if (p.threadId === threadId) {
+        if (m.method === "turn/started") turnId = p.turn.id;
+        if (m.method === "item/started" && p.item.type === "commandExecution") progress("Codex 正在运行命令…");
+        if (m.method === "item/started" && p.item.type === "fileChange") progress("Codex 正在修改文件…");
+        if (m.method === "item/completed" && p.item.type === "agentMessage") answer = p.item.text;
+        if (m.method === "thread/tokenUsage/updated") usage = p.tokenUsage.last;
+        if (m.method === "turn/completed") {
+          if (p.turn.status !== "completed") return finish(new Error(p.turn.error?.message || "Codex 没有完成这一轮"));
+          finish(null, { threadId, text: answer, usage: { input: usage.inputTokens || 0, output: usage.outputTokens || 0, cached: usage.cachedInputTokens || 0 } });
+        }
+      }
+    });
+    send("initialize", { clientInfo: { name: "qisuo", title: "栖所", version: "1" } }, 1);
+    if (signal.aborted) stop();
+  });
+}
+
 // 闲聊仍在空目录只回文字。她打开仓库后，同一轮 Codex 才有工作区和执行工具。
 let chatBusy = false;
-async function codexChat(req, res) {
+async function codexChat(req, res, CORS) {
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
@@ -423,8 +309,10 @@ async function codexChat(req, res) {
     if (size > 96_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
     chunks.push(chunk);
   }
-  const { prompt, workspace } = JSON.parse(Buffer.concat(chunks).toString());
+  const { prompt, workspace, thread, previous, followup } = JSON.parse(Buffer.concat(chunks).toString());
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 24_000) throw new Error("聊天内容为空或太长了");
+  if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread) || workspace && workspace.thread !== thread) throw new Error("聊天编号不对");
+  if (typeof followup !== "string" || followup.length > 12000) throw new Error("续聊内容太长");
   if (chatBusy) throw Object.assign(new Error("已有一条 Codex 聊天在回复"), { status: 429 });
   const home = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
   let screenshots;
@@ -447,30 +335,37 @@ async function codexChat(req, res) {
       `需要给对方发真实截图时，使用 Chromium，把 PNG 存到 ${photoFolder}/ 下（文件名只用英文字母、数字、短横线或下划线）。可用 chromium --headless --no-sandbox --disable-dev-shm-usage --window-size=390,844 --screenshot=${photoFolder}/preview.png http://127.0.0.1:端口 。用完停止预览服务。图片会随回复发送。`,
       prompt,
     ].join("\n\n") : prompt;
-    const { out, err, code } = await new Promise(resolve => {
-      const child = execFile(BIN, [
-        "exec", "--skip-git-repo-check", "--ephemeral", "--json",
-        ...(checkout ? chatWorkspaceConfig : ["--sandbox", "read-only", "--disable", "shell_tool"]),
-        "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
-        "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
-        "-c", 'approval_policy="never"', "-c", 'model_reasoning_effort="low"', "-",
-      ], { cwd, env, signal: ctrl.signal, timeout: checkout ? 600_000 : 120_000, maxBuffer: 4_000_000, killSignal: "SIGKILL" },
-      (error, out, err) => resolve({ code: error ? 1 : 0, out, err: err || error?.message }));
-      child.stdin.on("error", () => {});
-      child.stdin.end(agentPrompt);
-    });
-    if (ctrl.signal.aborted) return null;
-    const events = out.split("\n").flatMap(line => {
-      try { return [JSON.parse(line)]; } catch { return []; }
-    });
-    const text = events.filter(e => e.type === "item.completed" && e.item?.type === "agent_message").at(-1)?.item.text;
-    if (code || !text) {
-      const detail = scrub(err || events.find(e => e.type === "error")?.message || "没有收到回复").slice(-500);
-      throw new Error("Codex 聊天没有完成：" + detail);
-    }
-    const usage = events.findLast(e => e.type === "turn.completed")?.usage;
-    const images = chatScreenshots(screenshots);
-    return { text, ...(images.length ? { images } : {}), usage: { input: usage?.input_tokens || 0, output: usage?.output_tokens || 0, cached: usage?.cached_input_tokens || 0 } };
+    const stateDir = join(DATA, "codex-chat-sessions");
+    const scope = createHash("sha256").update(JSON.stringify([thread, checkout?.name || ""])).digest("hex");
+    const stateFile = join(stateDir, scope + ".json");
+    let session;
+    try { session = JSON.parse(readFileSync(stateFile, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
+    const threadId = previous && previous === session?.receipt ? session.threadId : undefined;
+    if (threadId) rmSync(stateFile, { force: true });
+    res.writeHead(200, { ...CORS, "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
+    const emit = event => { if (!res.destroyed) res.write(JSON.stringify(event) + "\n"); };
+    const progress = text => emit({ type: "progress", text });
+    const heartbeat = setInterval(() => emit({ type: "ping" }), 10000);
+    try {
+      progress(checkout ? "Codex 已打开仓库…" : "Codex 正在回复…");
+      const result = await runChatTurn({
+        cwd, env, signal: ctrl.signal, progress, threadId,
+        prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
+        timeout: checkout ? 600_000 : 120_000,
+        args: [
+          ...(checkout ? chatWorkspaceConfig : ["-c", 'sandbox_mode="read-only"', "--disable", "shell_tool"]),
+          "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
+          "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
+        ],
+      });
+      if (!result || ctrl.signal.aborted) return;
+      const receipt = randomUUID();
+      mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+      writeFileSync(stateFile + ".tmp", JSON.stringify({ receipt, threadId: result.threadId }), { mode: 0o600 });
+      renameSync(stateFile + ".tmp", stateFile);
+      emit({ type: "result", text: result.text, usage: result.usage, images: chatScreenshots(screenshots), receipt });
+    } catch (e) { emit({ type: "error", text: scrub(e.message).slice(-500) }); }
+    finally { clearInterval(heartbeat); if (!res.destroyed) res.end(); }
   } finally {
     res.off("close", stop);
     chatBusy = false;
@@ -488,9 +383,7 @@ export async function handleCodex(req, res, rest, CORS) {
       return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: current ? current.id : null, queued: queue.length });
     }
     if (rest === "/chat" && req.method === "POST") {
-      const reply = await codexChat(req, res);
-      if (reply) return send(200, reply);
-      return;
+      return await codexChat(req, res, CORS);
     }
     if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
     if (rest === "/job" && req.method === "POST") { const b = await body(); return send(200, await submit(b.text, b.repo, b.tavern)); }
