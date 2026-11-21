@@ -168,7 +168,7 @@ function chatScreenshots(dir) {
 }
 
 // 每轮拉起 App Server，续接它保存的线程，空闲时不常驻。
-function runChatTurn({ cwd, env, worker, prompt, followup, threadId, signal, progress, timeout }) {
+function runChatTurn({ cwd, env, worker, prompt, followup, attachments, fileText, threadId, signal, progress, timeout }) {
   return new Promise((resolve, reject) => {
     const child = worker ? null : spawn(BIN, ["app-server", "-c", 'sandbox_mode="read-only"', "--disable", "shell_tool", ...commonArgs], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     const socket = worker ? createConnection(worker.path) : null;
@@ -230,7 +230,10 @@ function runChatTurn({ cwd, env, worker, prompt, followup, threadId, signal, pro
       } else if (m.id === 2) {
         const text = threadId ? followup || prompt : prompt;
         threadId = m.result.thread.id;
-        send("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }], effort: "low" }, 3);
+        const input = [{ type: "text", text, text_elements: [] }];
+        if (fileText) input.push({ type: "text", text: fileText, text_elements: [] });
+        input.push(...attachments.map(url => ({ type: "image", url })));
+        send("turn/start", { threadId, input, effort: "low" }, 3);
       } else if (m.id === 3) turnId = m.result.turn.id;
       else if (p.threadId === threadId) {
         if (m.method === "turn/started") turnId = p.turn.id;
@@ -292,14 +295,20 @@ async function queueCodexChat(req) {
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 96_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
+    if (size > 8_600_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
     chunks.push(chunk);
   }
-  const { id, prompt, workspace, thread, previous, followup } = JSON.parse(Buffer.concat(chunks).toString());
+  const { id, prompt, workspace, thread, previous, followup, attachments = [], fileText = "" } = JSON.parse(Buffer.concat(chunks).toString());
   if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/.test(id)) throw new Error("任务编号不对");
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 24_000) throw new Error("聊天内容为空或太长了");
   if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread) || workspace && workspace.thread !== thread) throw new Error("聊天编号不对");
   if (typeof followup !== "string" || followup.length > 12000) throw new Error("续聊内容太长");
+  if (typeof fileText !== "string" || fileText.length > 60000) throw new Error("附件文字太长");
+  if (!Array.isArray(attachments) || attachments.length > 30
+    || attachments.some(url => typeof url !== "string" || !/^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/]+=*$/i.test(url))
+    || attachments.reduce((size, url) => size + url.length, 0) > 8_000_000) {
+    throw new Error("图片附件太多、太大或格式不支持");
+  }
   if (workspace && !process.env.CODEX_WORKER_SOCKET) throw Object.assign(new Error("栖所服务器还没有启动仓库执行容器"), { status: 503 });
   if (chatTasks.has(id)) {
     if (chatTasks.get(id).thread !== thread) throw new Error("任务编号已被另一条聊天使用");
@@ -310,7 +319,7 @@ async function queueCodexChat(req) {
   for (const [key, t] of finished) {
     if (Date.now() - t.finished > 21600000 || chatTasks.size >= 24) chatTasks.delete(key);
   }
-  const task = { id, prompt, workspace, thread, previous, followup, ctrl: new AbortController(), status: "queued", events: [] };
+  const task = { id, prompt, workspace, thread, previous, followup, attachments, fileText, ctrl: new AbortController(), status: "queued", events: [] };
   chatTasks.set(id, task);
   chatQueue.push(task);
   startNextChat();
@@ -318,7 +327,9 @@ async function queueCodexChat(req) {
 }
 
 async function runCodexChat(task) {
-  const { prompt, workspace, thread, previous, followup, ctrl } = task;
+  const { prompt, workspace, thread, previous, followup, attachments, fileText, ctrl } = task;
+  delete task.attachments;
+  delete task.fileText;
   const home = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
   let screenshots;
   const progress = (text, detail) => {
@@ -336,7 +347,7 @@ async function runCodexChat(task) {
     }
     const env = { PATH: process.env.PATH, CODEX_HOME, HOME: checkout ? cwd : home, TMPDIR: checkout ? screenshots : home };
     const agentPrompt = checkout ? [
-      `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。改动保留在当前聊天工作区，不能推送或部署。`,
+      `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。改动保留在当前聊天工作区，不能推送或部署。可以用 curl 查看公开 GitHub 链接；私有代码从当前授权的仓库副本读取。`,
       `需要给对方发真实截图时，使用 Chromium，把 PNG 存到 ${photoFolder}/ 下（文件名只用英文字母、数字、短横线或下划线）。可用 chromium --headless --no-sandbox --disable-dev-shm-usage --window-size=390,844 --screenshot=${photoFolder}/preview.png http://127.0.0.1:端口 。用完停止预览服务。图片会随回复发送。`,
       prompt,
     ].join("\n\n") : prompt;
@@ -349,7 +360,7 @@ async function runCodexChat(task) {
     if (threadId) rmSync(stateFile, { force: true });
     progress(checkout ? "Codex 已打开仓库…" : "Codex 正在回复…");
     const result = await runChatTurn({
-      cwd, env, signal: ctrl.signal, progress, threadId,
+      cwd, env, attachments, fileText, signal: ctrl.signal, progress, threadId,
       prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
       timeout: checkout ? 600_000 : 120_000,
       worker: checkout ? { path: process.env.CODEX_WORKER_SOCKET, shots: photoFolder } : null,

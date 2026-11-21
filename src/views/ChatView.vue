@@ -313,9 +313,10 @@ async function send(reply = true) {
   if (busy.value && !following[threadId.value] && !enqueue) return; // 他在续发的时候可以插话
   const text = draft.value.trim();
   if (enqueue) {
-    if (!text || attachments.value.length) return toast("Codex 排队暂时只支持文字");
+    if (!text && !attachments.value.length) return;
     if ((thread.value.codexQueue?.length || 0) >= 8) return toast("这条聊天的 Codex 队列已满");
-    (thread.value.codexQueue ??= []).push({ text, quote: quoting.value });
+    (thread.value.codexQueue ??= []).push({ text, attachments: attachments.value, quote: quoting.value });
+    attachments.value = [];
     draft.value = "";
     quoting.value = null;
     nextTick(autoGrow);

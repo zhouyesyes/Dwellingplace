@@ -17,7 +17,7 @@ export const workspaceArgs = [
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
-  'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","127.0.0.1"="allow","localhost"="allow"}',
+  'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","github.com"="allow","api.github.com"="allow","raw.githubusercontent.com"="allow","127.0.0.1"="allow","localhost"="allow"}',
 ].flatMap(value => ["-c", value]);
 
 export const commonArgs = [

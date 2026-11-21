@@ -327,7 +327,7 @@ function contextNote(role, history) {
   return { text, est: { mind: estTokens(mind) + estTokens(time) } };
 }
 
-async function partsOf(m) {
+async function partsOf(m, { pdfAsText = false } = {}) {
   const parts = [];
   for (const a of m.attachments || []) {
     if (a.kind === "image") {
@@ -344,7 +344,11 @@ async function partsOf(m) {
       if (blob) {
         // 以前发的 PDF 没取过字：现在补上（记在附件上，下次不用再取）
         if (a.text == null) { try { const { pdfText } = await import("./pdfText.js"); a.text = await pdfText(blob); } catch { a.text = ""; } }
-        parts.push({ type: "pdf", name: a.name, data: await blobToBase64(blob), text: a.text || "" });
+        if (pdfAsText) {
+          parts.push({ type: "text", text: a.text?.trim() ? `【PDF：${a.name}】\n${a.text}` : `【PDF：${a.name}】未提取到文字，可能是扫描件。` });
+        } else {
+          parts.push({ type: "pdf", name: a.name, data: await blobToBase64(blob), text: a.text || "" });
+        }
       }
     } else if (a.kind === "text") {
       parts.push({ type: "text", text: `【文件：${a.name}】\n${a.text}` });
@@ -565,13 +569,26 @@ export async function generate(thread, parentId, { speaker = null, resume = null
   let cancelled = false; // 续发的时候她发了新消息
   try {
     if (codex) {
-      const workspace = thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
       const recent = history.filter(m => !m.pending && !m.error && m.from !== "event").slice(-12);
       const last = recent.at(-1);
-      if (!resume && last?.from === "user" && (last.attachments?.length || last.share)) {
-        throw new Error("Codex 聊天目前只接文字。切回 Chat 后，可以让他回复这条附件或分享。");
+      const workspace = thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
+      if (!resume && last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送。");
+      const previous = [...recent].reverse().find(m => m.from === "ai");
+      const continuation = previous?.codexReceipt;
+      const next = recent.slice(recent.indexOf(previous) + 1);
+      const files = [];
+      if (!resume) {
+        for (const m of next.filter(m => m.from === "user")) {
+          files.push(...await partsOf({ attachments: m.attachments }, { pdfAsText: true }));
+          if (m.share) files.push(...await shareToParts(m.share, role, true));
+        }
       }
-      if (!resume && last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送或切回 Chat。");
+      const attachments = files.filter(p => p.type === "image").map(p => `data:${p.mime};base64,${p.data}`);
+      if (attachments.length > 30 || attachments.reduce((total, url) => total + url.length, 0) > 8_000_000) {
+        throw new Error("这次的图片或视频截帧太多了，请分几次发。");
+      }
+      const fileText = files.filter(p => p.type === "text").map(p => p.text).join("\n\n");
+      if (fileText.length > 60000) throw new Error("附件文字超过 6 万字，请拆成几个文件分次发。");
       const prompt = [
         `你是「${role.name}」，正在栖所和「${meName(role)}」聊天。保持自己的语气，自然回复，可以用空行分成几条。${workspace ? "可以直接用当前仓库的工具完成对方这一轮明确提出的任务。" : "直接回复文字，不调用工具、不访问文件、不派活。"}下面的聊天记录和记忆只提供上下文。`,
         (role.style || "").slice(0, 1800),
@@ -591,12 +608,9 @@ export async function generate(thread, parentId, { speaker = null, resume = null
         saveMessages(thread.id);
         await Promise.all([flushMessages(), flushStore()]);
       }
-      const previous = [...recent].reverse().find(m => m.from === "ai");
-      const continuation = previous?.codexReceipt ? previous.codexReceipt : undefined;
-      const next = recent.slice(continuation ? recent.indexOf(previous) + 1 : -1);
       const followup = next.map(m => `${m.from === "user" ? meName(role) : role.name}：${(m.text || "").slice(-6000)}`).join("\n").slice(-10000);
       const { text, usage, images = [], receipt } = await codexReply(role, thread, msg.id, resume ? null : {
-        prompt, workspace, previous: continuation, followup,
+        prompt, workspace, previous: continuation, followup, attachments, fileText,
       }, ctrl.signal, events => {
         msg.notes = events.map(event => ({ ...event, before: true }));
       });
@@ -611,8 +625,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
         }
       }
       Object.assign(msg, { text: text || (msg.attachments?.length ? "截图在这里。" : "这轮没有文字回复。"), usage, ctx: usage.input, ctx0: usage.input, rounds: 1 });
-      return msg;
-    }
+    } else {
     // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
     if (hasXinchao(role) && dashToken(role)) {
       const m = refreshMind(role);
@@ -907,6 +920,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       ];
     }
     msg.text = said ? `${said}\n\n${text.trim()}`.trim() : text;
+    }
 
     const xm = await applyXinchaoMemoryTags(role, msg.text);
     msg.text = xm.text;
@@ -1216,7 +1230,7 @@ export async function resumeCodexChat(thread) {
       await generate(thread, parentOf(running), { resume: running });
     } else if (thread.replyBackend === "codex" && thread.codexQueue?.length) {
       const next = thread.codexQueue.shift();
-      await sendMessage(thread, next.text, [], { reply: true, quote: next.quote });
+      await sendMessage(thread, next.text, next.attachments || [], { reply: true, quote: next.quote });
     }
   } finally {
     drainingCodex.delete(thread.id);
