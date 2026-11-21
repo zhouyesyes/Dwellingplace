@@ -167,15 +167,12 @@ function chatScreenshots(dir) {
 const chatWorkspaceConfig = [
   'default_permissions="qisuo_chat"',
   'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem.":root"="deny"',
-  'permissions.qisuo_chat.filesystem.":minimal"="read"',
-  'permissions.qisuo_chat.filesystem.":slash_tmp"="deny"',
+  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny"}',
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
-  'permissions.qisuo_chat.network.domains."registry.npmjs.org"="allow"',
-  'permissions.qisuo_chat.network.domains."127.0.0.1"="allow"',
-  'permissions.qisuo_chat.network.domains."localhost"="allow"',
+  // 带点的主机名作为 TOML 表里的完整键传递，避免 CLI 按点拆成层级。
+  'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","127.0.0.1"="allow","localhost"="allow"}',
 ].flatMap(value => ["-c", value]);
 
 // 每轮拉起 App Server，续接它保存的线程，空闲时不常驻。
