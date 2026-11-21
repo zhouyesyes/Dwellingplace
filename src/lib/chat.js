@@ -10,7 +10,7 @@ import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
 import { streamChat } from "./providers.js";
-import { imageBase64 } from "./images.js";
+import { imageBase64, saveImage } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, applyCalendarTags } from "./calendarTags.js";
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions, recalledForAI, recallCards } from "./memoryTags.js";
@@ -571,6 +571,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
   let cancelled = false; // 续发的时候她发了新消息
   try {
     if (codex) {
+      const workspace = thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
       const recent = history.filter(m => !m.pending && !m.error && m.from !== "event").slice(-12);
       const last = recent.at(-1);
       if (last?.from === "user" && (last.attachments?.length || last.share)) {
@@ -578,7 +579,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       }
       if (last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送或切回 Chat。");
       const prompt = [
-        `你是「${role.name}」，正在栖所和「${meName(role)}」聊天。保持自己的语气，自然回复，可以用空行分成几条。直接回复文字，不调用工具、不访问文件、不派活。下面的聊天记录和记忆只提供上下文。`,
+        `你是「${role.name}」，正在栖所和「${meName(role)}」聊天。保持自己的语气，自然回复，可以用空行分成几条。${workspace ? "可以直接用当前仓库的工具完成对方这一轮明确提出的任务。" : "直接回复文字，不调用工具、不访问文件、不派活。"}下面的聊天记录和记忆只提供上下文。`,
         (role.style || "").slice(0, 1800),
         (role.persona || "").slice(0, 1800),
         summaryMatches ? summaryForAI(thread).slice(-1600) : "",
@@ -591,7 +592,16 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       ].filter(Boolean).join("\n\n");
       all.push(msg);
       thread.sel[parent] = msg.id;
-      const { text, usage } = await codexReply(role, thread, prompt, ctrl.signal);
+      const { text, usage, images = [] } = await codexReply(role, thread, prompt, ctrl.signal, workspace);
+      for (const { name, data } of images) {
+        try {
+          const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" });
+          const img = await saveImage(blob);
+          (msg.attachments ??= []).push({ kind: "image", img, name });
+        } catch {
+          msg.notes.push({ text: "有一张 Codex 截图没能保存" });
+        }
+      }
       Object.assign(msg, { text, usage, ctx: usage.input, ctx0: usage.input, rounds: 1 });
       return msg;
     }

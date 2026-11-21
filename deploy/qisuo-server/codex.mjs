@@ -9,10 +9,10 @@
 //   POST /job {text}    派一件活 → { id, status, position }
 //   GET  /job/<id>      这件活做到哪了（排队 / 开工 / 完成 / 没做成 / 没动）、最后的报告
 import { spawn, execFile } from "node:child_process";
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync, mkdtempSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync, mkdtempSync, lstatSync, readdirSync, openSync, fstatSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { bookAppend, bookCopyTo, bookReady, bookSecrets } from "./claude.mjs";
 import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
 import { TAVERN_REPO, cleanTavern, runTavernJob, tavernStatus, tavernTest } from "./tavern.mjs";
@@ -359,7 +359,61 @@ async function getLimits() {
   return (limitsBusy ??= refreshLimits().finally(() => { limitsBusy = null; }));
 }
 
-// 聊天在空目录运行，派活的仓库和 GitHub 凭据不交给这次进程。
+// 工作区按对话和仓库分开。只在首次打开时克隆，后续保留这条对话的改动。
+async function chatCheckout(thread, wanted) {
+  if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread)) throw new Error("聊天工作区编号不对");
+  if (typeof wanted !== "string" || wanted.length > 200) throw new Error("仓库名不对");
+  const direct = [GH_REPO, GH_REPO.split("/")[1], "栖所"].some(name => name.toLowerCase() === wanted.trim().toLowerCase());
+  const target = await resolveRepo(direct ? "" : wanted);
+  const root = join(DATA, "codex-chat-work", thread);
+  const cwd = join(root, createHash("sha256").update(target.full).digest("hex"));
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  if (!existsSync(cwd)) {
+    const staging = mkdtempSync(join(root, "clone-"));
+    try {
+      const args = GH_TOKEN ? ["-c", `http.https://github.com/.extraheader=${authHeader()}`] : [];
+      await sh(staging, [...args, "clone", "-q", "--depth", "1", "--branch", target.branch, "--", repoUrl(target.full), "repo"], gitEnv);
+      renameSync(join(staging, "repo"), cwd);
+    } finally { rmSync(staging, { recursive: true, force: true }); }
+  }
+  if (!lstatSync(cwd).isDirectory()) throw new Error("聊天工作区无法打开");
+  return { cwd, name: target.full };
+}
+
+// 截图只从这轮的目录取，只认小尺寸 PNG。拒绝软链接、硬链接和非普通文件。
+function chatScreenshots(dir) {
+  if (!dir || !existsSync(dir) || !lstatSync(dir).isDirectory()) return [];
+  const images = [];
+  for (const name of readdirSync(dir).filter(n => /^[a-zA-Z0-9_-]{1,80}\.png$/.test(n)).slice(0, 4)) {
+    let fd;
+    try {
+      fd = openSync(join(dir, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2_000_000) continue;
+      const data = readFileSync(fd);
+      if (!data.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))) continue;
+      images.push({ name, data: data.toString("base64") });
+    } catch { /* 这张图没写好或已经删掉 */ }
+    finally { if (fd !== undefined) closeSync(fd); }
+  }
+  return images;
+}
+
+const chatWorkspaceConfig = [
+  'default_permissions="qisuo_chat"',
+  'permissions.qisuo_chat.extends=":workspace"',
+  'permissions.qisuo_chat.filesystem.":root"="deny"',
+  'permissions.qisuo_chat.filesystem.":minimal"="read"',
+  'permissions.qisuo_chat.filesystem.":slash_tmp"="deny"',
+  'features.network_proxy=true',
+  'permissions.qisuo_chat.network.enabled=true',
+  'permissions.qisuo_chat.network.allow_upstream_proxy=false',
+  'permissions.qisuo_chat.network.domains."registry.npmjs.org"="allow"',
+  'permissions.qisuo_chat.network.domains."127.0.0.1"="allow"',
+  'permissions.qisuo_chat.network.domains."localhost"="allow"',
+].flatMap(value => ["-c", value]);
+
+// 闲聊仍在空目录只回文字。她打开仓库后，同一轮 Codex 才有工作区和执行工具。
 let chatBusy = false;
 async function codexChat(req, res) {
   let size = 0;
@@ -369,26 +423,41 @@ async function codexChat(req, res) {
     if (size > 96_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
     chunks.push(chunk);
   }
-  const { prompt } = JSON.parse(Buffer.concat(chunks).toString());
+  const { prompt, workspace } = JSON.parse(Buffer.concat(chunks).toString());
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 24_000) throw new Error("聊天内容为空或太长了");
   if (chatBusy) throw Object.assign(new Error("已有一条 Codex 聊天在回复"), { status: 429 });
-  const cwd = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
+  const home = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
+  let screenshots;
   chatBusy = true;
   const ctrl = new AbortController();
   const stop = () => ctrl.abort();
   res.once("close", stop);
   try {
-    const env = { PATH: process.env.PATH, CODEX_HOME, HOME: cwd };
+    const checkout = workspace ? await chatCheckout(workspace.thread, workspace.repo) : null;
+    if (ctrl.signal.aborted) return null;
+    const cwd = checkout?.cwd || home;
+    const photoFolder = checkout ? `qisuo-shots-${randomUUID()}` : "";
+    if (checkout) {
+      screenshots = join(cwd, photoFolder);
+      mkdirSync(screenshots, { mode: 0o700 });
+    }
+    const env = { PATH: process.env.PATH, CODEX_HOME, HOME: checkout ? cwd : home, TMPDIR: checkout ? screenshots : home };
+    const agentPrompt = checkout ? [
+      `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。改动保留在当前聊天工作区，不能推送或部署。`,
+      `需要给对方发真实截图时，使用 Chromium，把 PNG 存到 ${photoFolder}/ 下（文件名只用英文字母、数字、短横线或下划线）。可用 chromium --headless --no-sandbox --disable-dev-shm-usage --window-size=390,844 --screenshot=${photoFolder}/preview.png http://127.0.0.1:端口 。用完停止预览服务。图片会随回复发送。`,
+      prompt,
+    ].join("\n\n") : prompt;
     const { out, err, code } = await new Promise(resolve => {
       const child = execFile(BIN, [
-        "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--json",
-        "--disable", "shell_tool", "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
+        "exec", "--skip-git-repo-check", "--ephemeral", "--json",
+        ...(checkout ? chatWorkspaceConfig : ["--sandbox", "read-only", "--disable", "shell_tool"]),
+        "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
         "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
         "-c", 'approval_policy="never"', "-c", 'model_reasoning_effort="low"', "-",
-      ], { cwd, env, signal: ctrl.signal, timeout: 120_000, maxBuffer: 2_000_000, killSignal: "SIGKILL" },
+      ], { cwd, env, signal: ctrl.signal, timeout: checkout ? 600_000 : 120_000, maxBuffer: 4_000_000, killSignal: "SIGKILL" },
       (error, out, err) => resolve({ code: error ? 1 : 0, out, err: err || error?.message }));
       child.stdin.on("error", () => {});
-      child.stdin.end(prompt);
+      child.stdin.end(agentPrompt);
     });
     if (ctrl.signal.aborted) return null;
     const events = out.split("\n").flatMap(line => {
@@ -400,11 +469,13 @@ async function codexChat(req, res) {
       throw new Error("Codex 聊天没有完成：" + detail);
     }
     const usage = events.findLast(e => e.type === "turn.completed")?.usage;
-    return { text, usage: { input: usage?.input_tokens || 0, output: usage?.output_tokens || 0, cached: usage?.cached_input_tokens || 0 } };
+    const images = chatScreenshots(screenshots);
+    return { text, ...(images.length ? { images } : {}), usage: { input: usage?.input_tokens || 0, output: usage?.output_tokens || 0, cached: usage?.cached_input_tokens || 0 } };
   } finally {
     res.off("close", stop);
     chatBusy = false;
-    rmSync(cwd, { recursive: true, force: true });
+    if (screenshots) rmSync(screenshots, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
   }
 }
 

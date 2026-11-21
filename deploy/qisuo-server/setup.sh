@@ -104,7 +104,7 @@ FROM node:22-slim
 WORKDIR /app
 # 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）；git 给小螃蟹拉对话本用
 # openssh-client：「酒馆服务器上的 CC」用它连酒馆那台
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client bubblewrap chromium && rm -rf /var/lib/apt/lists/*
 # CLAUDE_WEEK 每周变一次：每周顺带更新一次小螃蟹，其余时候直接用缓存
 ARG CLAUDE_WEEK=0
 RUN echo "第 $CLAUDE_WEEK 周" && npm install -g @anthropic-ai/claude-code --no-audit --no-fund && npm cache clean --force && rm -rf /root/.npm

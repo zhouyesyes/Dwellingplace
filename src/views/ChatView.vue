@@ -937,6 +937,12 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
             <option value="codex">Codex</option>
           </select>
         </label>
+        <template v-if="role.id === MAIN && thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
+          <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
+            {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
+          </button>
+          <input v-if="thread.codexWorkspace" v-model.trim="thread.codexRepo" class="ctx codex-repo" aria-label="Codex 仓库" placeholder="栖所（默认）" maxlength="200" :disabled="busy" />
+        </template>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
       <div v-if="recording" class="rec-bar">
@@ -1241,12 +1247,14 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
   max-height: 45vh;
   overflow-y: auto;
 }
-.ctx { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; font-size: 0.7rem; color: var(--text-2); }
+.ctx { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 4px; font-size: 0.7rem; color: var(--text-2); }
 .bar { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .bar b { display: block; height: 100%; background: #9cc5a1; border-radius: 2px; }
 .ctx.mid .bar b, .bar.mid b { background: #f0c36a; }
 .ctx.high .bar b, .bar.high b { background: var(--danger); }
 .ctx.high { color: var(--danger); }
+.codex-workspace { white-space: nowrap; }
+.codex-repo { width: 94px; max-width: 100%; min-width: 0; background: var(--bg); border-radius: 8px; }
 .expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
 /* 细细的一条；换行后每一行各自是一条两端圆角的细条 */
 .event { padding: 0 6%; line-height: 2.1; overflow-wrap: anywhere; min-width: 0; }
