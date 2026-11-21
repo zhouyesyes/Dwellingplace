@@ -272,11 +272,46 @@ else
   echo "  小章鱼的 Codex 还没登录（或登录不通）：$(printf '%s' "$CODEX_TRY" | tail -n 1 | cut -c1-120)"
 fi
 
+# 仓库执行单独隔离。先验证 Bubblewrap，再替换主容器。
+say "检查 Codex 仓库执行环境…"
+WORKER_SECURITY=(--security-opt seccomp=unconfined --security-opt no-new-privileges)
+if [ -r /sys/module/apparmor/parameters/enabled ] && grep -q '^Y' /sys/module/apparmor/parameters/enabled; then
+  need apparmor_parser
+  # Ubuntu 的 unprivileged_userns 规则需要一个显式声明 userns 的专用 profile。
+  printf '%s\n' 'profile qisuo-codex-worker flags=(unconfined) { userns, }' | $SUDO tee /etc/apparmor.d/qisuo-codex-worker >/dev/null
+  $SUDO apparmor_parser -r /etc/apparmor.d/qisuo-codex-worker
+  WORKER_SECURITY+=(--security-opt apparmor=qisuo-codex-worker)
+fi
+if ! $SUDO docker run --rm --network none "${WORKER_SECURITY[@]}" --entrypoint bwrap qisuo-server \
+  --unshare-user --unshare-pid --unshare-net --ro-bind / / --proc /proc --dev /dev -- /bin/true; then
+  say "Codex 仓库执行环境没通过隔离测试，栖所主容器还在运行。请把这段报错发来。"
+  exit 1
+fi
+
+if [ ! -e "$DIR/codex-workspaces" ] && [ -d "$DIR/data/codex-chat-work" ]; then
+  cp -a "$DIR/data/codex-chat-work" "$DIR/codex-workspaces"
+fi
+mkdir -p "$DIR/codex-workspaces" "$DIR/codex-worker-ipc"
+chmod 700 "$DIR/codex-workspaces" "$DIR/codex-worker-ipc"
+$SUDO docker rm -f qisuo-codex-worker >/dev/null 2>&1 || true
+rm -f "$DIR/codex-worker-ipc/codex.sock"
+$SUDO docker run -d --name qisuo-codex-worker --restart unless-stopped --init \
+  "${WORKER_SECURITY[@]}" --pids-limit 384 --shm-size 256m \
+  -e QISUO_CODEX_WORKER=1 -v "$DIR/codex-workspaces:/codex-workspaces" \
+  -v "$DIR/codex-worker-ipc:/codex-worker-ipc" -v "$DIR/codex-home:/codex-home" \
+  qisuo-server node /app/codex-worker.mjs >/dev/null
+for _ in $(seq 1 20); do
+  [ ! -S "$DIR/codex-worker-ipc/codex.sock" ] || break
+  sleep 1
+done
+[ -S "$DIR/codex-worker-ipc/codex.sock" ] || { say "仓库执行容器没启动，栖所主容器还在运行"; $SUDO docker logs --tail 20 qisuo-codex-worker; exit 1; }
+
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker network rm codex-int >/dev/null 2>&1 || true # 旧的栖所服务器也连着它，拿掉服务器以后才删得掉
 # shellcheck disable=SC2086
 $SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
+  -e CODEX_WORKER_SOCKET=/codex-worker-ipc/codex.sock -v "$DIR/codex-worker-ipc:/codex-worker-ipc:ro" -v "$DIR/codex-workspaces:/codex-workspaces" \
   -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV $CODEX_ENV -v "$DIR/data:/app/data" -v "$DIR/codex-home:/codex-home" qisuo-server >/dev/null
 
 ok=""

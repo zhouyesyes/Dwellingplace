@@ -2,6 +2,8 @@
 import { spawn, execFile } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, renameSync, mkdtempSync, lstatSync, readdirSync, openSync, fstatSync, closeSync, constants } from "node:fs";
 import { join } from "node:path";
+import { createConnection } from "node:net";
+import { commonArgs, WORK_ROOT } from "./codex-worker.mjs";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
@@ -10,6 +12,7 @@ import { DEFAULT_REPO, listRepos, setRepo, resolveRepo } from "./repos.mjs";
 
 const BIN = process.env.CODEX_BIN || "codex";
 const DATA = process.env.DATA_DIR || "/app/data";
+const CHAT_WORK_ROOT = process.env.CODEX_WORK_ROOT || WORK_ROOT;
 const CODEX_HOME = process.env.CODEX_HOME || "/codex-home";
 const GH_TOKEN = process.env.CODEX_GITHUB_TOKEN || "";
 const GH_REPO = DEFAULT_REPO; // 默认仓库：栖所；别的仓库由派活指定（见 repos.mjs）
@@ -130,7 +133,7 @@ async function chatCheckout(thread, wanted) {
   if (typeof wanted !== "string" || wanted.length > 200) throw new Error("仓库名不对");
   const direct = [GH_REPO, GH_REPO.split("/")[1], "栖所"].some(name => name.toLowerCase() === wanted.trim().toLowerCase());
   const target = await resolveRepo(direct ? "" : wanted);
-  const root = join(DATA, "codex-chat-work", thread);
+  const root = join(CHAT_WORK_ROOT, thread);
   const cwd = join(root, createHash("sha256").update(target.full).digest("hex"));
   mkdirSync(root, { recursive: true, mode: 0o700 });
   if (!existsSync(cwd)) {
@@ -164,24 +167,16 @@ function chatScreenshots(dir) {
   return images;
 }
 
-const chatWorkspaceConfig = [
-  'default_permissions="qisuo_chat"',
-  'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny"}',
-  'features.network_proxy=true',
-  'permissions.qisuo_chat.network.enabled=true',
-  'permissions.qisuo_chat.network.allow_upstream_proxy=false',
-  // 带点的主机名作为 TOML 表里的完整键传递，避免 CLI 按点拆成层级。
-  'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","127.0.0.1"="allow","localhost"="allow"}',
-].flatMap(value => ["-c", value]);
-
 // 每轮拉起 App Server，续接它保存的线程，空闲时不常驻。
-function runChatTurn({ cwd, env, args, prompt, followup, threadId, signal, progress, timeout }) {
+function runChatTurn({ cwd, env, worker, prompt, followup, threadId, signal, progress, timeout }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(BIN, ["app-server", ...args], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-    const lines = createInterface({ input: child.stdout });
+    const child = worker ? null : spawn(BIN, ["app-server", "-c", 'sandbox_mode="read-only"', "--disable", "shell_tool", ...commonArgs], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const socket = worker ? createConnection(worker.path) : null;
+    const input = socket || child.stdin;
+    const transport = socket || child;
+    const lines = createInterface({ input: socket || child.stdout });
     let turnId, answer = "", usage = {}, stderr = "", done = false, stopping = false;
-    const send = (method, params, id) => child.stdin.write(JSON.stringify({ method, params, id }) + "\n");
+    const send = (method, params, id) => input.write(JSON.stringify({ method, params, id }) + "\n");
     const finish = (error, value) => {
       if (done) return;
       done = true;
@@ -189,10 +184,13 @@ function runChatTurn({ cwd, env, args, prompt, followup, threadId, signal, progr
       clearTimeout(stopTimer);
       signal.removeEventListener("abort", stop);
       lines.close();
-      child.kill("SIGTERM");
-      const kill = setTimeout(() => child.kill("SIGKILL"), 2000);
-      kill.unref();
-      child.once("close", () => clearTimeout(kill));
+      if (socket) socket.destroy();
+      if (child) {
+        child.kill("SIGTERM");
+        const kill = setTimeout(() => child.kill("SIGKILL"), 2000);
+        kill.unref();
+        child.once("close", () => clearTimeout(kill));
+      }
       if (error) reject(error); else resolve(value);
     };
     let stopTimer;
@@ -203,18 +201,21 @@ function runChatTurn({ cwd, env, args, prompt, followup, threadId, signal, progr
       stopTimer = setTimeout(() => finish(null, null), 1500);
     };
     const timer = setTimeout(() => finish(new Error("Codex 等待超时")), timeout);
-    child.stdin.on("error", e => finish(stopping ? null : e, null));
-    child.stderr.on("data", d => { stderr = (stderr + d).slice(-500); });
-    child.on("error", e => finish(stopping ? null : e, null));
-    child.on("close", () => finish(stopping ? null : new Error(stderr || "Codex App Server 提前退出"), null));
+    if (child) {
+      input.on("error", e => finish(stopping ? null : e, null));
+      child.stderr.on("data", d => { stderr = (stderr + d).slice(-500); });
+    }
+    transport.on("error", e => finish(stopping ? null : worker ? new Error("仓库执行容器连不上：" + e.code) : e, null));
+    transport.on("close", () => finish(stopping ? null : new Error(stderr || "Codex App Server 提前退出"), null));
     signal.addEventListener("abort", stop, { once: true });
     lines.on("line", line => {
       let m;
       try { m = JSON.parse(line); } catch { return; }
       const p = m.params || {};
+      if (m.method === "qisuo/workerError") return finish(new Error(p.message), null);
       if (m.method && m.id !== undefined) {
         // 此入口按工作区权限运行，不交互批准额外权限。
-        child.stdin.write(JSON.stringify({ id: m.id, error: { code: -32601, message: "Approval unavailable" } }) + "\n");
+        input.write(JSON.stringify({ id: m.id, error: { code: -32601, message: "Approval unavailable" } }) + "\n");
         return;
       }
       if (stopping && m.method === "turn/completed") return finish(null, null);
@@ -243,6 +244,7 @@ function runChatTurn({ cwd, env, args, prompt, followup, threadId, signal, progr
         }
       }
     });
+    if (worker) input.write(JSON.stringify({ workspace: cwd.slice(CHAT_WORK_ROOT.length + 1), shots: worker.shots }) + "\n");
     send("initialize", { clientInfo: { name: "qisuo", title: "栖所", version: "1" } }, 1);
     if (signal.aborted) stop();
   });
@@ -262,6 +264,7 @@ async function codexChat(req, res, CORS) {
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 24_000) throw new Error("聊天内容为空或太长了");
   if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread) || workspace && workspace.thread !== thread) throw new Error("聊天编号不对");
   if (typeof followup !== "string" || followup.length > 12000) throw new Error("续聊内容太长");
+  if (workspace && !process.env.CODEX_WORKER_SOCKET) throw Object.assign(new Error("栖所服务器还没有启动仓库执行容器"), { status: 503 });
   if (chatBusy) throw Object.assign(new Error("已有一条 Codex 聊天在回复"), { status: 429 });
   const home = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
   let screenshots;
@@ -301,11 +304,7 @@ async function codexChat(req, res, CORS) {
         cwd, env, signal: ctrl.signal, progress, threadId,
         prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
         timeout: checkout ? 600_000 : 120_000,
-        args: [
-          ...(checkout ? chatWorkspaceConfig : ["-c", 'sandbox_mode="read-only"', "--disable", "shell_tool"]),
-          "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
-          "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
-        ],
+        worker: checkout ? { path: process.env.CODEX_WORKER_SOCKET, shots: photoFolder } : null,
       });
       if (!result || ctrl.signal.aborted) return;
       const receipt = randomUUID();
