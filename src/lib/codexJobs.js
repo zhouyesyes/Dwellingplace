@@ -16,34 +16,39 @@ export function codexBase(role, thread) {
 export const jobState = reactive({});
 const END = ["done", "failed", "blocked"];
 
-export async function codexReply(role, thread, input, signal, onProgress) {
+export async function codexReply(role, thread, id, input, signal, onProgress) {
   const base = codexBase(role, thread);
   if (!base) throw new Error("找不到栖所服务器的地址");
-  const res = await fetch(base + "/chat", {
+  const url = base + "/chat/" + id;
+  const read = async res => {
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(body.error?.message || `Codex 聊天接口返回 ${res.status}`), { status: res.status });
+    return body;
+  };
+  if (input) await read(await fetch(base + "/chat", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...input, thread: thread.id }), signal,
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.error?.message || `Codex 聊天接口返回 ${res.status}`);
-  }
-  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-  let pending = "";
+    body: JSON.stringify({ ...input, id, thread: thread.id }),
+  }));
+  const cancel = () => { fetch(url, { method: "DELETE", keepalive: true }).catch(() => {}); };
+  signal.addEventListener("abort", cancel, { once: true });
   try {
+    if (signal.aborted) cancel();
     for (;;) {
-      const { value, done } = await reader.read();
-      if (done) throw new Error("Codex 没有返回聊天回复");
-      pending += value;
-      const lines = pending.split("\n");
-      pending = lines.pop();
-      for (const line of lines) {
-        const event = JSON.parse(line);
-        if (event.type === "progress") onProgress(event.text);
-        if (event.type === "error") throw new Error(event.text);
-        if (event.type === "result") return event;
+      signal.throwIfAborted();
+      let state;
+      try { state = await read(await fetch(url, { signal, cache: "no-store" })); }
+      catch (e) {
+        if (signal.aborted || e.status && e.status < 500) throw e;
+        onProgress([{ text: "连接中断，正在重连 Codex…" }]);
       }
+      if (state) {
+        onProgress(state.position ? [{ text: `Codex 排队中（前面还有 ${state.position - 1} 条等待）` }] : state.events || []);
+        if (state.final?.type === "error") throw new Error(state.final.text);
+        if (state.final?.type === "result") return state.final;
+      }
+      await new Promise(resolve => setTimeout(resolve, state ? 1200 : 2500));
     }
-  } finally { await reader.cancel().catch(() => {}); }
+  } finally { signal.removeEventListener("abort", cancel); }
 }
 
 // 报告接在那条聊天后面（消息 id 固定，几台设备都取到也只会有一条）

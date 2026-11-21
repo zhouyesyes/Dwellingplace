@@ -6,7 +6,7 @@ import { studioApi } from "./studio.js";
 import { codexBase, codexReply } from "./codexJobs.js";
 import { otherRepoNames, splitRepo } from "./repos.js";
 import { WHERE } from "./crabBook.js";
-import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
+import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, flushMessages, flushStore, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
 import { streamChat } from "./providers.js";
 import { imageBase64, saveImage } from "./images.js";
@@ -531,13 +531,14 @@ const sleep = (ms, signal) => new Promise(r => {
 });
 
 // speaker：群聊里这一条由谁来说（群聊的 generate 不带 speaker 就是开一整轮，见 groupChat.js）。返回这一条回复
-export async function generate(thread, parentId, { speaker = null } = {}) {
+export async function generate(thread, parentId, { speaker = null, resume = null } = {}) {
   if (thread.group && !speaker) return runGroupRound(thread, parentId);
   if (generating[thread.id]) return;
   const group = !!thread.group;
   const role = group ? speaker : roleById(thread.roleId);
   if (!role) return;
   const all = await loadMessages(thread.id);
+  if (generating[thread.id]) return;
   thread.sel ??= {};
   let history = pathOf(thread, all);
   if (parentId !== undefined) {
@@ -548,13 +549,13 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
   const summaryMatches = !thread.summary?.upTo || history.some(m => m.id === thread.summary.upTo);
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
   if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
-  const codex = role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "codex";
+  const codex = !!resume || role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "codex";
   const api = codex ? null : apiFor(thread, role);
   const model = codex ? "Codex" : modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
-  const msg = reactive({ id: uid(), parentId: parent, from: "ai", ...(group ? { who: role.id } : {}), text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 }, rounds: 0, sends: 0 });
+  const msg = resume || reactive({ id: uid(), parentId: parent, from: "ai", ...(group ? { who: role.id } : {}), text: "", thinking: "", notes: [], ts: Date.now(), pending: true, apiId: api?.id ?? null, model, usage: { input: 0, output: 0 }, rounds: 0, sends: 0 });
   // 续发：信箱里不用；上下文太长、会员额度快用完、上一条出错了，这次就一次回完（不多花请求）
   const lastAi = [...history].reverse().find(m => m.from === "ai");
   const noFollow = thread.mail || group ? "mail"
@@ -567,10 +568,10 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
       const workspace = thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
       const recent = history.filter(m => !m.pending && !m.error && m.from !== "event").slice(-12);
       const last = recent.at(-1);
-      if (last?.from === "user" && (last.attachments?.length || last.share)) {
+      if (!resume && last?.from === "user" && (last.attachments?.length || last.share)) {
         throw new Error("Codex 聊天目前只接文字。切回 Chat 后，可以让他回复这条附件或分享。");
       }
-      if (last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送或切回 Chat。");
+      if (!resume && last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送或切回 Chat。");
       const prompt = [
         `你是「${role.name}」，正在栖所和「${meName(role)}」聊天。保持自己的语气，自然回复，可以用空行分成几条。${workspace ? "可以直接用当前仓库的工具完成对方这一轮明确提出的任务。" : "直接回复文字，不调用工具、不访问文件、不派活。"}下面的聊天记录和记忆只提供上下文。`,
         (role.style || "").slice(0, 1800),
@@ -583,17 +584,22 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
           ...(m.quote?.text ? { quote: m.quote.text.slice(0, 150) } : {}),
         }))),
       ].filter(Boolean).join("\n\n");
-      all.push(msg);
-      thread.sel[parent] = msg.id;
+      if (!resume) {
+        msg.codexJob = true;
+        all.push(msg);
+        thread.sel[parent] = msg.id;
+        saveMessages(thread.id);
+        await Promise.all([flushMessages(), flushStore()]);
+      }
       const previous = [...recent].reverse().find(m => m.from === "ai");
       const continuation = previous?.codexReceipt ? previous.codexReceipt : undefined;
       const next = recent.slice(continuation ? recent.indexOf(previous) + 1 : -1);
       const followup = next.map(m => `${m.from === "user" ? meName(role) : role.name}：${(m.text || "").slice(-6000)}`).join("\n").slice(-10000);
-      const { text, usage, images = [], receipt } = await codexReply(role, thread, {
+      const { text, usage, images = [], receipt } = await codexReply(role, thread, msg.id, resume ? null : {
         prompt, workspace, previous: continuation, followup,
-      }, ctrl.signal, progress => {
-        msg.notes = [{ text: progress, before: true }];
-      }).finally(() => { msg.notes = []; });
+      }, ctrl.signal, events => {
+        msg.notes = events.map(event => ({ ...event, before: true }));
+      });
       if (receipt) msg.codexReceipt = receipt;
       for (const { name, data } of images) {
         try {
@@ -934,6 +940,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
     if (!all.includes(msg)) { all.push(msg); thread.sel[parent] = msg.id; }
   } finally {
     delete msg.pending;
+    delete msg.codexJob;
     delete msg.paused; delete msg.waiting; delete msg.typing;
     delete following[thread.id];
     if (!msg.text && !msg.error && !msg.drawing && !msg.notes?.some(n => n.poke)) {
@@ -944,6 +951,7 @@ export async function generate(thread, parentId, { speaker = null } = {}) {
     delete generating[thread.id];
     touchThread(thread, all);
     saveMessages(thread.id);
+    if (codex) queueMicrotask(() => resumeCodexChat(thread).catch(console.error));
   }
   // 发了房间卡片：马上在那间房里开一轮，把她在主聊天说的那句带进去当开头；卡片底下的小字跟着进度变
   if (!msg.error && msg.rooms?.length && !msg.wakeId && !thread.mail && !ctrl.signal.aborted) {
@@ -1194,6 +1202,29 @@ export async function oneShot(role, prompt, { raw = false, attachments = [], par
 }
 
 export { describeError };
+
+// 同一条聊天里的补充先留在本机。上一条回完，再把下一条接进上下文。
+const drainingCodex = new Set();
+export async function resumeCodexChat(thread) {
+  if (!thread || drainingCodex.has(thread.id) || generating[thread.id]) return;
+  drainingCodex.add(thread.id);
+  try {
+    const all = await loadMessages(thread.id);
+    if (generating[thread.id]) return;
+    const running = pathOf(thread, all).find(m => m.pending && m.codexJob);
+    if (running) {
+      await generate(thread, parentOf(running), { resume: running });
+    } else if (thread.replyBackend === "codex" && thread.codexQueue?.length) {
+      const next = thread.codexQueue.shift();
+      await sendMessage(thread, next.text, [], { reply: true, quote: next.quote });
+    }
+  } finally {
+    drainingCodex.delete(thread.id);
+    if (!generating[thread.id] && thread.replyBackend === "codex" && thread.codexQueue?.length) {
+      queueMicrotask(() => resumeCodexChat(thread).catch(console.error));
+    }
+  }
+}
 
 // reply=false：只发出去，先不让 TA 回（可以连着发好几条，再点「让 TA 回复」）
 // hug：抱一下 TA（显示成一个小拥抱，TA 看到的是这句话）

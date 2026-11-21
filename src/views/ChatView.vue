@@ -1,8 +1,8 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, following, generate, sendMessage, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
+import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, flushStore, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
+import { generating, following, generate, sendMessage, resumeCodexChat, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
 import { codexBase } from "../lib/codexJobs.js";
 import { pokeText } from "../lib/poke.js";
 import { stopGroup, GROUP_TAIL } from "../lib/groupChat.js";
@@ -113,6 +113,7 @@ async function openThread(id) {
   if (!isGroup) role.value.lastThreadId = id;
   showCount.value = PAGE;
   await loadMessages(id);
+  resumeCodexChat(thread.value).catch(console.error);
   await nextTick();
   scrollToBottom(true);
   settleAtBottom();
@@ -308,8 +309,19 @@ function onKeydown(e) {
 }
 
 async function send(reply = true) {
-  if (busy.value && !following[threadId.value]) return; // 他在续发的时候可以插话：续发就停下，先听你的
+  const enqueue = busy.value && !following[threadId.value] && thread.value?.replyBackend === "codex" && !isGroup;
+  if (busy.value && !following[threadId.value] && !enqueue) return; // 他在续发的时候可以插话
   const text = draft.value.trim();
+  if (enqueue) {
+    if (!text || attachments.value.length) return toast("Codex 排队暂时只支持文字");
+    if ((thread.value.codexQueue?.length || 0) >= 8) return toast("这条聊天的 Codex 队列已满");
+    (thread.value.codexQueue ??= []).push({ text, quote: quoting.value });
+    draft.value = "";
+    quoting.value = null;
+    nextTick(autoGrow);
+    await flushStore();
+    return;
+  }
   if (!text && !attachments.value.length) return;
   // 他正被叫醒、在行动：先只把话放过去，不另外叫他回（不然两边一起动，就重复了）
   if (reply && wakeBusy.value) {
@@ -945,6 +957,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         </template>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
       </div>
+      <div v-if="thread?.codexQueue?.length" class="ctx">有 {{ thread.codexQueue.length }} 条消息等待 Codex 回复</div>
       <div v-if="recording" class="rec-bar">
         <span class="rec-dot" /> 录音中 {{ Math.floor(recording.secs / 60) }}:{{ String(recording.secs % 60).padStart(2, "0") }}
         <span class="grow" />
@@ -957,7 +970,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <textarea ref="inputEl" v-model="draft" :readonly="selecting" :inputmode="selecting ? 'none' : null" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <div class="sends">
-          <button class="send small" :class="{ on: draft.trim() || attachments.length }" aria-label="发送" @click="send(false)"><Icon name="send" :size="20" /></button>
+          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '发送'" @click="send(false)"><Icon name="send" :size="20" /></button>
           <button v-if="busy" class="send reply on" aria-label="停止" @click="stop"><Icon name="stop" :size="20" /></button>
           <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="chat" :size="20" /></button>
         </div>

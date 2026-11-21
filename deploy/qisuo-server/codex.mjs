@@ -234,8 +234,15 @@ function runChatTurn({ cwd, env, worker, prompt, followup, threadId, signal, pro
       } else if (m.id === 3) turnId = m.result.turn.id;
       else if (p.threadId === threadId) {
         if (m.method === "turn/started") turnId = p.turn.id;
-        if (m.method === "item/started" && p.item.type === "commandExecution") progress("Codex 正在运行命令…");
-        if (m.method === "item/started" && p.item.type === "fileChange") progress("Codex 正在修改文件…");
+        if (["item/started", "item/completed"].includes(m.method) && p.item?.type === "commandExecution") {
+          const completed = m.method === "item/completed";
+          const command = scrub(p.item.command).slice(0, 800);
+          const output = completed ? scrub(p.item.aggregatedOutput).slice(-2500) : "";
+          progress(completed ? `命令结束（退出码 ${p.item.exitCode ?? "未知"}）` : "正在运行命令…", [command, output].filter(Boolean).join("\n\n"));
+        }
+        if (m.method === "item/completed" && p.item?.type === "fileChange") {
+          progress("已处理文件", (p.item.changes || []).map(x => x.path).slice(0, 20).join("\n"));
+        }
         if (m.method === "item/completed" && p.item.type === "agentMessage") answer = p.item.text;
         if (m.method === "thread/tokenUsage/updated") usage = p.tokenUsage.last;
         if (m.method === "turn/completed") {
@@ -251,8 +258,36 @@ function runChatTurn({ cwd, env, worker, prompt, followup, threadId, signal, pro
 }
 
 // 闲聊仍在空目录只回文字。她打开仓库后，同一轮 Codex 才有工作区和执行工具。
+const chatTasks = new Map();
+const chatQueue = [];
 let chatBusy = false;
-async function codexChat(req, res, CORS) {
+
+function startNextChat() {
+  if (chatBusy || !chatQueue.length) return;
+  const task = chatQueue.shift();
+  if (task.ctrl.signal.aborted) {
+    task.final = { type: "error", text: "已停止 Codex 任务" };
+    task.finished = Date.now();
+    task.status = "finished";
+    return startNextChat();
+  }
+  chatBusy = true;
+  task.status = "running";
+  runCodexChat(task).catch(e => {
+    task.final = { type: "error", text: scrub(e.message).slice(-500) };
+  }).finally(() => {
+    task.final ??= { type: "error", text: "已停止 Codex 任务" };
+    task.finished = Date.now();
+    task.status = "finished";
+    // 等执行容器结束上一个 App Server 子进程。
+    setTimeout(() => {
+      chatBusy = false;
+      startNextChat();
+    }, 300).unref();
+  });
+}
+
+async function queueCodexChat(req) {
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
@@ -260,18 +295,36 @@ async function codexChat(req, res, CORS) {
     if (size > 96_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
     chunks.push(chunk);
   }
-  const { prompt, workspace, thread, previous, followup } = JSON.parse(Buffer.concat(chunks).toString());
+  const { id, prompt, workspace, thread, previous, followup } = JSON.parse(Buffer.concat(chunks).toString());
+  if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/.test(id)) throw new Error("任务编号不对");
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 24_000) throw new Error("聊天内容为空或太长了");
   if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread) || workspace && workspace.thread !== thread) throw new Error("聊天编号不对");
   if (typeof followup !== "string" || followup.length > 12000) throw new Error("续聊内容太长");
   if (workspace && !process.env.CODEX_WORKER_SOCKET) throw Object.assign(new Error("栖所服务器还没有启动仓库执行容器"), { status: 503 });
-  if (chatBusy) throw Object.assign(new Error("已有一条 Codex 聊天在回复"), { status: 429 });
+  if (chatTasks.has(id)) {
+    if (chatTasks.get(id).thread !== thread) throw new Error("任务编号已被另一条聊天使用");
+    return { id };
+  }
+  if (chatQueue.length >= 8) throw Object.assign(new Error("Codex 队列已满"), { status: 429 });
+  const finished = [...chatTasks].filter(([, t]) => t.finished);
+  for (const [key, t] of finished) {
+    if (Date.now() - t.finished > 21600000 || chatTasks.size >= 24) chatTasks.delete(key);
+  }
+  const task = { id, prompt, workspace, thread, previous, followup, ctrl: new AbortController(), status: "queued", events: [] };
+  chatTasks.set(id, task);
+  chatQueue.push(task);
+  startNextChat();
+  return { id };
+}
+
+async function runCodexChat(task) {
+  const { prompt, workspace, thread, previous, followup, ctrl } = task;
   const home = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
   let screenshots;
-  chatBusy = true;
-  const ctrl = new AbortController();
-  const stop = () => ctrl.abort();
-  res.once("close", stop);
+  const progress = (text, detail) => {
+    task.events.push({ text, ...(detail ? { detail } : {}) });
+    if (task.events.length > 16) task.events.shift();
+  };
   try {
     const checkout = workspace ? await chatCheckout(workspace.thread, workspace.repo) : null;
     if (ctrl.signal.aborted) return null;
@@ -294,29 +347,20 @@ async function codexChat(req, res, CORS) {
     try { session = JSON.parse(readFileSync(stateFile, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
     const threadId = previous && previous === session?.receipt ? session.threadId : undefined;
     if (threadId) rmSync(stateFile, { force: true });
-    res.writeHead(200, { ...CORS, "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
-    const emit = event => { if (!res.destroyed) res.write(JSON.stringify(event) + "\n"); };
-    const progress = text => emit({ type: "progress", text });
-    const heartbeat = setInterval(() => emit({ type: "ping" }), 10000);
-    try {
-      progress(checkout ? "Codex 已打开仓库…" : "Codex 正在回复…");
-      const result = await runChatTurn({
-        cwd, env, signal: ctrl.signal, progress, threadId,
-        prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
-        timeout: checkout ? 600_000 : 120_000,
-        worker: checkout ? { path: process.env.CODEX_WORKER_SOCKET, shots: photoFolder } : null,
-      });
-      if (!result || ctrl.signal.aborted) return;
-      const receipt = randomUUID();
-      mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-      writeFileSync(stateFile + ".tmp", JSON.stringify({ receipt, threadId: result.threadId }), { mode: 0o600 });
-      renameSync(stateFile + ".tmp", stateFile);
-      emit({ type: "result", text: result.text, usage: result.usage, images: chatScreenshots(screenshots), receipt });
-    } catch (e) { emit({ type: "error", text: scrub(e.message).slice(-500) }); }
-    finally { clearInterval(heartbeat); if (!res.destroyed) res.end(); }
+    progress(checkout ? "Codex 已打开仓库…" : "Codex 正在回复…");
+    const result = await runChatTurn({
+      cwd, env, signal: ctrl.signal, progress, threadId,
+      prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
+      timeout: checkout ? 600_000 : 120_000,
+      worker: checkout ? { path: process.env.CODEX_WORKER_SOCKET, shots: photoFolder } : null,
+    });
+    if (!result || ctrl.signal.aborted) return;
+    const receipt = randomUUID();
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    writeFileSync(stateFile + ".tmp", JSON.stringify({ receipt, threadId: result.threadId }), { mode: 0o600 });
+    renameSync(stateFile + ".tmp", stateFile);
+    task.final = { type: "result", text: result.text, usage: result.usage, images: chatScreenshots(screenshots), receipt };
   } finally {
-    res.off("close", stop);
-    chatBusy = false;
     if (screenshots) rmSync(screenshots, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   }
@@ -331,7 +375,18 @@ export async function handleCodex(req, res, rest, CORS) {
       return send(200, { ...st, github: !!GH_TOKEN, book: bookReady(), running: null, queued: 0 });
     }
     if (rest === "/chat" && req.method === "POST") {
-      return await codexChat(req, res, CORS);
+      return send(202, await queueCodexChat(req));
+    }
+    const chat = rest.match(/^\/chat\/([a-z0-9]{10,40})$/);
+    if (chat && ["GET", "DELETE"].includes(req.method)) {
+      const task = chatTasks.get(chat[1]);
+      if (!task) return send(404, { error: { message: "找不到 Codex 任务，可能服务器已重启或记录已过期" } });
+      if (req.method === "DELETE") {
+        task.ctrl.abort();
+        return send(200, { ok: true });
+      }
+      const position = chatQueue.indexOf(task) + 1;
+      return send(200, { status: task.status, position, events: task.events, final: task.final });
     }
     if (rest === "/limits" && req.method === "GET") return send(200, await getLimits());
     if (rest === "/job" && req.method === "POST") { return send(410, { error: { message: "旧派活入口已关闭，请在 Codex 对话里连接仓库" } }); }

@@ -556,7 +556,7 @@ function writeMessages(threadId) {
   delete msgTimers[threadId];
   const list = messageCache[threadId];
   if (!list) return;
-  const clean = JSON.parse(JSON.stringify(list.filter(m => !m.pending)));
+  const clean = JSON.parse(JSON.stringify(list.filter(m => !m.pending || m.codexJob)));
   return set("msgs:" + threadId, clean);
 }
 export function saveMessages(threadId) {
