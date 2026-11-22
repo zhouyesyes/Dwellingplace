@@ -8,12 +8,13 @@ import { basename, join } from "node:path";
 
 export const WORK_ROOT = "/codex-workspaces";
 export const WORKER_SOCKET = "/codex-worker-ipc/codex.sock";
+export const GIT_SOCKET = "/codex-git-ipc/git.sock";
 
 // 允许执行 Codex 生成的辅助程序。登录文件与其余 CODEX_HOME 内容仍由根目录规则禁止读取。
 export const workspaceArgs = [
   'default_permissions="qisuo_chat"',
   'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git.sock"="write"}',
+  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-git-ipc"="write"}',
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
@@ -104,7 +105,7 @@ function serve(socketPath, root, binary) {
       let bridge;
       // Unix Socket 路径上限很短，不能放进「对话/仓库/截图目录」的长路径里。
       // 一次只跑一个仓库任务，所以使用 IPC 目录下的固定短路径。
-      gitBridge(cwd, join(socketPath, "..", "git.sock"), process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
+      gitBridge(cwd, process.env.QISUO_GIT_SOCKET || GIT_SOCKET, process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
         bridge = opened;
         child = spawn(binary, ["app-server", ...workspaceArgs, ...commonArgs], {
         cwd, env: { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret },
