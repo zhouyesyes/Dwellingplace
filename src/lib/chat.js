@@ -534,7 +534,8 @@ const sleep = (ms, signal) => new Promise(r => {
   signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true });
 });
 
-// 同一服务器线程优先续接，只在首次创建或续接失败时用近期文字重建上下文。
+// 每条新回复都按栖所选好的聊天窗口重建上下文；同一条回复里的工具往返才续接服务器线程。
+// 这样 Chat 和 Codex 看见的原文都受「每次带多少聊天」控制，不会让 Codex 暗中越积越长。
 function codexTurnInput(system, convo, workspace, previous, refreshInstructions) {
   const latest = convo.at(-1)?.parts || [];
   const attachments = latest.filter(p => p.type === "image").map(p => `data:${p.mime};base64,${p.data}`);
@@ -543,10 +544,13 @@ function codexTurnInput(system, convo, workspace, previous, refreshInstructions)
   }
   const current = latest.filter(p => p.type === "text").map(p => p.text).join("\n\n");
   if (current.length > 60000) throw new Error("附件和消息文字超过 6 万字，请分次发。");
-  const context = convo.slice(-13, -1).map(m => `${m.role === "assistant" ? "你" : "对方"}：${m.parts.filter(p => p.type === "text").map(p => p.text).join("\n").slice(-900)}`).join("\n");
+  const context = convo.slice(0, -1).map(m => {
+    const text = m.parts.filter(p => p.type === "text").map(p => p.text).join("\n");
+    return `${m.role === "assistant" ? "你" : "对方"}：${text}`;
+  }).join("\n\n");
   const instructions = workspace ? "可用仓库工具处理对方明确提出的任务。" : "当前没有仓库工具。栖所提供的搜索、翻记忆和聊天工具仍可按下面的格式调用。";
   return {
-    prompt: [instructions, system, context, "【本轮消息和附件文字见下一段】"].join("\n\n").slice(0, 80000),
+    prompt: [instructions, system, context, "【本轮消息和附件文字见下一段】"].join("\n\n"),
     followup: refreshInstructions && previous ? system.slice(0, 80000) + "\n\n继续处理下面最新的聊天。" : "继续处理下面最新的聊天或栖所返回的工具结果。",
     workspace, previous, attachments, fileText: current || "（本轮消息见图片附件）",
   };
@@ -615,10 +619,9 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     const workspace = codex && thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
     if (codex && !resume) {
       msg.codexJob = true;
-      // 摘要更新后，下一轮用摘要和近期原文开一个更短的 Codex 会话。
-      // 对话和仓库目录仍沿用原 id。工具返回的后续轮次沿用这一轮的新回执。
+      // 每条新回复都用和 Chat 相同的摘要、近期原文开新会话。
+      // 对话和仓库目录仍沿用原 id；工具返回的后续轮次沿用这一轮的新回执。
       msg.codexSummaryKey = summaryKey;
-      if ((lastAi?.codexSummaryKey ?? null) === summaryKey) msg.codexReceipt = lastAi?.codexReceipt;
     }
     const useRelaySearch = searchEnabled();
     const servers = serversForMode(role.id, mode).filter(s => s.tools?.length);
