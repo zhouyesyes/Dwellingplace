@@ -3,7 +3,7 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { store } from "../../store/index.js";
 import { meName } from "../../lib/chat.js";
-import { readingSceneParts, readingPreview, rawSince, sumEvery, SUM_FORCE } from "../../lib/reading.js";
+import { readingSceneParts, readingPreview, rawSince, longChapterChars } from "../../lib/reading.js";
 import { writingSceneParts, writingPrompt, loadTalk, projects, ideaBox, SPINES } from "../../lib/writing.js";
 import Sheet from "../Sheet.vue";
 import BigTextarea from "../BigTextarea.vue";
@@ -55,7 +55,7 @@ function saveGist() {
       <div v-if="b.gist?.text" class="gist" role="button" @click="editGist(b)"><small>前情梗概 · 点一下可以改</small><p>{{ b.gist.text }}</p></div>
       <ul class="parts">
         <li v-for="x in readingSceneParts(b, me)" :key="x.key"><span>{{ x.label }}</span><em>{{ len(x.text) }}</em></li>
-        <li><span>上次整理之后读过的原文</span><em>{{ num(raws[b.id] || 0) }} / 攒到 {{ num(sumEvery()) }}、等一章读完整理（最多 {{ num(sumEvery() + SUM_FORCE) }}）</em></li>
+        <li><span>上次整理之后读过的原文</span><em>{{ num(raws[b.id] || 0) }} · 读完一章整理（长章可在 {{ num(longChapterChars()) }} 字时先整理）</em></li>
       </ul>
       <button class="btn soft small" @click="showBook(b)">看看发给{{ role?.name || "他" }}的</button>
     </article>

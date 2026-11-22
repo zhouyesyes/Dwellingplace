@@ -3,3 +3,5 @@ dist
 
 .qisuo-previews/
 .qisuo-outputs/
+
+/qisuo-shots-*/

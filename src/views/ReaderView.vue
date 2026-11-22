@@ -16,7 +16,7 @@ import { bookById, loadBook, notesOf, addNote, removeNote, savePos, tickReading,
 import { syncNow } from "../lib/sync.js";
 import { captureReadingPage } from "../lib/readingImages.js";
 import { safeBookImage } from "../lib/epubImages.js";
-import { askHim, readAlong, alongSlice, placeAlong, readOnHisOwn, hisAt, setHerPin, clearHerPin } from "../lib/reading.js";
+import { askHim, readAlong, alongSlice, placeAlong, sumEvery, longChapterChars, readOnHisOwn, hisAt, setHerPin, clearHerPin } from "../lib/reading.js";
 import { describeError } from "../lib/chat.js";
 import { pickFile } from "../lib/images.js";
 import BookImage from "../components/books/BookImage.vue";
@@ -848,9 +848,9 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div class="pr-row"><span>翻页</span>
           <div class="fonts"><button :class="{ on: paged }" @click="store.readerPrefs.mode = 'page'">一屏一页</button><button :class="{ on: !paged }" @click="store.readerPrefs.mode = 'scroll'">上下滚动</button></div>
         </div>
-        <div class="pr-row col"><span>原文攒到多少字，整理一次前情</span>
-          <div class="fonts"><button v-for="n in [30000, 60000, 100000]" :key="n" :class="{ on: (store.settings.readSumChars || 60000) === n }" @click="store.settings.readSumChars = n">{{ n / 10000 }} 万字</button></div>
-          <small>上次整理之后读过的原文，{{ role?.name || "他" }}每次都看得见；攒到这么多字，等这一章读完就整理一次（一直没读完一章，多 1 万字直接整理）。整理模型只整理新读的那段，客观地写梗概。</small>
+        <div class="pr-row col"><span>前情按章整理</span>
+          <div class="fonts"><button v-for="n in [30000, 60000, 100000]" :key="n" :class="{ on: sumEvery() === n }" @click="store.settings.readSumChars = n">{{ longChapterChars(n) / 10000 }} 万字</button></div>
+          <small>读完一章就整理这一章的前情。章还没读完时，未整理的原文达到所选字数，就先整理已读的部分。</small>
         </div>
         <div class="pr-row col"><span>每读多少字，{{ role?.name || "他" }}写一句中途印象</span>
           <div class="fonts"><button v-for="n in [10000, 20000, 30000]" :key="n" :class="{ on: (store.settings.readImprChars || 20000) === n }" @click="store.settings.readImprChars = n">{{ n / 10000 }} 万字</button></div>

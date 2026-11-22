@@ -37,7 +37,7 @@ function similarPairs(cards) {
 export async function healthOf(role, me) {
   const { pathOf, afterSummary, buildSystem, summaryForAI, autoAt } = await import("./chat.js");
   const { projects, loadTalk, talkAfterSum, talkAutoAt, ideaBox } = await import("./writing.js");
-  const { rawSince, sumEvery, imprEvery } = await import("./reading.js");
+  const { rawSince, longChapterChars, imprEvery } = await import("./reading.js");
   const all = memoriesOf(role.id);
   const cards = all.filter(m => memKind(m) === "card");
   const live = cards.filter(isLive);
@@ -76,7 +76,7 @@ export async function healthOf(role, me) {
   }
   for (const b of (store.books || []).filter(b => b.readAt && !b.mine)) {
     const segs = b.gist?.segs?.length || (b.gist?.text ? 1 : 0);
-    rooms.push({ kind: "共读", name: `《${b.title}》`, at: b.gist?.at, times: segs, segs: true, now: await rawSince(b), limit: sumEvery(), unit: "字", sum: segs > 0, impr: b.imprs?.length || 0 });
+    rooms.push({ kind: "共读", name: `《${b.title}》`, at: b.gist?.at, times: segs, segs: true, now: await rawSince(b), limit: longChapterChars(), unit: "字", sum: segs > 0, impr: b.imprs?.length || 0 });
   }
   rooms.forEach(r => (r.pct = r.limit ? Math.min(100, Math.round((r.now / r.limit) * 100)) : 0));
 

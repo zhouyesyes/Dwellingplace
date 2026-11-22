@@ -32,7 +32,7 @@ export function readingForAI(role, who) {
 
 // ---------- 前情（整理模型）和他的中途印象（他自己） ----------
 // 前情 b.gist = { segs: [{ text, from, upTo, at, model, chars }], text, upTo, at }
-//   读过的原文攒到 6 万字（可以调），等这一章读完再整理；一直没读完一章，到 7 万字就直接整理。
+//   读完一章就整理。长章读到所选字数时，可以提前整理已读的部分。
 //   每次只整理新读的那一段，写成客观的故事梗概（不带感情），一段段接起来；整理到哪之后的原文，他每次都看得见。
 // 中途印象 b.imprs = [{ text, upTo, at, model }]：每读 2 万字（可以调），他用自己的模型写一句 100 字以内的印象，
 //   结合前情、看得见的原文、以前的印象——可能会推翻以前的想法。每一版都留着（回看他的理解怎么变的），平时只带最新的一版。
@@ -67,7 +67,8 @@ function charsBetween(book, from, to) {
   return n;
 }
 export const sumEvery = () => Number(store.settings.readSumChars) || 60000;
-export const SUM_FORCE = 10000; // 一直没读完一章：多读这么多字就直接整理
+// 旧设置存的是基准字数，界面显示实际门槛。
+export const longChapterChars = (base = sumEvery()) => base + 10000;
 export const imprEvery = () => Number(store.settings.readImprChars) || 20000;
 export const IMPR_MAX = 100;
 export const latestImpr = b => (b.imprs || []).at(-1) || null;
@@ -76,54 +77,53 @@ const START = { ch: 0, p: 0 };
 const gisting = {};
 // 把前情 upTo 之前、上次整理之后的那一段整理成一段客观的梗概，接在前面那几段后面
 export async function updateGist(role, b, upTo) {
-  if (gisting[b.id]) return;
-  gisting[b.id] = true;
+  const round = b.round || 1;
+  const busy = gisting[b.id];
+  if (busy?.round === round) {
+    if (before(busy.upTo, upTo)) busy.upTo = upTo;
+    return;
+  }
+  const task = gisting[b.id] = { round, upTo };
   try {
     const { oneShot, meName, helperApi } = await import("./chat.js");
     const me = meName(role);
     const book = await loadBook(b.id);
-    let from = b.gist?.upTo || START;
-    const old = b.gist?.text || "";
-    const segs = [...(b.gist?.segs || (old ? [{ text: old, from: START, upTo: from, at: b.gist?.at }] : []))];
-    while (before(from, upTo) && from.ch < book.chapters.length) {
-      const chapter = from.ch;
-      const end = chapter < upTo.ch ? { ch: chapter + 1, p: 0 } : upTo;
+    while ((b.round || 1) === round) {
+      const upTo = task.upTo;
+      const previous = b.gist;
+      const from = previous?.upTo || START;
+      if (!before(from, upTo) || !book.chapters[from.ch]) return;
+      const next = { ch: from.ch + 1, p: 0 };
+      const complete = upTo.ch >= next.ch || upTo.p >= book.chapters[from.ch].paras.length;
+      if (!complete && charsBetween(book, from, upTo) < longChapterChars()) return;
+      const end = complete ? next : upTo;
       const seg = textBetween(book, from, end);
-      if (seg.trim()) {
-        const previous = segs.map(x => x.text).join("\n\n").slice(-3000);
-        const title = book.chapters[chapter].title || `第 ${chapter + 1} 章`;
+      const prevText = previous?.text || "";
+      let text = "";
+      if (seg) {
         const prompt = [
-          `这是你和${me}共读的《${b.title}》中的「${title}」。`,
-          previous && `已整理的前情（供衔接，不用重复）：\n${previous}`,
-          `本次新读到的原文：\n${seg}`,
-          "只整理这次的原文。按先后顺序客观写事件、人物关系和伏笔，不超过 1500 字，不写读者感受。",
+          `这是《${b.title}》${b.author ? `（${b.author}）` : ""}的一段原文，${me}和朋友在一起读。`,
+          prevText ? `前面的梗概（已经整理过的，接着它往下写，不用重复）：\n${prevText.length > 3000 ? "……" + prevText.slice(-3000) : prevText}` : "",
+          `这次要整理的原文：\n${seg}`,
+          `把这次的原文整理成客观的故事梗概，给以后接着读的人看：发生了什么、按先后顺序、出场的人物和他们的关系、重要的细节和伏笔。只客观讲故事，不要评价，不要抒情，不要写读者的感受。只整理这次的原文，不超过 ${Math.max(600, Math.min(1500, Math.round(seg.length / 40)))} 字，只写梗概本身。`,
         ].filter(Boolean).join("\n\n");
-        const text = (await oneShot(role, prompt, { helper: true, raw: true })).trim();
+        text = (await oneShot(role, prompt, { helper: true, raw: true })).trim();
         if (!text) return;
-        segs.push({ text: text.slice(0, 3000), chapter, from, upTo: end, at: Date.now(), model: helperApi(role).model, chars: seg.length });
       }
-      b.gist = { segs: [...segs], text: segs.map(s => s.text).join("\n\n"), upTo: end, at: Date.now() };
-      from = end;
+      if (b.gist !== previous || (b.round || 1) !== round) return;
+      const segs = [...(previous?.segs || (prevText ? [{ text: prevText, from: START, upTo: from, at: previous.at }] : []))];
+      if (text) segs.push({ text: text.slice(0, 3000), chapter: from.ch, from, upTo: end, at: Date.now(), model: helperApi(role).model, chars: seg.length });
+      b.gist = { segs, text: segs.map(s => s.text).join("\n\n"), upTo: end, at: Date.now() };
     }
   } finally {
-    delete gisting[b.id];
+    if (gisting[b.id] === task) delete gisting[b.id];
   }
 }
-// 一起读 / 问问他之后：攒够了就在后台整理（下一次就带上新的）
-export async function maybeGist(role, b, upTo) {
-  const book = await loadBook(b.id);
-  const from = b.gist?.upTo || START;
-  const every = sumEvery();
-  if (!before(from, upTo) || charsBetween(book, from, upTo) < every) return;
-  // 等一章读完：切在最近读完的那一章末尾（这一章的开头）；一直没读完一章，多读 1 万字就切在现在
-  const end = upTo.p >= (book.chapters[upTo.ch]?.paras.length || 0) ? { ch: upTo.ch + 1, p: 0 } : { ch: upTo.ch, p: 0 };
-  let cut = null;
-  if (before(from, end) && charsBetween(book, from, end) >= every) cut = end.ch >= book.chapters.length ? upTo : end;
-  else if (charsBetween(book, from, upTo) >= every + SUM_FORCE) cut = upTo;
-  if (cut) updateGist(role, b, cut).catch(e => console.warn("共读前情没整理成", e));
-}
+// 一起读 / 问问他之后，在后台整理已读完的章。特别长的章可以分次整理。
+export const maybeGist = updateGist;
+
 // 上次整理之后、到 to 之前（不含）读过的原文：他每次都看得见（太长留后面的）
-export async function sinceGist(b, to, max = sumEvery() + SUM_FORCE + 5000) {
+export async function sinceGist(b, to, max = longChapterChars() + 5000) {
   const book = await loadBook(b.id);
   const from = b.gist?.upTo || START;
   return before(from, to) ? textBetween(book, from, to, max) : "";

@@ -187,10 +187,10 @@ const stars = n => "★★★★★".slice(0, n) + "☆☆☆☆☆".slice(0, 5 
       </section>
 
       <section v-if="b.gist?.text">
-        <h4>前情梗概<small class="h-sub">整理模型客观记的，6 万字整理一段</small></h4>
+        <h4>前情梗概<small class="h-sub">整理模型客观记的，按章整理</small></h4>
         <button class="btn soft small" @click="showSegs = !showSegs">{{ showSegs ? "收起" : `看看（${b.gist.segs?.length || 1} 段，记到${chOf(b.gist.upTo)}）` }}</button>
         <template v-if="showSegs">
-          <article v-for="(x, i) in b.gist.segs || [{ text: b.gist.text, upTo: b.gist.upTo, at: b.gist.at }]" :key="i" class="mem old"><p>{{ x.text }}</p><small>第 {{ i + 1 }} 段{{ x.from ? ` · ${chOf(x.from)} 到 ${chOf(x.upTo)}` : "" }}{{ x.model ? ` · ${x.model}` : "" }}</small></article>
+          <article v-for="(x, i) in b.gist.segs || [{ text: b.gist.text, upTo: b.gist.upTo, at: b.gist.at }]" :key="i" class="mem old"><p>{{ x.text }}</p><small>{{ x.chapter == null ? `第 ${i + 1} 段` : (b.chapters[x.chapter]?.title || `第 ${x.chapter + 1} 章`) }}{{ x.from ? ` · ${chOf(x.from)} 到 ${chOf(x.upTo)}` : "" }}{{ x.model ? ` · ${x.model}` : "" }}</small></article>
         </template>
       </section>
 
