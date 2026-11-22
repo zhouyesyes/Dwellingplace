@@ -14,6 +14,9 @@
 
 ## 日志
 
+### 2026-11-22 · Codex：允许沙箱连接 Git Socket
+- 按 Codex 网络权限配置显式允许 /codex-worker-ipc/git/git.sock。文件权限之外，Unix Socket 连接也需要网络白名单，缺失会导致 connect EPERM。
+
 ### 2026-11-22 · Codex：修复安装自检握手丢失
 - 自检完成 Git 初始化并挂好事件监听后才建立连接，避免初始化期间 connect 已触发，执行容器因五秒收不到握手而关闭连接。
 
