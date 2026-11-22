@@ -9,6 +9,7 @@ import { basename, join } from "node:path";
 export const WORK_ROOT = "/codex-workspaces";
 export const WORKER_SOCKET = "/codex-worker-ipc/codex.sock";
 export const GIT_SOCKET = "/codex-worker-ipc/git/git.sock";
+const REAL_GIT = process.env.QISUO_REAL_GIT || "/usr/bin/git";
 
 // 允许执行 Codex 生成的辅助程序。登录文件与其余 CODEX_HOME 内容仍由根目录规则禁止读取。
 export const workspaceArgs = [
@@ -32,7 +33,7 @@ export function gitBridge(cwd, socketPath, token) {
   const secret = randomUUID();
   rmSync(socketPath, { force: true });
   const allowed = new Set(["status", "diff", "log", "commit", "pull", "push"]);
-  const run = args => new Promise(resolve => execFile("git", args, {
+  const run = args => new Promise(resolve => execFile(REAL_GIT, args, {
     cwd, timeout: 180_000, maxBuffer: 4_000_000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   }, (error, stdout, stderr) => resolve({ code: error ? (typeof error.code === "number" ? error.code : 1) : 0, text: String(stdout || "") + String(stderr || "") })));
@@ -182,12 +183,12 @@ async function checkGitBridge(root) {
   const run = (file, args, options = {}) => new Promise((resolve, reject) => execFile(file, args, options, (error, stdout, stderr) => error ? reject(new Error(String(stderr || error.message))) : resolve(String(stdout || ""))));
   let bridge;
   try {
-    await run("git", ["init", "-q", "-b", "main"], { cwd: scratch });
+    await run(REAL_GIT, ["init", "-q", "-b", "main"], { cwd: scratch });
     writeFileSync(join(scratch, "README.md"), "受控 Git 自检\n");
     bridge = await gitBridge(scratch, join(tmp, "git.sock"), "");
     const env = { ...process.env, PATH: `/app/codex-bin:${process.env.PATH}`, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret };
-    await run("git", ["commit", "-m", "受控 Git 自检"], { env });
-    const log = await run("git", ["log", "-1", "--pretty=%s"], { cwd: scratch });
+    await run("/usr/bin/git", ["commit", "-m", "受控 Git 自检"], { env });
+    const log = await run(REAL_GIT, ["log", "-1", "--pretty=%s"], { cwd: scratch });
     if (log.trim() !== "受控 Git 自检") throw new Error("受控 Git 没有写入提交");
   } finally {
     if (bridge) await new Promise(resolve => bridge.server.close(resolve));
