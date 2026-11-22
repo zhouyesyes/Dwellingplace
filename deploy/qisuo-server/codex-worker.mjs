@@ -13,7 +13,7 @@ export const WORKER_SOCKET = "/codex-worker-ipc/codex.sock";
 export const workspaceArgs = [
   'default_permissions="qisuo_chat"',
   'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny"}',
+  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git.sock"="write"}',
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
@@ -27,9 +27,9 @@ export const commonArgs = [
 
 // Git 元数据不交给模型的文件沙箱直接写。这个小桥只替当前打开的仓库执行几种必要操作，
 // GitHub 钥匙留在父进程里，不放进 App Server 的环境，也不会出现在命令或日志中。
-export function gitBridge(cwd, tmp, token) {
+export function gitBridge(cwd, socketPath, token) {
   const secret = randomUUID();
-  const socketPath = join(tmp, "git.sock");
+  rmSync(socketPath, { force: true });
   const allowed = new Set(["status", "diff", "log", "commit", "pull", "push"]);
   const run = args => new Promise(resolve => execFile("git", args, {
     cwd, timeout: 180_000, maxBuffer: 4_000_000,
@@ -59,7 +59,10 @@ export function gitBridge(cwd, tmp, token) {
   }));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(socketPath, () => { chmodSync(socketPath, 0o600); resolve({ server, secret, socketPath }); });
+    server.listen(socketPath, () => {
+      try { chmodSync(socketPath, 0o600); resolve({ server, secret, socketPath }); }
+      catch (error) { server.close(); reject(error); }
+    });
   });
 }
 
@@ -99,7 +102,9 @@ function serve(socketPath, root, binary) {
       active = true;
       socket.setTimeout(0);
       let bridge;
-      gitBridge(cwd, tmp, process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
+      // Unix Socket 路径上限很短，不能放进「对话/仓库/截图目录」的长路径里。
+      // 一次只跑一个仓库任务，所以使用 IPC 目录下的固定短路径。
+      gitBridge(cwd, join(socketPath, "..", "git.sock"), process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
         bridge = opened;
         child = spawn(binary, ["app-server", ...workspaceArgs, ...commonArgs], {
         cwd, env: { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret },
@@ -178,7 +183,7 @@ async function checkGitBridge(root) {
   try {
     await run("git", ["init", "-q", "-b", "main"], { cwd: scratch });
     writeFileSync(join(scratch, "README.md"), "受控 Git 自检\n");
-    bridge = await gitBridge(scratch, tmp, "");
+    bridge = await gitBridge(scratch, join(tmp, "git.sock"), "");
     const env = { ...process.env, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret };
     await run(process.execPath, ["/app/qisuo-git.mjs", "commit", "受控 Git 自检"], { env });
     const log = await run("git", ["log", "-1", "--pretty=%s"], { cwd: scratch });
