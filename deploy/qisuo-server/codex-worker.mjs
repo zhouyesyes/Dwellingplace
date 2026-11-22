@@ -82,6 +82,9 @@ function serve(socketPath, root, binary) {
       const end = buffer.indexOf(10);
       if (end === -1 && buffer.length <= 1024) return;
       socket.off("data", start);
+      // Git 通道是异步启动的；这期间先暂停读取，让后续的 App Server 初始化消息留在 Socket 缓冲区。
+      // 否则手机/服务器稍快一点时，initialize 会落在「还没 pipe」的空档里而丢失。
+      socket.pause();
       if (end < 0 || end > 1024) return reject("仓库执行请求格式不对");
       let cwd, tmp;
       try {
@@ -117,6 +120,7 @@ function serve(socketPath, root, binary) {
       child.stdout.pipe(socket, { end: false });
       child.stdin.write(buffer.subarray(end + 1));
       socket.pipe(child.stdin);
+      socket.resume();
       }).catch(error => { active = false; reject(`Git 通道启动失败：${error.message}`); });
     }
     socket.on("data", start);
