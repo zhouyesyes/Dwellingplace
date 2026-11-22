@@ -1,5 +1,5 @@
 // 仓库任务专用容器，只通过共享 Unix socket 接受主服务的请求。
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -24,6 +24,44 @@ export const commonArgs = [
   "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
   "-c", 'web_search="disabled"', "-c", "mcp_servers={}",
 ];
+
+// Git 元数据不交给模型的文件沙箱直接写。这个小桥只替当前打开的仓库执行几种必要操作，
+// GitHub 钥匙留在父进程里，不放进 App Server 的环境，也不会出现在命令或日志中。
+export function gitBridge(cwd, tmp, token) {
+  const secret = randomUUID();
+  const socketPath = join(tmp, "git.sock");
+  const allowed = new Set(["status", "diff", "log", "commit", "pull", "push"]);
+  const run = args => new Promise(resolve => execFile("git", args, {
+    cwd, timeout: 180_000, maxBuffer: 4_000_000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  }, (error, stdout, stderr) => resolve({ code: error ? (typeof error.code === "number" ? error.code : 1) : 0, text: String(stdout || "") + String(stderr || "") })));
+  const auth = token ? ["-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from("x-access-token:" + token).toString("base64")}`] : [];
+  const server = createServer(socket => socket.once("data", async chunk => {
+    let body; try { body = JSON.parse(chunk.toString()); } catch { body = {}; }
+    const reply = (ok, text) => socket.end(JSON.stringify({ ok, text }));
+    if (body.secret !== secret || !allowed.has(body.command)) return reply(false, "Git 操作不允许");
+    let args;
+    if (body.command === "status") args = ["status", "--short", "--branch"];
+    else if (body.command === "diff") args = ["diff", "--", "."];
+    else if (body.command === "log") args = ["log", "--oneline", "-10"];
+    else if (body.command === "commit") {
+      const message = String(body.message || "").trim();
+      if (!message || message.length > 200) return reply(false, "提交说明不能为空，最多 200 字");
+      const added = await run(["add", "-A"]);
+      if (added.code) return reply(false, added.text);
+      args = ["-c", "user.name=栖所 Codex", "-c", "user.email=codex@qisuo.local", "commit", "-m", message];
+    } else {
+      if (!token) return reply(false, "服务器还没有 GitHub 写入钥匙，请重新运行安装并按提示粘贴");
+      args = body.command === "pull" ? [...auth, "pull", "--rebase", "origin"] : [...auth, "push", "origin", "HEAD"];
+    }
+    const result = await run(args);
+    reply(!result.code, result.text || (result.code ? "Git 操作失败" : "完成"));
+  }));
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => { chmodSync(socketPath, 0o600); resolve({ server, secret, socketPath }); });
+  });
+}
 
 function serve(socketPath, root, binary) {
   rmSync(socketPath, { force: true });
@@ -57,8 +95,11 @@ function serve(socketPath, root, binary) {
       if (active) return reject("已有仓库任务在执行");
       active = true;
       socket.setTimeout(0);
-      child = spawn(binary, ["app-server", ...workspaceArgs, ...commonArgs], {
-        cwd, env: { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp },
+      let bridge;
+      gitBridge(cwd, tmp, process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
+        bridge = opened;
+        child = spawn(binary, ["app-server", ...workspaceArgs, ...commonArgs], {
+        cwd, env: { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret },
         stdio: ["pipe", "pipe", "pipe"],
       });
       let stderr = "";
@@ -67,6 +108,7 @@ function serve(socketPath, root, binary) {
       child.on("error", error => { stderr = error.message; });
       child.on("close", (code) => {
         active = false;
+        bridge.server.close();
         clearTimeout(kill);
         child = undefined;
         if (code && stderr && !socket.destroyed) socket.end(JSON.stringify({ method: "qisuo/workerError", params: { message: stderr } }) + "\n");
@@ -75,6 +117,7 @@ function serve(socketPath, root, binary) {
       child.stdout.pipe(socket, { end: false });
       child.stdin.write(buffer.subarray(end + 1));
       socket.pipe(child.stdin);
+      }).catch(error => { active = false; reject(`Git 通道启动失败：${error.message}`); });
     }
     socket.on("data", start);
   });
@@ -121,12 +164,34 @@ async function check(socketPath, root) {
   }
 }
 
+// 安装时真实走一遍受控 Git 通道；不碰远端，也不需要 GitHub 钥匙。
+async function checkGitBridge(root) {
+  const scratch = mkdtempSync(join(root, "git-check-"));
+  const tmp = join(scratch, "tmp");
+  mkdirSync(tmp);
+  const run = (file, args, options = {}) => new Promise((resolve, reject) => execFile(file, args, options, (error, stdout, stderr) => error ? reject(new Error(String(stderr || error.message))) : resolve(String(stdout || ""))));
+  let bridge;
+  try {
+    await run("git", ["init", "-q", "-b", "main"], { cwd: scratch });
+    writeFileSync(join(scratch, "README.md"), "受控 Git 自检\n");
+    bridge = await gitBridge(scratch, tmp, "");
+    const env = { ...process.env, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret };
+    await run(process.execPath, ["/app/qisuo-git.mjs", "commit", "受控 Git 自检"], { env });
+    const log = await run("git", ["log", "-1", "--pretty=%s"], { cwd: scratch });
+    if (log.trim() !== "受控 Git 自检") throw new Error("受控 Git 没有写入提交");
+  } finally {
+    if (bridge) await new Promise(resolve => bridge.server.close(resolve));
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 if (process.env.QISUO_CODEX_WORKER === "1") {
   const socketPath = process.env.CODEX_WORKER_SOCKET || WORKER_SOCKET;
   const root = process.env.CODEX_WORK_ROOT || WORK_ROOT;
   if (process.argv.includes("--check")) {
+    await checkGitBridge(root);
     await check(socketPath, root);
-    console.log("Codex 仓库会话自检通过");
+    console.log("Codex 仓库会话和受控 Git 自检通过");
   } else {
     serve(socketPath, root, process.env.CODEX_BIN || "codex");
   }

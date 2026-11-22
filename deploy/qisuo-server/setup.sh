@@ -298,7 +298,7 @@ $SUDO docker rm -f qisuo-codex-worker >/dev/null 2>&1 || true
 rm -f "$DIR/codex-worker-ipc/codex.sock"
 $SUDO docker run -d --name qisuo-codex-worker --restart unless-stopped --init \
   "${WORKER_SECURITY[@]}" --pids-limit 384 --shm-size 256m \
-  -e QISUO_CODEX_WORKER=1 -v "$DIR/codex-workspaces:/codex-workspaces" \
+  -e QISUO_CODEX_WORKER=1 $CODEX_ENV -v "$DIR/codex-workspaces:/codex-workspaces" \
   -v "$DIR/codex-worker-ipc:/codex-worker-ipc" -v "$DIR/codex-home:/codex-home" \
   qisuo-server node /app/codex-worker.mjs >/dev/null
 for _ in $(seq 1 20); do

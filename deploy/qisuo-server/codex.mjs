@@ -335,7 +335,7 @@ async function runCodexChat(task) {
     }
     const env = { PATH: process.env.PATH, CODEX_HOME, HOME: checkout ? cwd : home, TMPDIR: checkout ? screenshots : home };
     const agentPrompt = checkout ? [
-      `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。改动保留在当前聊天工作区，不能推送或部署。可以用 curl 查看公开 GitHub 链接；私有代码从当前授权的仓库副本读取。`,
+      `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。源码可直接修改。Git 元数据受保护：状态、差异、日志、提交、拉取、推送分别用 node /app/qisuo-git.mjs status|diff|log|commit "说明"|pull|push。只有对方明确要求合并或推送时才能 push；部署仍由对方自己做。可以用 curl 查看公开 GitHub 链接；私有代码从当前授权的仓库副本读取。`,
       `给对方截图时先生成静态构建（例如 npm run build），然后写 ${photoFolder}/preview.json，只包含 {"dir":"dist","page":"/","theme":"both"}。dir 是构建产物相对路径，page 可包含查询或哈希，theme 可为 light、dark、both。栖所会用隔离的 Chromium 打开页面，以 390×844 截图并发送。无需在此工作区启动浏览器或预览服务。`,
       prompt,
     ].join("\n\n") : prompt;
