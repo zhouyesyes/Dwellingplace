@@ -15,7 +15,9 @@ const REAL_GIT = process.env.QISUO_REAL_GIT || "/usr/bin/git";
 export const workspaceArgs = [
   'default_permissions="qisuo_chat"',
   'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git"="write"}',
+  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/app/qisuo-git.mjs"="read","/app/codex-bin"="read","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git"="write"}',
+  'shell_environment_policy.ignore_default_excludes=true',
+  'shell_environment_policy.include_only=["PATH","HOME","TMPDIR","QISUO_GIT_SOCKET","QISUO_GIT_SECRET"]',
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
@@ -146,6 +148,7 @@ async function check(socketPath, root) {
   try {
     mkdirSync(join(cwd, shots), { recursive: true });
     writeFileSync(join(cwd, "AGENTS.md"), "# 栖所执行环境自检\n");
+    await new Promise((resolve, reject) => execFile(REAL_GIT, ["init", "-q", "-b", "main"], { cwd }, error => error ? reject(error) : resolve()));
     await new Promise((resolve, reject) => {
       socket.setTimeout(30000, () => reject(new Error("执行容器自检超时")));
       socket.once("error", reject);
@@ -165,7 +168,14 @@ async function check(socketPath, root) {
           send({ method: "initialized" });
           send({ id: 2, method: "thread/start", params: { cwd, approvalPolicy: "never", ephemeral: true } });
         }
-        if (reply.id === 2 && reply.result?.thread?.id) resolve();
+        if (reply.id === 2 && reply.result?.thread?.id) {
+          // 真实进入命令沙箱，验证入口脚本、解释器、环境变量和 Git 通道都可用，不消耗模型额度。
+          send({ id: 3, method: "command/exec", params: { cwd, command: ["/usr/bin/git", "status"] } });
+        }
+        if (reply.id === 3) {
+          if (reply.result?.exitCode !== 0) return reject(new Error("沙箱 Git 自检失败：" + (reply.result?.stderr || reply.result?.stdout || JSON.stringify(reply.result))));
+          resolve();
+        }
       });
     });
   } finally {
