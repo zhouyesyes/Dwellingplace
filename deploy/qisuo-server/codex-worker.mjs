@@ -3,7 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
-import { createConnection, createServer } from "node:net";
+import { Socket, createServer } from "node:net";
 import { basename, join } from "node:path";
 
 export const WORK_ROOT = "/codex-workspaces";
@@ -138,12 +138,13 @@ function serve(socketPath, root, binary) {
 }
 
 // 和网页一样走 socket，验证 App Server 能在沙箱里装载仓库指令。
-async function check(socketPath, root) {
+export async function check(socketPath, root) {
   const scratch = mkdtempSync(join(root, "check-"));
   const workspace = join(basename(scratch), "0".repeat(64));
   const cwd = join(root, workspace);
   const shots = `qisuo-shots-${randomUUID()}`;
-  const socket = createConnection(socketPath);
+  // 先备好仓库，再连接。Git 初始化期间 connect 事件可能已经发生，晚挂监听会漏掉握手。
+  const socket = new Socket();
   const lines = createInterface({ input: socket });
   try {
     mkdirSync(join(cwd, shots), { recursive: true });
@@ -158,6 +159,7 @@ async function check(socketPath, root) {
         send({ workspace, shots });
         send({ id: 1, method: "initialize", params: { clientInfo: { name: "qisuo-check", version: "1" } } });
       });
+      socket.connect(socketPath);
       lines.on("line", line => {
         let reply;
         try { reply = JSON.parse(line); } catch { return; }
