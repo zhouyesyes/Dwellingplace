@@ -105,6 +105,7 @@ RUN echo "第 $CLAUDE_WEEK 周 codex" && npm install -g @openai/codex --no-audit
 ENV PORT=8080 DIST=/app/dist DATA_DIR=/app/data DISABLE_AUTOUPDATER=1 CODEX_HOME=/codex-home
 CMD ["node", "/app/server.mjs"]
 COPY --from=build /src/deploy/qisuo-server/*.mjs /app/
+RUN chmod +x /app/qisuo-git.mjs && mkdir -p /app/codex-bin && ln -s /app/qisuo-git.mjs /app/codex-bin/git
 COPY --from=build /src/dist /app/dist
 DOCKER
 

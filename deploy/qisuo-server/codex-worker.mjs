@@ -108,7 +108,7 @@ function serve(socketPath, root, binary) {
       gitBridge(cwd, process.env.QISUO_GIT_SOCKET || GIT_SOCKET, process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
         bridge = opened;
         child = spawn(binary, ["app-server", ...workspaceArgs, ...commonArgs], {
-        cwd, env: { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret },
+        cwd, env: { PATH: `/app/codex-bin:${process.env.PATH}`, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret },
         stdio: ["pipe", "pipe", "pipe"],
       });
       let stderr = "";
@@ -185,8 +185,8 @@ async function checkGitBridge(root) {
     await run("git", ["init", "-q", "-b", "main"], { cwd: scratch });
     writeFileSync(join(scratch, "README.md"), "受控 Git 自检\n");
     bridge = await gitBridge(scratch, join(tmp, "git.sock"), "");
-    const env = { ...process.env, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret };
-    await run(process.execPath, ["/app/qisuo-git.mjs", "commit", "受控 Git 自检"], { env });
+    const env = { ...process.env, PATH: `/app/codex-bin:${process.env.PATH}`, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret };
+    await run("git", ["commit", "-m", "受控 Git 自检"], { env });
     const log = await run("git", ["log", "-1", "--pretty=%s"], { cwd: scratch });
     if (log.trim() !== "受控 Git 自检") throw new Error("受控 Git 没有写入提交");
   } finally {
