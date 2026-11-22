@@ -16,7 +16,7 @@ export function codexBase(role, thread) {
 export const jobState = reactive({});
 const END = ["done", "failed", "blocked"];
 
-export async function codexReply(role, thread, id, input, signal, onProgress) {
+export async function codexReply(role, thread, id, input, signal, onProgress, onText) {
   const base = codexBase(role, thread);
   if (!base) throw new Error("找不到栖所服务器的地址");
   const url = base + "/chat/" + id;
@@ -43,6 +43,7 @@ export async function codexReply(role, thread, id, input, signal, onProgress) {
       }
       if (state) {
         onProgress(state.position ? [{ text: `Codex 排队中（前面还有 ${state.position - 1} 条等待）` }] : state.events || []);
+        if (typeof state.text === "string") onText?.(state.text);
         if (state.final?.type === "error") throw new Error(state.final.text);
         if (state.final?.type === "result") return state.final;
       }

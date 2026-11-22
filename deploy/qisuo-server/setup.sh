@@ -312,12 +312,30 @@ if ! $SUDO docker exec qisuo-codex-worker node /app/codex-worker.mjs --check; th
   exit 1
 fi
 
+say "启动独立 Chromium 截图服务…"
+mkdir -p "$DIR/codex-previews"
+chmod 700 "$DIR/codex-previews"
+$SUDO docker rm -f qisuo-codex-preview >/dev/null 2>&1 || true
+rm -f "$DIR/codex-previews/preview.sock"
+$SUDO docker run -d --name qisuo-codex-preview --restart unless-stopped --init --network none \
+  --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+  --pids-limit 256 --memory 768m --shm-size 128m -e HOME=/tmp -e QISUO_CODEX_PREVIEW=1 \
+  -v "$DIR/codex-previews:/codex-previews" qisuo-server node /app/codex-preview.mjs >/dev/null
+for _ in $(seq 1 15); do
+  [ ! -S "$DIR/codex-previews/preview.sock" ] || break
+  sleep 1
+done
+if ! $SUDO docker exec qisuo-codex-preview node /app/codex-preview.mjs --check; then
+  say "Chromium 截图自检没通过，现有栖所主容器还在运行。"
+  exit 1
+fi
+
 say "启动…"
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker network rm codex-int >/dev/null 2>&1 || true # 旧的栖所服务器也连着它，拿掉服务器以后才删得掉
 # shellcheck disable=SC2086
 $SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
-  -e CODEX_WORKER_SOCKET=/codex-worker-ipc/codex.sock -v "$DIR/codex-worker-ipc:/codex-worker-ipc:ro" -v "$DIR/codex-workspaces:/codex-workspaces" \
+  -v "$DIR/codex-previews:/codex-previews" -e CODEX_WORKER_SOCKET=/codex-worker-ipc/codex.sock -v "$DIR/codex-worker-ipc:/codex-worker-ipc:ro" -v "$DIR/codex-workspaces:/codex-workspaces" \
   -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV $CODEX_ENV -v "$DIR/data:/app/data" -v "$DIR/codex-home:/codex-home" qisuo-server >/dev/null
 
 ok=""

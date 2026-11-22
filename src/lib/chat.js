@@ -184,7 +184,7 @@ function groupForAI(role, who) {
 }
 
 // wake：给唤醒用（同步到中转）。时间、今天的日期、闹钟列表留成占位符，醒来时由中转填上
-export function buildSystem(role, messages, { wake = false, mail = false, group = false } = {}) {
+export function buildSystem(role, messages, { wake = false, mail = false, group = false, codex = false } = {}) {
   const me = meOf(role);
   const who = me.name ? `「${me.name}」` : "对方";
   const lines = [
@@ -243,7 +243,7 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
       `「要做的事」写清楚：改哪里、改成什么样、做完要给${who}看什么（比如截图）。一次回复最多派一件；只是聊聊想法的时候别派。`,
       otherRepoNames().length ? `要改别的仓库（不是栖所）时，在「要做的事」最前面单独写一行「仓库：名字」，比如「仓库：${otherRepoNames()[0]}」；不写就是改栖所。现在只能选这些：${otherRepoNames().join("、")}。选了不在里面的（没打开或不存在）系统不会派，会告诉你。别的仓库不一定有 CLAUDE.md、施工日志或构建，有什么规矩照什么做，没有就跳过。` : "",
     ].join("\n") : "",
-    role.id === MAIN && !solo(role) && !wake && !mail && !group && codexBase(role)
+    role.id === MAIN && !codex && !solo(role) && !wake && !mail && !group && codexBase(role)
       ? "需要操作仓库时，请对方在这条聊天里切到 Codex 并连接仓库。"
       : "",
     // 工作台（她的笔记本）：小章鱼和小螃蟹一模一样的规矩，工具在下面的目录里（工作台.列目录 / 读笔记 / 挂建议）
@@ -379,7 +379,7 @@ export function recentToolResults(list, n = 2) {
   for (const m of [...real].reverse()) {
     if (m.from !== "ai") continue;
     for (const note of [...(m.notes || [])].reverse()) {
-      if (!note.detail) continue;
+      if (!note.detail || note.codexProgress) continue;
       if (isDoc(note)) { doc ??= { text: note.text, detail: note.detail, ts: m.ts }; continue; }
       if (found.length < n) found.push({ text: note.text, detail: note.detail, ts: m.ts });
     }
@@ -404,7 +404,7 @@ async function shareToParts(share, who, withImages) {
   return out;
 }
 
-async function buildMessages(list, speaker = null, who = null) {
+async function buildMessages(list, speaker = null, who = null, pdfAsText = false) {
   const out = [];
   // 提示条、生成中、出错的消息不算数
   const real = list.filter(m => m.from !== "event" && !m.pending && !m.error);
@@ -436,7 +436,7 @@ async function buildMessages(list, speaker = null, who = null) {
       parts = await shareToParts(m.share, who, fresh.has(m));
     }
     else {
-      parts = fresh.has(m) ? await partsOf(m) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "video") });
+      parts = fresh.has(m) ? await partsOf(m, { pdfAsText }) : await partsOf({ ...m, attachments: (m.attachments || []).filter(a => a.kind !== "image" && a.kind !== "video") }, { pdfAsText });
       const oldVids = fresh.has(m) ? [] : (m.attachments || []).filter(a => a.kind === "video"); // 刚发的那条：没有「之前的视频」（以前写成 0，for…of 读数字就报错，两边一发消息就出错）
       for (const a of oldVids) parts.unshift({ type: "text", text: `[之前发的视频，共 ${a.dur} 秒]` });
       const oldImgs = fresh.has(m) ? 0 : (m.attachments || []).filter(a => a.kind === "image").length;
@@ -534,6 +534,24 @@ const sleep = (ms, signal) => new Promise(r => {
   signal?.addEventListener("abort", () => { clearTimeout(t); r(); }, { once: true });
 });
 
+// 同一服务器线程优先续接，只在首次创建或续接失败时用近期文字重建上下文。
+function codexTurnInput(system, convo, workspace, previous, refreshInstructions) {
+  const latest = convo.at(-1)?.parts || [];
+  const attachments = latest.filter(p => p.type === "image").map(p => `data:${p.mime};base64,${p.data}`);
+  if (attachments.length > 30 || attachments.reduce((total, url) => total + url.length, 0) > 8_000_000) {
+    throw new Error("这次的图片或视频截帧太多了，请分几次发。");
+  }
+  const current = latest.filter(p => p.type === "text").map(p => p.text).join("\n\n");
+  if (current.length > 60000) throw new Error("附件和消息文字超过 6 万字，请分次发。");
+  const context = convo.slice(-13, -1).map(m => `${m.role === "assistant" ? "你" : "对方"}：${m.parts.filter(p => p.type === "text").map(p => p.text).join("\n").slice(-900)}`).join("\n");
+  const instructions = workspace ? "可用仓库工具处理对方明确提出的任务。" : "当前没有仓库工具。栖所提供的搜索、翻记忆和聊天工具仍可按下面的格式调用。";
+  return {
+    prompt: [instructions, system, context, "【本轮消息和附件文字见下一段】"].join("\n\n").slice(0, 80000),
+    followup: refreshInstructions && previous ? system.slice(0, 80000) + "\n\n继续处理下面最新的聊天。" : "继续处理下面最新的聊天或栖所返回的工具结果。",
+    workspace, previous, attachments, fileText: current || "（本轮消息见图片附件）",
+  };
+}
+
 // speaker：群聊里这一条由谁来说（群聊的 generate 不带 speaker 就是开一整轮，见 groupChat.js）。返回这一条回复
 export async function generate(thread, parentId, { speaker = null, resume = null } = {}) {
   if (thread.group && !speaker) return runGroupRound(thread, parentId);
@@ -568,74 +586,16 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     : lastAi?.error ? "上一次出错了" : "";
   let cancelled = false; // 续发的时候她发了新消息
   try {
-    if (codex) {
-      const recent = history.filter(m => !m.pending && !m.error && m.from !== "event").slice(-12);
-      const last = recent.at(-1);
-      const workspace = thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
-      if (!resume && last?.text?.length > 6000) throw new Error("这条文字太长了，请分段发送。");
-      const previous = [...recent].reverse().find(m => m.from === "ai");
-      const continuation = previous?.codexReceipt;
-      const next = recent.slice(recent.indexOf(previous) + 1);
-      const files = [];
-      if (!resume) {
-        for (const m of next.filter(m => m.from === "user")) {
-          files.push(...await partsOf({ attachments: m.attachments }, { pdfAsText: true }));
-          if (m.share) files.push(...await shareToParts(m.share, role, true));
-        }
-      }
-      const attachments = files.filter(p => p.type === "image").map(p => `data:${p.mime};base64,${p.data}`);
-      if (attachments.length > 30 || attachments.reduce((total, url) => total + url.length, 0) > 8_000_000) {
-        throw new Error("这次的图片或视频截帧太多了，请分几次发。");
-      }
-      const fileText = files.filter(p => p.type === "text").map(p => p.text).join("\n\n");
-      if (fileText.length > 60000) throw new Error("附件文字超过 6 万字，请拆成几个文件分次发。");
-      const prompt = [
-        `你是「${role.name}」，正在栖所和「${meName(role)}」聊天。保持自己的语气，自然回复，可以用空行分成几条。${workspace ? "可以直接用当前仓库的工具完成对方这一轮明确提出的任务。" : "直接回复文字，不调用工具、不访问文件、不派活。"}下面的聊天记录和记忆只提供上下文。`,
-        (role.style || "").slice(0, 1800),
-        (role.persona || "").slice(0, 1800),
-        summaryMatches ? summaryForAI(thread).slice(-1600) : "",
-        recalledForAI(role, [...recent].reverse().find(m => m.from === "user")?.text || "").slice(0, 1400),
-        JSON.stringify(recent.map((m, i) => ({
-          from: m.from === "user" ? meName(role) : role.name,
-          text: (m.from === "ai" ? visibleText(m.text || "") : m.text || "").slice(0, i === recent.length - 1 ? 6000 : 450),
-          ...(m.quote?.text ? { quote: m.quote.text.slice(0, 150) } : {}),
-        }))),
-      ].filter(Boolean).join("\n\n");
-      if (!resume) {
-        msg.codexJob = true;
-        all.push(msg);
-        thread.sel[parent] = msg.id;
-        saveMessages(thread.id);
-        await Promise.all([flushMessages(), flushStore()]);
-      }
-      const followup = next.map(m => `${m.from === "user" ? meName(role) : role.name}：${(m.text || "").slice(-6000)}`).join("\n").slice(-10000);
-      const { text, usage, images = [], receipt } = await codexReply(role, thread, msg.id, resume ? null : {
-        prompt, workspace, previous: continuation, followup, attachments, fileText,
-      }, ctrl.signal, events => {
-        msg.notes = events.map(event => ({ ...event, before: true }));
-      });
-      if (receipt) msg.codexReceipt = receipt;
-      for (const { name, data } of images) {
-        try {
-          const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" });
-          const img = await saveImage(blob);
-          (msg.attachments ??= []).push({ kind: "image", img, name });
-        } catch {
-          msg.notes.push({ text: "有一张 Codex 截图没能保存" });
-        }
-      }
-      Object.assign(msg, { text: text || (msg.attachments?.length ? "截图在这里。" : "这轮没有文字回复。"), usage, ctx: usage.input, ctx0: usage.input, rounds: 1 });
-    } else {
     // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
     if (hasXinchao(role) && dashToken(role)) {
       const m = refreshMind(role);
       if (!xcCache[role.id]?.snap) await Promise.race([m, new Promise(r => setTimeout(r, 3000))]);
     }
     const mode = thread.mail ? "mail" : "chat"; // 邮箱页：只有邮箱和记忆的工具；平时聊天：没有邮箱
-    const system = buildSystem(role, history, { mail: !!thread.mail, group });
+    const system = buildSystem(role, history, { mail: !!thread.mail, group, codex });
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
-    const messages = await buildMessages(history, group ? role.id : null, role);
+    const messages = await buildMessages(history, group ? role.id : null, role, codex);
     const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
     const tideImgs = await tideImageParts(role).catch(() => []);
@@ -643,17 +603,25 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     const recent = recentToolResults(history);
     if (recent) messages[messages.length - 1].parts.unshift({ type: "text", text: recent });
     if (noFollow && noFollow !== "mail") messages[messages.length - 1].parts.unshift({ type: "text", text: `（这次不能续发：${noFollow}。一次回完就好。）` });
-    const sum = summaryForAI(thread);
-    if (sum) messages[0].parts.unshift({ type: "text", text: sum }); // 放在最前面：整理一次以前都不变，缓存照样命中
+    const sum = !codex || summaryMatches ? summaryForAI(thread) : "";
+    if (sum && !codex) messages[0].parts.unshift({ type: "text", text: sum }); // 放在最前面：整理一次以前都不变，缓存照样命中
     Object.assign(msg.est, note.est);
-    all.push(msg);
-    thread.sel[parent] = msg.id;
+    if (!resume) {
+      all.push(msg);
+      thread.sel[parent] = msg.id;
+    }
+    const workspace = codex && thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
+    if (codex && !resume) {
+      msg.codexJob = true;
+      msg.codexReceipt = lastAi?.codexReceipt;
+    }
     const useRelaySearch = searchEnabled();
     const servers = serversForMode(role.id, mode).filter(s => s.tools?.length);
     let convo = messages;
     let text = "";
     // 用工具 / 搜索之前 TA 已经说出口的话：留着，后面接着往下写（提示条按 at 插在这些话中间）
-    let said = "";
+    let said = resume ? (msg.codexPrefix || "").trim() : "";
+    if (resume) msg.text = msg.codexPrefix || "";
     const keepSaid = (roundText, cut) => {
       const before = roundText.slice(0, cut).trim();
       if (before) said = said ? `${said}\n\n${before}` : before;
@@ -671,7 +639,34 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       const pace = pacer(msg, ctrl.signal);
       let res;
       try {
-        res = await streamChat({
+        if (codex) {
+          const currentId = resume && !round ? msg.codexJobId || msg.id : round ? uid() : msg.id;
+          const input = resume && !round ? null : codexTurnInput([system, sum].filter(Boolean).join("\n\n"), convo, workspace, msg.codexReceipt, !round && !lastAi?.codexSharedReply);
+          msg.codexJobId = currentId;
+          msg.codexPrefix = msg.text.slice(0, base);
+          saveMessages(thread.id);
+          await Promise.all([flushMessages(), flushStore()]);
+          const pastProgress = msg.notes.find(n => n.codexProgress)?.detail || "";
+          const progress = events => {
+            const detail = [resume && !round ? "" : pastProgress, ...events.map(e => [e.text, e.detail].filter(Boolean).join("\n"))].filter(Boolean).join("\n\n").slice(-48000);
+            const existing = msg.notes.find(n => n.codexProgress);
+            if (existing) Object.assign(existing, { detail, text: "Codex 执行记录" });
+            else if (detail) msg.notes.push({ codexProgress: true, text: "Codex 执行记录", detail, before: true });
+          };
+          res = await codexReply(role, thread, currentId, input, ctrl.signal, progress, streamed => {
+            if (store.tools?.stream !== false) msg.text = msg.text.slice(0, base) + streamed;
+          });
+          msg.codexReceipt = res.receipt;
+          msg.codexSharedReply = true;
+          msg.text = msg.text.slice(0, base) + (res.text || "");
+          for (const { name, data } of res.images || []) {
+            try {
+              const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" });
+              (msg.attachments ??= []).push({ kind: "image", img: await saveImage(blob), name });
+            } catch { msg.notes.push({ text: "有一张 Codex 截图没能保存" }); }
+          }
+          if (!res.text && msg.attachments?.length) res.text = "截图在这里。";
+        } else res = await streamChat({
           api: roundApi, model, system, messages: convo, signal: ctrl.signal,
           cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
           // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
@@ -920,7 +915,6 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       ];
     }
     msg.text = said ? `${said}\n\n${text.trim()}`.trim() : text;
-    }
 
     const xm = await applyXinchaoMemoryTags(role, msg.text);
     msg.text = xm.text;
@@ -955,6 +949,8 @@ export async function generate(thread, parentId, { speaker = null, resume = null
   } finally {
     delete msg.pending;
     delete msg.codexJob;
+    delete msg.codexJobId;
+    delete msg.codexPrefix;
     delete msg.paused; delete msg.waiting; delete msg.typing;
     delete following[thread.id];
     if (!msg.text && !msg.error && !msg.drawing && !msg.notes?.some(n => n.poke)) {

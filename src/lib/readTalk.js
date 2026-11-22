@@ -11,7 +11,7 @@ import { reactive } from "vue";
 import { store, uid } from "../store/index.js";
 import { get, set, onRemoteChange } from "./kv.js";
 import { progressOf } from "./books.js";
-import { latestImpr, applyNoteTags, stripReadMemTags } from "./reading.js";
+import { latestImpr, chapterNotes, chapterGist, applyNoteTags, stripReadMemTags } from "./reading.js";
 import { globalMemoryForScene, takeSuggestions, roomSuggestRule } from "./memoryTags.js";
 import { recallForAI } from "./recall.js";
 import { tail, sumTokens, keepCount, writeTokens, AUTO, snapshotSum } from "./budget.js";
@@ -70,12 +70,14 @@ const where = b => {
 function bookParts(b, me) {
   const out = [];
   out.push({ key: "book", label: "这本书", text: `《${b.title}》${b.author ? `（${b.author}）` : ""}：${where(b)}${(b.round || 1) > 1 ? `，这是第 ${b.round} 遍读` : ""}。` });
-  if (b.gist?.text) out.push({ key: "gist", label: "前情梗概", text: `前情梗概（整理模型客观记的）：\n${cut(b.gist.text, 4000)}` });
+  const ch = b.pos?.ch ?? b.hisPos?.ch ?? 0;
+  const gist = chapterGist(b, ch, 4000);
+  if (gist) out.push({ key: "gist", label: "前情梗概", text: `前情梗概（整理模型客观记的）：\n${gist}` });
   if (b.imprs?.length) out.push({ key: "imprs", label: `你的中途印象（${b.imprs.length} 版）`, text: `你一路读下来写的中途印象（从早到晚，最后一条是你现在的看法；前面的是以前的想法，可能被你推翻过）：\n${b.imprs.map((x, i) => `${i + 1}. ${x.text}`).join("\n")}` });
   const his = [...(b.past || []).filter(x => x.his?.text).map(x => ({ ...x.his, round: x.round })), ...(b.hisOld || []), ...(b.his ? [b.his] : [])];
   if (his.length) out.push({ key: "his", label: "你的读后感", text: his.map(x => `你第 ${x.round || 1} 遍读完写的读后感（${x.stars} 星）：\n${x.text.slice(0, 1500)}`).join("\n\n") });
   if (b.mine?.text) out.push({ key: "mine", label: `${me}的读后感`, text: `${me}的读后感（${b.mine.stars} 星）：\n${b.mine.text.slice(0, 1500)}` });
-  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-12).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
+  const notes = chapterNotes(b, ch, 12).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
   if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
   return out;
 }

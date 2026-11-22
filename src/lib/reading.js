@@ -82,21 +82,29 @@ export async function updateGist(role, b, upTo) {
     const { oneShot, meName, helperApi } = await import("./chat.js");
     const me = meName(role);
     const book = await loadBook(b.id);
-    const from = b.gist?.upTo || START;
-    if (!before(from, upTo)) return;
-    const seg = textBetween(book, from, upTo);
-    if (seg.length < 200) return;
-    const prevText = b.gist?.text || "";
-    const prompt = [
-      `这是《${b.title}》${b.author ? `（${b.author}）` : ""}的一段原文，${me}和朋友在一起读。`,
-      prevText ? `前面的梗概（已经整理过的，接着它往下写，不用重复）：\n${prevText.length > 3000 ? "……" + prevText.slice(-3000) : prevText}` : "",
-      `这次要整理的原文：\n${seg}`,
-      `把这次的原文整理成客观的故事梗概，给以后接着读的人看：发生了什么、按先后顺序、出场的人物和他们的关系、重要的细节和伏笔。只客观讲故事，不要评价，不要抒情，不要写读者的感受。只整理这次的原文，不超过 ${Math.max(600, Math.min(1500, Math.round(seg.length / 40)))} 字，只写梗概本身。`,
-    ].filter(Boolean).join("\n\n");
-    const text = (await oneShot(role, prompt, { helper: true, raw: true })).trim();
-    if (!text) return;
-    const segs = [...(b.gist?.segs || (prevText ? [{ text: prevText, from: START, upTo: from, at: b.gist?.at }] : [])), { text: text.slice(0, 3000), from, upTo, at: Date.now(), model: helperApi(role).model, chars: seg.length }];
-    b.gist = { segs, text: segs.map(s => s.text).join("\n\n"), upTo, at: Date.now() };
+    let from = b.gist?.upTo || START;
+    const old = b.gist?.text || "";
+    const segs = [...(b.gist?.segs || (old ? [{ text: old, from: START, upTo: from, at: b.gist?.at }] : []))];
+    while (before(from, upTo) && from.ch < book.chapters.length) {
+      const chapter = from.ch;
+      const end = chapter < upTo.ch ? { ch: chapter + 1, p: 0 } : upTo;
+      const seg = textBetween(book, from, end);
+      if (seg.trim()) {
+        const previous = segs.map(x => x.text).join("\n\n").slice(-3000);
+        const title = book.chapters[chapter].title || `第 ${chapter + 1} 章`;
+        const prompt = [
+          `这是你和${me}共读的《${b.title}》中的「${title}」。`,
+          previous && `已整理的前情（供衔接，不用重复）：\n${previous}`,
+          `本次新读到的原文：\n${seg}`,
+          "只整理这次的原文。按先后顺序客观写事件、人物关系和伏笔，不超过 1500 字，不写读者感受。",
+        ].filter(Boolean).join("\n\n");
+        const text = (await oneShot(role, prompt, { helper: true, raw: true })).trim();
+        if (!text) return;
+        segs.push({ text: text.slice(0, 3000), chapter, from, upTo: end, at: Date.now(), model: helperApi(role).model, chars: seg.length });
+      }
+      b.gist = { segs: [...segs], text: segs.map(s => s.text).join("\n\n"), upTo: end, at: Date.now() };
+      from = end;
+    }
   } finally {
     delete gisting[b.id];
   }
@@ -142,7 +150,7 @@ export async function writeImpression(role, b, upTo = b.hisPos ? { ch: b.hisPos.
   const book = await loadBook(b.id);
   const olds = b.imprs || [];
   const raw = await sinceGist(b, upTo);
-  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}：${(n.text || "（划线）").slice(0, 80)}`);
+  const notes = chapterNotes(b, upTo.ch).map(n => `- ${n.from === "me" ? me : "你"}：${(n.text || "（划线）").slice(0, 80)}`);
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${book.chapters[Math.min(upTo.ch, book.chapters.length - 1)]?.title || ""}」。`,
@@ -173,19 +181,35 @@ export async function readingPreview(role, b) {
     { label: "然后是这次的", text: "问问他：你划的那一句、它所在的段落和前后各一段。\n一起读：他先看目录，自己挑从哪读、读多少（1000～8000 token），再给他那一段。" },
   ];
 }
-export function readingSceneParts(b, me) {
+export function chapterNotes(b, ch, limit = 10) {
+  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).reverse();
+  return [...notes.filter(n => n.ch === ch), ...notes.filter(n => n.ch !== ch)].slice(0, limit);
+}
+
+export function chapterGist(b, ch, limit = 8000) {
+  const all = b.gist?.segs;
+  if (!all?.length) return (b.gist?.text || "").slice(-limit);
+  const current = all.filter(s => s.chapter === ch || s.chapter == null && s.from?.ch <= ch && s.upTo && (s.upTo.ch > ch || s.upTo.ch === ch && s.upTo.p > 0));
+  const earlier = all.filter(s => !current.includes(s) && s.from?.ch <= ch).slice(-6);
+  const here = current.map(s => s.text).join("\n\n").slice(-limit);
+  const beforeText = earlier.map(s => s.text).join("\n\n").slice(-(limit - here.length || 1));
+  return [here && `【当前章】\n${here}`, here.length < limit && beforeText && `【此前】\n${beforeText}`].filter(Boolean).join("\n\n");
+}
+
+export function readingSceneParts(b, me, ch = b.pos?.ch ?? b.hisPos?.ch ?? 0) {
   const out = [];
-  if (b.gist?.text) out.push({ key: "gist", label: "前情梗概", text: `这本书前面的梗概（整理模型客观记的，一段段接着）：\n${b.gist.text}` });
+  const gist = chapterGist(b, ch);
+  if (gist) out.push({ key: "gist", label: "前情梗概", text: `这本书的前情梗概：\n${gist}` });
   const im = latestImpr(b);
   if (im) out.push({ key: "impr", label: "你最新的中途印象", text: `你读到「${b.chapters[Math.min(im.upTo.p === 0 && im.upTo.ch > 0 ? im.upTo.ch - 1 : im.upTo.ch, b.chapters.length - 1)]?.title || ""}」时写下的印象：${im.text}` });
-  const notes = (store.bookNotes || []).filter(n => n.bookId === b.id).slice(-10).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
+  const notes = chapterNotes(b, ch).map(n => `- ${n.from === "me" ? me : "你"}${n.quote ? `（在「${n.quote.slice(0, 24)}」旁）` : ""}：${n.text ? n.text.slice(0, 120) : "（只划了线）"}`);
   if (notes.length) out.push({ key: "notes", label: "最近的划线和批注", text: `这本书里你们最近的划线和批注：\n${notes.join("\n")}` });
   const others = (store.books || []).filter(x => x.id !== b.id && x.readAt && !x.mine).sort((x, y) => (y.readAt || 0) - (x.readAt || 0)).slice(0, 3);
   if (others.length) out.push({ key: "others", label: "其他也在读的书", text: `（别的书，别和这本弄混）你们也在读：\n${others.map(x => `- 《${x.title}》${latestImpr(x) ? `：${latestImpr(x).text}` : ""}`).join("\n")}` });
   return out;
 }
-async function bookContext(b, me, role, query = "") {
-  const scene = readingSceneParts(b, me).map(x => x.text).join("\n\n");
+async function bookContext(b, me, role, query = "", ch) {
+  const scene = readingSceneParts(b, me, ch).map(x => x.text).join("\n\n");
   return [scene && `# 共读《${b.title}》（这次的场景，最要紧）\n${scene}`, role ? await globalMemoryForScene(role, me, { skip: "read", query }) : ""].filter(Boolean).join("\n");
 }
 
@@ -251,7 +275,7 @@ export async function askHim(role, b, { ch, p, paras, chapterTitle, question, qu
   const prompt = [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}，现在读到「${chapterTitle}」。`,
-    await bookContext(b, me, role, `${question || ""} ${quote || paras[p] || ""}`),
+    await bookContext(b, me, role, `${question || ""} ${quote || paras[p] || ""}`, ch),
     await (async () => { const t = await sinceGist(b, { ch, p: Math.max(0, p - 1) }); return t ? `（上次整理前情之后，你们读过的原文：）\n${t}` : ""; })(),
     imageOnly ? `${me}指着当前图片页给你看。没有可批注的文字段落，不要编造段落或原文。` : part ? `${me}划了这一句给你看：「${quote}」\n（它所在的这一段：${paras[p]}）` : `${me}指着这一段给你看：\n「${paras[p]}」`,
     imageOnly && page?.text ? `当前页可见文字：\n${page.text}` : "",
@@ -426,7 +450,7 @@ export async function alongPrompt(role, b, items, from, { alone = false, self = 
   return [
     role.style?.trim() ? `（这是你写给自己的：${role.style.trim()}）\n` : "",
     `你和${me}在一起读《${b.title}》${b.author ? `（${b.author}）` : ""}。`,
-    await bookContext(b, me, role),
+    await bookContext(b, me, role, "", from.ch),
     earlier ? `\n（上次整理前情之后、你们已经读过的原文，接着前情看：）\n${earlier.length > 8000 ? "……" + earlier.slice(-8000) : earlier}` : "",
     alone ? `\n目录（章号. 章名）：\n${book.chapters.map((c, i) => `${i + 1}. ${c.title || `第 ${i + 1} 章`}`).join("\n")}` : "",
     alone
