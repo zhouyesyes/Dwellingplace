@@ -22,6 +22,7 @@ export const workspaceArgs = [
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
   'permissions.qisuo_chat.network.unix_sockets={"/codex-worker-ipc/git/git.sock"="allow"}',
+  'permissions.qisuo_chat.network.dangerously_allow_all_unix_sockets=true',
   'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","github.com"="allow","api.github.com"="allow","raw.githubusercontent.com"="allow","127.0.0.1"="allow","localhost"="allow"}',
 ].flatMap(value => ["-c", value]);
 
@@ -177,6 +178,14 @@ export async function check(socketPath, root) {
         }
         if (reply.id === 3) {
           if (reply.result?.exitCode !== 0) return reject(new Error("沙箱 Git 自检失败：" + (reply.result?.stderr || reply.result?.stdout || JSON.stringify(reply.result))));
+          send({ id: 4, method: "command/exec", params: { cwd, command: ["/usr/bin/git", "commit", "-m", "沙箱提交自检"] } });
+        }
+        if (reply.id === 4) {
+          if (reply.result?.exitCode !== 0) return reject(new Error("沙箱提交自检失败：" + (reply.result?.stderr || reply.result?.stdout || JSON.stringify(reply.result))));
+          send({ id: 5, method: "command/exec", params: { cwd, command: ["/usr/bin/git", "log"] } });
+        }
+        if (reply.id === 5) {
+          if (reply.result?.exitCode !== 0 || !reply.result?.stdout?.includes("沙箱提交自检")) return reject(new Error("沙箱提交记录未通过验证"));
           resolve();
         }
       });

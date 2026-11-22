@@ -14,6 +14,11 @@
 
 ## 日志
 
+### 2026-11-22 · Codex：容器内验证沙箱 Git 提交全流程
+- 在 Node 22、Bubblewrap、Codex 0.172.0-alpha.2 的真实 Docker 容器里复现 connect EPERM。单个 Socket 白名单仍被系统调用限制拦截，启用 Unix Socket 连接开关后通过。
+- 此开关允许可见的 Unix Socket 连接，文件沙箱仍遮蔽主控制目录，仅开放 Git 子目录。安装自检升级为沙箱内 status、commit、log 并核对提交记录。
+- 已在本地真实容器通过上述流程。用户服务器上的 GitHub 凭据及远端推送仍待验证。
+
 ### 2026-11-22 · Codex：允许沙箱连接 Git Socket
 - 按 Codex 网络权限配置显式允许 /codex-worker-ipc/git/git.sock。文件权限之外，Unix Socket 连接也需要网络白名单，缺失会导致 connect EPERM。
 
