@@ -8,6 +8,7 @@ import { sumTokens, fmtTok } from "../lib/budget.js";
 
 const props = defineProps({
   open: Boolean,
+  codex: Boolean,
   title: { type: String, default: "这个对话的用量" },
   all: { type: Array, default: () => [] }, // 这个对话里所有消息（包括重新生成的版本：都花了 tokens）
   path: { type: Array, default: () => [] }, // 现在看到的这一条线
@@ -17,9 +18,9 @@ const props = defineProps({
 });
 const emit = defineEmits(["close"]);
 
-const last = computed(() => [...props.path].reverse().find(m => m.from === "ai" && !m.error && (m.ctx || m.usage?.input)));
-const ctx = computed(() => (last.value ? last.value.ctx0 || last.value.ctx || last.value.usage.input : 0));
-const pct = computed(() => Math.min(100, Math.round((ctx.value / props.limit) * 100)));
+const last = computed(() => [...props.path].reverse().find(m => m.from === "ai" && !m.error && (m.model === "Codex") === props.codex && (m.ctx || m.usage?.input)));
+const ctx = computed(() => (last.value ? (props.codex ? last.value.ctx : last.value.ctx0) || last.value.ctx || last.value.usage.input : 0));
+const pct = computed(() => props.limit ? Math.min(100, Math.round((ctx.value / props.limit) * 100)) : 0);
 const level = computed(() => (pct.value >= 85 ? "high" : pct.value >= 60 ? "mid" : ""));
 
 // 一次回复：系统提示里的设定 / 记忆 / 日历、工具目录，剩下的是聊天记录和【此刻】
@@ -44,7 +45,7 @@ function partsOf(m) {
   return rows.filter(r => r.n > 0 || r.label === "工具目录").map(r => ({ ...r, pct: total ? Math.round((r.n / total) * 100) : 0 }));
 }
 const extraOf = m => (m?.ctx0 ? Math.max(0, (m.usage?.input || 0) - m.ctx0) : 0);
-const parts = computed(() => partsOf(last.value));
+const parts = computed(() => props.codex ? null : partsOf(last.value));
 const lastExtra = computed(() => extraOf(last.value));
 
 // ---------- 第二页：看得到多少条 ----------
@@ -97,9 +98,10 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
     <p v-if="!totals.replies" class="tip">还没有回复，聊几句再来看。往左滑可以调他每次带多少聊天原文。</p>
     <template v-else>
       <div v-if="last" class="ctx-big">
-        <div class="ctx-num">{{ fmtTokens(ctx) }}<small> / {{ fmtTokens(limit) }} tokens</small></div>
-        <i class="bar big" :class="level"><b :style="{ width: pct + '%' }" /></i>
-        <p>上一次回复时一共看了这么多内容<template v-if="shownCount">（最近 {{ shownCount }} 条消息，加上设定、记忆和日历）</template>。</p>
+        <div class="ctx-num">{{ fmtTokens(ctx) }}<small><template v-if="limit"> / {{ fmtTokens(limit) }}</template> tokens</small></div>
+        <i v-if="limit" class="bar big" :class="level"><b :style="{ width: pct + '%' }" /></i>
+        <p v-if="codex">这是 Codex 上一次模型请求报告的输入，包含它接续的会话历史和工具结果。栖所整理聊天摘要后，这个数字不会立即下降。<template v-if="!limit"> 这条旧记录没有报告 Codex 的上下文上限。</template></p>
+        <p v-else>上一次回复时一共看了这么多内容<template v-if="shownCount">（最近 {{ shownCount }} 条消息，加上设定、记忆和日历）</template>。</p>
       </div>
 
       <template v-if="parts">
@@ -150,7 +152,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
           </div>
         </div>
       </div>
-      <p class="tip">改了马上生效。聊得久了（摘要后面的原文到了上面那个数的八成，或者内容快到模型上限的七成），他会把前面的聊天整理成一段摘要接着用，聊天里会留一行小记，点开能看。记忆库里的事不受这个影响，他一直记得。</p>
+      <p class="tip">改了马上生效。聊得久了（摘要后面的原文到了上面那个数的八成<template v-if="!codex">，或者内容快到模型上限的七成</template>），他会把前面的聊天整理成一段摘要接着用，聊天里会留一行小记，点开能看。记忆库里的事不受这个影响，他一直记得。</p>
     </section>
     </div>
   </Sheet>

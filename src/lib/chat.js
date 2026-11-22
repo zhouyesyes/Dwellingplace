@@ -658,6 +658,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           });
           msg.codexReceipt = res.receipt;
           msg.codexSharedReply = true;
+          if (res.contextLimit > 0) msg.codexContextLimit = res.contextLimit;
           msg.text = msg.text.slice(0, base) + (res.text || "");
           for (const { name, data } of res.images || []) {
             try {
@@ -1018,7 +1019,8 @@ async function maybeCompress(thread, role, last) {
   if (thread.summary?.upTo && !path.some(m => m.id === thread.summary.upTo)) return; // 不在摘要那条线上
   const rest = afterSummary(thread, path);
   const ctx = last?.ctx0 || last?.ctx || last?.usage?.input || 0;
-  const full = ctx > (Number(api?.contextLimit) || 200000) * 0.7;
+  // Codex 的线程历史由 App Server 压缩。这里整理的是栖所自己的聊天原文。
+  const full = last?.model !== "Codex" && ctx > (Number(api?.contextLimit) || 200000) * 0.7;
   // 群聊：进群只带最近二三十句 + 群摘要，所以超过 36 句就把前面的整理进摘要，留 24 句
   if (thread.group) {
     if (rest.length <= GROUP_TAIL + 12) return;

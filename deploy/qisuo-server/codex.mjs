@@ -234,10 +234,11 @@ function runChatTurn({ cwd, env, worker, prompt, followup, attachments, fileText
           onText(draft);
         }
         if (m.method === "item/completed" && p.item?.type === "agentMessage") answer = p.item.text;
-        if (m.method === "thread/tokenUsage/updated") usage = p.tokenUsage.last;
+        if (m.method === "thread/tokenUsage/updated") usage = p.tokenUsage;
         if (m.method === "turn/completed") {
           if (p.turn.status !== "completed") return finish(new Error(p.turn.error?.message || "Codex 没有完成这一轮"));
-          finish(null, { threadId, text: answer, usage: { input: usage.inputTokens || 0, output: usage.outputTokens || 0, cached: usage.cachedInputTokens || 0 } });
+          const last = usage.last || {};
+          finish(null, { threadId, text: answer, contextLimit: usage.modelContextWindow, usage: { input: last.inputTokens || 0, output: last.outputTokens || 0, cached: last.cachedInputTokens || 0 } });
         }
       }
     });
@@ -362,7 +363,7 @@ async function runCodexChat(task) {
       try { images = await previewFromWorkspace(cwd, join(screenshots, "preview.json")); }
       catch (error) { progress("Chromium 截图失败", scrub(error.message).slice(-500)); }
     }
-    task.final = { type: "result", text: result.text, usage: result.usage, images, receipt };
+    task.final = { type: "result", text: result.text, usage: result.usage, contextLimit: result.contextLimit, images, receipt };
   } finally {
     if (screenshots) rmSync(screenshots, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });

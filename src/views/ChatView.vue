@@ -555,12 +555,13 @@ function confirmCal(ev) {
 
 // ---------- 上下文 / 累计用量 ----------
 const ctxOpen = ref(false);
+const codexUsage = computed(() => thread.value?.replyBackend === "codex");
 const ctxInfo = computed(() => {
-  const last = [...messages.value].reverse().find(m => m.from === "ai" && !m.error && (m.ctx || m.usage?.input));
+  const last = [...messages.value].reverse().find(m => m.from === "ai" && !m.error && (m.model === "Codex") === codexUsage.value && (m.ctx || m.usage?.input));
   if (!last) return null;
   const ctx = last.ctx || last.usage.input;
-  const limit = Number(currentApi.value?.contextLimit) || 200000;
-  const pct = Math.min(100, Math.round((ctx / limit) * 100));
+  const limit = codexUsage.value ? last.codexContextLimit || 0 : Number(currentApi.value?.contextLimit) || 200000;
+  const pct = limit ? Math.min(100, Math.round((ctx / limit) * 100)) : 0;
   return { ctx, limit, pct, level: pct >= 85 ? "high" : pct >= 60 ? "mid" : "" };
 });
 // 上一次大约带了几条：摘要后面的，从后往前凑够「每次带多少原文」
@@ -940,8 +941,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <div v-if="quoting" class="quoting"><span><b>引用{{ nameOfQuote(quoting) }}：</b>{{ quoting.text }}</span><button aria-label="不引用了" @click="quoting = null"><Icon name="close" :size="14" /></button></div>
       <div class="pill-row">
         <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
-          <span>{{ fmtTokens(ctxInfo.ctx) }} / {{ fmtTokens(ctxInfo.limit) }}</span>
-          <i class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
+          <span>{{ fmtTokens(ctxInfo.ctx) }}<template v-if="ctxInfo.limit"> / {{ fmtTokens(ctxInfo.limit) }}</template><template v-else> tokens</template></span>
+          <i v-if="ctxInfo.limit" class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
         <button v-else class="ctx" @click="ctxOpen = true">用量</button>
         <label v-if="role.id === MAIN && thread && !thread.group && !thread.mail && !thread.studio && codexBase(role, thread)">
@@ -1046,7 +1047,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     </Sheet>
 
     <!-- 上下文 -->
-    <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit || 200000" :shown-count="shownCount" :summary="thread?.summary" @close="ctxOpen = false">
+    <UsageSheet :open="ctxOpen" :all="allMessages" :path="messages" :limit="ctxInfo?.limit ?? (codexUsage ? 0 : 200000)" :codex="codexUsage" :shown-count="shownCount" :summary="thread?.summary" @close="ctxOpen = false">
       对话不会「用满」：摘要后面的聊天原文快到 {{ fmtTok(chatTokens()) }} token 的八成，他就把前面的整理进摘要（记忆卡片里的事他一直记得）。想让他记得更细、或者想省一点，往左滑就能改这个数；模型的上限在「设置 → API」里改。
     </UsageSheet>
 
