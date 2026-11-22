@@ -569,6 +569,8 @@ export async function generate(thread, parentId, { speaker = null, resume = null
   }
   const parent = history.length ? history[history.length - 1].id : ROOT;
   const summaryMatches = !thread.summary?.upTo || history.some(m => m.id === thread.summary.upTo);
+  const summary = thread.summary;
+  const summaryKey = summaryMatches && summary?.text ? JSON.stringify([summary.upTo ?? null, summary.at ?? null]) : null;
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
   if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
   const codex = !!resume || role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "codex";
@@ -603,7 +605,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     const recent = recentToolResults(history);
     if (recent) messages[messages.length - 1].parts.unshift({ type: "text", text: recent });
     if (noFollow && noFollow !== "mail") messages[messages.length - 1].parts.unshift({ type: "text", text: `（这次不能续发：${noFollow}。一次回完就好。）` });
-    const sum = !codex || summaryMatches ? summaryForAI(thread) : "";
+    const sum = !codex || summaryMatches ? summaryForAI({ ...thread, summary }) : "";
     if (sum && !codex) messages[0].parts.unshift({ type: "text", text: sum }); // 放在最前面：整理一次以前都不变，缓存照样命中
     Object.assign(msg.est, note.est);
     if (!resume) {
@@ -613,7 +615,10 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     const workspace = codex && thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
     if (codex && !resume) {
       msg.codexJob = true;
-      msg.codexReceipt = lastAi?.codexReceipt;
+      // 摘要更新后，下一轮用摘要和近期原文开一个更短的 Codex 会话。
+      // 对话和仓库目录仍沿用原 id。工具返回的后续轮次沿用这一轮的新回执。
+      msg.codexSummaryKey = summaryKey;
+      if ((lastAi?.codexSummaryKey ?? null) === summaryKey) msg.codexReceipt = lastAi?.codexReceipt;
     }
     const useRelaySearch = searchEnabled();
     const servers = serversForMode(role.id, mode).filter(s => s.tools?.length);
@@ -641,7 +646,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       try {
         if (codex) {
           const currentId = resume && !round ? msg.codexJobId || msg.id : round ? uid() : msg.id;
-          const input = resume && !round ? null : codexTurnInput([system, sum].filter(Boolean).join("\n\n"), convo, workspace, msg.codexReceipt, !round && !lastAi?.codexSharedReply);
+          const input = resume && !round ? null : codexTurnInput([sum, system].filter(Boolean).join("\n\n"), convo, workspace, msg.codexReceipt, !round && !lastAi?.codexSharedReply);
           msg.codexJobId = currentId;
           msg.codexPrefix = msg.text.slice(0, base);
           saveMessages(thread.id);

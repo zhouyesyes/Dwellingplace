@@ -100,7 +100,7 @@ const pctOf = (a, b) => (!b || !a ? 0 : a / b < 0.01 ? "<1" : Math.round((a / b)
       <div v-if="last" class="ctx-big">
         <div class="ctx-num">{{ fmtTokens(ctx) }}<small><template v-if="limit"> / {{ fmtTokens(limit) }}</template> tokens</small></div>
         <i v-if="limit" class="bar big" :class="level"><b :style="{ width: pct + '%' }" /></i>
-        <p v-if="codex">这是 Codex 上一次模型请求报告的输入，包含它接续的会话历史和工具结果。栖所整理聊天摘要后，这个数字不会立即下降。<template v-if="!limit"> 这条旧记录没有报告 Codex 的上下文上限。</template></p>
+        <p v-if="codex">这是 Codex 上一次模型请求报告的输入，包含它接续的会话历史和工具结果。栖所更新摘要后，下次回复会用摘要和近期原文重新开始 Codex 上下文。这里的上次用量会等新回复后更新。<template v-if="!limit"> 这条旧记录没有报告 Codex 的上下文上限。</template></p>
         <p v-else>上一次回复时一共看了这么多内容<template v-if="shownCount">（最近 {{ shownCount }} 条消息，加上设定、记忆和日历）</template>。</p>
       </div>
 
