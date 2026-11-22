@@ -292,14 +292,14 @@ fi
 if [ ! -e "$DIR/codex-workspaces" ] && [ -d "$DIR/data/codex-chat-work" ]; then
   cp -a "$DIR/data/codex-chat-work" "$DIR/codex-workspaces"
 fi
-mkdir -p "$DIR/codex-workspaces" "$DIR/codex-worker-ipc" "$DIR/codex-git-ipc"
-chmod 700 "$DIR/codex-workspaces" "$DIR/codex-worker-ipc" "$DIR/codex-git-ipc"
+mkdir -p "$DIR/codex-workspaces" "$DIR/codex-worker-ipc/git"
+chmod 700 "$DIR/codex-workspaces" "$DIR/codex-worker-ipc" "$DIR/codex-worker-ipc/git"
 $SUDO docker rm -f qisuo-codex-worker >/dev/null 2>&1 || true
-rm -f "$DIR/codex-worker-ipc/codex.sock" "$DIR/codex-git-ipc/git.sock"
+rm -f "$DIR/codex-worker-ipc/codex.sock" "$DIR/codex-worker-ipc/git/git.sock"
 $SUDO docker run -d --name qisuo-codex-worker --restart unless-stopped --init \
   "${WORKER_SECURITY[@]}" --pids-limit 384 --shm-size 256m \
   -e QISUO_CODEX_WORKER=1 $CODEX_ENV -v "$DIR/codex-workspaces:/codex-workspaces" \
-  -v "$DIR/codex-worker-ipc:/codex-worker-ipc" -v "$DIR/codex-git-ipc:/codex-git-ipc" -v "$DIR/codex-home:/codex-home" \
+  -v "$DIR/codex-worker-ipc:/codex-worker-ipc" -v "$DIR/codex-home:/codex-home" \
   qisuo-server node /app/codex-worker.mjs >/dev/null
 for _ in $(seq 1 20); do
   [ ! -S "$DIR/codex-worker-ipc/codex.sock" ] || break

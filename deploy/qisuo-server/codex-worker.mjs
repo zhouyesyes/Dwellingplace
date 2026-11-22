@@ -8,13 +8,13 @@ import { basename, join } from "node:path";
 
 export const WORK_ROOT = "/codex-workspaces";
 export const WORKER_SOCKET = "/codex-worker-ipc/codex.sock";
-export const GIT_SOCKET = "/codex-git-ipc/git.sock";
+export const GIT_SOCKET = "/codex-worker-ipc/git/git.sock";
 
 // 允许执行 Codex 生成的辅助程序。登录文件与其余 CODEX_HOME 内容仍由根目录规则禁止读取。
 export const workspaceArgs = [
   'default_permissions="qisuo_chat"',
   'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-git-ipc"="write"}',
+  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git"="write"}',
   'features.network_proxy=true',
   'permissions.qisuo_chat.network.enabled=true',
   'permissions.qisuo_chat.network.allow_upstream_proxy=false',
