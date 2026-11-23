@@ -111,7 +111,15 @@ function copySong(song, event) {
       <button aria-label="下一首" :disabled="!playback.list.length" @click="player.next()">›</button>
       <button aria-label="展开或收起歌单" :aria-expanded="queueOpen" @click="queueOpen = !queueOpen"><Icon name="menu" :size="18" /></button>
     </div>
-    <p v-if="musicStatus" class="music-status" role="status">{{ musicStatus }}</p>
+    <div v-if="current" class="music-source">
+      <p v-if="musicStatus" class="music-status" role="status">{{ musicStatus }}</p>
+      <select aria-label="切换当前歌曲的播放音源" @change="player.selectSource($event.target.value); $event.target.selectedIndex = 0">
+        <option value="" disabled selected>切换音源</option>
+        <option value="netease">网易云</option>
+        <option value="qq">QQ 音乐</option>
+        <option value="">自动选源</option>
+      </select>
+    </div>
     <div v-if="queueOpen" class="music-queue">
       <div class="queue-tracks">
         <div v-for="(song, i) in playlist.list" :key="song.src + ':' + song.id" class="queue-track" :class="{ active: song === current }">
