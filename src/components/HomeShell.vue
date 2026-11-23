@@ -10,7 +10,7 @@ import GroupAvatar from "./GroupAvatar.vue";
 import Icon from "./Icon.vue";
 import MusicPlayer from "./MusicPlayer.vue";
 const props = defineProps({ compact: Boolean, role: Object, thread: Object });
-const emit = defineEmits(["threads", "summary", "drawer"]);
+const emit = defineEmits(["threads", "summary"]);
 const router = useRouter();
 const addOpen = ref(false), name = ref(""), adding = ref(""), selected = ref([]);
 const now = ref(new Date());
@@ -76,7 +76,6 @@ onBeforeUnmount(() => clearInterval(timer));
       <button v-else class="icon-btn" aria-label="添加小机或群聊" @click="addOpen = !addOpen"><Icon name="plus" /></button>
       <div v-if="addOpen" class="add-menu"><button @click="add('role')">添加小机</button><button @click="add('group')">添加群聊</button></div>
     </div>
-    <button v-if="!compact" class="icon-btn shell-menu" aria-label="打开抽屉" @click="emit('drawer')"><Icon name="menu" /></button>
     <header class="shell-heading"><span class="star large" aria-hidden="true">*</span><span class="star little" aria-hidden="true">*</span><h1>{{ greeting[0] }}<br>{{ greeting[1] }}</h1></header>
     <button v-if="compact" class="open-home" @click="go('/')"><span>Open home</span><Icon name="home" :size="16" /></button>
     <div v-if="compact" class="quick-roles">

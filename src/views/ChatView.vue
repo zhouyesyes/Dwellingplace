@@ -494,9 +494,9 @@ function stop() {
 
 // ---------- ＋ 附件 ----------
 const plusOpen = ref(false);
-async function addImages() {
+async function addMedia(accept) {
   plusOpen.value = false;
-  const files = await pickFile("image/*,video/*", true);
+  const files = await pickFile(accept, true);
   for (const f of files) {
     if (isVideoFile(f)) {
       try {
@@ -749,8 +749,8 @@ function moveMessageHold(event) {
   if (messageDown && Math.hypot(event.clientX - messageDown.x, event.clientY - messageDown.y) > 10) stopMessageHold();
 }
 function onBubbleContext(event) {
-  if (event.pointerType === "mouse") return;
-  if (event.target.closest(".bubble") && !event.target.closest("a, button")) event.preventDefault();
+  if (event.pointerType === "mouse" || (event.type === "selectstart" && !coarse)) return;
+  if (!event.target.closest("a, button")) event.preventDefault();
 }
 onBeforeUnmount(stopMessageHold);
 function openActions(m, bubble = "") {
@@ -1032,7 +1032,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
             </div>
           </div>
 
-          <div v-else class="group" :class="[it.from === 'user' ? 'mine' : 'theirs', { selecting, picked: selecting && rowOn(it) }]" :data-sid="selecting ? rowId(it) : null" @pointerdown="startMessageHold($event, it)" @pointermove="moveMessageHold" @pointerup="stopMessageHold" @pointercancel="stopMessageHold" @contextmenu="onBubbleContext" :style="it.from === 'user' ? null : aiBubble(it.who)">
+          <div v-else class="group" :class="[it.from === 'user' ? 'mine' : 'theirs', { selecting, picked: selecting && rowOn(it) }]" :data-sid="selecting ? rowId(it) : null" @pointerdown="startMessageHold($event, it)" @pointermove="moveMessageHold" @pointerup="stopMessageHold" @pointercancel="stopMessageHold" @selectstart="onBubbleContext" @contextmenu="onBubbleContext" :style="it.from === 'user' ? null : aiBubble(it.who)">
             <template v-if="selecting">
               <span v-if="pickable(it)" class="sel-box" :class="{ on: rowOn(it) }"><Icon v-if="rowOn(it)" name="check" :size="15" /></span>
               <div v-if="pickable(it)" class="sel-hit" @click.stop="toggleSel(rowId(it))" />
@@ -1145,7 +1145,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <!-- ＋ -->
     <Sheet :open="plusOpen" @close="plusOpen = false">
       <div class="grid-actions">
-        <button @click="addImages"><span><Icon name="image" :size="26" /></span>图片或视频</button>
+        <button @click="addMedia('image/*')"><span><Icon name="image" :size="26" /></span>图片</button>
+        <button @click="addMedia('video/*')"><span><Icon name="image" :size="26" /></span>视频</button>
         <button @click="addFiles"><span><Icon name="file" :size="26" /></span>文件</button>
         <button @click="plusOpen = false; stickerOpen = true"><span><Icon name="smile" :size="26" /></span>表情</button>
       </div>
@@ -1422,10 +1423,9 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
   line-height: 1.65;
   font-size: 1rem;
   cursor: pointer;
-  user-select: text;
 }
 @media (pointer: coarse) {
-  .bubble { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .group, .group * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 }
 .theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 3px; }
 .mine .bubble { background: var(--mine, var(--card)); color: var(--mine-text, inherit); border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }

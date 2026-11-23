@@ -1,0 +1,18 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.19.1
+2 info using node@v24.22.3
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm exec vite build
+7 verbose argv "exec" "--" "vite" "build"
+8 verbose logfile logs-max:10 dir:/codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b/.npm/_logs/2026-11-23T14_19_14_507Z-
+9 verbose logfile /codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b/.npm/_logs/2026-11-23T14_19_14_507Z-debug-0.log
+10 warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+11 silly logfile done cleaning log files
+12 verbose cwd /codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b
+13 verbose os Linux 6.8.0-124-generic
+14 verbose node v24.22.3
+15 verbose npm  v11.19.1
+16 verbose exit 0
+17 info ok

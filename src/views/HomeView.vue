@@ -4,7 +4,6 @@ import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { syncState, startSync, resumeSync } from "../lib/sync.js";
 import { useHomePullRefresh } from "../lib/homePullRefresh.js";
 import HomeShell from "../components/HomeShell.vue";
-defineEmits(["drawer"]);
 
 // ---------- 下拉刷新、回到前台自动同步（和以前一样） ----------
 const refreshing = ref(false);
@@ -50,7 +49,7 @@ onBeforeUnmount(() => {
 });
 
 </script>
-<template><div ref="home" class="home"><div class="pull" :class="{ on: pullLabel }" role="status" aria-live="polite">{{ pullLabel }}</div><HomeShell @drawer="$emit('drawer')" /></div></template>
+<template><div ref="home" class="home"><div class="pull" :class="{ on: pullLabel }" role="status" aria-live="polite">{{ pullLabel }}</div><HomeShell /></div></template>
 <style scoped>
 .home { min-height: 100dvh; background: var(--bg); }
 .pull { position: fixed; top: calc(var(--safe-top) + 10px); left: 50%; transform: translateX(-50%); z-index: 5; padding: 6px 14px; border-radius: 99px; background: var(--card); color: var(--text-2); opacity: 0; pointer-events: none; }

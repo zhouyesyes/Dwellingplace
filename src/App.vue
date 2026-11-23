@@ -14,7 +14,6 @@ import { fileActivity } from "./lib/filePicker.js";
 const route = useRoute();
 const tab = computed(() => route.meta.tab);
 const worldOpen = ref(false);
-const homeActions = { drawer: () => { worldOpen.value = true; } };
 watch(() => route.path, () => { worldOpen.value = false; });
 
 // iPhone：聊天页是整屏固定的，键盘弹出时 iOS 会把整页（window / visualViewport）顶上去，
@@ -80,11 +79,11 @@ watchEffect(() => {
 
 <template>
   <RouterView v-slot="{ Component }">
-    <component :is="Component" :key="inChat() ? route.path : undefined" v-on="tab === 'home' ? homeActions : {}" />
+    <component :is="Component" :key="inChat() ? route.path : undefined" />
   </RouterView>
   <Foreground v-if="tab" />
   <button v-if="tab && tab !== 'home'" class="icon-btn public-drawer-button" :class="{ 'bench-menu': tab === 'bench' }" aria-label="打开抽屉" @click="worldOpen = true"><Icon name="menu" /></button>
-  <WorldDrawer v-if="tab" :open="worldOpen" @close="worldOpen = false" />
+  <WorldDrawer v-if="tab && tab !== 'home'" :open="worldOpen" @close="worldOpen = false" />
   <Cropper />
   <FullEditor />
   <!-- 选图时不再盖一层「请在相册中选择」，只在处理图片的那一会儿提示一下 -->
