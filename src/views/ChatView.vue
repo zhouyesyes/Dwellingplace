@@ -88,8 +88,7 @@ const firstUnreadId = ref(null);
 const openingThread = ref(false);
 const threadId = ref(null);
 const thread = computed(() => store.threads.find(t => t.id === threadId.value));
-const showRepoPicker = computed(() => modeOpen.value && role.value?.id === MAIN
-  && thread.value?.replyBackend === "codex" && thread.value.codexWorkspace
+const showRepoPicker = computed(() => modeOpen.value && thread.value?.replyBackend === "codex" && thread.value.codexWorkspace
   && !thread.value.group && !thread.value.mail && !thread.value.studio);
 const repoChoices = computed(() => (repoState.list || []).filter(repo => repo.enabled && !repo.isDefault));
 const selectedRepo = computed({
@@ -281,7 +280,7 @@ const dockH = ref(120);
 let dockRO = null;
 onMounted(() => {
   dockRO = new ResizeObserver(() => {
-    if (!dock.value) return;
+    if (!dock.value?.offsetHeight) return;
     const stick = nearBottom();
     dockH.value = dock.value.offsetHeight;
     if (stick) nextTick(() => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; });
@@ -410,7 +409,7 @@ async function sendSticker(s) {
 }
 // 最后一条是自己的、他还没回：可以让他回复
 const needReply = computed(() => {
-  if (busy.value || !(dshMode.value ? dshReady.value : currentApi.value)) return false;
+  if (busy.value || !(dshMode.value ? dshReady.value : codexUsage.value ? canPickMode.value : currentApi.value)) return false;
   const last = messages.value[messages.value.length - 1];
   return !!last && last.from === "user";
 });
@@ -638,7 +637,7 @@ const codexUsage = computed(() => thread.value?.replyBackend === "codex");
 const dshMode = computed(() => thread.value?.replyBackend === "dsh");
 const canPickMode = computed(() => {
   const t = thread.value;
-  return role.value?.id === MAIN && t && !t.group && !t.mail && !t.studio
+  return !!role.value && t && !t.group && !t.mail && !t.studio
     && !!codexBase(role.value, t);
 });
 const replyMode = computed(() => codexUsage.value || dshMode.value ? "cli" : "chat");
@@ -733,9 +732,29 @@ if (!window.__tapAt) { // 只挂一次
 }
 const lastPt = window.__tapAt;
 const menuPos = ref({});
-function openActions(m, bubble = "") {
+let messageHold, messageDown;
+function stopMessageHold() {
+  clearTimeout(messageHold);
+  messageDown = null;
+}
+function startMessageHold(event, item) {
+  const bubble = event.target.closest(".bubble");
+  if (selecting.value || !event.isPrimary || event.pointerType === "mouse" || !bubble || event.target.closest("a, button")) return;
+  const m = item.msgs.find(message => src(message).id === bubble.dataset.mid) || item.msgs[0];
   if (m.pending) return;
-  if (String(getSelection?.() || "").trim()) return; // 正在选字（系统的选区）时，不弹菜单
+  messageDown = { x: event.clientX, y: event.clientY };
+  messageHold = setTimeout(() => openActions(src(m), m._src ? m.text : ""), 500);
+}
+function moveMessageHold(event) {
+  if (messageDown && Math.hypot(event.clientX - messageDown.x, event.clientY - messageDown.y) > 10) stopMessageHold();
+}
+function onBubbleContext(event) {
+  if (event.pointerType === "mouse") return;
+  if (event.target.closest(".bubble") && !event.target.closest("a, button")) event.preventDefault();
+}
+onBeforeUnmount(stopMessageHold);
+function openActions(m, bubble = "") {
+  if (m.pending || actionMsg.value || String(getSelection?.() || "").trim()) return;
   actionBubble.value = bubble;
   const w = 188, x = Math.min(Math.max(lastPt.x - w / 2, 12), innerWidth - w - 12);
   menuPos.value = lastPt.y > innerHeight * 0.55
@@ -795,7 +814,7 @@ async function removeMsg() {
 const cloudDone = c => messages.value.some(m => m.where === "cloud" && m.from === "ai" && m.ts > c.at);
 
 // ---------- 多选 / 分享聊天记录 ----------
-// 点一下气泡弹出小菜单，选「多选」进入多选（长按留给系统选字复制）：每条前面出现圈，勾几条，底下「分享」「取消」
+// 点一下或长按气泡弹出小菜单，选「多选」进入多选：每条前面出现圈，勾几条，底下「分享」「取消」
 const shareDraft = ref(null); // 做好的卡片，选目标 / 确认框用
 const rowId = it => src(it.msgs[0]).id;
 const pickable = it => { const m = src(it.msgs[0]); return !m.pending && !m.error; };
@@ -913,7 +932,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 </script>
 
 <template>
-  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="{ ...bubbleColors, '--dock': dockH + 'px' }">
+  <div v-if="role" class="chat" :class="{ 'has-bg': bgUrl }" :style="{ ...bubbleColors, '--dock': selecting ? '58px' : dockH + 'px' }">
     <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
 
     <header class="top" :class="{ grp: isGroup }">
@@ -946,7 +965,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           </select>
         </label>
         <span v-if="dshMode && !dshReady" class="ctx">请先添加 DeepSeek 官方 API</span>
-        <template v-if="role.id === MAIN && thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
+        <template v-if="thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
           <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
             {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
           </button>
@@ -993,7 +1012,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-else-if="!messages.length" class="hello">
           <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="64" class="poke-target" :class="{ poked: pokeAnimation === 'ai' }" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
           <p>{{ thread?.studio ? `这里是工作室：可以让 ${role.name} 去翻栖所的施工日志和提交记录，把值得记住的写进它的记忆` : `和 ${role.name} 说点什么吧` }}</p>
-          <p v-if="dshMode ? !dshReady : !currentApi" class="warn">{{ dshMode ? "请先在「设置 → API」添加 DeepSeek 官方 API" : "还没有 API，先去「设置 → API」添加一个" }}</p>
+          <p v-if="dshMode ? !dshReady : codexUsage ? !canPickMode : !currentApi" class="warn">{{ dshMode ? "请先在「设置 → API」添加 DeepSeek 官方 API" : codexUsage ? "找不到栖所服务器的地址" : "还没有 API，先去「设置 → API」添加一个" }}</p>
         </div>
 
         <button v-if="hiddenCount && !selecting" class="more-hint" @click="showMore">往上滑（或点这里）看更早的</button>
@@ -1013,7 +1032,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
             </div>
           </div>
 
-          <div v-else class="group" :class="[it.from === 'user' ? 'mine' : 'theirs', { selecting, picked: selecting && rowOn(it) }]" :data-sid="selecting ? rowId(it) : null" :style="it.from === 'user' ? null : aiBubble(it.who)">
+          <div v-else class="group" :class="[it.from === 'user' ? 'mine' : 'theirs', { selecting, picked: selecting && rowOn(it) }]" :data-sid="selecting ? rowId(it) : null" @pointerdown="startMessageHold($event, it)" @pointermove="moveMessageHold" @pointerup="stopMessageHold" @pointercancel="stopMessageHold" @contextmenu="onBubbleContext" :style="it.from === 'user' ? null : aiBubble(it.who)">
             <template v-if="selecting">
               <span v-if="pickable(it)" class="sel-box" :class="{ on: rowOn(it) }"><Icon v-if="rowOn(it)" name="check" :size="15" /></span>
               <div v-if="pickable(it)" class="sel-hit" @click.stop="toggleSel(rowId(it))" />
@@ -1084,7 +1103,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     </main>
     <button v-if="win" class="latest-btn" @click="backToLatest">回到最新 ↓</button>
 
-    <footer ref="dock" class="composer" :class="{ hide: selecting }">
+    <footer ref="dock" v-show="!selecting" class="composer">
       <PetDock v-if="selectedPet" :key="selectedPet" :kind="selectedPet" :work="petWork" />
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
@@ -1257,11 +1276,10 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 
 <style scoped>
 .share-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.composer.hide { visibility: hidden; pointer-events: none; }
 .group { position: relative; }
 .group.selecting { padding-left: 34px; }
-.sel-box { position: absolute; left: 4px; top: 12px; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.6px solid var(--text-3); background: var(--card); display: grid; place-items: center; color: var(--on-ink); }
-.sel-box.on { background: var(--ink); border-color: var(--ink); }
+.sel-box { position: absolute; left: 4px; top: 12px; width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.6px solid var(--text-3); background: var(--card); display: grid; place-items: center; color: var(--shell-ink); }
+.sel-box.on { background: var(--shell-peach); border-color: var(--shell-orange); }
 .sel-hit { position: absolute; inset: 0; z-index: 3; cursor: pointer; }
 .group.picked .col { opacity: 1; }
 .group.selecting:not(.picked) .col { opacity: .62; }
@@ -1269,9 +1287,11 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
   position: absolute; left: 0; right: 0; bottom: var(--dock-bottom); z-index: 6;
   width: calc(100% - 28px); max-width: 800px; margin: 0 auto; box-sizing: border-box;
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
-  background: rgba(var(--glass-rgb), .97); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
-  border-radius: 28px; box-shadow: 0 8px 30px rgba(40, 40, 60, .12);
+  background: var(--card); border: 1px solid var(--shell-line);
+  border-radius: 20px; box-shadow: var(--shadow); font: 400 13px/1.4 var(--shell-font);
 }
+.sel-bar .btn { min-height: 34px; padding: 5px 13px; font: inherit; border: 0; background: var(--shell-peach); color: var(--shell-ink); }
+.sel-bar .btn.soft { background: var(--shell-pink); }
 .sel-bar .n { flex: 1; text-align: center; font-size: .85rem; color: var(--text-2); }
 .poke-target { touch-action: manipulation; user-select: none; cursor: pointer; }
 .poked { animation: poke-wiggle .4s ease-out; }
@@ -1280,6 +1300,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .event { overflow-wrap: anywhere; }
 
 .chat {
+  --chat-text-font: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   position: fixed;
   inset: 0;
   display: flex;
@@ -1395,7 +1416,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .theirs .col { align-items: flex-start; }
 
 .bubble {
-  padding: 13px 15px 7px;
   border-radius: 16px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1403,6 +1423,9 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
   font-size: 1rem;
   cursor: pointer;
   user-select: text;
+}
+@media (pointer: coarse) {
+  .bubble { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 }
 .theirs .bubble { background: var(--their); color: var(--their-text); border-bottom-left-radius: 3px; }
 .mine .bubble { background: var(--mine, var(--card)); color: var(--mine-text, inherit); border-bottom-right-radius: 3px; filter: drop-shadow(0 1px 1.5px rgba(40, 40, 60, .08)); }

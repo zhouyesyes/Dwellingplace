@@ -578,8 +578,9 @@ export async function generate(thread, parentId, { speaker = null, resume = null
   const summaryKey = summaryMatches && summary?.text ? JSON.stringify([summary.upTo ?? null, summary.at ?? null]) : null;
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
   if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
-  const codex = !!resume || role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "codex";
-  const dsh = !codex && role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "dsh";
+  const privateChat = !group && !thread.mail && !thread.studio;
+  const codex = !!resume || privateChat && thread.replyBackend === "codex";
+  const dsh = privateChat && !codex && thread.replyBackend === "dsh";
   const harnessApi = dsh ? dshApi(role, thread) : null;
   const api = codex || dsh ? null : apiFor(thread, role);
   const model = codex ? "Codex" : dsh ? "DSH" : modelFor(thread, role);

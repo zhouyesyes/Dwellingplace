@@ -19,6 +19,13 @@ const greeting = computed(() => now.value.getHours() < 6 || now.value.getHours()
 const roles = computed(() => [...store.roles].sort((a,b) => Number(b.id === props.role?.id) - Number(a.id === props.role?.id)));
 const groupThreads = computed(() => store.threads.filter(t => t.group));
 const latest = role => threadsOf(role.id).find(t => t.id === role.lastThreadId) || threadsOf(role.id)[0];
+function preview(thread) {
+  const text = thread?.preview
+    ?.split(/\r?\n/)
+    .filter(line => !/^[-—–_─━\s]+$/.test(line))
+    .join(" ").replace(/\s+/g, " ").trim();
+  return text || "…";
+}
 const groupName = t => t.id === GROUP_TID ? store.group.name : (t.name || t.title);
 function go(path) {
   homeDrawerOpen.value = false;
@@ -79,11 +86,11 @@ onBeforeUnmount(() => clearInterval(timer));
     <div v-else class="shell-inbox">
       <button v-for="r in store.roles" :key="r.id" class="shell-thread" @click="openRole(r)">
         <Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="38" />
-        <span class="thread-copy"><strong>{{ r.name }}</strong><small>{{ latest(r)?.preview || "留句话吧" }}</small></span>
+        <span class="thread-copy"><strong>{{ r.name }}</strong><small>{{ preview(latest(r)) }}</small></span>
         <span class="thread-meta"><time>{{ shortTime(latest(r)?.updatedAt) }}</time><b v-if="unreadMessages(latest(r)).length">{{ unreadMessages(latest(r)).length }}</b></span>
       </button>
       <button v-for="t in groupThreads" :key="t.id" class="shell-thread" @click="go(t.id === GROUP_TID ? '/group' : '/group/' + t.id)">
-        <GroupAvatar :size="38" :group="t.id === GROUP_TID ? store.group : t" /><span class="thread-copy"><strong>{{ groupName(t) }}</strong><small>{{ t.preview || "一起坐坐吧" }}</small></span><span class="thread-meta"><time>{{ shortTime(t.updatedAt) }}</time><b v-if="unreadMessages(t).length">{{ unreadMessages(t).length }}</b></span>
+        <GroupAvatar :size="38" :group="t.id === GROUP_TID ? store.group : t" /><span class="thread-copy"><strong>{{ groupName(t) }}</strong><small>{{ preview(t) }}</small></span><span class="thread-meta"><time>{{ shortTime(t.updatedAt) }}</time><b v-if="unreadMessages(t).length">{{ unreadMessages(t).length }}</b></span>
       </button>
     </div>
     <details v-if="compact && role" class="shell-section"><summary><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11" /></svg><span>Chat settings</span></summary><button v-for="[label, action] in settings" :key="label" class="space-link" @click="action"><i />{{ label }}</button><label v-if="thread" class="thread-pet-picker"><span><i />Desktop pet</span><select aria-label="当前对话的桌宠" :value="thread.petKind || 'inherit'" @change="thread.petKind = $event.target.value"><option value="inherit">跟随原设置</option><option value="octopus">小章鱼</option><option value="crab">小螃蟹</option><option value="none">不显示</option></select></label></details>
