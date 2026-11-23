@@ -126,8 +126,11 @@
 .track-add:focus-within { outline: 2px solid var(--accent); }
 .track-add select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .music-search, .playlist-switch { display: flex; gap: 5px; margin-top: 10px; }
-.music-search input, .playlist-switch select { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--card); color: var(--text); font-size: 11px; }
-.music-search button, .playlist-switch button { border: 0; background: var(--shell-peach); color: var(--shell-ink); border-radius: 8px; padding: 6px; font-size: 10px; }
+.music-search input, .music-search select, .playlist-switch select { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--card); color: var(--text); font-size: 11px; }
+.music-search select { width: auto; }
+.music-search button, .playlist-switch button, .music-pages button { border: 0; background: var(--shell-peach); color: var(--shell-ink); border-radius: 8px; padding: 6px; font-size: 10px; }
+.music-pages { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 10px; color: var(--shell-muted); font-size: 11px; }
+.music-pages button:disabled { opacity: .5; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 /* 原聊天功能保留，顶部与输入区沿用浅粉杏主题。 */
 .chat > .top { position: relative; display: flex; align-items: center; gap: 4px; min-height: 72px; padding-inline: 15px; background: var(--shell-paper); }
