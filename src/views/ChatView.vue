@@ -847,7 +847,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-if="role.signature && !thread?.studio" class="sig">{{ role.signature }}</div>
       </div>
       <button v-if="isGroup" class="icon-btn" aria-label="群设置" @click="groupSetOpen = true"><Icon name="settings" /></button>
-      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen">{{ thread?.replyBackend === 'codex' ? 'Codex' : 'Chat' }} <span>⌄</span></button>
+      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen"><span class="mode-label">{{ thread?.replyBackend === 'codex' ? 'Codex' : 'Chat' }}</span><Icon name="chevronDown" :size="12" /></button>
       <button class="icon-btn" aria-label="搜索消息" @click="searchOpen = true"><Icon name="search" :size="19" /></button>
       <div v-if="modeOpen" class="mode-panel">
         <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">

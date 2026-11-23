@@ -159,3 +159,18 @@
 .chat, .chat .mode-panel, .chat .composer, .chat .stamp { font-family: var(--shell-font); }
 .home-shell, .chat .mode-toggle, .chat .mode-panel, .chat .stamp { letter-spacing: -.025em; }
 .chat .mode-panel button, .chat .mode-panel input, .chat .mode-panel select { font-family: var(--shell-font); }
+
+/* 模式文字与独立箭头在同一条中线上，避免字符箭头的基线落差。 */
+.chat > .top .mode-toggle {
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 7px 11px;
+  font-style: normal;
+  font-synthesis: none;
+  line-height: 18px;
+  letter-spacing: -.02em;
+}
+.chat .mode-toggle .mode-label { display: block; font-style: normal; line-height: 18px; }
+.chat .mode-toggle svg { flex: none; display: block; }
+.home-shell, .chat .top, .chat .mode-panel, .chat .composer { font-style: normal; font-synthesis: none; }
