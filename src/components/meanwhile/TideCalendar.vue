@@ -92,7 +92,7 @@ const label = c => `${m.value} 月 ${c.d} 日${c.pdots.length ? "，待续：" +
 <style scoped>
 .cal {
   --paper-line: #cdc3b3; --paper-hi: rgba(255, 255, 255, .75); --ink-cal: #3d3a35;
-  padding: 18px 16px 6px; font-family: "Poppins", var(--font);
+  padding: 18px 16px 6px; font-family: var(--font);
 }
 :root[data-theme="dark"] .cal { --paper-line: #12151b; --paper-hi: rgba(255, 255, 255, .07); --ink-cal: #d6d9e0; }
 .head { display: flex; align-items: center; justify-content: space-between; color: var(--ink-cal); }

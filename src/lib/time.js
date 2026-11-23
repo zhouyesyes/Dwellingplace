@@ -17,6 +17,27 @@ export function stamp(ts) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
 
+// 聊天组尾保留时分，日期越远才补上越完整的日期。
+export function chatStamp(ts, now = Date.now()) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (!Number.isFinite(d.getTime())) return "";
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const diff = dayDiff(ts, now);
+  if (diff === 0) return hm;
+  if (diff === 1) return `昨天 ${hm}`;
+  if (diff > 1 && diff < 7) return `周${"日一二三四五六"[d.getDay()]} ${hm}`;
+  const year = d.getFullYear() === new Date(now).getFullYear() ? "" : `${d.getFullYear()}年`;
+  return `${year}${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+}
+
+export function sameChatRun(previous, next) {
+  if (previous.from !== next.from || previous.who !== next.who) return false;
+  if (previous.id === next.id) return true;
+  return Boolean(previous.ts && next.ts && Math.abs(next.ts - previous.ts) <= 5 * 60000
+    && dayDiff(previous.ts, next.ts) === 0);
+}
+
 // 通讯列表用的短时间
 export function shortTime(ts) {
   if (!ts) return "";

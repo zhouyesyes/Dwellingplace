@@ -62,7 +62,7 @@ const dayDiaries = date => !SHOW_DIARY ? [] : pages.value.map((e, i) => ({ e, i 
 </template>
 
 <style scoped>
-.record { font-family: "Poppins", var(--font); }
+.record { font-family: var(--font); }
 .diary, .day-extra { margin: 26px 16px 0; }
 .day-extra { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
 

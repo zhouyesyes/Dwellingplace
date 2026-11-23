@@ -111,7 +111,7 @@ function setHelper(v) {
 
 <style scoped>
 /* 和主页下面那几条一样：不装在白框里，铺满左右，细线隔开 */
-.settings { padding-left: 0; padding-right: 0; font-family: "Poppins", var(--font); }
+.settings { padding-left: 0; padding-right: 0; font-family: var(--font); }
 .settings .section-label { padding: 0 24px; }
 .settings .list-card { background: none; box-shadow: none; border-radius: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 .settings .list-row { padding: 13px 24px; min-height: 0; background: none; }

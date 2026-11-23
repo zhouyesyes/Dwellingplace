@@ -24,8 +24,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   /* 输入框离屏幕底边多远：贴着 iPhone 底下那条横线上面一点（没有横线的设备留 8px） */
   --dock-bottom: max(calc(var(--safe-bottom) - 4px), 8px);
-  /* 全局字体：英文数字用 Jost（细长的几何体），中文用系统的苹方；正文细、标题粗 */
-  --font: "Jost Variable", Jost, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 全局统一打字机英文，中文使用系统中文字体。 */
+  --font: "Qisuo Typewriter", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   /* 跟着主题变的几样：按钮（--ink 底）上的字、半透明的「玻璃」面、很淡的一层蒙色、浅彩色底留多少颜色 */
   --on-ink: #ffffff;
   --glass-rgb: 255, 255, 255;
@@ -94,11 +94,26 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-/* 主页用的英文字体（Poppins，OFL 许可，文件在 src/assets/fonts） */
-@font-face { font-family: "Poppins"; font-weight: 400; font-display: swap; src: url("../assets/fonts/poppins-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Poppins"; font-weight: 500; font-display: swap; src: url("../assets/fonts/poppins-latin-500-normal.woff2") format("woff2"); }
-@font-face { font-family: "Poppins"; font-weight: 600; font-display: swap; src: url("../assets/fonts/poppins-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Poppins"; font-weight: 700; font-display: swap; src: url("../assets/fonts/poppins-latin-700-normal.woff2") format("woff2"); }
+@font-face {
+  font-family: "Qisuo Typewriter";
+  src: url("../assets/fonts/typewriter/nimbus-mono-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  ascent-override: 86%;
+  descent-override: 18%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Qisuo Typewriter";
+  src: url("../assets/fonts/typewriter/nimbus-mono-bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+  ascent-override: 86%;
+  descent-override: 18%;
+  line-gap-override: 0%;
+}
 
 html, body {
   margin: 0;
@@ -148,7 +163,7 @@ html { font-size: 0.933rem; }
   margin-bottom: 18px;
   box-sizing: border-box;
   text-align: center;
-  font-family: "Poppins", var(--font);
+  font-family: var(--font);
   font-size: 1.6rem;
   font-weight: 600;
   line-height: 40px;

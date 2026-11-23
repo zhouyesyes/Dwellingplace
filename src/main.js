@@ -6,7 +6,6 @@ import { startWake } from "./lib/wake.js";
 import { startSync } from "./lib/sync.js";
 import { startCrabBook } from "./lib/crabBook.js";
 import { startCodexJobs } from "./lib/codexJobs.js";
-import "@fontsource-variable/jost";
 import "./styles/base.css";
 import "./styles/mobile-shell.css";
 import "./lib/theme.js"; // 深色 / 浅色：要在组件之前就定好

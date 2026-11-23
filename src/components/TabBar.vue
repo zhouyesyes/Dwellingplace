@@ -39,7 +39,7 @@ const tabs = [
   align-items: flex-end;
   padding-bottom: 4px;
   z-index: 20;
-  font-family: "Poppins", var(--font);
+  font-family: var(--font);
 }
 /* 不要底框：页面最下面一截渐渐变成底色，内容滑到图标后面慢慢淡掉 */
 .tabbar::before {

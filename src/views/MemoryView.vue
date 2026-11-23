@@ -622,7 +622,7 @@ function remove() {
 .search input { flex: 1; border: 0; outline: none; background: none; font-size: 0.93rem; color: var(--text); }
 
 /* 三个标签：细字，下面一道线 */
-.views { position: relative; display: flex; border-bottom: 1px solid var(--line); margin: 0 6px 12px; font-family: "Poppins", var(--font); }
+.views { position: relative; display: flex; border-bottom: 1px solid var(--line); margin: 0 6px 12px; font-family: var(--font); }
 .views .more { flex: none; width: 40px; color: var(--text-2); font-size: 1.1rem; letter-spacing: 1px; }
 .views .more.due { color: #c9304c; }
 .more-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 25; width: 230px; background: var(--card); border-radius: 16px; box-shadow: 0 10px 30px rgba(40, 40, 60, .16); padding: 4px 0; font-family: var(--font); }
@@ -636,12 +636,12 @@ function remove() {
 .legend img { width: 30px; height: auto; image-rendering: pixelated; }
 .tl { position: relative; padding: 6px 4px 0 58px; }
 .tl::before { content: ""; position: absolute; left: 28px; top: 14px; bottom: 6px; width: 1px; background: var(--line); }
-.mon { position: relative; z-index: 1; width: fit-content; background: var(--bg); padding: 2px 6px; margin: 8px 0 6px -46px; font-family: "Poppins", var(--font); font-size: .68rem; letter-spacing: 2px; color: var(--text-3); }
+.mon { position: relative; z-index: 1; width: fit-content; background: var(--bg); padding: 2px 6px; margin: 8px 0 6px -46px; font-family: var(--font); font-size: .68rem; letter-spacing: 2px; color: var(--text-3); }
 .it { position: relative; margin-bottom: 14px; cursor: pointer; }
 .it .dot { position: absolute; left: -36px; top: 4px; width: 11px; height: 11px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 2px var(--text-3); }
 .it .oct { position: absolute; left: -62px; top: -5px; width: 48px; height: auto; image-rendering: pixelated; background: var(--bg); padding: 1px 0; }
 .it .oct.crab { left: -54px; }   /* 两张图都是 32 宽，章鱼画在偏右，螃蟹画在正中：各自挪一下，让身子正好压在竖线上 */
-.it .d { font-family: "Poppins", var(--font); font-size: .7rem; color: var(--text-3); }
+.it .d { font-family: var(--font); font-size: .7rem; color: var(--text-3); }
 .it b { display: block; font-size: .95rem; font-weight: 600; margin: 1px 0 2px; }
 .it p { margin: 0; font-size: .84rem; line-height: 1.55; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .it .pic { display: block; width: 120px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; margin: 4px 0; }
@@ -668,7 +668,7 @@ function remove() {
 :root[data-theme="dark"] .drw.k-letters { --c: #33362f; }
 :root[data-theme="dark"] .drw.k-insight { --c: #38352b; }
 :root[data-theme="dark"] .drw.k-rw { --c: #2e3632; }
-.lab { position: absolute; top: -13px; height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: "Poppins", var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 16px; color: var(--text-2); }
+.lab { position: absolute; top: -13px; height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 16px; color: var(--text-2); }
 .drw-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 16px 16px 38px; text-align: left; color: var(--text); border-radius: 0; }
 .drw.open .drw-head, .drw:last-child .drw-head { padding-bottom: 12px; }
 .drw-head b { font-size: .95rem; font-weight: 500; }

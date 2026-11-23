@@ -28,7 +28,7 @@ const dayText = computed(() => (props.card && props.card.date !== todayYmd() ? d
 </template>
 
 <style scoped>
-.mc-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(20, 24, 34, .38); font-family: "Poppins", var(--font); }
+.mc-back { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(20, 24, 34, .38); font-family: var(--font); }
 .mc { position: relative; width: min(300px, 100%); padding: 22px 22px 20px; border-radius: 26px; text-align: center; color: var(--text); background: color-mix(in srgb, var(--c) 10%, var(--card)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent), 0 18px 44px rgba(30, 40, 60, .28); }
 .mc img { display: block; width: 132px; height: 132px; margin: 4px auto 6px; object-fit: contain; }
 .who { margin: 0; display: flex; justify-content: center; align-items: center; gap: 6px; font-size: .86rem; font-weight: 600; }

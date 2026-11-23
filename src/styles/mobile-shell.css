@@ -1,26 +1,6 @@
-@font-face {
-  font-family: "Qisuo Typewriter";
-  src: url("../assets/fonts/typewriter/nimbus-mono-regular.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  ascent-override: 86%;
-  descent-override: 18%;
-  line-gap-override: 0%;
-}
-@font-face {
-  font-family: "Qisuo Typewriter";
-  src: url("../assets/fonts/typewriter/nimbus-mono-bold.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 600 900;
-  font-display: swap;
-  ascent-override: 86%;
-  descent-override: 18%;
-  line-gap-override: 0%;
-}
 /* 浅粉杏首页与窄抽屉共用一套表面和排版。 */
 :root {
-  --shell-font: "Qisuo Typewriter", "Courier New", Courier, "PingFang SC", "Noto Sans SC", monospace;
+  --shell-font: var(--font);
   --shell-paper: #fbf6f1;
   --shell-pink: #faeeeb;
   --shell-peach: #ffe9dd;

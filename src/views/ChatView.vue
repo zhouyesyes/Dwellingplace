@@ -17,7 +17,7 @@ import { faceGrid } from "../lib/pixel.js";
 import PixelArt from "../components/PixelArt.vue";
 import { versionsOf } from "../lib/tree.js";
 import { saveImage, CHAT_IMAGE, deleteImage, pickFile, pickAndCrop, useImage } from "../lib/images.js";
-import { stamp, shortTime } from "../lib/time.js";
+import { stamp, shortTime, chatStamp, sameChatRun } from "../lib/time.js";
 import { toast } from "../lib/toast.js";
 import { isFav, toggleFav } from "../lib/recall.js";
 import { blockMd as parseBlockMd } from "../lib/inlineMd.js";
@@ -85,7 +85,6 @@ const wakeBusy = computed(() => role.value && wakeStatus.busy?.[role.value.id]);
 const modeOpen = ref(false);
 const firstUnreadId = ref(null);
 const openingThread = ref(false);
-const messageDate = ts => { const d = new Date(ts); return [d.getMonth() + 1, d.getDate(), String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0")].join("/"); };
 const threadId = ref(null);
 const thread = computed(() => store.threads.find(t => t.id === threadId.value));
 const showRepoPicker = computed(() => modeOpen.value && role.value?.id === MAIN
@@ -170,7 +169,7 @@ onMounted(async () => {
   refreshMood();
 });
 
-// ---------- 消息分组：同一个人 5 分钟内连续的消息算一组 ----------
+// ---------- 消息排版：气泡各自成行，时间放在连续消息的最后一行 ----------
 // 他一边说话一边用工具：提示条（带 at）插在说到一半的地方，前后的话都留着
 // at 是流式时记下的位置；后面标记被去掉、文字变短，位置会偏。只在段落边界上切，不切进 [网址卡片:…] 这类方括号指令里面
 function safeCut(text, at) {
@@ -189,11 +188,22 @@ const selecting = ref(false);
 const selIds = ref([]); // 勾选的消息 id（按点的先后，分享时按聊天顺序排）
 const items = computed(() => {
   const out = [];
-  let group = null;
-  const event = (m, n, i) => { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; };
+  let previousRow = null;
+  let run = null;
+  const event = (m, n, i) => { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); };
   const addSingle = m => {
-    group = { type: "group", from: m.from, who: m.who, where: m.where, msgs: [m], lastTs: m.ts, key: m._key || m.id };
-    out.push(group);
+    const row = { type: "group", from: m.from, who: m.who, msgs: [m], key: m._key || m.id };
+    if (previousRow && sameChatRun(previousRow.msgs[0], m)) {
+      previousRow.stampRun = null;
+    } else {
+      run = { from: m.from, msgs: [], places: new Set() };
+    }
+    run.msgs.push(m);
+    if (WHERE[m.where]) run.places.add(WHERE[m.where]);
+    run.lastTs = m.ts;
+    row.stampRun = run;
+    out.push(row);
+    previousRow = row;
   };
   const add = m => {
     const parts = m.from === "ai" && !m._src && !m.error ? splitBubbles(m.text || "") : [];
@@ -1019,7 +1029,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                   </div>
                 </template>
               </template>
-              <div class="stamp">{{ messageDate(it.lastTs) }}<template v-if="it.where && WHERE[it.where]"> · {{ WHERE[it.where] }}</template><template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
+              <div v-if="it.stampRun" class="stamp">{{ [chatStamp(it.stampRun.lastTs), ...it.stampRun.places, tokensOf(it.stampRun)].filter(Boolean).join(' · ') }}</div>
             </div>
           </div>
         </template>

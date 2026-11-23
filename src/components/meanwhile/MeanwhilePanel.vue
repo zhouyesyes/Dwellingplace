@@ -448,7 +448,7 @@ function dropEdit() {
   --cream: var(--bg); --note: #fffdf7; --note-line: rgba(120, 100, 70, .14);
   position: relative; min-height: 100%; max-width: 520px; margin: 0 auto; background: var(--cream);
   padding: 0 0 calc(var(--safe-bottom) + 40px); overflow-x: clip;
-  font-family: "Poppins", var(--font);
+  font-family: var(--font);
 }
 :root[data-theme="dark"] .mw { --note: #2a2f3a; --note-line: rgba(255, 255, 255, .07); }
 
