@@ -1342,7 +1342,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .sig { font-size: 0.833rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 消息区：输入框浮在上面，底下留出它的高度，最后一条能滑到它上方 */
-.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
 .inner { max-width: 760px; margin: 0 auto; padding: 12px 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
 
 .latest-btn { position: absolute; right: 16px; bottom: calc(var(--dock, 120px) + var(--dock-bottom) + 10px); z-index: 4; border: 0; border-radius: 999px; padding: 8px 14px; background: rgba(var(--glass-rgb), .95); color: var(--text); font-size: .8rem; box-shadow: var(--shadow); }
