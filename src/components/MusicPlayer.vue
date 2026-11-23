@@ -8,7 +8,7 @@ defineProps({ compact: Boolean });
 const player = getMusicPlayer();
 const queueOpen = ref(false), query = ref(""), results = ref([]), searching = ref(false), error = ref("");
 let searchVersion = 0;
-const searchForm = ref(null), source = ref("auto"), page = ref(0), hasNext = ref(false);
+const searchPanel = ref(null), searchScroll = ref(null), source = ref("auto"), page = ref(0), hasNext = ref(false);
 let searchedQuery = "", searchedSource = "";
 const playlist = computed(() => { musicRevision.value; return activePlaylist(); });
 const playback = computed(() => { musicRevision.value; return playingPlaylist(); });
@@ -69,7 +69,6 @@ function search() {
 }
 async function loadPage(target) {
   const version = ++searchVersion;
-  const paging = page.value > 0;
   error.value = "";
   searching.value = !!searchedQuery;
   if (!searchedQuery) return;
@@ -84,10 +83,8 @@ async function loadPage(target) {
     page.value = target;
     hasNext.value = songs.length > 0;
     loadCovers(results.value);
-    if (paging) {
-      await nextTick();
-      if (version === searchVersion) searchForm.value?.scrollIntoView({ block: "start" });
-    }
+    await nextTick();
+    if (version === searchVersion && searchScroll.value) searchScroll.value.scrollTop = 0;
   }
   catch (err) {
     if (version === searchVersion) {
@@ -166,24 +163,32 @@ function copySong(song, event) {
         </div>
         <p v-if="!playlist.list.length">歌单还是空的，搜一首喜欢的歌。</p>
       </div>
-      <form ref="searchForm" class="music-search" @submit.prevent="search"><input v-model="query" aria-label="搜歌" placeholder="Search songs"><select v-model="source" aria-label="搜索音源"><option value="auto">自动</option><option value="netease">网易云</option><option value="qq">QQ 音乐</option></select><button :disabled="searching">{{ searching ? "…" : "Search" }}</button></form>
       <div class="playlist-switch"><select v-model="library.active" aria-label="切换歌单"><option v-for="p in library.playlists" :key="p.id" :value="p.id">{{ p.name }}</option></select><button aria-label="新建歌单" @click="newList">+</button></div>
-      <div class="music-results">
-        <div v-for="song in results" :key="song.src + ':' + song.id" class="queue-track">
-          <button @click="addSong(song, true)">
-            <span class="track-cover"><Icon name="music" :size="15" /><img v-if="song.cover" :key="song.cover" :src="song.cover" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden = true"></span>
-            <span class="track-copy"><strong>{{ song.title }}</strong><small>{{ song.artist }}</small></span>
-          </button>
-          <button :aria-label="'加入歌单' + song.title" @click="addSong(song, false)">+</button>
+      <button class="music-open-search" type="button" @click="searchPanel.showModal()">搜歌</button>
+    </div>
+    <dialog ref="searchPanel" class="music-search-panel" aria-label="搜歌" @keydown.stop>
+      <header class="music-search-header">
+        <form class="music-search" @submit.prevent="search"><input v-model="query" aria-label="搜歌" placeholder="Search songs"><select v-model="source" aria-label="搜索音源"><option value="auto">自动</option><option value="netease">网易云</option><option value="qq">QQ 音乐</option></select><button :disabled="searching">{{ searching ? "…" : "Search" }}</button></form>
+        <button class="music-close-search" type="button" autofocus @click="searchPanel.close()">关闭</button>
+      </header>
+      <div ref="searchScroll" class="music-search-scroll">
+        <div class="music-results">
+          <div v-for="song in results" :key="song.src + ':' + song.id" class="queue-track">
+            <button @click="addSong(song, true)">
+              <span class="track-cover"><Icon name="music" :size="15" /><img v-if="song.cover" :key="song.cover" :src="song.cover" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden = true"></span>
+              <span class="track-copy"><strong>{{ song.title }}</strong><small>{{ song.artist }}</small></span>
+            </button>
+            <button :aria-label="'加入歌单' + song.title" @click="addSong(song, false)">+</button>
+          </div>
+        </div>
+        <p v-if="error" role="alert">{{ error }}</p>
+        <p v-else-if="page && !results.length">没搜到歌曲，可以换个关键词或音源。</p>
+        <div v-if="results.length" class="music-pages">
+          <button type="button" :disabled="searching || page === 1" @click="loadPage(page - 1)">上一页</button>
+          <span role="status">{{ searching ? "加载中…" : "第 " + page + " 页" + (hasNext ? "" : " · 已到底") }}</span>
+          <button type="button" :disabled="searching || !hasNext" @click="loadPage(page + 1)">下一页</button>
         </div>
       </div>
-      <p v-if="error" role="alert">{{ error }}</p>
-      <p v-else-if="page && !results.length">没搜到歌曲，可以换个关键词或音源。</p>
-      <div v-if="results.length" class="music-pages">
-        <button type="button" :disabled="searching || page === 1" @click="loadPage(page - 1)">上一页</button>
-        <span role="status">{{ searching ? "加载中…" : "第 " + page + " 页" + (hasNext ? "" : " · 已到底") }}</span>
-        <button type="button" :disabled="searching || !hasNext" @click="loadPage(page + 1)">下一页</button>
-      </div>
-    </div>
+    </dialog>
   </section>
 </template>

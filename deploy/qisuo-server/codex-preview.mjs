@@ -1,5 +1,5 @@
 // 截图进程仅接收静态构建副本，通过 Unix socket 拿任务，在无外部网络的容器里打开页面。
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer as httpServer } from "node:http";
 import { createServer, createConnection } from "node:net";
 import { constants, openSync, fstatSync, closeSync, readFileSync, readdirSync, lstatSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, realpathSync, chmodSync } from "node:fs";
@@ -137,37 +137,63 @@ async function photograph(url, scratch, scheme) {
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
     const loaded = new Promise(resolve => {
-      const event = message => {
-        if (JSON.parse(message.data).method !== "Page.loadEventFired") return;
-        ws.removeEventListener("message", event);
+      const listener = event => {
+        if (JSON.parse(event.data).method !== "Page.domContentEventFired") return;
+        ws.removeEventListener("message", listener);
         resolve();
       };
-      ws.addEventListener("message", event);
+      ws.addEventListener("message", listener);
     });
     const nav = await send("Page.navigate", { url });
     if (nav.errorText) throw new Error("打不开预览页面：" + nav.errorText);
     await Promise.race([loaded, sleep(2500)]);
     const readiness = await send("Runtime.evaluate", {
       expression: `(async () => {
-        const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
-        const deadline = performance.now() + 6500;
-        while (performance.now() < deadline) {
-          // Vue 的容器挂载前是空的，静态设计稿则直接检查正文。
-          const content = document.querySelector("#app") || document.body;
-          if (document.readyState !== "loading" &&
-              content?.innerText.trim() && document.fonts.status === "loaded") {
-            await nextFrame();
-            await nextFrame();
-            return true;
+        const pause = () => new Promise(resolve => setTimeout(resolve, 100));
+        const deadline = performance.now() + 8500;
+        const decoded = new WeakMap();
+        let content, observer, changedAt = performance.now();
+        try {
+          while (performance.now() < deadline) {
+            const root = document.querySelector("#app") || document.body;
+            if (root && root !== content) {
+              observer?.disconnect();
+              content = root;
+              changedAt = performance.now();
+              observer = new MutationObserver(() => { changedAt = performance.now(); });
+              observer.observe(content, { subtree: true, childList: true, characterData: true,
+                attributes: true, attributeFilter: ["src", "srcset", "class", "hidden"] });
+            }
+            // 只等首屏里的图片，屏幕外的懒加载图片留到滚动时加载。
+            const imagesReady = Array.from(content?.querySelectorAll("img") || []).every(img => {
+              const rect = img.getBoundingClientRect();
+              if (!rect.width || !rect.height || rect.bottom <= 0 || rect.top >= innerHeight) return true;
+              const src = img.currentSrc || img.src;
+              if (!src) return true;
+              if (!img.complete) return false;
+              if (!img.naturalWidth) return true; // 图片失败时让页面自己的占位图显示出来。
+              let state = decoded.get(img);
+              if (state?.src !== src) {
+                state = { src, ready: false };
+                decoded.set(img, state);
+                img.decode().catch(() => {}).finally(() => { state.ready = true; });
+              }
+              return state.ready;
+            });
+            if (location.href === ${JSON.stringify(url)} && document.readyState === "complete" &&
+                content?.innerText.trim() && document.fonts.status === "loaded" &&
+                imagesReady && performance.now() - changedAt >= 500) return true;
+            await pause();
           }
-          await nextFrame();
+          return false;
+        } finally {
+          observer?.disconnect();
         }
-        return false;
       })()`,
       awaitPromise: true,
       returnByValue: true,
     });
-    if (readiness.result?.value !== true) throw new Error("预览页面没有渲染出正文，未生成截图");
+    if (readiness.result?.value !== true) throw new Error("预览正文、字体或首屏图片未在时限内准备好，未生成截图");
     const result = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     return Buffer.from(result.data, "base64");
   } finally {
@@ -247,14 +273,17 @@ function serve() {
 
 if (process.env.QISUO_CODEX_PREVIEW === "1") {
   if (process.argv.includes("--check")) {
+    if (!execFileSync("fc-list", [":lang=zh-cn", "family"], { encoding: "utf8" }).trim()) {
+      throw new Error("截图容器缺少简体中文字体");
+    }
     const job = mkdtempSync(join(ROOT, "shot-"));
     try {
       const site = join(job, "site");
       mkdirSync(site);
-      const fixture = `<html><head><style>[data-theme=dark] { background: #161b22; color: white }</style></head>
+      const fixture = `<html lang="zh-CN"><head><meta charset="utf-8"><style>[data-theme=dark] { background: #161b22; color: white }</style></head>
         <body><div id="app"></div><script>
           addEventListener("load", () => setTimeout(() => {
-            document.getElementById("app").textContent = "Chromium";
+            document.getElementById("app").textContent = "栖所截图自检";
           }, 350));
         </script></body></html>`;
       writeFileSync(join(site, "preview.html"), fixture);
