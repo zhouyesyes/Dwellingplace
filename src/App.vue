@@ -1,7 +1,8 @@
 <script setup>
-import { computed, watchEffect } from "vue";
+import { computed, ref, watch, watchEffect } from "vue";
 import { useRoute } from "vue-router";
-import TabBar from "./components/TabBar.vue";
+import WorldDrawer from "./components/WorldDrawer.vue";
+import Icon from "./components/Icon.vue";
 import Foreground from "./components/Foreground.vue";
 import Cropper from "./components/Cropper.vue";
 import FullEditor from "./components/FullEditor.vue";
@@ -12,6 +13,9 @@ import { fileActivity } from "./lib/filePicker.js";
 
 const route = useRoute();
 const tab = computed(() => route.meta.tab);
+const worldOpen = ref(false);
+const homeActions = { drawer: () => { worldOpen.value = true; } };
+watch(() => route.path, () => { worldOpen.value = false; });
 
 // iPhone：聊天页是整屏固定的，键盘弹出时 iOS 会把整页（window / visualViewport）顶上去，
 // 键盘收起后有时不复原：顶栏不见了、下面空一截、触摸位置和画面对不上，输入框点不动。
@@ -75,9 +79,12 @@ watchEffect(() => {
 </script>
 
 <template>
-  <RouterView :key="/^\/(chat|group)(\/|$)/.test(route.path) ? route.path : undefined" />
+  <RouterView v-slot="{ Component }">
+    <component :is="Component" :key="inChat() ? route.path : undefined" v-on="tab === 'home' ? homeActions : {}" />
+  </RouterView>
   <Foreground v-if="tab" />
-  <TabBar v-if="tab && route.path !== '/'" :active="tab" />
+  <button v-if="tab && tab !== 'home'" class="icon-btn public-drawer-button" :class="{ 'bench-menu': tab === 'bench' }" aria-label="打开抽屉" @click="worldOpen = true"><Icon name="menu" /></button>
+  <WorldDrawer v-if="tab" :open="worldOpen" @close="worldOpen = false" />
   <Cropper />
   <FullEditor />
   <!-- 选图时不再盖一层「请在相册中选择」，只在处理图片的那一会儿提示一下 -->

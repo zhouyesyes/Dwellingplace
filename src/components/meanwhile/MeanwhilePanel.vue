@@ -1,7 +1,7 @@
 <script setup>
 // Meanwhile（同一屋檐下）：她、他、小螃蟹三个人共用的生活记录页。
 // 浪花标题 → 潮汐表（日历）→ 今天的水温 → 潮间带（共同动态）。数据和规矩见 lib/meanwhile.js
-// 住在底栏的 Record 页里（RecordView 引用），日记本之类的放进插槽 after-temp
+// 住在抽屉打开的记录页里（RecordView 引用），日记本之类的放进插槽 after-temp
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { store } from "../../store/index.js";
 import { todayYmd } from "../../lib/dates.js";
@@ -447,7 +447,7 @@ function dropEdit() {
 .mw {
   --cream: var(--bg); --note: #fffdf7; --note-line: rgba(120, 100, 70, .14);
   position: relative; min-height: 100%; max-width: 520px; margin: 0 auto; background: var(--cream);
-  padding: 0 0 calc(var(--tabbar-h) + var(--safe-bottom) + 40px); overflow-x: clip;
+  padding: 0 0 calc(var(--safe-bottom) + 40px); overflow-x: clip;
   font-family: "Poppins", var(--font);
 }
 :root[data-theme="dark"] .mw { --note: #2a2f3a; --note-line: rgba(255, 255, 255, .07); }
@@ -524,7 +524,7 @@ function dropEdit() {
 .reply-box .input { flex: 1; min-width: 0; }
 .more-btn { display: block; margin: 0 auto; border: 0; background: none; color: var(--text-2); font-size: .82rem; padding: 10px 18px; }
 
-.fab { position: fixed; z-index: 20; right: max(18px, calc(50% - 260px + 18px)); bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 26px); width: 54px; height: 54px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #4a6086; color: #fff; box-shadow: 0 8px 22px rgba(60, 80, 120, .35); }
+.fab { position: fixed; z-index: 20; right: max(18px, calc(50% - 260px + 18px)); bottom: calc(var(--safe-bottom) + 26px); width: 54px; height: 54px; border-radius: 50%; border: 0; display: grid; place-items: center; background: #4a6086; color: #fff; box-shadow: 0 8px 22px rgba(60, 80, 120, .35); }
 :root[data-theme="dark"] .fab { background: #a9c1e2; color: #1b1e25; }
 
 /* 弹层里 */

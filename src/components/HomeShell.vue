@@ -10,7 +10,7 @@ import GroupAvatar from "./GroupAvatar.vue";
 import Icon from "./Icon.vue";
 import MusicPlayer from "./MusicPlayer.vue";
 const props = defineProps({ compact: Boolean, role: Object, thread: Object });
-const emit = defineEmits(["threads", "summary"]);
+const emit = defineEmits(["threads", "summary", "drawer"]);
 const router = useRouter();
 const addOpen = ref(false), name = ref(""), adding = ref(""), selected = ref([]);
 const now = ref(new Date());
@@ -20,7 +20,11 @@ const roles = computed(() => [...store.roles].sort((a,b) => Number(b.id === prop
 const groupThreads = computed(() => store.threads.filter(t => t.group));
 const latest = role => threadsOf(role.id).find(t => t.id === role.lastThreadId) || threadsOf(role.id)[0];
 const groupName = t => t.id === GROUP_TID ? store.group.name : (t.name || t.title);
-function go(path) { homeDrawerOpen.value = false; router.push(path); }
+function go(path) {
+  homeDrawerOpen.value = false;
+  if (router.currentRoute.value.fullPath === path) window.scrollTo(0, 0);
+  else router.push(path);
+}
 function openRole(role) { go("/chat/" + role.id); }
 function add(kind) { adding.value = kind; addOpen.value = false; name.value = ""; selected.value = store.roles.map(r => r.id); }
 function saveNew() {
@@ -45,8 +49,8 @@ const settings = computed(() => [
 ]);
 const spaces = [
   ["Library", "/books"], ["Workbench", "/bench"], ["Tidepool", "/record"],
-  ["Tidal room", "/record?view=tide"], ["Letters", "/letters"], ["Mailbox", "/mail/" + MAIN],
-  ["Memory", "/memory"], ["Read together", "/books"], ["Co-writing settings", "/write"],
+  ["Letters", "/letters"], ["Mailbox", "/mail/" + MAIN],
+  ["Memory", "/memory"], ["Co-writing settings", "/write"],
   ["Settings", "/settings"],
 ];
 onMounted(async () => {
@@ -65,8 +69,9 @@ onBeforeUnmount(() => clearInterval(timer));
       <button v-else class="icon-btn" aria-label="添加小机或群聊" @click="addOpen = !addOpen"><Icon name="plus" /></button>
       <div v-if="addOpen" class="add-menu"><button @click="add('role')">添加小机</button><button @click="add('group')">添加群聊</button></div>
     </div>
+    <button v-if="!compact" class="icon-btn shell-menu" aria-label="打开抽屉" @click="emit('drawer')"><Icon name="menu" /></button>
     <header class="shell-heading"><span class="star large" aria-hidden="true">*</span><span class="star little" aria-hidden="true">*</span><h1>{{ greeting[0] }}<br>{{ greeting[1] }}</h1></header>
-    <button v-if="compact" class="open-home" @click="go('/')">Open home <Icon name="home" :size="16" /></button>
+    <button v-if="compact" class="open-home" @click="go('/')"><span>Open home</span><Icon name="home" :size="16" /></button>
     <div v-if="compact" class="quick-roles">
       <button v-for="r in roles" :key="r.id" :class="{ selected: r.id === role?.id }" :aria-label="'和' + r.name + '聊天'" @click="openRole(r)"><Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="r.id === role?.id ? 50 : 32" /></button>
       <button aria-label="打开客厅" @click="go('/group')"><GroupAvatar :size="32" /></button>
@@ -81,8 +86,8 @@ onBeforeUnmount(() => clearInterval(timer));
         <GroupAvatar :size="38" :group="t.id === GROUP_TID ? store.group : t" /><span class="thread-copy"><strong>{{ groupName(t) }}</strong><small>{{ t.preview || "一起坐坐吧" }}</small></span><span class="thread-meta"><time>{{ shortTime(t.updatedAt) }}</time><b v-if="unreadMessages(t).length">{{ unreadMessages(t).length }}</b></span>
       </button>
     </div>
-    <details v-if="compact && role" class="shell-section"><summary><span class="star">*</span>Chat settings</summary><button v-for="[label, action] in settings" :key="label" class="space-link" @click="action"><i />{{ label }}</button><label v-if="thread" class="thread-pet-picker"><span><i />Desktop pet</span><select aria-label="当前对话的桌宠" :value="thread.petKind || 'inherit'" @change="thread.petKind = $event.target.value"><option value="inherit">跟随原设置</option><option value="octopus">小章鱼</option><option value="crab">小螃蟹</option><option value="none">不显示</option></select></label></details>
-    <details class="shell-section"><summary><span class="star">*</span>Shared spaces</summary><button v-for="[label, path] in spaces" :key="label" class="space-link" @click="go(path)"><i />{{ label }}</button></details>
+    <details v-if="compact && role" class="shell-section"><summary><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11" /></svg><span>Chat settings</span></summary><button v-for="[label, action] in settings" :key="label" class="space-link" @click="action"><i />{{ label }}</button><label v-if="thread" class="thread-pet-picker"><span><i />Desktop pet</span><select aria-label="当前对话的桌宠" :value="thread.petKind || 'inherit'" @change="thread.petKind = $event.target.value"><option value="inherit">跟随原设置</option><option value="octopus">小章鱼</option><option value="crab">小螃蟹</option><option value="none">不显示</option></select></label></details>
+    <details class="shell-section"><summary><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11" /></svg><span>Shared spaces</span></summary><button v-for="[label, path] in spaces" :key="label" class="space-link" @click="go(path)"><i />{{ label }}</button></details>
     <MusicPlayer :compact="compact" />
     <div v-if="adding" class="shell-form-mask" @click.self="adding = ''"><form class="shell-form" @submit.prevent="saveNew"><h2>{{ adding === "role" ? "添加小机" : "添加群聊" }}</h2><input v-model="name" autofocus required maxlength="60" placeholder="名字"><label v-for="r in adding === 'group' ? store.roles : []" :key="r.id"><input v-model="selected" type="checkbox" :value="r.id">{{ r.name }}</label><div><button type="button" @click="adding = ''">取消</button><button class="btn" type="submit" :disabled="adding === 'group' && !selected.length">添加</button></div></form></div>
   </section>

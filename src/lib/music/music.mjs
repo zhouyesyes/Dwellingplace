@@ -451,7 +451,7 @@ function parallelSourceRace(track,{signal}={}) {
 }
 
 // 播放器：一个真的 <audio>，不随界面重画；界面每秒问它一次进度
-export function createPlayer({ load, save, onChange, onStatus = () => {}, resolve }) {
+export function createPlayer({ load, save, onChange, onStart, onStatus = () => {}, resolve }) {
     const audio = new Audio();
     audio.preload = 'auto';
     let confirmedSource = '',sourcePlatform='',sourcePreview=false;
@@ -495,11 +495,12 @@ export function createPlayer({ load, save, onChange, onStatus = () => {}, resolv
         lrcFor=key;lyricJobKey=key;
         lyricOf(track).then(lines=>{if(current()&&lrcFor===key){lrc=lines;onChange?.('state');}}).catch(()=>{}).finally(()=>{if(current()&&lyricJobKey===key)lyricJobKey='';});
     }
-    async function play(i,{continueFailures=false}={}) {
+    async function play(i,{continueFailures=false,playlist=st()}={}) {
         clearTimeout(skipTimer);if(!continueFailures)failedTracks.clear();
-        const s = st();
+        const s = playlist;
         if (i != null) { s.idx = Math.max(0, Math.min(s.list.length - 1, i)); save(); }
-        const t = cur(); if (!t) return;
+        const t = s.list[s.idx]; if (!t) return;
+        onStart?.(s);
         const revision=++playRevision;stopWait?.();clearTimeout(dog);raceController?.abort();sourceRace=null;releaseSource();excludedSources.clear();
         delete audio.dataset.tried;delete audio.dataset.src;recoveryFailed=false;resolving=true;sources=[];srcIdx=0;sourceTrack=t;
         media.prepare();
@@ -542,13 +543,13 @@ export function createPlayer({ load, save, onChange, onStatus = () => {}, resolv
     function finishFailure(status='放不了',message='可用音源检测失败，点播放可重新检测') {
         if(recoveryFailed)return;recoveryFailed=true;clearTimeout(dog);releaseSource();raceController?.abort();sourceRace=null;
         audio.pause();audio.removeAttribute('src');audio.load();
-        const failed=playing,s=st(),list=s.list,activeList=s.active,revision=playRevision;
+        const failed=playing,s=st(),list=s.list,revision=playRevision;
         if(failed)failedTracks.add(trackIdentity(failed));
         const candidates=Array.from({length:list.length},(_,offset)=>(s.idx+offset+1)%list.length).filter(index=>!failedTracks.has(trackIdentity(list[index])));
         if(candidates.length){
             const index=s.mode==='shuffle'?candidates[Math.floor(Math.random()*candidates.length)]:candidates[0],target=list[index];
             onStatus('这首暂时放不了，正在跳到下一首…');onChange?.('info',`《${failed?.title||'当前歌曲'}》暂时放不了，跳过这首`);
-            skipTimer=setTimeout(()=>{if(playRevision===revision&&recoveryFailed){const live=st(),index=live.list.indexOf(target);if(live.active===activeList&&index>=0)play(index,{continueFailures:true});}},0);
+            skipTimer=setTimeout(()=>{if(playRevision===revision&&recoveryFailed){const live=st(),index=live.list.indexOf(target);if(live===s&&index>=0)play(index,{continueFailures:true});}},0);
         }else{onStatus(status);onChange?.('error',failedTracks.size>1?'歌单里的歌曲都暂时放不了，点播放可重新检测':message);}
     }
     async function fallback() {
@@ -621,13 +622,13 @@ export function createPlayer({ load, save, onChange, onStatus = () => {}, resolv
         seek: frac => { if (audio.duration) audio.currentTime = audio.duration * frac; },
         current: () => playing || cur(), playing: () => !recoveryFailed&&!audio.paused,
         lyric: () => lrc, line: () => lineAt(lrc, audio.currentTime || 0),
-        add(t, andPlay) {
-            const s = st();
+        add(t, andPlay, s = st()) {
             let i = s.list.findIndex(x => x.id === t.id);
             if (i < 0) { s.list.push(t); i = s.list.length - 1; }
             save(); if (andPlay) play(i); else onChange?.();
+            return i;
         },
-        remove(i) { const s = st();if(!Number.isInteger(i)||!s.list[i])return;const removed=s.list.splice(i,1)[0];if(i<s.idx)s.idx--;s.idx=Math.max(0,Math.min(s.idx,s.list.length-1));if(playing===removed)stop();save();onChange?.(); },
+        remove(i, s = st()) { if(!Number.isInteger(i)||!s.list[i])return;const removed=s.list.splice(i,1)[0];if(i<s.idx)s.idx--;s.idx=Math.max(0,Math.min(s.idx,s.list.length-1));if(playing===removed)stop();save();onChange?.(); },
         mode() { const s = st(); s.mode = { all: 'one', one: 'shuffle', shuffle: 'all' }[s.mode || 'all']; save(); onChange?.(); },
     };
 }
