@@ -9,7 +9,7 @@ import { stopGroup, GROUP_TAIL } from "../lib/groupChat.js";
 import GroupAvatar from "../components/GroupAvatar.vue";
 import { tailFrom, chatTokens, fmtTok, snapshotSum } from "../lib/budget.js";
 import PetDock from "../components/pet/PetDock.vue";
-import { petOn } from "../lib/pet.js";
+import { petForThread } from "../lib/pet.js";
 import SumVersions from "../components/memory/SumVersions.vue";
 import { hasXinchao, dashToken, refreshMind, snapOf } from "../lib/xinchao.js";
 import { faceGrid } from "../lib/pixel.js";
@@ -113,6 +113,7 @@ const petWork = computed(() => {
   }
   return last?.from === "ai" && last.error ? "error" : null;
 });
+const selectedPet = computed(() => petForThread(thread.value, role.value?.id));
 const bgUrl = useImage(() => thread.value?.bg);
 
 async function openThread(id) {
@@ -975,10 +976,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <button v-if="win" class="latest-btn" @click="backToLatest">回到最新 ↓</button>
 
     <footer ref="dock" class="composer" :class="{ hide: selecting }">
-      <!-- 桌宠：他（主角色）的小章鱼，站在输入框上面 -->
-      <PetDock v-if="petOn() && role.id === MAIN && !thread?.mail" :work="petWork" />
-      <!-- 小螃蟹（cc）：同样站在右边，和小章鱼一模一样的动作 -->
-      <PetDock v-else-if="petOn('crab') && solo(role) && !thread?.mail" kind="crab" :work="petWork" />
+      <PetDock v-if="selectedPet" :key="selectedPet" :kind="selectedPet" :work="petWork" />
       <div v-if="attachments.length" class="pending-atts">
         <div v-for="(a, i) in attachments" :key="i" class="patt">
           <ImgThumb v-if="a.kind === 'image'" :id="a.img" class="mini" />
@@ -1001,9 +999,9 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <textarea ref="inputEl" v-model="draft" :readonly="selecting" :inputmode="selecting ? 'none' : null" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <div class="sends">
-          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '分段发送'" @click="send(false)"><Icon name="segments" :size="20" /></button>
+          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '分段发送'" @click="send(false)"><Icon name="send" :size="20" /></button>
           <button v-if="busy" class="send reply on" aria-label="停止" @click="stop"><Icon name="stop" :size="20" /></button>
-          <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="send" :size="20" /></button>
+          <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="chat" :size="20" /></button>
         </div>
       </div>
     </footer>

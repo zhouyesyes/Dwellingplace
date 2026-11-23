@@ -23,4 +23,4 @@ function keydown(event) {
 }
 onBeforeUnmount(() => { homeDrawerOpen.value = false; });
 </script>
-<template><Teleport to="body"><Transition name="home-drawer"><div v-if="open" class="home-drawer-mask" @click.self="close" @keydown="keydown"><aside ref="panel" class="home-drawer-panel" role="dialog" aria-modal="true" aria-label="缩窄首页" tabindex="-1"><HomeShell compact :role="role" @threads="emit('threads')" @summary="emit('summary')" /></aside></div></Transition></Teleport></template>
+<template><Teleport to="body"><Transition name="home-drawer"><div v-if="open" class="home-drawer-mask" @click.self="close" @keydown="keydown"><aside ref="panel" class="home-drawer-panel" role="dialog" aria-modal="true" aria-label="缩窄首页" tabindex="-1"><HomeShell compact :role="role" :thread="thread" @threads="emit('threads')" @summary="emit('summary')" /></aside></div></Transition></Teleport></template>

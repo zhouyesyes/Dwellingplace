@@ -208,3 +208,8 @@
 .chat .composer .send.small { width: 34px; height: 34px; background: var(--shell-pink); color: var(--shell-orange); }
 .chat .composer .send.reply { width: 36px; height: 36px; background: var(--shell-peach); color: var(--shell-orange); }
 .chat .composer .send.reply.on { background: var(--shell-orange); color: #fffaf6; }
+
+.thread-pet-picker { display: grid; gap: 9px; margin: 9px 0 15px; font-size: 12px; }
+.thread-pet-picker > span { display: flex; align-items: center; gap: 10px; }
+.thread-pet-picker i { width: 5px; height: 5px; border-radius: 50%; background: #e4bf76; }
+.thread-pet-picker select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--shell-line); border-radius: 9px; background: var(--card); color: var(--text); font-family: var(--shell-font); font-size: 12px; }

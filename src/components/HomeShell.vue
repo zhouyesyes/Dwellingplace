@@ -9,7 +9,7 @@ import Avatar from "./Avatar.vue";
 import GroupAvatar from "./GroupAvatar.vue";
 import Icon from "./Icon.vue";
 import MusicPlayer from "./MusicPlayer.vue";
-const props = defineProps({ compact: Boolean, role: Object });
+const props = defineProps({ compact: Boolean, role: Object, thread: Object });
 const emit = defineEmits(["threads", "summary"]);
 const router = useRouter();
 const addOpen = ref(false), name = ref(""), adding = ref(""), selected = ref([]);
@@ -81,7 +81,7 @@ onBeforeUnmount(() => clearInterval(timer));
         <GroupAvatar :size="38" :group="t.id === GROUP_TID ? store.group : t" /><span class="thread-copy"><strong>{{ groupName(t) }}</strong><small>{{ t.preview || "一起坐坐吧" }}</small></span><span class="thread-meta"><time>{{ shortTime(t.updatedAt) }}</time><b v-if="unreadMessages(t).length">{{ unreadMessages(t).length }}</b></span>
       </button>
     </div>
-    <details v-if="compact && role" class="shell-section"><summary><span class="star">*</span>Chat settings</summary><button v-for="[label, action] in settings" :key="label" class="space-link" @click="action"><i />{{ label }}</button></details>
+    <details v-if="compact && role" class="shell-section"><summary><span class="star">*</span>Chat settings</summary><button v-for="[label, action] in settings" :key="label" class="space-link" @click="action"><i />{{ label }}</button><label v-if="thread" class="thread-pet-picker"><span><i />Desktop pet</span><select aria-label="当前对话的桌宠" :value="thread.petKind || 'inherit'" @change="thread.petKind = $event.target.value"><option value="inherit">跟随原设置</option><option value="octopus">小章鱼</option><option value="crab">小螃蟹</option><option value="none">不显示</option></select></label></details>
     <details class="shell-section"><summary><span class="star">*</span>Shared spaces</summary><button v-for="[label, path] in spaces" :key="label" class="space-link" @click="go(path)"><i />{{ label }}</button></details>
     <MusicPlayer :compact="compact" />
     <div v-if="adding" class="shell-form-mask" @click.self="adding = ''"><form class="shell-form" @submit.prevent="saveNew"><h2>{{ adding === "role" ? "添加小机" : "添加群聊" }}</h2><input v-model="name" autofocus required maxlength="60" placeholder="名字"><label v-for="r in adding === 'group' ? store.roles : []" :key="r.id"><input v-model="selected" type="checkbox" :value="r.id">{{ r.name }}</label><div><button type="button" @click="adding = ''">取消</button><button class="btn" type="submit" :disabled="adding === 'group' && !selected.length">添加</button></div></form></div>

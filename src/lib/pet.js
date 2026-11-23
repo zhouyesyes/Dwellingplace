@@ -3,7 +3,7 @@
 // 出错了着急；做完事、收到夸奖、收到信，各播一次小反应；很久没动静就缩成一团、困了；半夜还在聊，就举牌子催你睡觉。
 // 一次性的小反应从这里发出去：petOnce("happy" | "shy" | "success" | "letter" | "bubble")
 import { reactive } from "vue";
-import { store } from "../store/index.js";
+import { store, MAIN, CRAB } from "../store/index.js";
 
 export const pet = reactive({ once: null, at: 0, lastActive: Date.now(), bedtimeOff: 0 });
 try { localStorage.removeItem("qisuo-cloud-job"); } catch { /* 旧版本记的派活状态，清掉 */ }
@@ -26,4 +26,14 @@ export function petAfterReply(msg) {
   const notes = (msg.notes || []).map(n => n.text || "");
   if (notes.some(t => /写了一封信/.test(t))) petOnce("letter");
   else if (notes.some(t => /翻了翻记忆|搜索了|用了|记下|贴了|放了一张/.test(t))) petOnce("success");
+}
+
+// 每个对话可以选自己的桌宠；旧对话继续沿用原来的全局开关。
+export function petForThread(thread, roleId) {
+  if (thread?.petKind === "none") return null;
+  if (["octopus", "crab"].includes(thread?.petKind)) return thread.petKind;
+  if (thread?.mail) return null;
+  if (roleId === MAIN && petOn()) return "octopus";
+  if (roleId === CRAB && petOn("crab")) return "crab";
+  return null;
 }
