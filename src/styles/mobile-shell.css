@@ -1,6 +1,20 @@
+@font-face {
+  font-family: "Qisuo Typewriter";
+  src: url("../assets/fonts/typewriter/nimbus-mono-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Qisuo Typewriter";
+  src: url("../assets/fonts/typewriter/nimbus-mono-bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+}
 /* 浅粉杏首页与窄抽屉共用一套表面和排版。 */
 :root {
-  --shell-font: "Courier New", Courier, "PingFang SC", "Noto Sans SC", monospace;
+  --shell-font: "Qisuo Typewriter", "Courier New", Courier, "PingFang SC", "Noto Sans SC", monospace;
   --shell-paper: #fbf6f1;
   --shell-pink: #faeeeb;
   --shell-peach: #ffe9dd;
@@ -140,3 +154,8 @@
 @media (max-width: 360px) { .music-heading { gap: 15px; } .record { width: 110px; height: 110px; } .home-drawer-panel { min-width: 190px; } .shell-heading h1 { font-size: 26px; } }
 .compact .shell-actions .icon-btn { width: 28px; height: 28px; }
 .chat .stamp, .chat .composer textarea { font-family: var(--shell-font); }
+
+/* 英文使用设计稿同款打印体；中文回退到黑体。 */
+.chat, .chat .mode-panel, .chat .composer, .chat .stamp { font-family: var(--shell-font); }
+.home-shell, .chat .mode-toggle, .chat .mode-panel, .chat .stamp { letter-spacing: -.025em; }
+.chat .mode-panel button, .chat .mode-panel input, .chat .mode-panel select { font-family: var(--shell-font); }
