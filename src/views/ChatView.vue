@@ -604,7 +604,7 @@ function saveBubbleColor(color) {
 }
 function removeBubbleColor(color) {
   if (!customColors.value.includes(color)) return;
-  if (!confirm(`删除自定义颜色 ${color}？正在用这个颜色的气泡会恢复默认。`)) return;
+  if (!confirm(`删除自定义颜色 ${color}？正在用这个颜色的气泡会换成内置颜色。`)) return;
   store.settings.chatBubbleColors = savedColors.value.filter(saved => saved !== color);
   for (const r of store.roles) {
     if (r.bubbleColor === color) r.bubbleColor = r.id === MAIN ? defaultTheirColor : BUBBLE_COLORS[6];
@@ -989,14 +989,13 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <button class="ctx" @click="modeOpen = false; changeBg()">换背景</button>
           <button v-if="thread.bg" class="ctx" @click="clearBg">恢复默认</button>
         </div>
-        <div v-if="!isGroup" class="mode-colors">
+        <div v-if="!isGroup" class="mode-colors" @selectstart.prevent @contextmenu.prevent>
           <span>{{ role.name }} 的气泡颜色</span>
-          <ColorSwatches v-model="role.bubbleColor" :colors="bubblePalette" :removable="customColors" compact @custom="saveBubbleColor" @remove="removeBubbleColor" />
+          <ColorSwatches :model-value="theirColor" :colors="bubblePalette" :removable="customColors" compact manage @update:model-value="role.bubbleColor = $event" @custom="saveBubbleColor" @remove="removeBubbleColor" />
         </div>
         <div class="mode-colors" @selectstart.prevent @contextmenu.prevent>
           <span>我的气泡颜色</span>
-          <ColorSwatches v-model="store.profile.bubbleColor" :colors="bubblePalette" :removable="customColors" compact manage @custom="saveBubbleColor" @remove="removeBubbleColor" />
-          <button v-if="store.profile.bubbleColor" class="ctx" @click="store.profile.bubbleColor = null">恢复默认</button>
+          <ColorSwatches :model-value="mineColor" :colors="bubblePalette" :removable="customColors" compact manage @update:model-value="store.profile.bubbleColor = $event" @custom="saveBubbleColor" @remove="removeBubbleColor" />
         </div>
         <small v-if="customColors.length">长按自定义颜色也可删除</small>
       </div>
@@ -1343,7 +1342,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 
 /* 消息区：输入框浮在上面，底下留出它的高度，最后一条能滑到它上方 */
 .scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-.scroll::-webkit-scrollbar { display: none; }
+.scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .inner { max-width: 760px; margin: 0 auto; padding: 12px 14px calc(var(--dock, 120px) + var(--safe-bottom) + 22px); display: flex; flex-direction: column; gap: 18px; }
 
 .latest-btn { position: absolute; right: 16px; bottom: calc(var(--dock, 120px) + var(--dock-bottom) + 10px); z-index: 4; border: 0; border-radius: 999px; padding: 8px 14px; background: rgba(var(--glass-rgb), .95); color: var(--text); font-size: .8rem; box-shadow: var(--shadow); }

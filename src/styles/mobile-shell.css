@@ -87,7 +87,7 @@
 .song-info { min-width: 0; display: grid; gap: 2px; line-height: 1.25; }
 .song-info strong { font-size: 15px; overflow-wrap: anywhere; }
 .song-info small { font-size: 12px; color: var(--shell-muted); overflow-wrap: anywhere; }
-.music-lyrics { position: relative; height: 90px; overflow-y: auto; overscroll-behavior-y: contain; margin: 17px 0 19px; text-align: center; scrollbar-width: thin; }
+.music-lyrics { position: relative; height: 90px; overflow-y: auto; overscroll-behavior-y: contain; margin: 17px 0 19px; text-align: center; }
 .music-lyrics:has(.current) { padding-block: 30px; }
 .music-lyrics p { display: grid; align-content: center; min-height: 30px; font-size: 11px; color: var(--shell-muted); margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .music-lyrics .current { color: var(--shell-orange); font-size: 13px; font-weight: 600; }
@@ -224,3 +224,28 @@
 .thread-pet-picker > span { display: flex; align-items: center; gap: 10px; }
 .thread-pet-picker i { width: 5px; height: 5px; border-radius: 50%; background: #e4bf76; }
 .thread-pet-picker select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--shell-line); border-radius: 9px; background: var(--card); color: var(--text); font-family: var(--shell-font); font-size: 12px; }
+
+/* 首页跟随文档滚动，抽屉和歌词有自己的滚动区域。 */
+html:has(.home-shell:not(.compact)),
+.home-drawer-panel,
+.home-shell .quick-roles,
+.home-shell .music-lyrics,
+.home-shell .queue-tracks,
+.chat .mode-panel {
+  scrollbar-width: none;
+}
+html:has(.home-shell:not(.compact))::-webkit-scrollbar,
+.home-drawer-panel::-webkit-scrollbar,
+.home-shell .quick-roles::-webkit-scrollbar,
+.home-shell .music-lyrics::-webkit-scrollbar,
+.home-shell .queue-tracks::-webkit-scrollbar,
+.chat .mode-panel::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.chat .mode-colors {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
