@@ -147,7 +147,27 @@ async function photograph(url, scratch, scheme) {
     const nav = await send("Page.navigate", { url });
     if (nav.errorText) throw new Error("打不开预览页面：" + nav.errorText);
     await Promise.race([loaded, sleep(2500)]);
-    await send("Runtime.evaluate", { expression: "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))", awaitPromise: true });
+    const readiness = await send("Runtime.evaluate", {
+      expression: `(async () => {
+        const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+        const deadline = performance.now() + 6500;
+        while (performance.now() < deadline) {
+          // Vue 的容器挂载前是空的，静态设计稿则直接检查正文。
+          const content = document.querySelector("#app") || document.body;
+          if (document.readyState !== "loading" &&
+              content?.innerText.trim() && document.fonts.status === "loaded") {
+            await nextFrame();
+            await nextFrame();
+            return true;
+          }
+          await nextFrame();
+        }
+        return false;
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (readiness.result?.value !== true) throw new Error("预览页面没有渲染出正文，未生成截图");
     const result = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     return Buffer.from(result.data, "base64");
   } finally {
@@ -231,7 +251,12 @@ if (process.env.QISUO_CODEX_PREVIEW === "1") {
     try {
       const site = join(job, "site");
       mkdirSync(site);
-      const fixture = '<html><head><style>[data-theme=dark] { background: #161b22; color: white }</style></head><body>Chromium</body></html>';
+      const fixture = `<html><head><style>[data-theme=dark] { background: #161b22; color: white }</style></head>
+        <body><div id="app"></div><script>
+          addEventListener("load", () => setTimeout(() => {
+            document.getElementById("app").textContent = "Chromium";
+          }, 350));
+        </script></body></html>`;
       writeFileSync(join(site, "preview.html"), fixture);
       const images = await request({ id: basename(job), page: "/preview.html", theme: "both" });
       if (images?.length !== 2 || images[0].data === images[1].data) throw new Error("Chromium 截图自检没有生成不同主题的图片");
