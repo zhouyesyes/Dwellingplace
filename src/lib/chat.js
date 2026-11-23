@@ -4,6 +4,7 @@ import { reactive } from "vue";
 import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
 import { codexBase, codexReply } from "./codexJobs.js";
+import { dshApi, dshReply } from "./dsh.js";
 import { otherRepoNames, splitRepo } from "./repos.js";
 import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, flushMessages, flushStore, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
@@ -379,7 +380,7 @@ export function recentToolResults(list, n = 2) {
   for (const m of [...real].reverse()) {
     if (m.from !== "ai") continue;
     for (const note of [...(m.notes || [])].reverse()) {
-      if (!note.detail || note.codexProgress) continue;
+      if (!note.detail || note.codexProgress || note.dshProgress) continue;
       if (isDoc(note)) { doc ??= { text: note.text, detail: note.detail, ts: m.ts }; continue; }
       if (found.length < n) found.push({ text: note.text, detail: note.detail, ts: m.ts });
     }
@@ -578,8 +579,10 @@ export async function generate(thread, parentId, { speaker = null, resume = null
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
   if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
   const codex = !!resume || role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "codex";
-  const api = codex ? null : apiFor(thread, role);
-  const model = codex ? "Codex" : modelFor(thread, role);
+  const dsh = !codex && role.id === MAIN && !group && !thread.mail && !thread.studio && thread.replyBackend === "dsh";
+  const harnessApi = dsh ? dshApi(role, thread) : null;
+  const api = codex || dsh ? null : apiFor(thread, role);
+  const model = codex ? "Codex" : dsh ? "DSH" : modelFor(thread, role);
   const ctrl = new AbortController();
   generating[thread.id] = ctrl;
 
@@ -598,10 +601,10 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       if (!xcCache[role.id]?.snap) await Promise.race([m, new Promise(r => setTimeout(r, 3000))]);
     }
     const mode = thread.mail ? "mail" : "chat"; // 邮箱页：只有邮箱和记忆的工具；平时聊天：没有邮箱
-    const system = buildSystem(role, history, { mail: !!thread.mail, group, codex, thread });
+    const system = buildSystem(role, history, { mail: !!thread.mail, group, codex: codex || dsh, thread });
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
-    const messages = await buildMessages(history, group ? role.id : null, role, codex);
+    const messages = await buildMessages(history, group ? role.id : null, role, codex || dsh);
     const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
     const tideImgs = await tideImageParts(role).catch(() => []);
@@ -675,6 +678,19 @@ export async function generate(thread, parentId, { speaker = null, resume = null
             } catch { msg.notes.push({ text: "有一张 Codex 截图没能保存" }); }
           }
           if (!res.text && msg.attachments?.length) res.text = "截图在这里。";
+        } else if (dsh) {
+          res = await dshReply(role, thread, harnessApi, system, convo, ctrl.signal, (event, streamed) => {
+            if (event.type === "text" && store.tools?.stream !== false) msg.text = msg.text.slice(0, base) + streamed;
+            if (event.type === "tool") {
+              let note = msg.notes.find(n => n.dshProgress);
+              if (!note) {
+                msg.notes.push({ dshProgress: true, text: "DSH 执行记录", detail: "", before: true });
+                note = msg.notes.at(-1);
+              }
+              note.detail = [note.detail, event.text].filter(Boolean).join("\n").slice(-12000);
+            }
+          });
+          msg.text = msg.text.slice(0, base) + res.text;
         } else res = await streamChat({
           api: roundApi, model, system, messages: convo, signal: ctrl.signal,
           cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存

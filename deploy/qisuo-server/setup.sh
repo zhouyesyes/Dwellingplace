@@ -75,7 +75,7 @@ $SUDO docker network create qisuo-net >/dev/null 2>&1 || true
 cat > Dockerfile <<'DOCKER'
 # 构建顺序按「多久变一次」排：最不爱变的放前面，这样重跑安装时前面的层直接用缓存
 # 第一段：只装依赖。依赖清单（package-lock.json）没变，这一段就整段用缓存，不用再 npm ci
-FROM node:22-slim AS deps
+FROM node:24.22.3-bookworm-slim AS deps
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 ARG REPO
 ARG LOCKHASH=0
@@ -83,7 +83,7 @@ RUN echo "依赖指纹 $LOCKHASH" && git clone --depth 1 "$REPO" /clone && mkdir
  && cd /deps && npm ci --no-audit --no-fund && rm -rf /clone /root/.npm
 
 # 第二段：拉最新代码、构建网页（每次都重做，只有这一步是必须的）
-FROM node:22-slim AS build
+FROM node:24.22.3-bookworm-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 ARG REPO
 ARG CACHEBUST=1
@@ -92,8 +92,16 @@ WORKDIR /src
 COPY --from=deps /deps/node_modules /src/node_modules
 RUN npm run build
 
+# DSH 单独运行，容器只挂聊天通信的 Unix socket 目录。
+FROM node:24.22.3-bookworm-slim AS dsh
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @deepseek-ai/dsh@0.2.2-rc.5 --no-audit --no-fund && npm cache clean --force
+COPY --from=build /src/deploy/qisuo-server/dsh-worker.mjs /app/dsh-worker.mjs
+ENV DSH_SOCKET=/dsh-ipc/dsh.sock
+CMD ["node", "/app/dsh-worker.mjs"]
+
 # 第三段：真正运行的镜像。只装运行要用的（git、小螃蟹），最后才放会变的网页和程序文件
-FROM node:22-slim
+FROM node:24.22.3-bookworm-slim
 WORKDIR /app
 # 小螃蟹：Claude Code（登录用的 token 不在镜像里，启动时从 claude.env 给）；git 给小螃蟹拉对话本用
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl bubblewrap chromium && rm -rf /var/lib/apt/lists/*
@@ -115,7 +123,10 @@ LOCKHASH=$( { curl -fsSL -m 20 "$RAW_MAIN/package-lock.json" && curl -fsSL -m 20
 [ -n "$LOCKHASH" ] && [ "$LOCKHASH" != "e3b0c44298fc1c14" ] || LOCKHASH="$(date +%s)"
 
 say "下载最新的栖所并构建（第一次要几分钟）…"
-build_quiet "栖所" --build-arg REPO="$REPO" --build-arg CACHEBUST="$(date +%s)" --build-arg LOCKHASH="$LOCKHASH" --build-arg CLAUDE_WEEK="$(date +%G%V)" -t qisuo-server .
+BUILD_REV="$(date +%s)"
+build_quiet "栖所" --build-arg REPO="$REPO" --build-arg CACHEBUST="$BUILD_REV" --build-arg LOCKHASH="$LOCKHASH" --build-arg CLAUDE_WEEK="$(date +%G%V)" -t qisuo-server .
+build_quiet "DSH" --target dsh --build-arg REPO="$REPO" --build-arg CACHEBUST="$BUILD_REV" --build-arg LOCKHASH="$LOCKHASH" -t qisuo-dsh .
+$SUDO docker run --rm --network none qisuo-dsh dsh --profile acp --help >/dev/null
 
 CHROME_ENV=""
 if [ "$CHROME" = "y" ]; then
@@ -332,11 +343,24 @@ if ! $SUDO docker exec qisuo-codex-preview node /app/codex-preview.mjs --check; 
 fi
 
 say "启动…"
+# DSH 只通过 Unix socket 收消息。工作文件放内存，结束这轮后清掉。
+$SUDO docker volume create qisuo-dsh-ipc >/dev/null
+$SUDO docker rm -f qisuo-dsh >/dev/null 2>&1 || true
+$SUDO docker run -d --name qisuo-dsh --restart unless-stopped --init --read-only \
+  --network bridge --cap-drop ALL --security-opt no-new-privileges --memory 768m --pids-limit 128 \
+  --tmpfs /tmp:rw,nosuid,nodev,size=128m -v qisuo-dsh-ipc:/dsh-ipc qisuo-dsh >/dev/null
+dsh_ready=""
+for _ in $(seq 1 10); do
+  if $SUDO docker exec qisuo-dsh test -S /dsh-ipc/dsh.sock; then dsh_ready=1; break; fi
+  sleep 1
+done
+[ -n "$dsh_ready" ] || { say "DSH 没启动起来，现有栖所主容器还在运行。"; exit 1; }
 $SUDO docker rm -f qisuo-server >/dev/null 2>&1 || true
 $SUDO docker network rm codex-int >/dev/null 2>&1 || true # 旧的栖所服务器也连着它，拿掉服务器以后才删得掉
 # shellcheck disable=SC2086
 $SUDO docker run -d --name qisuo-server --restart unless-stopped --network qisuo-net \
   -v "$DIR/codex-previews:/codex-previews" -e CODEX_WORKER_SOCKET=/codex-worker-ipc/codex.sock -v "$DIR/codex-worker-ipc:/codex-worker-ipc:ro" -v "$DIR/codex-workspaces:/codex-workspaces" \
+  -e DSH_SOCKET=/dsh-ipc/dsh.sock -v qisuo-dsh-ipc:/dsh-ipc:ro \
   -p "127.0.0.1:$PORT:8080" -e PROXY_TOKEN="$TOKEN" $CHROME_ENV $CLAUDE_ENV $CODEX_ENV -v "$DIR/data:/app/data" -v "$DIR/codex-home:/codex-home" qisuo-server >/dev/null
 
 ok=""

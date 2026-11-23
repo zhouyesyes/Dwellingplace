@@ -5,6 +5,7 @@ import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createT
 import { generating, following, generate, sendMessage, resumeCodexChat, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
 import { loadRepos, repoState } from "../lib/repos.js";
 import { codexBase } from "../lib/codexJobs.js";
+import { dshApi } from "../lib/dsh.js";
 import { pokeText } from "../lib/poke.js";
 import { stopGroup, GROUP_TAIL } from "../lib/groupChat.js";
 import GroupAvatar from "../components/GroupAvatar.vue";
@@ -409,7 +410,7 @@ async function sendSticker(s) {
 }
 // 最后一条是自己的、他还没回：可以让他回复
 const needReply = computed(() => {
-  if (busy.value || !currentApi.value) return false;
+  if (busy.value || !(dshMode.value ? dshReady.value : currentApi.value)) return false;
   const last = messages.value[messages.value.length - 1];
   return !!last && last.from === "user";
 });
@@ -621,8 +622,11 @@ function confirmCal(ev) {
 // ---------- 上下文 / 累计用量 ----------
 const ctxOpen = ref(false);
 const codexUsage = computed(() => thread.value?.replyBackend === "codex");
+const dshMode = computed(() => thread.value?.replyBackend === "dsh");
+const dshReady = computed(() => dshMode.value && !!dshApi(realRole.value, thread.value));
 const ctxInfo = computed(() => {
-  const last = [...messages.value].reverse().find(m => m.from === "ai" && !m.error && (m.model === "Codex") === codexUsage.value && (m.ctx || m.usage?.input));
+  if (dshMode.value) return null;
+  const last = [...messages.value].reverse().find(m => m.from === "ai" && !m.error && m.model !== "DSH" && (m.model === "Codex") === codexUsage.value && (m.ctx || m.usage?.input));
   if (!last) return null;
   const ctx = last.ctx || last.usage.input;
   const limit = codexUsage.value ? last.codexContextLimit || 0 : Number(currentApi.value?.contextLimit) || 200000;
@@ -887,20 +891,22 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-if="role.signature && !thread?.studio" class="sig">{{ role.signature }}</div>
       </div>
       <button v-if="isGroup" class="icon-btn" aria-label="群设置" @click="groupSetOpen = true"><Icon name="settings" /></button>
-      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen"><span class="mode-label">{{ thread?.replyBackend === 'codex' ? 'Codex' : 'Chat' }}</span><Icon name="chevronDown" :size="12" /></button>
+      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen"><span class="mode-label">{{ dshMode ? 'DSH' : codexUsage ? 'Codex' : 'Chat' }}</span><Icon name="chevronDown" :size="12" /></button>
       <button class="icon-btn" aria-label="搜索消息" @click="searchOpen = true"><Icon name="search" :size="19" /></button>
       <div v-if="modeOpen" class="mode-panel">
         <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
           <span>{{ fmtTokens(ctxInfo.ctx) }}<template v-if="ctxInfo.limit"> / {{ fmtTokens(ctxInfo.limit) }}</template><template v-else> tokens</template></span>
           <i v-if="ctxInfo.limit" class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
-        <button v-else class="ctx" @click="ctxOpen = true">用量</button>
+        <button v-else-if="!dshMode" class="ctx" @click="ctxOpen = true">用量</button>
         <label v-if="role.id === MAIN && thread && !thread.group && !thread.mail && !thread.studio && codexBase(role, thread)">
           <select class="ctx" aria-label="回复模式" :value="thread.replyBackend || 'chat'" :disabled="busy" @change="thread.replyBackend = $event.target.value">
             <option value="chat">Chat</option>
             <option value="codex">Codex</option>
+            <option value="dsh">DSH</option>
           </select>
         </label>
+        <span v-if="dshMode && !dshReady" class="ctx">请先添加 DeepSeek 官方 API</span>
         <template v-if="role.id === MAIN && thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
           <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
             {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
@@ -947,7 +953,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-else-if="!messages.length" class="hello">
           <Avatar :img="role.avatar" :name="role.name" :color="role.color" :size="64" class="poke-target" :class="{ poked: pokeAnimation === 'ai' }" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
           <p>{{ thread?.studio ? `这里是工作室：可以让 ${role.name} 去翻栖所的施工日志和提交记录，把值得记住的写进它的记忆` : `和 ${role.name} 说点什么吧` }}</p>
-          <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
+          <p v-if="dshMode ? !dshReady : !currentApi" class="warn">{{ dshMode ? "请先在「设置 → API」添加 DeepSeek 官方 API" : "还没有 API，先去「设置 → API」添加一个" }}</p>
         </div>
 
         <button v-if="hiddenCount && !selecting" class="more-hint" @click="showMore">往上滑（或点这里）看更早的</button>
