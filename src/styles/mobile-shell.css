@@ -135,8 +135,12 @@
 .queue-track button:first-child { display: flex; align-items: center; gap: 8px; text-align: left; min-width: 0; flex: 1; }
 .track-cover { position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; overflow: hidden; border-radius: 50%; background: var(--shell-pink); color: var(--shell-orange); }
 .track-copy { display: grid; gap: 1px; min-width: 0; line-height: 1.2; }
-.queue-track strong { font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.queue-track small { font-size: 10px; color: var(--shell-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.queue-track strong { font-size: 12px; overflow-wrap: anywhere; }
+.queue-track small { font-size: 11px; color: var(--shell-muted); overflow-wrap: anywhere; }
+.queue-track .track-add, .queue-track .track-remove { flex: 0 0 30px; align-self: center; height: 34px; }
+.track-add { position: relative; display: grid; place-items: center; border-radius: 8px; color: var(--shell-ink); }
+.track-add:focus-within { outline: 2px solid var(--accent); }
+.track-add select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .music-search, .playlist-switch { display: flex; gap: 5px; margin-top: 10px; }
 .music-search input, .playlist-switch select { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--card); color: var(--text); font-size: 11px; }
 .music-search button, .playlist-switch button { border: 0; background: var(--shell-peach); color: var(--shell-ink); border-radius: 8px; padding: 6px; font-size: 10px; }
@@ -148,15 +152,18 @@
 .chat > .top > .who .sig { display: none; }
 .chat > .top > .icon-btn:first-child { margin-right: auto; }
 .chat > .top .mode-toggle { background: var(--shell-pink); color: var(--shell-ink); border: 0; border-radius: 20px; padding: 8px 10px; font: 11px var(--shell-font); display: flex; gap: 8px; }
-.chat .mode-panel { position: absolute; right: 16px; top: calc(100% - 4px); z-index: 12; width: min(255px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 17px; padding: 15px; background: var(--card); box-shadow: var(--shadow); display: grid; gap: 12px; }
-.mode-panel .ctx { width: 100%; padding: 8px; text-align: left; }
+.chat .mode-panel { position: absolute; right: 16px; top: calc(100% - 4px); z-index: 12; width: min(280px, calc(100vw - 32px)); max-height: 65dvh; overflow: auto; overscroll-behavior: contain; box-sizing: border-box; border: 1px solid var(--line); border-radius: 17px; padding: 15px; background: var(--card); box-shadow: var(--shadow); display: grid; gap: 12px; }
+.mode-panel .ctx { min-width: 0; width: 100%; padding: 8px; text-align: left; }
+.mode-panel .mode-setting { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.mode-setting span { min-width: 0; overflow-wrap: anywhere; }
+.mode-setting svg { flex: none; }
+.mode-colors { display: grid; gap: 8px; font-size: 12px; color: var(--text); }
+.mode-panel small, .mode-panel a { color: var(--text-2); font-size: 11px; overflow-wrap: anywhere; }
 .mode-panel select { border: 1px solid var(--line); border-radius: 8px; }
-.bubble-color-row { display: flex; justify-content: space-between; align-items: center; font: 12px var(--shell-font); color: var(--text); }
-.bubble-color-row input { width: 32px; height: 25px; padding: 0; border: 0; background: none; }
 .chat .bubble { font-size: 13px; line-height: 1.7; padding: 10px 14px; box-shadow: 0 2px 5px rgb(67 46 34 / 5%); }
 .chat .group { gap: 10px; }
 .chat .group .avatar { width: 34px !important; height: 34px !important; }
-.chat .group .col { max-width: calc(100% - 44px); }
+.chat .group .col { max-width: min(calc(100% - 64px), 560px); }
 .chat .stamp { font-size: 10px; line-height: 1.5; color: var(--shell-muted); }
 .chat .new-message-divider { display: flex; align-items: center; gap: 8px; color: var(--shell-orange); font: 11px var(--shell-font); padding: 14px 0; scroll-margin-top: 15px; }
 .new-message-divider::before, .new-message-divider::after { content: ""; flex: 1; height: 1px; background: var(--shell-line); }
@@ -167,8 +174,7 @@
 .chat > .top .who .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat > .top .icon-btn { background: var(--card); box-shadow: 0 2px 12px rgb(60 40 30 / 4%); }
 .chat .ctx .bar b { background: var(--shell-orange); }
-.mode-panel .ctx .bar { margin-top: 6px; display: inline-block; }
-.mode-panel .ctx.codex-repo { box-sizing: border-box; }
+.mode-panel .ctx .bar { display: inline-block; }
 @media (max-width: 360px) { .music-heading { gap: 15px; } .record { width: 110px; height: 110px; } .home-drawer-panel { min-width: 190px; } .shell-heading h1 { font-size: 26px; } }
 .compact .shell-actions .icon-btn { width: 28px; height: 28px; }
 /* 英文使用设计稿同款打印体；中文回退到黑体。 */
@@ -182,12 +188,13 @@
   justify-content: center;
   min-height: 32px;
   padding: 7px 11px;
+  margin: 0;
   font-style: normal;
   font-synthesis: none;
   line-height: 18px;
   letter-spacing: -.02em;
 }
-.chat .mode-toggle .mode-label { display: block; font-style: normal; line-height: 18px; }
+.chat .mode-toggle .mode-label { display: block; font-style: normal; line-height: 18px; transform: translateY(1px); }
 .chat .mode-toggle svg { flex: none; display: block; }
 .home-shell, .chat .top, .chat .mode-panel, .chat .composer { font-style: normal; font-synthesis: none; }
 

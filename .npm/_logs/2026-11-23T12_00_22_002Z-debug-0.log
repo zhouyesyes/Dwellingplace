@@ -1,0 +1,17 @@
+0 verbose cli /usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.9
+2 info using node@v22.23.5
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b/.npmrc
+5 silly config load:file:/usr/local/etc/npmrc
+6 verbose title npm exec vite build --logLevel warn
+7 verbose argv "exec" "--" "vite" "build" "--logLevel" "warn"
+8 verbose logfile logs-max:10 dir:/codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b/.npm/_logs/2026-11-23T12_00_22_002Z-
+9 verbose logfile /codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b/.npm/_logs/2026-11-23T12_00_22_002Z-debug-0.log
+10 silly logfile done cleaning log files
+11 verbose cwd /codex-workspaces/61esxzr4d9w0/eaa49496f6e45ce11bafcfeb0c6c590fda4e8676c3881a405aa431386eee487b
+12 verbose os Linux 6.8.0-124-generic
+13 verbose node v22.23.5
+14 verbose npm  v10.9.9
+15 verbose exit 0
+16 info ok

@@ -1,8 +1,9 @@
 <script setup>
 import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
 import Icon from "./Icon.vue";
-import { getMusicPlayer, activePlaylist, playingPlaylist, playFromPlaylist, musicLibrary, musicRevision, musicStatus, addPlaylist } from "../lib/musicPlayer.js";
-import { searchSongs } from "../lib/music/music.mjs";
+import { getMusicPlayer, activePlaylist, playingPlaylist, playFromPlaylist, musicLibrary, musicRevision, musicStatus, addPlaylist, savedPosition } from "../lib/musicPlayer.js";
+import { searchSongs, resolveCover, lyricOf, lineAt } from "../lib/music/music.mjs";
+import { toast } from "../lib/toast.js";
 defineProps({ compact: Boolean });
 const player = getMusicPlayer();
 const queueOpen = ref(false), query = ref(""), results = ref([]), searching = ref(false), error = ref("");
@@ -12,10 +13,33 @@ const playback = computed(() => { musicRevision.value; return playingPlaylist();
 const library = computed(musicLibrary);
 const current = computed(() => { musicRevision.value; return player.current(); });
 const playing = computed(() => { musicRevision.value; return player.playing(); });
-const elapsed = computed(() => { musicRevision.value; return player.audio.currentTime || 0; });
+const elapsed = computed(() => { musicRevision.value; return player.audio.readyState ? player.audio.currentTime : savedPosition(current.value); });
 const duration = computed(() => { musicRevision.value; return Number.isFinite(player.audio.duration) ? player.audio.duration : 0; });
-const lyrics = computed(() => { musicRevision.value; return player.lyric(); });
-const currentLine = computed(() => { musicRevision.value; return Math.max(0, player.line()); });
+const previewLyrics = ref([]);
+const loadingLyrics = ref(false);
+watch(current, async (song, _, onCleanup) => {
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
+  previewLyrics.value = [];
+  loadingLyrics.value = !!song;
+  if (!song) return;
+  try {
+    const lines = await lyricOf(song);
+    if (!cancelled) previewLyrics.value = lines;
+  } catch { /* 音源没返回歌词 */ }
+  finally { if (!cancelled) loadingLyrics.value = false; }
+}, { immediate: true });
+const lyrics = computed(() => {
+  musicRevision.value;
+  const live = player.lyric();
+  return live.length ? live : previewLyrics.value;
+});
+const currentLine = computed(() => Math.max(0, lineAt(lyrics.value, elapsed.value)));
+function loadCovers(songs) {
+  for (const song of songs) resolveCover(song).catch(() => {});
+}
+watch(() => [current.value, ...(queueOpen.value ? playlist.value.list : [])],
+  songs => loadCovers(songs.filter(Boolean)), { immediate: true });
 const lyricBox = ref(null);
 let browseTimer;
 function followLyric() {
@@ -35,27 +59,43 @@ const modeName = computed(() => ({ all: "列表循环", one: "单曲循环", shu
 const time = n => Math.floor(n / 60) + ":" + String(Math.floor(n % 60)).padStart(2, "0");
 async function search() {
   const version = ++searchVersion;
-  if (!query.value.trim()) { results.value = []; return; }
+  if (!query.value.trim()) { results.value = []; searching.value = false; error.value = ""; return; }
   searching.value = true; error.value = "";
-  try { const songs = await searchSongs(query.value.trim()); if (version === searchVersion) results.value = songs; }
+  try {
+    const songs = await searchSongs(query.value.trim());
+    if (version !== searchVersion) return;
+    results.value = songs.map(song => ({ ...song }));
+    loadCovers(results.value);
+  }
   catch { if (version === searchVersion) error.value = "搜歌失败，请稍后重试"; }
   finally { if (version === searchVersion) searching.value = false; }
 }
 function newList() { const name = prompt("新歌单的名字"); if (name?.trim()) addPlaylist(name.trim()); }
 function addSong(song, play) {
-  const index = player.add(song, false, playlist.value);
+  const index = player.add({ ...song }, false, playlist.value);
   if (play) playFromPlaylist(index);
+}
+function removeSong(song) {
+  const list = playlist.value;
+  if (confirm("从「" + list.name + "」移除《" + song.title + "》？")) player.remove(list.list.indexOf(song), list);
+}
+function copySong(song, event) {
+  const dest = library.value.playlists.find(p => p.id === event.target.value);
+  event.target.value = "";
+  if (!dest) return;
+  player.add({ ...song }, false, dest);
+  toast("已加入「" + dest.name + "」");
 }
 </script>
 <template>
   <section class="music-surface" :class="{ compact }" aria-label="公共音乐播放器">
     <div class="music-heading">
-      <div class="record" :class="{ playing }"><div class="record-cover"><Icon name="music" :size="30" /><img v-if="current?.cover" :key="current.cover" :src="current.cover" alt="" @error="$event.target.hidden = true"></div></div>
+      <div class="record" :class="{ playing }"><div class="record-cover"><Icon name="music" :size="30" /><img v-if="current?.cover" :key="current.cover" :src="current.cover" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden = true"></div></div>
       <div class="song-info"><strong>{{ current?.title || "A little music" }}</strong><small>{{ current?.artist || "Your shared soundtrack" }}</small></div>
     </div>
     <div ref="lyricBox" class="music-lyrics" tabindex="0" aria-label="歌词" @wheel.passive="browseLyrics" @touchmove.passive="browseLyrics" @pointerdown="browseLyrics" @keydown="browseLyrics">
       <p v-for="(line, i) in lyrics" :key="i" :class="{ current: i === currentLine }" :aria-current="i === currentLine ? 'true' : undefined">{{ line.text }}</p>
-      <p v-if="!lyrics.length" class="lyric-empty">{{ current ? "暂无歌词" : "选首歌，在这里慢慢听。" }}</p>
+      <p v-if="!lyrics.length" class="lyric-empty">{{ loadingLyrics ? "正在加载歌词…" : current ? "暂无歌词" : "选首歌，在这里慢慢听。" }}</p>
     </div>
     <label class="music-seek"><span class="sr-only">播放进度</span><input type="range" min="0" max="1000" :value="duration ? elapsed / duration * 1000 : 0" :disabled="!duration" @input="player.seek(Number($event.target.value) / 1000)"></label>
     <div class="music-time"><span>{{ time(elapsed) }}</span><span>{{ time(duration) }}</span></div>
@@ -76,10 +116,17 @@ function addSong(song, play) {
       <div class="queue-tracks">
         <div v-for="(song, i) in playlist.list" :key="song.src + ':' + song.id" class="queue-track" :class="{ active: song === current }">
           <button @click="playFromPlaylist(i)">
-            <span class="track-cover"><Icon name="music" :size="15" /><img v-if="song.cover" :key="song.cover" :src="song.cover" alt="" @error="$event.target.hidden = true"></span>
+            <span class="track-cover"><Icon name="music" :size="15" /><img v-if="song.cover" :key="song.cover" :src="song.cover" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden = true"></span>
             <span class="track-copy"><strong>{{ song.title }}</strong><small>{{ song.artist }}</small></span>
           </button>
-          <button :aria-label="'从歌单移除' + song.title" @click="player.remove(i, playlist)">×</button>
+          <label v-if="library.playlists.length > 1" class="track-add">
+            <span aria-hidden="true">+</span>
+            <select :aria-label="'将《' + song.title + '》加入其他歌单'" @change="copySong(song, $event)">
+              <option value="" disabled selected>加入其他歌单</option>
+              <option v-for="dest in library.playlists.filter(p => p.id !== playlist.id)" :key="dest.id" :value="dest.id">{{ dest.name }}</option>
+            </select>
+          </label>
+          <button class="track-remove" :aria-label="'从歌单移除' + song.title" @click="removeSong(song)">×</button>
         </div>
         <p v-if="!playlist.list.length">歌单还是空的，搜一首喜欢的歌。</p>
       </div>
@@ -89,7 +136,7 @@ function addSong(song, play) {
       <div class="queue-tracks">
         <div v-for="song in results" :key="song.src + ':' + song.id" class="queue-track">
           <button @click="addSong(song, true)">
-            <span class="track-cover"><Icon name="music" :size="15" /><img v-if="song.cover" :key="song.cover" :src="song.cover" alt="" @error="$event.target.hidden = true"></span>
+            <span class="track-cover"><Icon name="music" :size="15" /><img v-if="song.cover" :key="song.cover" :src="song.cover" alt="" referrerpolicy="no-referrer" @error="$event.target.hidden = true"></span>
             <span class="track-copy"><strong>{{ song.title }}</strong><small>{{ song.artist }}</small></span>
           </button>
           <button :aria-label="'加入歌单' + song.title" @click="addSong(song, false)">+</button>

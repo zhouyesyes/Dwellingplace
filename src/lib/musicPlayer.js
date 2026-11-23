@@ -15,20 +15,46 @@ export function activePlaylist() {
   return library.playlists.find(p => p.id === library.active) || library.playlists[0];
 }
 // 浏览的歌单可以变，上一首、下一首和自动续播仍用开始播放时的歌单。
-export function playingPlaylist() { return playbackPlaylist?.list.length ? playbackPlaylist : activePlaylist(); }
+export function playingPlaylist() {
+  const library = musicLibrary();
+  const previous = library.playlists.find(p => p.id === library.bookmark?.playlistId);
+  if (playbackPlaylist?.list.length) return playbackPlaylist;
+  return previous?.list.length ? previous : activePlaylist();
+}
+const trackKey = track => track && (track.src || "netease") + ":" + track.id;
+export function savedPosition(track) {
+  const bookmark = musicLibrary().bookmark;
+  return bookmark?.playlistId === playingPlaylist().id && bookmark.track === trackKey(track) ? bookmark.seconds : 0;
+}
 export function playFromPlaylist(index) {
   return getMusicPlayer().play(index, { playlist: activePlaylist() });
 }
 export function getMusicPlayer() {
   if (!player) {
+    const playlist = playingPlaylist();
+    const bookmark = musicLibrary().bookmark;
+    const index = playlist.list.findIndex(track => bookmark?.track === trackKey(track));
+    if (bookmark?.playlistId === playlist.id && index >= 0) playlist.idx = index;
     player = createPlayer({
       load: playingPlaylist,
-      onStart: playlist => { playbackPlaylist = playlist; },
+      onStart: (playlist, track, seconds) => {
+        playbackPlaylist = playlist;
+        musicLibrary().bookmark = { playlistId: playlist.id, track: trackKey(track), seconds };
+      },
+      resumePosition: savedPosition,
       save: () => { musicRevision.value++; },
       onChange: () => { musicRevision.value++; },
       onStatus: text => { musicStatus.value = text; },
     });
-    player.audio.addEventListener("timeupdate", () => { musicRevision.value++; });
+    function rememberPosition(exact = false) {
+      const bookmark = musicLibrary().bookmark;
+      const seconds = player.audio.currentTime;
+      if (!bookmark || !player.audio.readyState || !Number.isFinite(seconds)) return;
+      if (exact || Math.abs(seconds - bookmark.seconds) >= 5) bookmark.seconds = seconds;
+    }
+    player.audio.addEventListener("timeupdate", () => { rememberPosition(); musicRevision.value++; });
+    player.audio.addEventListener("pause", () => rememberPosition(true));
+    player.audio.addEventListener("seeked", () => rememberPosition(true));
     player.audio.addEventListener("durationchange", () => { musicRevision.value++; });
   }
   return player;

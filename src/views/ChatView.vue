@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } 
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, flushStore, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, following, generate, sendMessage, resumeCodexChat, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
+import { loadRepos, repoState } from "../lib/repos.js";
 import { codexBase } from "../lib/codexJobs.js";
 import { pokeText } from "../lib/poke.js";
 import { stopGroup, GROUP_TAIL } from "../lib/groupChat.js";
@@ -87,6 +88,23 @@ const openingThread = ref(false);
 const messageDate = ts => { const d = new Date(ts); return [d.getMonth() + 1, d.getDate(), String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0")].join("/"); };
 const threadId = ref(null);
 const thread = computed(() => store.threads.find(t => t.id === threadId.value));
+const showRepoPicker = computed(() => modeOpen.value && role.value?.id === MAIN
+  && thread.value?.replyBackend === "codex" && thread.value.codexWorkspace
+  && !thread.value.group && !thread.value.mail && !thread.value.studio);
+const repoChoices = computed(() => (repoState.list || []).filter(repo => repo.enabled && !repo.isDefault));
+const selectedRepo = computed({
+  get() {
+    const saved = thread.value?.codexRepo?.trim();
+    if (!saved || saved === "栖所") return "";
+    const name = saved.replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/, "").replace(/\.git$/i, "").toLowerCase();
+    const matchesName = repo => [repo.full, repo.name].some(value => value.toLowerCase() === name);
+    if (repoState.list?.some(repo => repo.isDefault && matchesName(repo))) return "";
+    const matches = repoChoices.value.filter(matchesName);
+    return matches.length === 1 ? matches[0].full : saved;
+  },
+  set(value) { thread.value.codexRepo = value; },
+});
+watch(showRepoPicker, open => { if (open) loadRepos(); });
 // 这个对话的所有消息（包括其他版本），以及当前显示的这一条路径
 const allMessages = computed(() => messageCache[threadId.value] || []);
 const messages = computed(() => (thread.value ? pathOf(thread.value, allMessages.value) : []));
@@ -564,6 +582,17 @@ function bubbleVars(c, k) {
 // 他的气泡 + 你自己的（没选过就是卡片色）
 const theirColor = computed(() => role.value?.bubbleColor || "#fffaf6");
 const mineColor = computed(() => store.profile.bubbleColor || "#ffe9dd");
+const customColors = computed(() => store.settings.chatBubbleColors || []);
+const bubblePalette = computed(() => [...new Set([...BUBBLE_COLORS, ...customColors.value])]);
+function saveBubbleColor(color) {
+  if (!/^#[0-9a-f]{6}$/i.test(color) || bubblePalette.value.includes(color)) return;
+  store.settings.chatBubbleColors = [...customColors.value, color];
+}
+watch(modeOpen, open => {
+  if (!open) return;
+  if (!isGroup) saveBubbleColor(role.value?.bubbleColor);
+  saveBubbleColor(store.profile.bubbleColor);
+});
 const bubbleColors = computed(() => ({
   ...bubbleVars(theirColor.value, "their"),
   ...bubbleVars(mineColor.value, "mine"),
@@ -866,11 +895,35 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
             {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
           </button>
-          <input v-if="thread.codexWorkspace" v-model.trim="thread.codexRepo" class="ctx codex-repo" aria-label="Codex 仓库" placeholder="栖所（默认）" maxlength="200" :disabled="busy" />
+          <template v-if="showRepoPicker">
+            <select v-model="selectedRepo" class="ctx" aria-label="Codex 仓库" :disabled="busy">
+              <option value="">栖所（默认）</option>
+              <option v-if="selectedRepo && !repoChoices.some(repo => repo.full === selectedRepo)" :value="selectedRepo" disabled>{{ selectedRepo }}（待确认）</option>
+              <option v-for="repo in repoChoices" :key="repo.full" :value="repo.full">{{ repo.full }}</option>
+            </select>
+            <small v-if="repoState.loading" role="status">正在读取仓库…</small>
+            <small v-else-if="repoState.error" role="alert">{{ repoState.error }}</small>
+            <button v-if="repoState.error" class="ctx" @click="loadRepos(true)">重新读取</button>
+            <RouterLink to="/settings/repos" @click="modeOpen = false">管理可用仓库</RouterLink>
+          </template>
         </template>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
-        <label class="bubble-color-row">Their bubble <input type="color" :value="theirColor" @input="role.bubbleColor = $event.target.value"></label>
-        <label class="bubble-color-row">Your bubble <input type="color" :value="mineColor" @input="store.profile.bubbleColor = $event.target.value"></label>
+        <button v-if="thread" class="ctx mode-setting" @click="modeOpen = false; modelOpen = true">
+          <span>模型</span><span>{{ currentModel || "选择模型" }}</span><Icon name="right" :size="14" />
+        </button>
+        <div v-if="thread" class="mode-setting">
+          <button class="ctx" @click="modeOpen = false; changeBg()">换背景</button>
+          <button v-if="thread.bg" class="ctx" @click="clearBg">恢复默认</button>
+        </div>
+        <div v-if="!isGroup" class="mode-colors">
+          <span>{{ role.name }} 的气泡颜色</span>
+          <ColorSwatches v-model="role.bubbleColor" :colors="bubblePalette" compact @custom="saveBubbleColor" />
+        </div>
+        <div class="mode-colors">
+          <span>我的气泡颜色</span>
+          <ColorSwatches v-model="store.profile.bubbleColor" :colors="bubblePalette" compact @custom="saveBubbleColor" />
+          <button v-if="store.profile.bubbleColor" class="ctx" @click="store.profile.bubbleColor = null">恢复默认</button>
+        </div>
       </div>
     </header>
 
@@ -1046,31 +1099,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         </div>
       </div>
       <button class="btn soft new-btn" @click="newThread"><Icon name="plus" :size="16" /> 新对话</button>
-
-      <div class="section-label">这个对话</div>
-      <div class="list-card flat">
-        <button class="list-row" @click="threadsOpen = false; modelOpen = true">
-          <Icon name="key" :size="20" />
-          <span class="grow">模型<span class="sub">{{ currentModel || "选择模型" }}</span></span>
-          <Icon name="right" :size="16" />
-        </button>
-        <div class="list-row">
-          <Icon name="image" :size="20" />
-          <span class="grow">背景</span>
-          <button v-if="thread?.bg" class="btn soft small" @click="clearBg">恢复默认</button>
-          <button class="btn soft small" @click="changeBg">换背景</button>
-        </div>
-      </div>
-
-      <div class="section-label">{{ role.name }} 的气泡颜色</div>
-      <div class="list-card flat bubble-pick">
-        <ColorSwatches v-model="role.bubbleColor" :colors="BUBBLE_COLORS" />
-      </div>
-      <div class="section-label">我的气泡颜色</div>
-      <div class="list-card flat bubble-pick">
-        <ColorSwatches v-model="store.profile.bubbleColor" :colors="BUBBLE_COLORS" />
-        <button v-if="store.profile.bubbleColor" class="btn soft small mine-reset" @click="store.profile.bubbleColor = null">恢复默认</button>
-      </div>
     </Sheet>
 
     <!-- 上下文 -->
@@ -1112,12 +1140,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <label class="g-name"><span>群名</span><input v-model="activeGroup.name" class="input" maxlength="20" placeholder="栖所小屋" @blur="activeGroup.name = activeGroup.name.trim() || '栖所小屋'" /></label>
       </div>
       <div class="list-card flat">
-        <div class="list-row">
-          <Icon name="image" :size="20" />
-          <span class="grow">背景</span>
-          <button v-if="thread?.bg" class="btn soft small" @click="clearBg">恢复默认</button>
-          <button class="btn soft small" @click="groupSetOpen = false; changeBg()">换背景</button>
-        </div>
         <button class="list-row" @click="groupSetOpen = false; openSummary()">
           <Icon name="book" :size="20" />
           <span class="grow">群聊摘要<span class="sub">{{ thread?.summary?.text ? `已整理 ${thread.summary.count} 条` : "还没有，聊久了会自己整理" }}</span></span>
@@ -1296,7 +1318,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .ctx.high .bar b, .bar.high b { background: var(--danger); }
 .ctx.high { color: var(--danger); }
 .codex-workspace { white-space: nowrap; }
-.codex-repo { width: 94px; max-width: 100%; min-width: 0; background: var(--bg); border-radius: 8px; }
 .expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
 /* 细细的一条；换行后每一行各自是一条两端圆角的细条 */
 .event { padding: 0 6%; line-height: 2.1; overflow-wrap: anywhere; min-width: 0; }
@@ -1472,8 +1493,6 @@ textarea::placeholder { color: var(--text-3); font-weight: 400; font-size: 0.93r
 }
 .list-row.cur { background: var(--card-2); font-weight: 600; }
 .list-row.cur .sub, .t-time { font-weight: 400; }
-.bubble-pick { padding: 12px; }
-.mine-reset { margin: 10px 4px 0; }
 .tip { font-size: 0.8rem; color: var(--text-3); text-align: center; margin: 14px 0 0; }
 .edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .sum-meta { margin: 0 0 10px; font-size: .78rem; color: var(--text-3); }
