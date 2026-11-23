@@ -1001,7 +1001,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <textarea ref="inputEl" v-model="draft" :readonly="selecting" :inputmode="selecting ? 'none' : null" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <div class="sends">
-          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '发送'" @click="send(false)"><Icon name="threads" :size="20" /></button>
+          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '分段发送'" @click="send(false)"><Icon name="segments" :size="20" /></button>
           <button v-if="busy" class="send reply on" aria-label="停止" @click="stop"><Icon name="stop" :size="20" /></button>
           <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="send" :size="20" /></button>
         </div>

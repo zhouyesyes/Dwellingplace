@@ -173,3 +173,38 @@
 .chat .mode-toggle .mode-label { display: block; font-style: normal; line-height: 18px; }
 .chat .mode-toggle svg { flex: none; display: block; }
 .home-shell, .chat .top, .chat .mode-panel, .chat .composer { font-style: normal; font-synthesis: none; }
+
+/* 输入文字独占第一行，工具和两种发送方式放在下一行。 */
+.chat .composer > .row {
+  display: grid;
+  grid-template-columns: 32px 32px minmax(0, 1fr) auto;
+  grid-template-areas: "draft draft draft draft" "attach voice . sends";
+  align-items: center;
+  gap: 4px 5px;
+}
+.chat .composer > .row > textarea {
+  grid-area: draft;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  max-height: 140px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  line-height: 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat .composer > .row > textarea::placeholder {
+  white-space: normal;
+  text-overflow: clip;
+  font-family: var(--shell-font);
+  font-size: 13px;
+}
+.chat .composer > .row > .tool:first-child { grid-area: attach; }
+.chat .composer > .row > .tool:nth-child(2) { grid-area: voice; }
+.chat .composer > .row > .sends { grid-area: sends; align-items: center; padding: 0; gap: 7px; }
+.chat .composer .send.small { width: 34px; height: 34px; background: var(--shell-pink); color: var(--shell-orange); }
+.chat .composer .send.reply { width: 36px; height: 36px; background: var(--shell-peach); color: var(--shell-orange); }
+.chat .composer .send.reply.on { background: var(--shell-orange); color: #fffaf6; }

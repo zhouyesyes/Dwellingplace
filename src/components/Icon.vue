@@ -2,6 +2,7 @@
 // 简单的线条图标
 defineProps({ name: String, size: { type: [Number, String], default: 22 } });
 const P = {
+  segments: '<path d="M5 7h14M5 12h10M5 17h14"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   menu: '<path d="M5 7h14M5 12h14M5 17h14"/>',
   music: '<path d="M9 18V5l11-2v13M9 7l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/>',
