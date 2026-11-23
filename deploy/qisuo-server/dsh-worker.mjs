@@ -1,15 +1,20 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+class DshError extends Error {}
+
 async function run(key, prompt, send, signal) {
   const cwd = await mkdtemp(join(tmpdir(), "dsh-"));
   try {
+    // ACP 预设仍指向旧的 Flash 名称，官方 API 适配器用的是支持图片的 deepseek-flash。
+    const patch = join(cwd, "acp.yml");
+    await writeFile(patch, "- id: acp\n  config:\n    model: deepseek-flash\n");
     signal.throwIfAborted();
-    const child = spawn("dsh", ["--profile", "acp"], {
+    const child = spawn("dsh", ["--profile", "acp", "--patch", patch], {
       cwd, detached: true, stdio: ["pipe", "pipe", "ignore"],
       env: { PATH: process.env.PATH, HOME: cwd, TMPDIR: cwd, DSH_HOME: cwd + "/.dsh", DEEPSEEK_API_KEY: key },
     });
@@ -17,7 +22,7 @@ async function run(key, prompt, send, signal) {
     const pending = new Map();
     let nextId = 0;
     const fail = () => {
-      for (const { reject } of pending.values()) reject(new Error("DSH 进程已结束"));
+      for (const { reject } of pending.values()) reject(new DshError("DSH 进程提前退出"));
       pending.clear();
     };
     const stop = () => {
@@ -35,7 +40,7 @@ async function run(key, prompt, send, signal) {
     const call = (method, params) => new Promise((resolve, reject) => {
       signal.throwIfAborted();
       const id = ++nextId;
-      pending.set(id, { resolve, reject });
+      pending.set(id, { resolve, reject, method });
       write({ id, method, params });
     });
     lines.on("line", line => {
@@ -53,21 +58,29 @@ async function run(key, prompt, send, signal) {
           send("tool", update.title.slice(0, 240));
         }
       } else if (pending.has(data.id)) {
-        const { resolve, reject } = pending.get(data.id);
+        const { resolve, reject, method } = pending.get(data.id);
         pending.delete(data.id);
-        if (data.error) reject(new Error("DSH 没能完成请求"));
-        else resolve(data.result);
+        // 上游错误可能带原始请求内容，界面只显示固定文案。
+        if (data.error) {
+          const detail = typeof data.error.data === "string" ? data.error.data : "";
+          const message = /\b(?:401|403|MISSING_CREDENTIAL)\b|authentication_error/i.test(detail)
+            ? "DeepSeek 官方 API 拒绝了 DSH 的鉴权"
+            : /\b402\b|insufficient balance/i.test(detail) ? "DeepSeek 官方 API 报告余额不足"
+              : method === "initialize" ? "DSH 初始化失败"
+                : method === "session/new" ? "DSH 无法建立会话，请检查官方 API 是否提供 deepseek-flash"
+                  : "DSH 会话已建立，但生成回复失败";
+          reject(new DshError(message));
+        } else resolve(data.result);
       }
     });
     try {
       const init = await call("initialize", { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "qisuo", version: "1" } });
-      const { sessionId } = await call("session/new", { cwd, mcpServers: [] });
       if (!init.agentCapabilities?.promptCapabilities?.image && prompt.some(part => part.type === "image")) {
-        send("tool", "当前 DSH 模型只接收文字，本轮图片未传入");
-        prompt = prompt.map(part => part.type === "image" ? { type: "text", text: "[图片附件]" } : part);
+        throw new DshError("当前 DSH 模型无法接收图片，可以切到支持图片的聊天模型后重试");
       }
+      const { sessionId } = await call("session/new", { cwd, mcpServers: [] });
       const result = await call("session/prompt", { sessionId, prompt });
-      if (result.stopReason !== "end_turn") throw new Error("DSH 提前结束了这一轮");
+      if (result.stopReason !== "end_turn") throw new DshError("DSH 提前结束了这一轮");
       await call("session/close", { sessionId });
     } finally {
       signal.removeEventListener("abort", stop);
@@ -122,7 +135,7 @@ http.createServer(async (req, res) => {
   } catch (err) {
     if (!res.headersSent) json(400, "DSH 没收到完整的消息");
     else {
-      send("error", signal.aborted ? "DSH 这次运行超时" : "DSH 这次没能完成，请确认官方 API 密钥和余额，再试一次");
+      send("error", signal.aborted ? "DSH 这次运行超时" : err instanceof DshError ? err.message : "DSH 工作环境启动失败");
       res.end();
     }
   } finally {
