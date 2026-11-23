@@ -409,7 +409,7 @@ export const lineAt = (lrc, sec) => { let cur = -1; for (let i = 0; i < lrc.leng
 
 // Candidate lookup is concurrent across platforms, including a fresh catalog lookup
 // so an old playlist ID does not prevent finding the currently playable recording.
-function parallelSourceRace(track,{signal,platform}={}) {
+function parallelSourceRace(track,{signal,platform,cached}={}) {
     const netIds=new Set();
     const net=async(t,emit,signal)=>{
         const identity=String(t.id);if(netIds.has(identity))return;netIds.add(identity);
@@ -443,7 +443,12 @@ function parallelSourceRace(track,{signal,platform}={}) {
         const exact=counterpartSong(rows,track.title,track.artist);
         if(exact)await net(exact,emit,signal);
     });
-    return createSourceRace(producers,async(entry,{signal})=>{
+    const candidates = cached ? [emit => emit({
+        key: 'last-played', k: cached.kind, platform: cached.platform,
+        track: { ...track, ...cached.track, src: cached.platform },
+        u: cached.url, family: cached.platform,
+    })] : producers;
+    return createSourceRace(candidates,async(entry,{signal})=>{
         if(await probeAudioUrl(entry.u,{signal}))return entry;
         if(signal.aborted||entry.platform!=='qq')return null;
         const controller=new AbortController(),abort=()=>controller.abort();
@@ -464,7 +469,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     const audio = new Audio();
     audio.preload = 'auto';
     let confirmedSource = '',sourcePlatform='',sourcePreview=false;
-    let selectedPlatform = '';
+    let selectedPlatform = '', preferredPlatform = '', cachedSource = null;
     let skipTimer=0;const failedTracks=new Set();
     const trackIdentity=t=>`${t.src||'netease'}:${t.id||t.title}`;
     let playRevision=0,fallbackJob=null,fallbackRevision=-1,recoveryFailed=false,resolving=false,sourceTrack=null;
@@ -505,13 +510,18 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
         lrcFor=key;lyricJobKey=key;
         lyricOf(track).then(lines=>{if(current()&&lrcFor===key){lrc=lines;onChange?.('state');}}).catch(()=>{}).finally(()=>{if(current()&&lyricJobKey===key)lyricJobKey='';});
     }
-    async function play(i,{continueFailures=false,playlist=st(),position=0,platform=''}={}) {
+    async function play(i,{continueFailures=false,playlist=st(),position=0,platform}={}) {
         clearTimeout(skipTimer);if(!continueFailures)failedTracks.clear();
         const s = playlist;
         if (i != null) { s.idx = Math.max(0, Math.min(s.list.length - 1, i)); save(); }
         const t = s.list[s.idx]; if (!t) return;
         startAt = Number.isFinite(position) && position > 0 ? position : 0;
-        selectedPlatform = platform;
+        selectedPlatform = platform || '';
+        const last = t.lastSource;
+        preferredPlatform = platform === undefined && ['qq', 'netease'].includes(last?.platform) ? last.platform : '';
+        const age = Date.now() - last?.at;
+        cachedSource = last && (preferredPlatform || selectedPlatform === last.platform)
+            && /^https?:/.test(last.url) && age >= 0 && age < SOURCE_CACHE_MS ? last : null;
         const revision=++playRevision;stopWait?.();clearTimeout(dog);raceController?.abort();sourceRace=null;releaseSource();excludedSources.clear();
         delete audio.dataset.tried;delete audio.dataset.src;recoveryFailed=false;resolving=true;sources=[];srcIdx=0;sourceTrack=t;
         media.prepare();
@@ -577,12 +587,23 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
         const current=()=>playing===t&&playRevision===revision;
         const work=(async()=>{
             while(current()){
-                if(!sourceRace){raceController?.abort();raceController=new AbortController();sourceRace=parallelSourceRace(t,{signal:raceController.signal,platform:selectedPlatform});}
-                onStatus(selectedPlatform?'正在检测'+where(selectedPlatform)+'音源…':'正在并行检测网易云 / QQ 音源…');
+                if(!sourceRace){raceController?.abort();raceController=new AbortController();sourceRace=parallelSourceRace(t,{signal:raceController.signal,platform:selectedPlatform || preferredPlatform,cached:cachedSource});}
+                const platform = selectedPlatform || preferredPlatform;
+                onStatus(platform?'正在检测'+where(platform)+'音源…':'正在并行检测网易云 / QQ 音源…');
                 const round=new AbortController();
                 const winner=await waitStep(sourceRace.next(excludedSources,round.signal),()=>round.abort());
                 if(!current()){winner?.dispose?.();return;}
-                if(!winner){if(round.signal.aborted)continue;finishFailure();return;}
+                if(!winner){
+                    if(round.signal.aborted)continue;
+                    // 链接过期就先在原平台找新链接，最后才尝试其他平台。
+                    if(cachedSource || preferredPlatform){
+                        if(cachedSource)cachedSource=null;
+                        else preferredPlatform='';
+                        raceController?.abort();sourceRace=null;
+                        continue;
+                    }
+                    finishFailure();return;
+                }
                 excludedSources.add(winner.key);excludedSources.add(winner.remoteUrl||winner.u);releaseSource();sourceDisposer=winner.dispose;
                 sourceTrack=winner.track;sourcePlatform=winner.platform;sourcePreview=sourcePlatform==='qq'&&!!sourceTrack.qqPreview;
                 swapped=sourcePlatform!==(t.src==='qq'?'qq':'netease')||String(sourceTrack.id)!==String(t.id);
@@ -609,8 +630,17 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     audio.addEventListener('playing', () => {
         if(recoveryFailed)return;clearTimeout(dog);
         const t = playing, k = sources[srcIdx]?.k;
-        const sourceKey = t && `${t.src || 'netease'}:${t.id}:${k}:${audio.dataset.src}`;
-        if (t && k && !swapped && sourceKey !== confirmedSource) { confirmedSource = sourceKey; t.ok = k; t.okUrl = audio.dataset.src; t.okAt = Date.now(); save(); } // 记住这首用哪个来源放得出来
+        const url = audio.dataset.src;
+        if (!t || !sourceTrack || !k || !/^https?:/.test(url || '')) return;
+        const { id, dur, lrc, qqPreview } = sourceTrack;
+        const at = Date.now();
+        const sourceKey = JSON.stringify([t.src, t.id, sourcePlatform, id, k, url]);
+        if (sourceKey === confirmedSource && t.lastSource?.url === url) return;
+        confirmedSource = sourceKey;
+        // 收录平台和实际播放平台可以不同，记下这次真正播出的来源。
+        t.lastSource = { platform: sourcePlatform, kind: k, url, at, track: { id, dur, lrc, qqPreview } };
+        if (!swapped) { t.ok = k; t.okUrl = url; t.okAt = at; }
+        save();
     });
     audio.addEventListener('pause', () => clearTimeout(dog));
     audio.addEventListener('error', () => { clearTimeout(dog); if (audio.src&&!recoveryFailed&&!resolving&&!cancelAudioAttempt) fallback(); });
@@ -618,7 +648,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     audio.addEventListener('pause', () => onChange?.('state'));
     const pausePlayback=()=>{clearTimeout(skipTimer);playRevision++;stopWait?.();resolving=false;clearTimeout(dog);audio.pause();};
     const resume = async () => {
-        if (recoveryFailed || audio.error || !audio.src || !playing) return play(undefined, { position: resumePosition?.(playing || cur()), platform: selectedPlatform });
+        if (recoveryFailed || audio.error || !audio.src || !playing) return play(undefined, { position: resumePosition?.(playing || cur()), platform: selectedPlatform || undefined });
         media.prepare();
         if(!await startAudio())return fallback();
     };
@@ -629,7 +659,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     });
     function stop() {
         startAt = 0;
-        selectedPlatform = '';
+        selectedPlatform = ''; preferredPlatform = ''; cachedSource = null;
         clearTimeout(skipTimer);failedTracks.clear();playRevision++;presentationRevision++;stopWait?.();raceController?.abort();sourceRace=null;releaseSource();resolving=false;recoveryFailed=false;sourceTrack=null;playing=null;confirmedSource='';sourcePlatform='';sourcePreview=false;sources=[];srcIdx=0;lrc=[];lrcFor='';clearTimeout(dog);
         audio.pause();audio.removeAttribute('src');delete audio.dataset.src;delete audio.dataset.id;delete audio.dataset.tried;audio.load();
         try { if(navigator.mediaSession)navigator.mediaSession.metadata=null; } catch { /* Optional host API. */ }
@@ -645,7 +675,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
             const position = audio.readyState ? audio.currentTime : resumePosition?.(track);
             return play(index, { playlist, position, platform });
         },
-        skipSource: () => { clearTimeout(dog);onStatus('正在跳过当前来源…');if(recoveryFailed)return play();const t = playing || cur(); if (t) { delete t.ok; delete t.okUrl; delete t.okAt; } if(stopWait){stopWait();return;}fallback(); }, // 她手动点「换个来源」：这首记的来源作废，换下一个
+        skipSource: () => { clearTimeout(dog);onStatus('正在跳过当前来源…');if(recoveryFailed)return play();const t = playing || cur(); if (t) { delete t.ok; delete t.okUrl; delete t.okAt; delete t.lastSource; } if(stopWait){stopWait();return;}fallback(); }, // 她手动点「换个来源」：这首记的来源作废，换下一个
         toggle: () => (audio.paused ? resume() : pausePlayback()),
         seek: frac => { if (audio.duration) audio.currentTime = audio.duration * frac; },
         current: () => playing || cur(), playing: () => !recoveryFailed&&!audio.paused,

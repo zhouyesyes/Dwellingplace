@@ -1349,7 +1349,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .theirs .col { align-items: flex-start; }
 
 .bubble {
-  padding: 11px 15px 9px;
+  padding: 13px 15px 7px;
   border-radius: 16px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
