@@ -68,7 +68,7 @@ onBeforeUnmount(() => clearInterval(timer));
     <header class="shell-heading"><span class="star large" aria-hidden="true">*</span><span class="star little" aria-hidden="true">*</span><h1>{{ greeting[0] }}<br>{{ greeting[1] }}</h1></header>
     <button v-if="compact" class="open-home" @click="go('/')">Open home <Icon name="home" :size="16" /></button>
     <div v-if="compact" class="quick-roles">
-      <button v-for="(r, i) in roles" :key="r.id" :class="{ selected: r.id === role?.id, secondary: i > 0 }" :aria-label="'和' + r.name + '聊天'" @click="openRole(r)"><Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="i ? 32 : 50" /></button>
+      <button v-for="r in roles" :key="r.id" :class="{ selected: r.id === role?.id }" :aria-label="'和' + r.name + '聊天'" @click="openRole(r)"><Avatar :img="r.avatar" :name="r.name" :color="r.color" :size="r.id === role?.id ? 50 : 32" /></button>
       <button aria-label="打开客厅" @click="go('/group')"><GroupAvatar :size="32" /></button>
     </div>
     <div v-else class="shell-inbox">

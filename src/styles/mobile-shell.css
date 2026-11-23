@@ -58,10 +58,9 @@
 .space-link:nth-of-type(4n+3) i { background: #b3c7ad; }
 .space-link:nth-of-type(4n) i { background: #e4bf76; }
 .open-home { display: flex; justify-content: space-between; align-items: center; width: calc(100% - 44px); margin: 0 22px; color: var(--shell-orange); font-size: 11px !important; background: none; border: 0; padding: 0; }
-.quick-roles { display: flex; align-items: end; gap: 12px; margin: 35px 22px 0; }
-.quick-roles button { background: none; border: 0; padding: 0; border-radius: 50%; }
+.quick-roles { display: flex; flex-wrap: nowrap; align-items: center; gap: 14px; margin: 29px 17px 0; padding: 6px 5px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.quick-roles button { display: grid; place-items: center; flex: 0 0 auto; background: none; border: 0; padding: 0; border-radius: 50%; }
 .quick-roles .selected { outline: 1px solid var(--shell-orange); outline-offset: 4px; }
-.quick-roles .secondary + .secondary { margin-left: -16px; }
 .home-shell.compact { min-height: 100%; max-width: 100%; }
 .compact .shell-heading { padding: calc(var(--safe-top) + 61px) 22px 32px; }
 .compact .shell-heading h1 { font-size: 21px; }
