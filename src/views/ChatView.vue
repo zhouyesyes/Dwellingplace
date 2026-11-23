@@ -591,13 +591,26 @@ function bubbleVars(c, k) {
   return lum < 0.55 ? { [`--${k}`]: c, [`--${k}-text`]: "#ffffff" } : { [`--${k}`]: `color-mix(in srgb, ${c} var(--pastel), var(--card))`, [`--${k}-text`]: "var(--text)" };
 }
 // 他的气泡 + 你自己的（没选过就是卡片色）
-const theirColor = computed(() => role.value?.bubbleColor || "#fffaf6");
-const mineColor = computed(() => store.profile.bubbleColor || "#ffe9dd");
-const customColors = computed(() => store.settings.chatBubbleColors || []);
-const bubblePalette = computed(() => [...new Set([...BUBBLE_COLORS, ...customColors.value])]);
+const defaultTheirColor = "#fffaf6";
+const defaultMineColor = "#ffe9dd";
+const builtInColors = [...BUBBLE_COLORS, defaultTheirColor, defaultMineColor];
+const theirColor = computed(() => role.value?.bubbleColor || defaultTheirColor);
+const mineColor = computed(() => store.profile.bubbleColor || defaultMineColor);
+const savedColors = computed(() => store.settings.chatBubbleColors || []);
+const customColors = computed(() => savedColors.value.filter(color => !builtInColors.includes(color)));
+const bubblePalette = computed(() => [...new Set([...builtInColors, ...customColors.value])]);
 function saveBubbleColor(color) {
   if (!/^#[0-9a-f]{6}$/i.test(color) || bubblePalette.value.includes(color)) return;
   store.settings.chatBubbleColors = [...customColors.value, color];
+}
+function removeBubbleColor(color) {
+  if (!customColors.value.includes(color)) return;
+  if (!confirm(`删除自定义颜色 ${color}？正在用这个颜色的气泡会恢复默认。`)) return;
+  store.settings.chatBubbleColors = savedColors.value.filter(saved => saved !== color);
+  for (const r of store.roles) {
+    if (r.bubbleColor === color) r.bubbleColor = r.id === MAIN ? defaultTheirColor : BUBBLE_COLORS[6];
+  }
+  if (store.profile.bubbleColor === color) store.profile.bubbleColor = null;
 }
 watch(modeOpen, open => {
   if (!open) return;
@@ -623,6 +636,28 @@ function confirmCal(ev) {
 const ctxOpen = ref(false);
 const codexUsage = computed(() => thread.value?.replyBackend === "codex");
 const dshMode = computed(() => thread.value?.replyBackend === "dsh");
+const canPickMode = computed(() => {
+  const t = thread.value;
+  return role.value?.id === MAIN && t && !t.group && !t.mail && !t.studio
+    && !!codexBase(role.value, t);
+});
+const replyMode = computed(() => codexUsage.value || dshMode.value ? "cli" : "chat");
+const cliProduct = computed(() => {
+  if (replyMode.value === "cli") return thread.value.replyBackend;
+  return thread.value?.cliProduct === "dsh" ? "dsh" : "codex";
+});
+function setReplyMode(mode) {
+  const t = thread.value;
+  if (!t || busy.value) return;
+  t.cliProduct = cliProduct.value;
+  t.replyBackend = mode === "cli" ? t.cliProduct : "chat";
+}
+function setCliProduct(product) {
+  const t = thread.value;
+  if (!t || busy.value || replyMode.value !== "cli") return;
+  t.cliProduct = product;
+  t.replyBackend = product;
+}
 const dshReady = computed(() => dshMode.value && !!dshApi(realRole.value, thread.value));
 const ctxInfo = computed(() => {
   if (dshMode.value) return null;
@@ -891,7 +926,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-if="role.signature && !thread?.studio" class="sig">{{ role.signature }}</div>
       </div>
       <button v-if="isGroup" class="icon-btn" aria-label="群设置" @click="groupSetOpen = true"><Icon name="settings" /></button>
-      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen"><span class="mode-label">{{ dshMode ? 'DSH' : codexUsage ? 'Codex' : 'Chat' }}</span><Icon name="chevronDown" :size="12" /></button>
+      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen"><span class="mode-label">{{ replyMode === 'cli' ? 'CLI' : 'Chat' }}</span><Icon name="chevronDown" :size="12" /></button>
       <button class="icon-btn" aria-label="搜索消息" @click="searchOpen = true"><Icon name="search" :size="19" /></button>
       <div v-if="modeOpen" class="mode-panel">
         <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
@@ -899,9 +934,13 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <i v-if="ctxInfo.limit" class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
         </button>
         <button v-else-if="!dshMode" class="ctx" @click="ctxOpen = true">用量</button>
-        <label v-if="role.id === MAIN && thread && !thread.group && !thread.mail && !thread.studio && codexBase(role, thread)">
-          <select class="ctx" aria-label="回复模式" :value="thread.replyBackend || 'chat'" :disabled="busy" @change="thread.replyBackend = $event.target.value">
-            <option value="chat">Chat</option>
+        <select v-if="canPickMode" class="ctx" aria-label="回复模式" :value="replyMode" :disabled="busy" @change="setReplyMode($event.target.value)">
+          <option value="chat">Chat</option>
+          <option value="cli">CLI</option>
+        </select>
+        <label v-if="canPickMode && replyMode === 'cli'" class="mode-setting">
+          <span>CLI 工具</span>
+          <select class="ctx cli-product" :value="cliProduct" :disabled="busy" @change="setCliProduct($event.target.value)">
             <option value="codex">Codex</option>
             <option value="dsh">DSH</option>
           </select>
@@ -924,8 +963,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           </template>
         </template>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
-        <button v-if="thread" class="ctx mode-setting" @click="modeOpen = false; modelOpen = true">
-          <span>模型</span><span>{{ currentModel || "选择模型" }}</span><Icon name="right" :size="14" />
+        <button v-if="thread && replyMode === 'chat'" class="ctx mode-setting" @click="modeOpen = false; modelOpen = true">
+          <span>聊天模型</span><span>{{ currentModel || "选择模型" }}</span><Icon name="right" :size="14" />
         </button>
         <div v-if="thread" class="mode-setting">
           <button class="ctx" @click="modeOpen = false; changeBg()">换背景</button>
@@ -933,13 +972,14 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         </div>
         <div v-if="!isGroup" class="mode-colors">
           <span>{{ role.name }} 的气泡颜色</span>
-          <ColorSwatches v-model="role.bubbleColor" :colors="bubblePalette" compact @custom="saveBubbleColor" />
+          <ColorSwatches v-model="role.bubbleColor" :colors="bubblePalette" :removable="customColors" compact @custom="saveBubbleColor" @remove="removeBubbleColor" />
         </div>
         <div class="mode-colors">
           <span>我的气泡颜色</span>
-          <ColorSwatches v-model="store.profile.bubbleColor" :colors="bubblePalette" compact @custom="saveBubbleColor" />
+          <ColorSwatches v-model="store.profile.bubbleColor" :colors="bubblePalette" :removable="customColors" compact @custom="saveBubbleColor" @remove="removeBubbleColor" />
           <button v-if="store.profile.bubbleColor" class="ctx" @click="store.profile.bubbleColor = null">恢复默认</button>
         </div>
+        <small v-if="customColors.length">长按自定义颜色可删除</small>
       </div>
     </header>
 
