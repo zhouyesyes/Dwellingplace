@@ -87,10 +87,18 @@
 html.theme-switching, html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after {
   transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease !important;
 }
-/* 深色时滚动条也暗下来 */
-:root[data-theme="dark"] ::-webkit-scrollbar { width: 8px; height: 8px; }
-:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #3a404c; border-radius: 4px; }
-:root[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
+/* 滚动条跟随主题，保留拖动和触摸滚动。 */
+:root {
+  --scroll-thumb: color-mix(in srgb, var(--text-2) 45%, transparent);
+}
+@supports (scrollbar-color: auto) {
+  :root, * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
