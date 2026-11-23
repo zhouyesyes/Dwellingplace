@@ -41,3 +41,16 @@ export function splitRepo(job) {
   const m = String(job).match(/^\s*仓库[:：]\s*([^\s，,。;；\n]+)[ \t]*[，,。;；]?\s*/);
   return m ? { repo: m[1], text: job.slice(m[0].length).trim() } : { repo: "", text: String(job).trim() };
 }
+
+// 旧聊天只存一个仓库，空字符串代表栖所。
+export function chatRepoSelections(thread, repos = []) {
+  if (!thread) return [];
+  const saved = thread.codexRepos ?? (thread.codexWorkspace ? [thread.codexRepo || ""] : []);
+  const names = saved.map(value => {
+    const name = value.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/, "").replace(/\.git$/i, "");
+    if (!name || name === "栖所") return "";
+    const matches = repos.filter(repo => [repo.full, repo.name].some(n => n.toLowerCase() === name.toLowerCase()));
+    return matches.length === 1 ? (matches[0].isDefault ? "" : matches[0].full) : name;
+  });
+  return [...new Set(names)];
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Codex 沙箱里的受控 Git 客户端。真正的 Git 和钥匙在父进程；这里只能操作当前仓库。
+// Codex 沙箱里的受控 Git 客户端。父进程用当前路径确认仓库是否属于这条聊天。
 import { createConnection } from "node:net";
 let [command, ...rest] = process.argv.slice(2);
 const allowed = new Set(["status", "diff", "log", "commit", "pull", "push"]);
@@ -18,7 +18,7 @@ const response = await new Promise(resolve => {
   const socket = createConnection(process.env.QISUO_GIT_SOCKET || "");
   let data = "";
   // 只写请求，不先关连接：父进程要等 Git 做完后从同一条连接送回结果。
-  socket.on("connect", () => socket.write(JSON.stringify({ secret: process.env.QISUO_GIT_SECRET || "", command, message: rest.join(" ") })));
+  socket.on("connect", () => socket.write(JSON.stringify({ secret: process.env.QISUO_GIT_SECRET || "", cwd: process.cwd(), command, message: rest.join(" ") })));
   socket.on("data", chunk => { data += chunk; });
   socket.on("error", error => resolve({ ok: false, text: error.message }));
   socket.on("close", () => { try { resolve(JSON.parse(data)); } catch { resolve({ ok: false, text: data || "Git 通道没有回应" }); } });

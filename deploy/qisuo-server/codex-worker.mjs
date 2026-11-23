@@ -12,19 +12,25 @@ export const GIT_SOCKET = "/codex-worker-ipc/git/git.sock";
 const REAL_GIT = process.env.QISUO_REAL_GIT || "/usr/bin/git";
 
 // 允许执行 Codex 生成的辅助程序。登录文件与其余 CODEX_HOME 内容仍由根目录规则禁止读取。
-export const workspaceArgs = [
-  'default_permissions="qisuo_chat"',
-  'permissions.qisuo_chat.extends=":workspace"',
-  'permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/app/qisuo-git.mjs"="read","/app/codex-bin"="read","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git"="write"}',
-  'shell_environment_policy.ignore_default_excludes=true',
-  'shell_environment_policy.include_only=["PATH","HOME","TMPDIR","QISUO_GIT_SOCKET","QISUO_GIT_SECRET"]',
-  'features.network_proxy=true',
-  'permissions.qisuo_chat.network.enabled=true',
-  'permissions.qisuo_chat.network.allow_upstream_proxy=false',
-  'permissions.qisuo_chat.network.unix_sockets={"/codex-worker-ipc/git/git.sock"="allow"}',
-  'permissions.qisuo_chat.network.dangerously_allow_all_unix_sockets=true',
-  'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","github.com"="allow","api.github.com"="allow","raw.githubusercontent.com"="allow","127.0.0.1"="allow","localhost"="allow"}',
-].flatMap(value => ["-c", value]);
+export function workspaceArgs(extraCwds = []) {
+  const extraRules = extraCwds.flatMap(dir => [
+    `${JSON.stringify(dir)}="write"`,
+    ...[".git", ".codex", ".agents"].map(name => `${JSON.stringify(join(dir, name))}="read"`),
+  ]);
+  return [
+    'default_permissions="qisuo_chat"',
+    'permissions.qisuo_chat.extends=":workspace"',
+    `permissions.qisuo_chat.filesystem={":root"="deny",":minimal"="read",":slash_tmp"="deny","/app/qisuo-git.mjs"="read","/app/codex-bin"="read","/codex-home/tmp/arg0-linux"="read","/codex-worker-ipc"="deny","/codex-worker-ipc/git"="write"${extraRules.length ? "," + extraRules.join(",") : ""}}`,
+    'shell_environment_policy.ignore_default_excludes=true',
+    'shell_environment_policy.include_only=["PATH","HOME","TMPDIR","QISUO_GIT_SOCKET","QISUO_GIT_SECRET"]',
+    'features.network_proxy=true',
+    'permissions.qisuo_chat.network.enabled=true',
+    'permissions.qisuo_chat.network.allow_upstream_proxy=false',
+    'permissions.qisuo_chat.network.unix_sockets={"/codex-worker-ipc/git/git.sock"="allow"}',
+    'permissions.qisuo_chat.network.dangerously_allow_all_unix_sockets=true',
+    'permissions.qisuo_chat.network.domains={"registry.npmjs.org"="allow","github.com"="allow","api.github.com"="allow","raw.githubusercontent.com"="allow","127.0.0.1"="allow","localhost"="allow"}',
+  ].flatMap(value => ["-c", value]);
+}
 
 export const commonArgs = [
   "--disable", "apps", "--disable", "plugins", "--disable", "multi_agent",
@@ -33,12 +39,13 @@ export const commonArgs = [
 
 // Git 元数据不交给模型的文件沙箱直接写。这个小桥只替当前打开的仓库执行几种必要操作，
 // GitHub 钥匙留在父进程里，不放进 App Server 的环境，也不会出现在命令或日志中。
-export function gitBridge(cwd, socketPath, token) {
+export function gitBridge(cwd, socketPath, token, extraCwds = []) {
   const secret = randomUUID();
   rmSync(socketPath, { force: true });
   const allowed = new Set(["status", "diff", "log", "commit", "pull", "push"]);
-  const run = args => new Promise(resolve => execFile(REAL_GIT, args, {
-    cwd, timeout: 180_000, maxBuffer: 4_000_000,
+  const roots = [cwd, ...extraCwds];
+  const run = (target, args) => new Promise(resolve => execFile(REAL_GIT, args, {
+    cwd: target, timeout: 180_000, maxBuffer: 4_000_000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   }, (error, stdout, stderr) => resolve({ code: error ? (typeof error.code === "number" ? error.code : 1) : 0, text: String(stdout || "") + String(stderr || "") })));
   const auth = token ? ["-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${Buffer.from("x-access-token:" + token).toString("base64")}`] : [];
@@ -46,6 +53,13 @@ export function gitBridge(cwd, socketPath, token) {
     let body; try { body = JSON.parse(chunk.toString()); } catch { body = {}; }
     const reply = (ok, text) => socket.end(JSON.stringify({ ok, text }));
     if (body.secret !== secret || !allowed.has(body.command)) return reply(false, "Git 操作不允许");
+    const target = typeof body.cwd === "string"
+      ? roots.find(root => body.cwd === root || body.cwd.startsWith(root + "/"))
+      : cwd;
+    try {
+      const current = realpathSync(body.cwd ?? cwd);
+      if (!target || realpathSync(target) !== target || !(current === target || current.startsWith(target + "/"))) throw new Error();
+    } catch { return reply(false, "请在当前聊天勾选的仓库目录执行 Git"); }
     let args;
     if (body.command === "status") args = ["status", "--short", "--branch"];
     else if (body.command === "diff") args = ["diff", "--", "."];
@@ -53,14 +67,14 @@ export function gitBridge(cwd, socketPath, token) {
     else if (body.command === "commit") {
       const message = String(body.message || "").trim();
       if (!message || message.length > 200) return reply(false, "提交说明不能为空，最多 200 字");
-      const added = await run(["add", "-A"]);
+      const added = await run(target, ["add", "-A"]);
       if (added.code) return reply(false, added.text);
       args = ["-c", "user.name=栖所 Codex", "-c", "user.email=codex@qisuo.local", "commit", "-m", message];
     } else {
       if (!token) return reply(false, "服务器还没有 GitHub 写入钥匙，请重新运行安装并按提示粘贴");
       args = body.command === "pull" ? [...auth, "pull", "--rebase", "origin"] : [...auth, "push", "origin", "HEAD"];
     }
-    const result = await run(args);
+    const result = await run(target, args);
     reply(!result.code, result.text || (result.code ? "Git 操作失败" : "完成"));
   }));
   return new Promise((resolve, reject) => {
@@ -89,20 +103,25 @@ function serve(socketPath, root, binary) {
     function start(chunk) {
       buffer = Buffer.concat([buffer, chunk]);
       const end = buffer.indexOf(10);
-      if (end === -1 && buffer.length <= 1024) return;
+      const maxHeader = 90_000;
+      if (end === -1 && buffer.length <= maxHeader) return;
       socket.off("data", start);
       // Git 通道是异步启动的；这期间先暂停读取，让后续的 App Server 初始化消息留在 Socket 缓冲区。
       // 否则手机/服务器稍快一点时，initialize 会落在「还没 pipe」的空档里而丢失。
       socket.pause();
-      if (end < 0 || end > 1024) return reject("仓库执行请求格式不对");
-      let cwd, tmp;
+      if (end < 0 || end > maxHeader) return reject("仓库执行请求格式不对");
+      let cwd, tmp, extraCwds;
       try {
-        const { workspace, shots } = JSON.parse(buffer.subarray(0, end));
-        if (typeof workspace !== "string" || !/^[a-zA-Z0-9_-]{1,100}\/[0-9a-f]{64}$/.test(workspace)
+        const { workspace, shots, extraWorkspaces = [] } = JSON.parse(buffer.subarray(0, end));
+        const valid = path => typeof path === "string" && /^[a-zA-Z0-9_-]{1,100}\/[0-9a-f]{64}$/.test(path);
+        if (!valid(workspace) || !Array.isArray(extraWorkspaces) || extraWorkspaces.length > 500
           || typeof shots !== "string" || !/^qisuo-shots-[0-9a-f-]{36}$/.test(shots)) throw new Error();
+        const thread = workspace.split("/")[0];
+        if (extraWorkspaces.some(path => !valid(path) || !path.startsWith(thread + "/") || path === workspace)) throw new Error();
         cwd = join(root, workspace);
         tmp = join(cwd, shots);
-        if (realpathSync(cwd) !== cwd || realpathSync(tmp) !== tmp) throw new Error();
+        extraCwds = [...new Set(extraWorkspaces)].map(path => join(root, path));
+        if ([cwd, tmp, ...extraCwds].some(path => realpathSync(path) !== path)) throw new Error();
       } catch { return reject("仓库执行目录无效"); }
       if (active) return reject("已有仓库任务在执行");
       active = true;
@@ -110,9 +129,9 @@ function serve(socketPath, root, binary) {
       let bridge;
       // Unix Socket 路径上限很短，不能放进「对话/仓库/截图目录」的长路径里。
       // 一次只跑一个仓库任务，所以使用 IPC 目录下的固定短路径。
-      gitBridge(cwd, process.env.QISUO_GIT_SOCKET || GIT_SOCKET, process.env.CODEX_GITHUB_TOKEN || "").then(opened => {
+      gitBridge(cwd, process.env.QISUO_GIT_SOCKET || GIT_SOCKET, process.env.CODEX_GITHUB_TOKEN || "", extraCwds).then(opened => {
         bridge = opened;
-        child = spawn(binary, ["app-server", ...workspaceArgs, ...commonArgs], {
+        child = spawn(binary, ["app-server", ...workspaceArgs(extraCwds), ...commonArgs], {
         cwd, env: { PATH: `/app/codex-bin:${process.env.PATH}`, CODEX_HOME: process.env.CODEX_HOME || "/codex-home", HOME: cwd, TMPDIR: tmp, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret },
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -209,7 +228,7 @@ async function checkGitBridge(root) {
     writeFileSync(join(scratch, "README.md"), "受控 Git 自检\n");
     bridge = await gitBridge(scratch, join(tmp, "git.sock"), "");
     const env = { ...process.env, PATH: `/app/codex-bin:${process.env.PATH}`, QISUO_GIT_SOCKET: bridge.socketPath, QISUO_GIT_SECRET: bridge.secret };
-    await run("/usr/bin/git", ["commit", "-m", "受控 Git 自检"], { env });
+    await run("/usr/bin/git", ["commit", "-m", "受控 Git 自检"], { cwd: scratch, env });
     const log = await run(REAL_GIT, ["log", "-1", "--pretty=%s"], { cwd: scratch });
     if (log.trim() !== "受控 Git 自检") throw new Error("受控 Git 没有写入提交");
   } finally {

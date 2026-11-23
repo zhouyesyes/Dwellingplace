@@ -5,7 +5,7 @@ import { get, set } from "./kv.js";
 import { studioApi } from "./studio.js";
 import { codexBase, codexReply } from "./codexJobs.js";
 import { dshApi, dshReply } from "./dsh.js";
-import { otherRepoNames, splitRepo } from "./repos.js";
+import { chatRepoSelections, otherRepoNames, repoState, splitRepo } from "./repos.js";
 import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, flushMessages, flushStore, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
@@ -620,7 +620,8 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       all.push(msg);
       thread.sel[parent] = msg.id;
     }
-    const workspace = codex && thread.codexWorkspace ? { thread: thread.id, repo: thread.codexRepo?.trim() || "" } : undefined;
+    const repos = codex ? chatRepoSelections(thread, repoState.list || []) : [];
+    const workspace = repos.length ? { thread: thread.id, repo: repos[0], repos } : undefined;
     if (codex && !resume) {
       msg.codexJob = true;
       // 每条新回复都用和 Chat 相同的摘要、近期原文开新会话。

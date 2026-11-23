@@ -136,15 +136,15 @@
 .chat > .top > .who .sig { display: none; }
 .chat > .top > .icon-btn:first-child { margin-right: auto; }
 .chat > .top .mode-toggle { background: var(--shell-pink); color: var(--shell-ink); border: 0; border-radius: 20px; padding: 8px 10px; font: 11px var(--shell-font); display: flex; gap: 8px; }
-.chat .mode-panel { position: absolute; right: 16px; top: calc(100% - 4px); z-index: 12; width: min(280px, calc(100vw - 32px)); max-height: 65dvh; overflow: auto; overscroll-behavior: contain; box-sizing: border-box; border: 1px solid var(--line); border-radius: 17px; padding: 15px; background: var(--card); box-shadow: var(--shadow); display: grid; gap: 12px; }
-.mode-panel .ctx { min-width: 0; width: 100%; padding: 8px; text-align: left; }
+.chat .mode-panel { position: absolute; right: 16px; top: calc(100% - 4px); z-index: 12; width: min(280px, calc(100vw - 32px)); max-height: 65dvh; overflow: auto; overscroll-behavior: contain; box-sizing: border-box; border: 1px solid var(--line); border-radius: 17px; padding: 8px 11px; background: var(--card); box-shadow: var(--shadow); display: grid; gap: 3px; font-size: 12px; line-height: 1.4; }
+.chat .mode-panel .ctx { min-width: 0; width: 100%; min-height: 30px; padding: 4px 6px; text-align: left; }
 .mode-panel .mode-setting { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .mode-setting span { min-width: 0; overflow-wrap: anywhere; }
 .mode-setting svg { flex: none; }
-.mode-colors { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; display: grid; gap: 8px; font-size: 12px; color: var(--text); }
-.mode-panel small, .mode-panel a { color: var(--text-2); font-size: 11px; overflow-wrap: anywhere; }
+.mode-colors { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; display: grid; gap: 5px; padding-block: 4px; color: var(--text); }
+.mode-panel small { color: var(--text-2); overflow-wrap: anywhere; }
 .mode-panel select { border: 1px solid var(--line); border-radius: 8px; }
-.mode-panel .cli-product { width: auto; }
+.chat .mode-panel .cli-product { width: auto; }
 .chat .bubble { font: 400 13px/1.7 var(--chat-text-font); padding: 10px 14px; box-shadow: 0 2px 5px rgb(67 46 34 / 5%); }
 .chat .group { gap: 10px; }
 .chat .group .avatar { width: 34px !important; height: 34px !important; }
@@ -249,3 +249,21 @@ html:has(.home-shell:not(.compact))::-webkit-scrollbar,
   user-select: none;
   -webkit-touch-callout: none;
 }
+
+.chat .mode-panel button, .chat .mode-panel select, .chat .mode-panel small, .chat .mode-panel .ctx { font-size: inherit; }
+.chat .mode-panel .mode-fold { margin: 0; }
+.mode-fold summary { padding-inline: 6px; }
+.mode-fold.repo-off summary .star { color: var(--text-2); opacity: .65; }
+.mode-fold-body { display: grid; gap: 3px; padding: 0 4px 4px 23px; }
+.mode-fold .mode-row {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px;
+  padding: 2px 4px; text-align: left; border: 0; background: none; color: var(--text-2);
+}
+.mode-row span { overflow-wrap: anywhere; }
+.mode-row svg { flex: none; margin-left: auto; color: var(--text); }
+.background-row button {
+  display: flex; align-items: center; gap: 6px; min-height: 30px;
+  padding: 0; border: 0; background: none; color: inherit;
+}
+.background-row button:first-child { flex: 1; }
+.background-row .background-delete { justify-content: center; min-width: 30px; }

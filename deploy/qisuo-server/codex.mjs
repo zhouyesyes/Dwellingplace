@@ -242,7 +242,11 @@ function runChatTurn({ cwd, env, worker, prompt, followup, attachments, fileText
         }
       }
     });
-    if (worker) input.write(JSON.stringify({ workspace: cwd.slice(CHAT_WORK_ROOT.length + 1), shots: worker.shots }) + "\n");
+    if (worker) input.write(JSON.stringify({
+      workspace: cwd.slice(CHAT_WORK_ROOT.length + 1),
+      extraWorkspaces: worker.extraWorkspaces,
+      shots: worker.shots,
+    }) + "\n");
     send("initialize", { clientInfo: { name: "qisuo", title: "栖所", version: "1" } }, 1);
     if (signal.aborted) stop();
   });
@@ -290,6 +294,10 @@ async function queueCodexChat(req) {
   if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/.test(id)) throw new Error("任务编号不对");
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 80_000) throw new Error("聊天内容为空或太长了");
   if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread) || workspace && workspace.thread !== thread) throw new Error("聊天编号不对");
+  if (workspace?.repos !== undefined && (!Array.isArray(workspace.repos) || !workspace.repos.length
+    || workspace.repos.length > 501 || workspace.repos.some(repo => typeof repo !== "string" || repo.length > 200))) {
+    throw Object.assign(new Error("仓库列表格式不对"), { status: 400 });
+  }
   if (typeof followup !== "string" || followup.length > 81000) throw new Error("续聊内容太长");
   if (typeof fileText !== "string" || fileText.length > 60000) throw new Error("附件文字太长");
   if (!Array.isArray(attachments) || attachments.length > 30
@@ -325,7 +333,13 @@ async function runCodexChat(task) {
     if (task.events.length > 16) task.events.shift();
   };
   try {
-    const checkout = workspace ? await chatCheckout(workspace.thread, workspace.repo) : null;
+    const checkouts = new Map();
+    for (const repo of workspace ? workspace.repos || [workspace.repo] : []) {
+      if (ctrl.signal.aborted) return null;
+      const opened = await chatCheckout(thread, repo);
+      checkouts.set(opened.cwd, opened);
+    }
+    const [checkout, ...extras] = checkouts.values();
     if (ctrl.signal.aborted) return null;
     const cwd = checkout?.cwd || home;
     const photoFolder = checkout ? `qisuo-shots-${randomUUID()}` : "";
@@ -337,10 +351,11 @@ async function runCodexChat(task) {
     const agentPrompt = checkout ? [
       `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。源码可直接修改，标准 git status、diff、log、add、commit -m、pull、push 已接到栖所的受控 Git 通道。对方说「合并」「推送」或明确同意推送，就完成检查、提交、pull、push，不要声称没有 Git 工具；部署仍由对方自己做。可以用 curl 查看公开 GitHub 链接；私有代码从当前授权的仓库副本读取。`,
       `给对方截图时先生成静态构建（例如 npm run build），然后写 ${photoFolder}/preview.json，只包含 {"dir":"dist","page":"/","theme":"both"}。dir 是构建产物相对路径，page 可包含查询或哈希，theme 可为 light、dark、both。栖所会用隔离的 Chromium 打开页面，以 390×844 截图并发送。无需在此工作区启动浏览器或预览服务。`,
+      ...(extras.length ? ["这条聊天还勾选了以下仓库。可在对应目录读取和修改源码，Git 命令也在该仓库目录下执行。截图从默认工作区生成。", ...extras.map(repo => `${repo.name}：${repo.cwd}`)] : []),
       prompt,
     ].join("\n\n") : prompt;
     const stateDir = join(DATA, "codex-chat-sessions");
-    const scope = createHash("sha256").update(JSON.stringify([thread, checkout?.name || ""])).digest("hex");
+    const scope = createHash("sha256").update(JSON.stringify([thread, checkout?.name || "", ...extras.map(repo => repo.name)])).digest("hex");
     const stateFile = join(stateDir, scope + ".json");
     let session;
     try { session = JSON.parse(readFileSync(stateFile, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
@@ -351,7 +366,11 @@ async function runCodexChat(task) {
       cwd, env, attachments, fileText, signal: ctrl.signal, progress, threadId, onText: text => { task.text = text; },
       prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
       timeout: checkout ? 600_000 : 120_000,
-      worker: checkout ? { path: process.env.CODEX_WORKER_SOCKET, shots: photoFolder } : null,
+      worker: checkout ? {
+        path: process.env.CODEX_WORKER_SOCKET,
+        shots: photoFolder,
+        extraWorkspaces: extras.map(repo => repo.cwd.slice(CHAT_WORK_ROOT.length + 1)),
+      } : null,
     });
     if (!result || ctrl.signal.aborted) return;
     const receipt = randomUUID();

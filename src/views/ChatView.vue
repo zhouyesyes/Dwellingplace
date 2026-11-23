@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } 
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, flushStore, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
 import { generating, following, generate, sendMessage, resumeCodexChat, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
-import { loadRepos, repoState } from "../lib/repos.js";
+import { chatRepoSelections, loadRepos, repoState } from "../lib/repos.js";
 import { codexBase } from "../lib/codexJobs.js";
 import { dshApi } from "../lib/dsh.js";
 import { pokeText } from "../lib/poke.js";
@@ -57,6 +57,7 @@ import ImageViewer from "../components/ImageViewer.vue";
 import VideoViewer from "../components/VideoViewer.vue";
 import { isVideoFile, videoAttachment } from "../lib/video.js";
 import { del } from "../lib/kv.js";
+import BackgroundThumb from "../components/BackgroundThumb.vue";
 import ColorSwatches from "../components/ColorSwatches.vue";
 import BigTextarea from "../components/BigTextarea.vue";
 import { openEditor } from "../lib/editor.js";
@@ -88,21 +89,20 @@ const firstUnreadId = ref(null);
 const openingThread = ref(false);
 const threadId = ref(null);
 const thread = computed(() => store.threads.find(t => t.id === threadId.value));
-const showRepoPicker = computed(() => modeOpen.value && thread.value?.replyBackend === "codex" && thread.value.codexWorkspace
+const showRepoPicker = computed(() => modeOpen.value && thread.value?.replyBackend === "codex"
   && !thread.value.group && !thread.value.mail && !thread.value.studio);
-const repoChoices = computed(() => (repoState.list || []).filter(repo => repo.enabled && !repo.isDefault));
-const selectedRepo = computed({
-  get() {
-    const saved = thread.value?.codexRepo?.trim();
-    if (!saved || saved === "栖所") return "";
-    const name = saved.replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/, "").replace(/\.git$/i, "").toLowerCase();
-    const matchesName = repo => [repo.full, repo.name].some(value => value.toLowerCase() === name);
-    if (repoState.list?.some(repo => repo.isDefault && matchesName(repo))) return "";
-    const matches = repoChoices.value.filter(matchesName);
-    return matches.length === 1 ? matches[0].full : saved;
-  },
-  set(value) { thread.value.codexRepo = value; },
-});
+const repoChoices = computed(() => (repoState.list || []).filter(repo => repo.enabled));
+const repoOptions = computed(() => repoChoices.value.length ? repoChoices.value : [{ full: "", isDefault: true }]);
+const repoKey = repo => repo.isDefault ? "" : repo.full;
+const selectedRepos = computed(() => chatRepoSelections(thread.value, repoChoices.value));
+function toggleChatRepo(repo) {
+  const key = repoKey(repo);
+  const selected = selectedRepos.value;
+  const next = selected.includes(key) ? selected.filter(name => name !== key) : [...selected, key];
+  thread.value.codexRepos = next;
+  thread.value.codexWorkspace = next.length > 0;
+  thread.value.codexRepo = next[0] || "";
+}
 watch(showRepoPicker, open => { if (open) loadRepos(); });
 // 这个对话的所有消息（包括其他版本），以及当前显示的这一条路径
 const allMessages = computed(() => messageCache[threadId.value] || []);
@@ -544,24 +544,39 @@ function renameThread(t) {
 async function removeThread(t) {
   if (!confirm(`删除对话「${t.title}」？里面的消息会全部删除。`)) return;
   const wasCurrent = t.id === threadId.value;
-  if (t.bg) deleteImage(t.bg);
+  for (const id of backgroundsOf(t)) deleteImage(id);
   await deleteThread(t.id);
   if (wasCurrent) {
     const next = threadsOf(role.value.id)[0] || createThread(role.value.id);
     await openThread(next.id);
   }
 }
+function backgroundsOf(t) {
+  return [...new Set([...(t?.backgrounds || []), t?.bg].filter(Boolean))];
+}
+const backgrounds = computed(() => backgroundsOf(thread.value));
 async function changeBg() {
-  threadsOpen.value = false;
+  const targetId = thread.value?.id;
+  if (!targetId) return;
   const id = await pickAndCrop({ aspect: innerWidth / innerHeight, title: "调整背景", maxSize: 1800 });
   if (!id) return;
-  const old = thread.value.bg;
-  thread.value.bg = id;
-  if (old) deleteImage(old);
+  const target = store.threads.find(t => t.id === targetId);
+  if (!target) {
+    await deleteImage(id);
+    return;
+  }
+  target.backgrounds = [...backgroundsOf(target), id];
+  target.bg = id;
 }
-function clearBg() {
-  deleteImage(thread.value.bg);
-  thread.value.bg = null;
+function selectBg(id) {
+  thread.value.backgrounds = backgrounds.value;
+  thread.value.bg = id;
+}
+function removeBg(id) {
+  if (!confirm("删除这张聊天背景？")) return;
+  thread.value.backgrounds = backgrounds.value.filter(saved => saved !== id);
+  if (thread.value.bg === id) thread.value.bg = null;
+  deleteImage(id);
 }
 const currentApi = computed(() => apiFor(thread.value, realRole.value));
 const currentModel = computed(() => modelFor(thread.value, realRole.value));
@@ -592,29 +607,35 @@ function bubbleVars(c, k) {
 // 他的气泡 + 你自己的（没选过就是卡片色）
 const defaultTheirColor = "#fffaf6";
 const defaultMineColor = "#ffe9dd";
-const builtInColors = [...BUBBLE_COLORS, defaultTheirColor, defaultMineColor];
-const theirColor = computed(() => role.value?.bubbleColor || defaultTheirColor);
-const mineColor = computed(() => store.profile.bubbleColor || defaultMineColor);
-const savedColors = computed(() => store.settings.chatBubbleColors || []);
-const customColors = computed(() => savedColors.value.filter(color => !builtInColors.includes(color)));
-const bubblePalette = computed(() => [...new Set([...builtInColors, ...customColors.value])]);
+const normalizeBubbleColor = color => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color.trim()) ? color.trim().toLowerCase() : "";
+// 旧版把两颗额外的浅色色点混在内置色里，保留原来的色点并让它们可删除。
+const customColors = computed(() => [...new Set([
+  ...(store.settings.chatBubbleColorsMigrated ? [] : [defaultTheirColor, defaultMineColor]),
+  ...(store.settings.chatBubbleColors || []),
+  ...store.roles.map(r => r.bubbleColor),
+  store.profile.bubbleColor,
+].map(normalizeBubbleColor).filter(color => color && !BUBBLE_COLORS.includes(color)))]);
+const bubblePalette = computed(() => [...BUBBLE_COLORS, ...customColors.value]);
+const theirColor = computed(() => normalizeBubbleColor(role.value?.bubbleColor) || (customColors.value.includes(defaultTheirColor) ? defaultTheirColor : BUBBLE_COLORS[3]));
+const mineColor = computed(() => normalizeBubbleColor(store.profile.bubbleColor) || (customColors.value.includes(defaultMineColor) ? defaultMineColor : BUBBLE_COLORS[6]));
 function saveBubbleColor(color) {
-  if (!/^#[0-9a-f]{6}$/i.test(color) || bubblePalette.value.includes(color)) return;
-  store.settings.chatBubbleColors = [...customColors.value, color];
+  color = normalizeBubbleColor(color);
+  if (color && !BUBBLE_COLORS.includes(color)) store.settings.chatBubbleColors = [...new Set([...customColors.value, color])];
 }
 function removeBubbleColor(color) {
   if (!customColors.value.includes(color)) return;
-  if (!confirm(`删除自定义颜色 ${color}？正在用这个颜色的气泡会换成内置颜色。`)) return;
-  store.settings.chatBubbleColors = savedColors.value.filter(saved => saved !== color);
+  if (!confirm("删除自定义颜色 " + color + "？正在用这个颜色的气泡会换成内置颜色。")) return;
+  store.settings.chatBubbleColors = customColors.value.filter(saved => saved !== color);
+  store.settings.chatBubbleColorsMigrated = true;
   for (const r of store.roles) {
-    if (r.bubbleColor === color) r.bubbleColor = r.id === MAIN ? defaultTheirColor : BUBBLE_COLORS[6];
+    if (normalizeBubbleColor(r.bubbleColor) === color) r.bubbleColor = r.id === MAIN ? BUBBLE_COLORS[3] : BUBBLE_COLORS[6];
   }
-  if (store.profile.bubbleColor === color) store.profile.bubbleColor = null;
+  if (normalizeBubbleColor(store.profile.bubbleColor) === color) store.profile.bubbleColor = BUBBLE_COLORS[6];
 }
 watch(modeOpen, open => {
-  if (!open) return;
-  if (!isGroup) saveBubbleColor(role.value?.bubbleColor);
-  saveBubbleColor(store.profile.bubbleColor);
+  if (open && customColors.value.some(color => !store.settings.chatBubbleColors?.includes(color))) {
+    store.settings.chatBubbleColors = customColors.value;
+  }
 });
 const bubbleColors = computed(() => ({
   ...bubbleVars(theirColor.value, "their"),
@@ -965,39 +986,51 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           </select>
         </label>
         <span v-if="dshMode && !dshReady" class="ctx">请先添加 DeepSeek 官方 API</span>
-        <template v-if="thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
-          <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
-            {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
-          </button>
-          <template v-if="showRepoPicker">
-            <select v-model="selectedRepo" class="ctx" aria-label="Codex 仓库" :disabled="busy">
-              <option value="">栖所（默认）</option>
-              <option v-if="selectedRepo && !repoChoices.some(repo => repo.full === selectedRepo)" :value="selectedRepo" disabled>{{ selectedRepo }}（待确认）</option>
-              <option v-for="repo in repoChoices" :key="repo.full" :value="repo.full">{{ repo.full }}</option>
-            </select>
+        <details v-if="showRepoPicker" class="shell-section mode-fold" :class="{ 'repo-off': !selectedRepos.length }">
+          <summary><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11" /></svg><span>{{ selectedRepos.length ? "仓库已开启" : "仓库未开启" }}</span></summary>
+          <div class="mode-fold-body">
+            <button v-for="repo in repoOptions" :key="repoKey(repo)" class="mode-row" type="button"
+              :aria-pressed="selectedRepos.includes(repoKey(repo))" :disabled="busy" @click="toggleChatRepo(repo)">
+              <span>{{ repo.isDefault ? "栖所（默认）" : repo.full }}</span>
+              <Icon v-if="selectedRepos.includes(repoKey(repo))" name="check" :size="12" />
+            </button>
+            <button v-for="repo in selectedRepos.filter(name => name && !repoChoices.some(option => option.full === name))"
+              :key="repo" class="mode-row" type="button" aria-pressed="true" :disabled="busy"
+              @click="toggleChatRepo({ full: repo })"><span>{{ repo }}（待确认）</span><Icon name="check" :size="12" /></button>
             <small v-if="repoState.loading" role="status">正在读取仓库…</small>
             <small v-else-if="repoState.error" role="alert">{{ repoState.error }}</small>
-            <button v-if="repoState.error" class="ctx" @click="loadRepos(true)">重新读取</button>
-            <RouterLink to="/settings/repos" @click="modeOpen = false">管理可用仓库</RouterLink>
-          </template>
-        </template>
+            <button v-if="repoState.error" class="mode-row" @click="loadRepos(true)">重新读取</button>
+          </div>
+        </details>
         <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
         <button v-if="thread && replyMode === 'chat'" class="ctx mode-setting" @click="modeOpen = false; modelOpen = true">
           <span>聊天模型</span><span>{{ currentModel || "选择模型" }}</span><Icon name="right" :size="14" />
         </button>
-        <div v-if="thread" class="mode-setting">
-          <button class="ctx" @click="modeOpen = false; changeBg()">换背景</button>
-          <button v-if="thread.bg" class="ctx" @click="clearBg">恢复默认</button>
-        </div>
-        <div v-if="!isGroup" class="mode-colors" @selectstart.prevent @contextmenu.prevent>
-          <span>{{ role.name }} 的气泡颜色</span>
-          <ColorSwatches :model-value="theirColor" :colors="bubblePalette" :removable="customColors" compact manage @update:model-value="role.bubbleColor = $event" @custom="saveBubbleColor" @remove="removeBubbleColor" />
-        </div>
-        <div class="mode-colors" @selectstart.prevent @contextmenu.prevent>
-          <span>我的气泡颜色</span>
-          <ColorSwatches :model-value="mineColor" :colors="bubblePalette" :removable="customColors" compact manage @update:model-value="store.profile.bubbleColor = $event" @custom="saveBubbleColor" @remove="removeBubbleColor" />
-        </div>
-        <small v-if="customColors.length">长按自定义颜色也可删除</small>
+        <details v-if="thread" class="shell-section mode-fold">
+          <summary><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11" /></svg><span>换背景</span></summary>
+          <div class="mode-fold-body">
+            <div v-for="(id, index) in backgrounds" :key="id" class="mode-row background-row">
+              <button type="button" :aria-pressed="thread.bg === id" @click="selectBg(id)"><BackgroundThumb :id="id" />背景 {{ index + 1 }}</button>
+              <Icon v-if="thread.bg === id" name="check" :size="12" />
+              <button class="background-delete" type="button" :aria-label="'删除背景 ' + (index + 1)" @click="removeBg(id)">×</button>
+            </div>
+            <button class="mode-row" type="button" :aria-pressed="!thread.bg" @click="selectBg(null)">无背景<Icon v-if="!thread.bg" name="check" :size="12" /></button>
+            <button class="mode-row" type="button" @click="changeBg">添加背景</button>
+          </div>
+        </details>
+        <details class="shell-section mode-fold">
+          <summary><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11" /></svg><span>换气泡</span></summary>
+          <div class="mode-fold-body">
+            <div v-if="!isGroup" class="mode-colors" @selectstart.prevent @contextmenu.prevent>
+              <span>{{ role.name }} 的气泡颜色</span>
+              <ColorSwatches :model-value="theirColor" :colors="bubblePalette" :removable="customColors" compact manage @update:model-value="role.bubbleColor = $event" @custom="saveBubbleColor" @remove="removeBubbleColor" />
+            </div>
+            <div class="mode-colors" @selectstart.prevent @contextmenu.prevent>
+              <span>我的气泡颜色</span>
+              <ColorSwatches :model-value="mineColor" :colors="bubblePalette" :removable="customColors" compact manage @update:model-value="store.profile.bubbleColor = $event" @custom="saveBubbleColor" @remove="removeBubbleColor" />
+            </div>
+          </div>
+        </details>
       </div>
     </header>
 
@@ -1395,7 +1428,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .ctx.mid .bar b, .bar.mid b { background: #f0c36a; }
 .ctx.high .bar b, .bar.high b { background: var(--danger); }
 .ctx.high { color: var(--danger); }
-.codex-workspace { white-space: nowrap; }
 .expand-btn { margin-left: auto; border: 0; background: var(--bg); color: var(--text-2); border-radius: 999px; padding: 2px 10px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 3px; }
 /* 细细的一条；换行后每一行各自是一条两端圆角的细条 */
 .event { padding: 0 6%; line-height: 2.1; overflow-wrap: anywhere; min-width: 0; }
