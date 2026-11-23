@@ -993,12 +993,12 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <span>{{ role.name }} 的气泡颜色</span>
           <ColorSwatches v-model="role.bubbleColor" :colors="bubblePalette" :removable="customColors" compact @custom="saveBubbleColor" @remove="removeBubbleColor" />
         </div>
-        <div class="mode-colors">
+        <div class="mode-colors" @selectstart.prevent @contextmenu.prevent>
           <span>我的气泡颜色</span>
-          <ColorSwatches v-model="store.profile.bubbleColor" :colors="bubblePalette" :removable="customColors" compact @custom="saveBubbleColor" @remove="removeBubbleColor" />
+          <ColorSwatches v-model="store.profile.bubbleColor" :colors="bubblePalette" :removable="customColors" compact manage @custom="saveBubbleColor" @remove="removeBubbleColor" />
           <button v-if="store.profile.bubbleColor" class="ctx" @click="store.profile.bubbleColor = null">恢复默认</button>
         </div>
-        <small v-if="customColors.length">长按自定义颜色可删除</small>
+        <small v-if="customColors.length">长按自定义颜色也可删除</small>
       </div>
     </header>
 
