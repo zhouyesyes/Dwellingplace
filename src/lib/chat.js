@@ -10,7 +10,7 @@ import { WHERE } from "./crabBook.js";
 import { store, uid, roleById, solo, threadsOf, apiFor, modelFor, loadMessages, saveMessages, flushMessages, flushStore, recordUsage, CRAB, MAIN, GROUP_TID } from "../store/index.js";
 import { runGroupRound, stopGroup, GROUP_TAIL, withGroupLines, groupRowsFor, GROUP_MORE_RE } from "./groupChat.js";
 import { streamChat } from "./providers.js";
-import { imageBase64, saveImage } from "./images.js";
+import { imageBase64 } from "./images.js";
 import { nowForAI, gapForAI } from "./time.js";
 import { CAL_TAG_RE, applyCalendarTags } from "./calendarTags.js";
 import { MEM_TAG_RE, memoryForAI, applyMemoryTags, suggestRule, takeSuggestions, recalledForAI, recallCards } from "./memoryTags.js";
@@ -674,8 +674,13 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           msg.text = msg.text.slice(0, base) + (res.text || "");
           for (const { name, data } of res.images || []) {
             try {
-              const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: "image/png" });
-              (msg.attachments ??= []).push({ kind: "image", img: await saveImage(blob), name });
+              // 截图服务已生成手机尺寸的 PNG，直接保存，避免触发相册处理的全屏提示。
+              const bytes = Uint8Array.fromBase64
+                ? Uint8Array.fromBase64(data)
+                : Uint8Array.from(atob(data), c => c.charCodeAt(0));
+              const img = uid();
+              await set("img:" + img, new Blob([bytes], { type: "image/png" }));
+              (msg.attachments ??= []).push({ kind: "image", img, name });
             } catch { msg.notes.push({ text: "有一张 Codex 截图没能保存" }); }
           }
           if (!res.text && msg.attachments?.length) res.text = "截图在这里。";
