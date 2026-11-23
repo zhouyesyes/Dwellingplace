@@ -169,12 +169,12 @@ function canChangeSignature(role) {
 }
 
 // 群聊：三个人的小房间（她、小章鱼、小螃蟹）。只有在群里说话时才带这一段
-function groupForAI(role, who) {
-  const others = [MAIN, CRAB].filter(id => id !== role.id).map(id => roleById(id)).filter(Boolean);
+function groupForAI(role, who, thread) {
+  const others = (thread?.members || [MAIN, CRAB]).filter(id => id !== role.id).map(id => roleById(id)).filter(Boolean);
   const other = others[0]?.name || "另一位";
   return [
     `\n# 群聊`,
-    `现在不是私聊，是在「${store.group?.name || "群聊"}」这个群里：群里有${who}、${others.map(r => r.name).join("、")}和你，三个人。${who}是你们俩共同的人。`,
+    `现在不是私聊，是在「${thread?.title && thread?.members ? thread.title : store.group?.name || "群聊"}」这个群里：群里有${who}、${others.map(r => r.name).join("、")}和你，三个人。${who}是你们俩共同的人。`,
     `${who}说的话没有前缀；${other}说的话开头标着【${other}】。你自己说的话不用标，也不要在开头写自己的名字，更不要替别人说话。`,
     `这里是轮流说：${who}说一句，你和${other}依次回，后说的那个看得到前面刚说的。别重复对方已经说过的，不用句句附和；有补充、有不同想法再说，实在没话就只写 [不说话]。群里说得短一点，几句就好。`,
     `如果特别想听${other}接你这一句，在回复最后单独一行写 [接话]，${other}会再回一次，然后就停下来等${who}；一轮最多这样接一两次，平常不用写，不写就是说完了。你们俩不会自己一直聊下去。`,
@@ -184,14 +184,14 @@ function groupForAI(role, who) {
 }
 
 // wake：给唤醒用（同步到中转）。时间、今天的日期、闹钟列表留成占位符，醒来时由中转填上
-export function buildSystem(role, messages, { wake = false, mail = false, group = false, codex = false } = {}) {
+export function buildSystem(role, messages, { wake = false, mail = false, group = false, codex = false, thread = null } = {}) {
   const me = meOf(role);
   const who = me.name ? `「${me.name}」` : "对方";
   const lines = [
     `你是「${role.name}」，正在用手机和${me.name ? `「${me.name}」` : "对方"}聊天。`,
     // 说话方式放最前面：TA 是什么样的人、怎么说话，比后面那些规矩重要
     role.style?.trim() ? `\n# 我是谁（这是你自己写给自己的）\n${role.style.trim()}` : "",
-    group ? groupForAI(role, who) : "",
+    group ? groupForAI(role, who, thread) : "",
     `\n# 聊天方式`,
     `像真人用聊天软件发消息一样自然地回复。可以把回复分成几条短消息，每条之间空一行。`,
     mail || wake ? "" : `想在两条之间停一下（像打完一句、顿了顿再发下一句），在中间单独一行写 [停顿:2秒]（最多 ${PAUSE_MAX} 秒），偶尔用，平常空一行就好。`,
@@ -598,7 +598,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       if (!xcCache[role.id]?.snap) await Promise.race([m, new Promise(r => setTimeout(r, 3000))]);
     }
     const mode = thread.mail ? "mail" : "chat"; // 邮箱页：只有邮箱和记忆的工具；平时聊天：没有邮箱
-    const system = buildSystem(role, history, { mail: !!thread.mail, group, codex });
+    const system = buildSystem(role, history, { mail: !!thread.mail, group, codex, thread });
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
     const messages = await buildMessages(history, group ? role.id : null, role, codex);

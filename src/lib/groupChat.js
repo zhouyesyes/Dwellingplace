@@ -56,13 +56,14 @@ export async function runGroupRound(thread, parentId) {
       const i = history.findIndex(m => m.id === parentId);
       history = i >= 0 ? history.slice(0, i + 1) : parentId === ROOT ? [] : history;
     }
-    const members = [MAIN, CRAB].map(roleById).filter(Boolean);
+    const members = (thread.members || [MAIN, CRAB]).map(roleById).filter(Boolean);
     if (!members.length) return null;
     // 谁先：她点名了就点名的先；没点名就轮着来，每轮换一个
     const trigger = [...history].reverse().find(m => m.from === "user" && !m.poke);
-    const first = mentionedFirst(trigger?.text, members) || members.find(r => r.id === store.group.nextFirst) || members[0];
+    const first = mentionedFirst(trigger?.text, members) || members.find(r => r.id === (thread.members ? thread.nextFirst : store.group.nextFirst)) || members[0];
     const order = [first, ...members.filter(r => r !== first)];
-    store.group.nextFirst = (order[1] || first).id;
+    if (thread.members) thread.nextFirst = (order[1] || first).id;
+    else store.group.nextFirst = (order[1] || first).id;
 
     let from = history.length ? history[history.length - 1].id : ROOT;
     let last = null; // 上一条有话的回复

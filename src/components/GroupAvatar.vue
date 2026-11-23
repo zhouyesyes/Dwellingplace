@@ -4,16 +4,18 @@ import { computed } from "vue";
 import { store, roleById, MAIN, CRAB } from "../store/index.js";
 import Avatar from "./Avatar.vue";
 
-const props = defineProps({ size: { type: Number, default: 40 } });
-const him = computed(() => roleById(MAIN));
-const crab = computed(() => roleById(CRAB));
+const props = defineProps({ size: { type: Number, default: 40 }, group: Object });
+const groupInfo = computed(() => props.group || store.group);
+const members = computed(() => groupInfo.value.members || [MAIN, CRAB]);
+const him = computed(() => roleById(members.value[0]));
+const crab = computed(() => roleById(members.value[1]));
 const myName = computed(() => him.value?.me?.name || store.profile.userName || "我");
 const s = computed(() => Math.round(props.size * 0.58));
 </script>
 
 <template>
   <span class="gava" :style="{ width: size + 'px', height: size + 'px' }">
-    <Avatar v-if="store.group.avatar" :img="store.group.avatar" :name="store.group.name" color="#b9a2ef" :size="size" class="solo" />
+    <Avatar v-if="groupInfo.avatar" :img="groupInfo.avatar" :name="groupInfo.name || groupInfo.title" color="#b9a2ef" :size="size" class="solo" />
     <template v-else>
       <Avatar v-if="him" :img="him.avatar" :name="him.name" :color="him.color" :size="s" class="a1" />
       <Avatar v-if="crab" :img="crab.avatar" :name="crab.name" :color="crab.color" :size="s" class="a2" />

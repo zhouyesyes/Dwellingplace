@@ -75,9 +75,9 @@ watchEffect(() => {
 </script>
 
 <template>
-  <RouterView />
+  <RouterView :key="/^\/(chat|group)(\/|$)/.test(route.path) ? route.path : undefined" />
   <Foreground v-if="tab" />
-  <TabBar v-if="tab" :active="tab" />
+  <TabBar v-if="tab && route.path !== '/'" :active="tab" />
   <Cropper />
   <FullEditor />
   <!-- 选图时不再盖一层「请在相册中选择」，只在处理图片的那一会儿提示一下 -->

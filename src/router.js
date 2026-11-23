@@ -24,7 +24,7 @@ export const router = createRouter({
     { path: "/", component: HomeView, meta: { tab: "home" } },
     { path: "/chats", redirect: "/chat/main" }, // 只有一个 AI：通讯直接就是和 TA 的对话
     { path: "/chat/:roleId/:threadId?", component: ChatView },
-    { path: "/group", component: GroupView }, // 群聊：三个人的第三个主聊天（聊天页的群聊模式，见 ChatView 的 group）
+    { path: "/group/:groupId?", component: GroupView }, // 群聊：三个人的第三个主聊天（聊天页的群聊模式，见 ChatView 的 group）
     { path: "/bench", component: () => import("./views/BenchView.vue"), meta: { tab: "bench" } }, // 工作台（底栏正中间，珊瑚）：她的笔记本
     { path: "/bench/n/:id", component: () => import("./views/NoteView.vue") },
     { path: "/memory", component: MemoryView, meta: { tab: "memory" } },

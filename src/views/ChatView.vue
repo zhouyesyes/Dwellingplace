@@ -34,6 +34,8 @@ import { startRecording, voiceAttachment, speak, ttsReady } from "../lib/media.j
 import VoiceBubble from "../components/VoiceBubble.vue";
 import { WHERE } from "../lib/crabBook.js";
 import WorldDrawer from "../components/WorldDrawer.vue";
+import { unreadMessages } from "../lib/inbox.js";
+
 import SummaryInfo from "../components/memory/SummaryInfo.vue";
 import SearchPanel from "../components/SearchPanel.vue";
 import LinkCard from "../components/LinkCard.vue";
@@ -67,17 +69,22 @@ const router = useRouter();
 // 群聊（/group）：同一个聊天页，role 换成「群」这个假角色（群名、群头像），每条 AI 消息的头像、名字、气泡颜色按 m.who 找真正说话的人
 const props = defineProps({ group: Boolean });
 const isGroup = props.group;
-const groupRole = computed(() => ({ id: GROUP, name: store.group.name, avatar: store.group.avatar, color: "#b9a2ef", signature: [roleById(MAIN)?.name, roleById(CRAB)?.name].filter(Boolean).join(" · "), me: roleById(MAIN)?.me || {} }));
+const activeGroup = computed(() => route.params.groupId ? store.threads.find(t => t.id === route.params.groupId && t.group) : store.group);
+const groupRole = computed(() => ({ id: GROUP, name: activeGroup.value?.name || activeGroup.value?.title || store.group.name, avatar: activeGroup.value?.avatar, color: "#b9a2ef", signature: (activeGroup.value?.members || [MAIN, CRAB]).map(id => roleById(id)?.name).filter(Boolean).join(" · "), me: roleById(MAIN)?.me || {} }));
 const role = computed(() => (isGroup ? groupRole.value : roleById(route.params.roleId)));
 const speakerOf = who => (isGroup ? roleById(who) || role.value : role.value);
 const nameOfQuote = q => (q.from === "ai" ? (isGroup && q.who ? roleById(q.who)?.name : null) || role.value.name : "我");
-const aiBubble = who => (isGroup ? bubbleVars(speakerOf(who).bubbleColor || BUBBLE_COLORS[0], "their") : null);
+const aiBubble = who => (isGroup ? bubbleVars(speakerOf(who).bubbleColor || "#fffaf6", "their") : null);
 // 假角色在好几处只当「查询用的角色」：能不能回复、表情包、整理摘要，都落到真正的小章鱼身上
 const realRole = computed(() => (isGroup ? roleById(MAIN) || roleById(CRAB) : role.value));
 // 他正被叫醒、在中转那边行动（比如花园说游戏轮到他了）
 const wakeBusy = computed(() => role.value && wakeStatus.busy?.[role.value.id]);
 
 // ---------- 当前对话 ----------
+const modeOpen = ref(false);
+const firstUnreadId = ref(null);
+const openingThread = ref(false);
+const messageDate = ts => { const d = new Date(ts); return [d.getMonth() + 1, d.getDate(), String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0")].join("/"); };
 const threadId = ref(null);
 const thread = computed(() => store.threads.find(t => t.id === threadId.value));
 // 这个对话的所有消息（包括其他版本），以及当前显示的这一条路径
@@ -109,19 +116,31 @@ const petWork = computed(() => {
 const bgUrl = useImage(() => thread.value?.bg);
 
 async function openThread(id) {
+  openingThread.value = true;
   threadId.value = id;
   if (!isGroup) role.value.lastThreadId = id;
   showCount.value = PAGE;
   await loadMessages(id);
+  if (threadId.value !== id) return;
+  const unread = unreadMessages(thread.value);
+  firstUnreadId.value = unread[0]?.id || null;
+  thread.value.readThrough = Math.max(thread.value.readThrough || 0, ...messages.value.map(m => m.ts || 0));
   resumeCodexChat(thread.value).catch(console.error);
   await nextTick();
-  scrollToBottom(true);
-  settleAtBottom();
+  if (firstUnreadId.value) {
+    showCount.value = items.value.length;
+    await nextTick();
+    scroller.value?.querySelector(".new-message-divider")?.scrollIntoView({ block: "start" });
+  } else {
+    scrollToBottom(true);
+    settleAtBottom();
+  }
+  openingThread.value = false;
 }
 
 onMounted(async () => {
   if (!role.value) return router.replace("/");
-  if (isGroup) { await openThread(GROUP_TID); return; }
+  if (isGroup) { const id = route.params.groupId || GROUP_TID; if (!store.threads.some(t => t.id === id && t.group)) return router.replace("/"); await openThread(id); return; }
   const list = threadsOf(role.value.id);
   const pick =
     store.threads.find(t => t.id === route.params.threadId && t.roleId === role.value.id && !t.mail) || // 工作室不在列表里，但能直接打开
@@ -153,14 +172,14 @@ const items = computed(() => {
   const out = [];
   let group = null;
   const event = (m, n, i) => { out.push({ type: "event", m: n, key: `${m.id}:${i}` }); group = null; };
+  const addSingle = m => {
+    group = { type: "group", from: m.from, who: m.who, where: m.where, msgs: [m], lastTs: m.ts, key: m._key || m.id };
+    out.push(group);
+  };
   const add = m => {
-    if (!selecting.value && group && group.from === m.from && group.who === m.who && (group.where || "") === (m.where || "") && m.ts - group.lastTs < 5 * 60_000) {
-      group.msgs.push(m);
-      group.lastTs = m.ts;
-    } else {
-      group = { type: "group", from: m.from, who: m.who, where: m.where, msgs: [m], lastTs: m.ts, key: m._key || m.id }; // where：小螃蟹从别处（Claude Code、云端）来的消息
-      out.push(group);
-    }
+    const parts = m.from === "ai" && !m._src && !m.error ? splitBubbles(m.text || "") : [];
+    if (parts.length < 2) return addSingle(m);
+    parts.forEach((text, i) => addSingle({ ...m, text, _src: m, _key: m.id + "~bubble" + i, _first: i === 0, _last: i === parts.length - 1 }));
   };
   for (const m of messages.value) {
     if (m.poke) { event(m, m, "poke"); continue; }
@@ -277,6 +296,10 @@ watch(
   () => { const l = messages.value; return l.length + ":" + (l[l.length - 1]?.text?.length ?? 0); },
   () => { const stick = nearBottom(); nextTick(() => stick && scrollToBottom(true)); },
 );
+
+watch(() => messages.value.filter(m => !m.pending).map(m => m.ts || 0).join(","), () => {
+  if (!openingThread.value && thread.value && !document.hidden) thread.value.readThrough = Math.max(thread.value.readThrough || 0, ...messages.value.filter(m => !m.pending).map(m => m.ts || 0));
+});
 
 // ---------- 输入 ----------
 const draft = ref("");
@@ -538,9 +561,11 @@ function bubbleVars(c, k) {
   return lum < 0.55 ? { [`--${k}`]: c, [`--${k}-text`]: "#ffffff" } : { [`--${k}`]: `color-mix(in srgb, ${c} var(--pastel), var(--card))`, [`--${k}-text`]: "var(--text)" };
 }
 // 他的气泡 + 你自己的（没选过就是卡片色）
+const theirColor = computed(() => role.value?.bubbleColor || "#fffaf6");
+const mineColor = computed(() => store.profile.bubbleColor || "#ffe9dd");
 const bubbleColors = computed(() => ({
-  ...bubbleVars(role.value?.bubbleColor || BUBBLE_COLORS[0], "their"),
-  ...(store.profile.bubbleColor ? bubbleVars(store.profile.bubbleColor, "mine") : {}),
+  ...bubbleVars(theirColor.value, "their"),
+  ...bubbleVars(mineColor.value, "mine"),
 }));
 
 const openSources = reactive({});
@@ -577,7 +602,7 @@ function tokensOf(group) {
   for (const m of group.msgs) if (!m._src || m._last) { i += m.usage?.input || 0; o += m.usage?.output || 0; c += m.usage?.cached || 0; r += m.rounds || 0; f += m.sends || 0; }
   // 请求了几次：用工具、翻记忆、续发，每多一步都要再请求一次（每次都带着前面的全部内容）
   const req = r > 1 ? ` · 请求 ${r} 次${f ? `（续发 ${f} 条）` : ""}` : "";
-  return i || o ? `输入 ${fmtTokens(i)}${c ? `（缓存 ${fmtTokens(c)}）` : ""} · 输出 ${fmtTokens(o)} tokens${req}` : "";
+  return i || o ? `入 ${fmtTokens(i)}（命中${fmtTokens(c)}） · 出 ${fmtTokens(o)}` : "";
 }
 
 // ---------- 消息操作 ----------
@@ -758,13 +783,13 @@ const groupSetOpen = ref(false);
 async function changeGroupAvatar() {
   const id = await pickAndCrop({ aspect: 1, round: true, title: "群头像", maxSize: 500 });
   if (!id) return;
-  const old = store.group.avatar;
-  store.group.avatar = id;
+  const old = activeGroup.value.avatar;
+  activeGroup.value.avatar = id;
   if (old) deleteImage(old);
 }
 function clearGroupAvatar() {
-  if (store.group.avatar) deleteImage(store.group.avatar);
-  store.group.avatar = null;
+  if (activeGroup.value.avatar) deleteImage(activeGroup.value.avatar);
+  activeGroup.value.avatar = null;
 }
 const worldOpen = ref(false); // 小世界：右边滑出来的半边
 const searchOpen = ref(false); // 搜聊天：也是右边半边
@@ -813,8 +838,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
     <div class="bg" :style="bgUrl ? { backgroundImage: `url(${bgUrl})` } : {}" />
 
     <header class="top" :class="{ grp: isGroup }">
-      <button class="icon-btn" aria-label="返回" @click="back"><Icon name="back" /></button>
-      <GroupAvatar v-if="isGroup" :size="34" class="g-ava" />
+      <button class="icon-btn" aria-label="打开首页抽屉" @click="worldOpen = true"><Icon name="menu" /></button>
+      <GroupAvatar v-if="isGroup" :group="activeGroup" :size="34" class="g-ava" />
       <div class="who">
         <div v-if="thread?.studio" class="name">Studio</div>
         <div v-if="thread?.studio" class="sig">{{ role.name }} 的工作室 · 连着栖所的仓库</div>
@@ -822,13 +847,36 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <div v-if="role.signature && !thread?.studio" class="sig">{{ role.signature }}</div>
       </div>
       <button v-if="isGroup" class="icon-btn" aria-label="群设置" @click="groupSetOpen = true"><Icon name="settings" /></button>
-      <button v-else class="icon-btn" aria-label="小世界" @click="smallWorld"><Icon name="house" /></button>
+      <button class="mode-toggle" :aria-expanded="modeOpen" @click="modeOpen = !modeOpen">{{ thread?.replyBackend === 'codex' ? 'Codex' : 'Chat' }} <span>⌄</span></button>
+      <button class="icon-btn" aria-label="搜索消息" @click="searchOpen = true"><Icon name="search" :size="19" /></button>
+      <div v-if="modeOpen" class="mode-panel">
+        <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
+          <span>{{ fmtTokens(ctxInfo.ctx) }}<template v-if="ctxInfo.limit"> / {{ fmtTokens(ctxInfo.limit) }}</template><template v-else> tokens</template></span>
+          <i v-if="ctxInfo.limit" class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
+        </button>
+        <button v-else class="ctx" @click="ctxOpen = true">用量</button>
+        <label v-if="role.id === MAIN && thread && !thread.group && !thread.mail && !thread.studio && codexBase(role, thread)">
+          <select class="ctx" aria-label="回复模式" :value="thread.replyBackend || 'chat'" :disabled="busy" @change="thread.replyBackend = $event.target.value">
+            <option value="chat">Chat</option>
+            <option value="codex">Codex</option>
+          </select>
+        </label>
+        <template v-if="role.id === MAIN && thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
+          <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
+            {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
+          </button>
+          <input v-if="thread.codexWorkspace" v-model.trim="thread.codexRepo" class="ctx codex-repo" aria-label="Codex 仓库" placeholder="栖所（默认）" maxlength="200" :disabled="busy" />
+        </template>
+        <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
+        <label class="bubble-color-row">Their bubble <input type="color" :value="theirColor" @input="role.bubbleColor = $event.target.value"></label>
+        <label class="bubble-color-row">Your bubble <input type="color" :value="mineColor" @input="store.profile.bubbleColor = $event.target.value"></label>
+      </div>
     </header>
 
     <main ref="scroller" class="scroll" @scroll.passive="onScroll">
       <div class="inner">
         <div v-if="!messages.length && isGroup" class="hello">
-          <GroupAvatar :size="72" />
+          <GroupAvatar :group="activeGroup" :size="72" />
           <p>三个人的小房间：你说一句，{{ roleById(MAIN)?.name }}和{{ roleById(CRAB)?.name }}轮流回；点名谁，谁先说</p>
           <p v-if="!currentApi" class="warn">还没有 API，先去「设置 → API」添加一个</p>
         </div>
@@ -865,6 +913,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
               <Avatar v-else :img="speakerOf(it.who).avatar" :name="speakerOf(it.who).name" :color="speakerOf(it.who).color" :size="42" class="poke-target" title="双击戳一戳" @pointerdown="avatarStart" @pointerup="avatarEnd($event, it.who)" @pointermove="avatarMove" @pointercancel="avatarTap = null; avatarDown = null" @dblclick.prevent />
             </div>
             <div class="col">
+              <div v-if="firstUnreadId && it.msgs.some(m => (m._src || m).id === firstUnreadId && (!m._src || m._first))" class="new-message-divider">新消息</div>
               <div v-if="isGroup && it.from === 'ai'" class="who-name">{{ speakerOf(it.who).name }}</div>
               <template v-for="m in it.msgs" :key="m._key || m.id">
                 <template v-if="m.from === 'user'">
@@ -916,7 +965,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                   </div>
                 </template>
               </template>
-              <div class="stamp">{{ stamp(it.lastTs) }}<template v-if="it.where && WHERE[it.where]"> · {{ WHERE[it.where] }}</template><template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
+              <div class="stamp">{{ messageDate(it.lastTs) }}<template v-if="it.where && WHERE[it.where]"> · {{ WHERE[it.where] }}</template><template v-if="tokensOf(it)"> · {{ tokensOf(it) }}</template></div>
             </div>
           </div>
         </template>
@@ -939,26 +988,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         </div>
       </div>
       <div v-if="quoting" class="quoting"><span><b>引用{{ nameOfQuote(quoting) }}：</b>{{ quoting.text }}</span><button aria-label="不引用了" @click="quoting = null"><Icon name="close" :size="14" /></button></div>
-      <div class="pill-row">
-        <button v-if="ctxInfo" class="ctx" :class="ctxInfo.level" @click="ctxOpen = true">
-          <span>{{ fmtTokens(ctxInfo.ctx) }}<template v-if="ctxInfo.limit"> / {{ fmtTokens(ctxInfo.limit) }}</template><template v-else> tokens</template></span>
-          <i v-if="ctxInfo.limit" class="bar"><b :style="{ width: ctxInfo.pct + '%' }" /></i>
-        </button>
-        <button v-else class="ctx" @click="ctxOpen = true">用量</button>
-        <label v-if="role.id === MAIN && thread && !thread.group && !thread.mail && !thread.studio && codexBase(role, thread)">
-          <select class="ctx" aria-label="回复模式" :value="thread.replyBackend || 'chat'" :disabled="busy" @change="thread.replyBackend = $event.target.value">
-            <option value="chat">Chat</option>
-            <option value="codex">Codex</option>
-          </select>
-        </label>
-        <template v-if="role.id === MAIN && thread?.replyBackend === 'codex' && !thread.group && !thread.mail && !thread.studio">
-          <button type="button" class="ctx codex-workspace" :disabled="busy" :aria-pressed="!!thread.codexWorkspace" @click="thread.codexWorkspace = !thread.codexWorkspace">
-            {{ thread.codexWorkspace ? "仓库已开启" : "连接仓库" }}
-          </button>
-          <input v-if="thread.codexWorkspace" v-model.trim="thread.codexRepo" class="ctx codex-repo" aria-label="Codex 仓库" placeholder="栖所（默认）" maxlength="200" :disabled="busy" />
-        </template>
-        <button v-if="draftLong" class="expand-btn" aria-label="展开编辑" @click="expandDraft"><Icon name="expand" :size="15" /> 展开</button>
-      </div>
       <div v-if="thread?.codexQueue?.length" class="ctx">有 {{ thread.codexQueue.length }} 条消息等待 Codex 回复</div>
       <div v-if="recording" class="rec-bar">
         <span class="rec-dot" /> 录音中 {{ Math.floor(recording.secs / 60) }}:{{ String(recording.secs % 60).padStart(2, "0") }}
@@ -972,9 +1001,9 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <textarea ref="inputEl" v-model="draft" :readonly="selecting" :inputmode="selecting ? 'none' : null" rows="1" placeholder="What do you want to share?"
           :enterkeyhint="coarse ? 'enter' : 'send'" @input="autoGrow" @keydown="onKeydown" />
         <div class="sends">
-          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '发送'" @click="send(false)"><Icon name="send" :size="20" /></button>
+          <button class="send small" :class="{ on: draft.trim() || attachments.length }" :aria-label="busy && thread?.replyBackend === 'codex' ? '排队发送' : '发送'" @click="send(false)"><Icon name="threads" :size="20" /></button>
           <button v-if="busy" class="send reply on" aria-label="停止" @click="stop"><Icon name="stop" :size="20" /></button>
-          <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="chat" :size="20" /></button>
+          <button v-else class="send reply" :class="{ on: needReply || draft.trim() || attachments.length }" :aria-label="`让 ${role.name} 回复`" @click="askReply"><Icon name="send" :size="20" /></button>
         </div>
       </div>
     </footer>
@@ -1072,7 +1101,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
       <p v-else class="tip">在「设置 → API」里给模型点星标，就会出现在这里</p>
     </Sheet>
 
-    <WorldDrawer v-if="!isGroup" :open="worldOpen" :role="role" :thread="thread" @close="worldOpen = false" @threads="worldOpen = false; threadsOpen = true" @search="worldOpen = false; searchOpen = true" @summary="worldOpen = false; openSummary()" />
+    <WorldDrawer :open="worldOpen" :role="isGroup ? realRole : role" :thread="thread" @close="worldOpen = false" @threads="worldOpen = false; isGroup ? router.push('/') : (threadsOpen = true)" @search="worldOpen = false; searchOpen = true" @summary="worldOpen = false; openSummary()" />
 
     <!-- 群设置：群名、群头像、背景、摘要记忆 -->
     <Sheet v-if="isGroup" :open="groupSetOpen" title="群设置" @close="groupSetOpen = false">
@@ -1080,9 +1109,9 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <button class="g-ava-pick" aria-label="换群头像" @click="changeGroupAvatar"><GroupAvatar :size="76" /></button>
         <div class="g-btns">
           <button class="btn soft small" @click="changeGroupAvatar">换群头像</button>
-          <button v-if="store.group.avatar" class="btn soft small" @click="clearGroupAvatar">用三个人的头像</button>
+          <button v-if="activeGroup.avatar" class="btn soft small" @click="clearGroupAvatar">用三个人的头像</button>
         </div>
-        <label class="g-name"><span>群名</span><input v-model="store.group.name" class="input" maxlength="20" placeholder="栖所小屋" @blur="store.group.name = store.group.name.trim() || '栖所小屋'" /></label>
+        <label class="g-name"><span>群名</span><input v-model="activeGroup.name" class="input" maxlength="20" placeholder="栖所小屋" @blur="activeGroup.name = activeGroup.name.trim() || '栖所小屋'" /></label>
       </div>
       <div class="list-card flat">
         <div class="list-row">
@@ -1113,7 +1142,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
         <SumVersions :owner="thread" @restored="sumEdit.text = thread.summary?.text || ''" />
       </template>
     </Sheet>
-    <SearchPanel v-if="!isGroup" :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="goFound" />
+    <SearchPanel :open="searchOpen" :role-id="role.id" @close="searchOpen = false" @go="goFound" />
 
     <!-- 消息操作：手指旁边一列小选项 -->
     <Teleport to="body">
