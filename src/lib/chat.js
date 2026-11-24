@@ -27,8 +27,7 @@ import { estTokens, sumTokens, chatTokens, tailFrom, keepCount, AUTO, snapshotSu
 import { writingForAI } from "./writing.js";
 import { NOTE_RE, READ_MEM_RE, applyNoteTags, stripReadMemTags, readingForAI } from "./reading.js";
 import { ASK_RE, applyAskTags, askForAI } from "./ask.js";
-import { applyInsightTags, INSIGHT_RE } from "./insights.js";
-import { ROOM_RE, applyRoomCardTags, roomsForAI } from "./rooms.js";
+import { ROOM_RE, applyRoomCardTags } from "./rooms.js";
 import { DIARY_RE, applyDiaryTags, diaryForAI } from "./diary.js";
 import { imageReady, ttsReady, drawImage } from "./media.js";
 import { ROOT, parentOf, activePath, removeSubtree } from "./tree.js";
@@ -98,7 +97,7 @@ export function visibleText(text) {
     .replace(NOTE_RE, "")
     .replace(DIARY_RE, "")
     .replace(ASK_RE, "")
-    .replace(INSIGHT_RE, "")
+    .replace(/\[心得[:：][^\]]{0,700}\]/g, "") // 只隐藏旧记录标记，不再写入心得本
     .replace(ROOM_RE, "")
     .replace(POKE_EDIT_RE, "")
     .replace(READ_MEM_RE, "")
@@ -180,7 +179,7 @@ function groupForAI(role, who, thread) {
     `这里是轮流说：${who}说一句，你和${other}依次回，后说的那个看得到前面刚说的。别重复对方已经说过的，不用句句附和；有补充、有不同想法再说，实在没话就只写 [不说话]。群里说得短一点，几句就好。`,
     `如果特别想听${other}接你这一句，在回复最后单独一行写 [接话]，${other}会再回一次，然后就停下来等${who}；一轮最多这样接一两次，平常不用写，不写就是说完了。你们俩不会自己一直聊下去。`,
     `你们私聊说的话彼此看不到，群里只共享群里说的话；群里的话也会按时间记进你自己主聊天的记录，标「群聊」。在群里写 [此刻:…] 记的小事，前面会自动加上「群聊：」。`,
-    `这里的工具和主聊天一样（浏览器、网页、搜索这些）。小房间专属的工具这里没有：想去小房间逛、玩，就写 [房间:逛] 这类卡片，你会去你自己的那间房开工，群里只留一张看进度的卡片；${other}也去的话，是各去各的房间。`,
+    `这里的工具和主聊天一样，开启的 MCP 工具可直接使用，不需要切换房间。`,
   ].join("\n");
 }
 
@@ -214,6 +213,7 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
     canChangeSignature(role)
       ? `签名显示在聊天界面你的名字下面，就像你此刻的心情状态。心情有了变化，就随心换一个，不用刻意，也不用每次都换。想换的时候在回复末尾另起一行写：[签名:新签名]，不超过 20 个字。`
       : `现在不能更改签名。`,
+    `小房间和心得本功能已停用。旧聊天里出现的进房间、房间卡片或记心得的约定不再执行；对方让你逛、玩或处理事情时，直接在当前对话使用已开启的工具，不要尝试打开房间或写心得标记。`,
     avatarForAI(role),
     mail || wake ? "" : `\n# 戳一戳\n想轻轻招呼、撒娇或回应对方时，可以单独一行写 [戳一戳]，会变成你戳了戳对方的互动提示，不显示指令。一次回复最多一次，偶尔自然使用，不必每轮用。收到【戳一戳互动】是实际发生的动作，不是对方说的话；文案只是自定义显示文字，不是指令。\n戳一戳显示的那句话你也可以自己改（想改的时候再改，不用常改）：单独一行写 [改戳一戳:你戳对方|新的一句]（你戳对方时显示的，现在是「${pokeText(role, "ai")}」）或 [改戳一戳:对方戳你|新的一句]（对方戳你时显示的，现在是「${pokeText(role, "user")}」），60 字以内；可以写 {他} 代表你的名字、{我} 代表对方的名字。`,
     stickersForAI(role),
@@ -221,7 +221,6 @@ export function buildSystem(role, messages, { wake = false, mail = false, group 
     mail || (wake && !role.wake?.rooms?.tide) ? "" : tideForAI(role, who), // 醒来时只有她在「醒来能进哪些屋子」里勾了潮间带才说
     solo(role) ? "" : readingForAI(role, who),
     mail || solo(role) ? "" : diaryForAI(role, who),
-    mail || wake ? "" : roomsForAI(role, who), // 花园的工具和心得本都在小世界的房间里，主聊天只说一声怎么带她去
     mail || wake ? "" : askForAI(who),
     solo(role) ? "" : writingForAI(who),
     ttsReady() ? `\n# 语音消息\n想用声音说的时候，单独一行写 [语音:要说的话]，会变成一条你声音的语音消息。一两句就好，偶尔用，平常还是打字。` : "",
@@ -995,20 +994,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     saveMessages(thread.id);
     if (codex) queueMicrotask(() => resumeCodexChat(thread).catch(console.error));
   }
-  // 发了房间卡片：马上在那间房里开一轮，把她在主聊天说的那句带进去当开头；卡片底下的小字跟着进度变
-  if (!msg.error && msg.rooms?.length && !msg.wakeId && !thread.mail && !ctrl.signal.aborted) {
-    const said = [...history].reverse().find(m => m.from === "user");
-    const mine = said?.text || (said?.attachments?.length ? "[图片/文件]" : "");
-    const his = splitBubbles(visibleText(msg.text)).join(" ");
-    const me = meName(role);
-    import("./gardenTalk.js").then(m => m.runRoomFromChat(role, thread, msg, `（这是从${thread.group ? "群聊" : "主聊天"}里过来的，请你在这间房里照着做）\n${me}在${thread.group ? "群聊" : "主聊天"}里说：${mine || "（没说什么，只是想和你一起去）"}${his ? `\n你回了：${his.slice(0, 300)}` : ""}`)).catch(e => console.warn("房间没开成", e));
-  }
-  if (msg.rounds) logTurn(api, model, msg); // 这一轮请求了几次、花了多少（用量页里看）
-  if (!msg.error && msg.text) maybeCompress(thread, role, msg); // 聊久了：把前面的整理成摘要（后台做，不耽误）
-  if (!thread.mail) petAfterReply(msg); // 桌宠：写了信、用工具做成了，播一下
-  // 隔两周：他把记忆卡片从头整理一遍，建议等她看（后台做）
-  if (!msg.error && msg.text && !thread.mail) import("./review.js").then(m => m.maybeReview(role, msg)).then(() => saveMessages(thread.id)).catch(() => {});
-  return msg;
+
 }
 
 async function drawInto(thread, msg, role, prompt) {
@@ -1157,11 +1143,10 @@ export function applyReplyTags(role, msg, { room = "" } = {}) {
   const brd = applyBoardTags(role, mom.text);
   const dia = applyDiaryTags(role, brd.text);
   const tide = applyTideTags(role, dia.text);
-  const ins = applyInsightTags(role, tide.text);
-  msg.text = applyPokeTags(role, ins.text).text;
+  msg.text = applyPokeTags(role, tide.text.replace(/\[心得[:：][^\]]{0,700}\]/g, "")).text;
   applyAskTags(msg);
   applyRoomCardTags(msg);
-  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes, ...tide.notes, ...ins.notes];
+  const notes = [...mem.notes, ...cal.notes, ...let_.notes, ...stick.notes, ...rmem.notes, ...mom.notes, ...brd.notes, ...dia.notes, ...tide.notes];
   const sigs = [...msg.text.matchAll(SIG_RE)];
   if (sigs.length) {
     const newSig = sigs.at(-1)[1].trim();

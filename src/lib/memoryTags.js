@@ -165,7 +165,7 @@ export function takeSuggestions(role, text, src) {
 export const memoriesOf = roleId =>
   store.memories.filter(m => m.roleId === roleId).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
 
-// 记忆分几种：平时的记忆卡片；共读里记下的读书笔记（带 bookId）；共写的总结（带 writingId）；心得本里的一条（带 insight，见 insights.js，不进全局记忆）
+// 记忆分几种：平时的记忆卡片；共读里记下的读书笔记（带 bookId）；共写的总结（带 writingId）；旧心得存档（带 insight，功能已停用，不进全局记忆）
 // 读书笔记（共读里他写 [读书笔记:…] 记进记忆库）10/27 整个去掉了：不教他写、不记、不带进提示词，旧数据也一次性删了（见 store 里的 readNotesPurged）
 export const memKind = m => (m.insight ? "insight" : m.bookId ? "read" : m.writingId ? "write" : "card");
 const line = (m, n = 300) => `- #${m.id.slice(0, 4)} [${m.date}] ${m.title}：${(m.content.length > n ? m.content.slice(0, n) + "…" : m.content).replace(/\n+/g, " ")}`;

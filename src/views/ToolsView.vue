@@ -5,7 +5,6 @@ import { store, MAIN, CRAB } from "../store/index.js";
 import { SEARCH_PROVIDERS, relayPing, relaySearch } from "../lib/search.js";
 import { newServer, refreshTools, callToolRaw } from "../lib/mcp.js";
 import { serverBase } from "../lib/server.js";
-import { defaultToolRoom, EVERYWHERE } from "../lib/toolRooms.js";
 import SubHeader from "../components/SubHeader.vue";
 import Icon from "../components/Icon.vue";
 
@@ -65,10 +64,8 @@ async function connectBrowser() {
       store.mcpServers.push(s);
       s = store.mcpServers[store.mcpServers.length - 1];
     }
-    const known = new Set((s.tools || []).map(t => t.name));
     const r = await refreshTools(s);
     s.enabled = true;
-    defaultToolRoom([MAIN, CRAB], s, r.tools.map(t => t.name).filter(n => !known.has(n)), EVERYWHERE); // 新见到的浏览器工具默认「哪里都能用」（两个人都是）
     bState.value = { ok: true, text: `接上了：${r.tools.map(t => t.name).join("、")}` };
   } catch (e) {
     bState.value = { ok: false, text: /404|不认识/.test(e.message) ? "服务器上还没装浏览器：再运行一次安装那一行，问到浏览器时选 y" : e.message };
@@ -155,7 +152,7 @@ const searchState = ref(null); // { ok, text, results }
 const testQuery = ref("今天的新闻");
 const busy = ref("");
 
-const LATEST_RELAY = 40; // relay/worker.js 里的 version
+const LATEST_RELAY = 41; // relay/worker.js 里的 version
 async function testRelay() {
   busy.value = "ping";
   pingState.value = null;
@@ -276,7 +273,7 @@ async function testSearch() {
 
     <div class="section-label">浏览器（自己上网看）</div>
     <div class="card body">
-      <p class="desc">装在你自己的服务器上的浏览器（chrome-mcp-bridge），chatgpt 和 CC 共用这一个，小红书登录也只用登一次。能打开网页、读文字、<b>看网页里的图片和截图</b>；小红书笔记会带回正文、评论和图片。比上面的网页读取慢一些，但看得全。两个人同时用时会排队，不会抢页面。浏览器的工具在每个人的 MCP 页里分小房间，默认在「逛」里。</p>
+      <p class="desc">装在你自己的服务器上的浏览器（chrome-mcp-bridge），chatgpt 和 CC 共用这一个，小红书登录也只用登一次。能打开网页、读文字、<b>看网页里的图片和截图</b>；小红书笔记会带回正文、评论和图片。比上面的网页读取慢一些，但看得全。两个人同时用时会排队，不会抢页面。在 MCP 页选择给谁使用、开启哪些工具，聊天和唤醒直接可用。</p>
       <button class="btn soft wide" :disabled="!!bBusy" @click="connectBrowser">{{ bBusy === "connect" ? "连接中…" : browser ? "重新连接" : "接上浏览器" }}</button>
       <template v-if="browser">
         <label class="switch-row"><span>chatgpt 可以用浏览器</span><input v-model="browserMain" type="checkbox" class="sw" /></label>
@@ -317,7 +314,7 @@ async function testSearch() {
       </div>
       <button class="list-row add" @click="router.push('/settings/mcp/new')"><Icon name="plus" :size="20" /><span class="grow">添加 MCP</span></button>
     </div>
-    <p class="note">开关打开，这个 MCP 才算开着；给 chatgpt 还是 CC 用、工具分哪间小房间，点进去选。MCP 通过上面的中转连接。</p>
+    <p class="note">开关打开，这个 MCP 才算开着；给 chatgpt 还是 CC 用、开启哪些工具，点进去选。MCP 通过上面的中转连接。</p>
   </div>
 </template>
 

@@ -4,8 +4,6 @@ import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB } from "../store/index.js";
 import { newServer, parseMcpJson, refreshTools } from "../lib/mcp.js";
 import { goBack } from "../lib/nav.js";
-import { ROOMS } from "../lib/roomCatalog.js";
-import { toolInRoom, roomsOfTool, setToolRoom, toolEverywhere, EVERYWHERE } from "../lib/toolRooms.js";
 import { toast } from "../lib/toast.js";
 import { openEditor } from "../lib/editor.js";
 import SubHeader from "../components/SubHeader.vue";
@@ -21,7 +19,6 @@ if (!isNew && !original) router.replace("/settings/tools");
 const form = reactive(JSON.parse(JSON.stringify(original || newServer({ roleIds: [MAIN] })))); // 只有一个 AI：新加的都给他用
 form.disabledTools ??= [];
 const WHO = [{ id: MAIN, name: "chatgpt" }, { id: CRAB, name: "CC" }];
-const roomsWho = ref(form.roleIds.includes(CRAB) && !form.roleIds.includes(MAIN) ? CRAB : MAIN); // 下面勾小房间是在勾谁的
 const onCount = computed(() => form.tools.length - form.disabledTools.filter(n => form.tools.some(t => t.name === n)).length);
 function toggleTool(name) {
   const i = form.disabledTools.indexOf(name);
@@ -135,21 +132,14 @@ function remove() {
           <button class="link-btn" @click="setAll(true)">全开</button>
           <button class="link-btn" @click="setAll(false)">全关</button>
         </div>
-        <p class="hint" style="margin: 0 2px 6px">只开常用的几个，可以少占一些 tokens。每个工具后面的 逛 / 玩 / 雾潮群岛 可以多选：勾了的工具只在那几间小房间里带，主聊天里就不带了；勾「哪里都能用」的，主聊天和每间房都带；都没勾（还没分房间）的，现在也是哪里都带。chatgpt 和 CC 各勾各的，先选好是在给谁勾。</p>
-        <div class="trooms who-tabs">
-          <label v-for="w in WHO" :key="w.id" class="rchip" :class="{ on: roomsWho === w.id }"><input type="radio" name="roomsWho" :checked="roomsWho === w.id" @change="roomsWho = w.id" />给 {{ w.name }} 分房间</label>
-        </div>
+        <p class="hint" style="margin: 0 2px 6px">开启的工具可在对应小机的聊天和唤醒中直接使用，不用再分配房间。只开常用的几个，可以少占一些 tokens。</p>
         <div class="tools">
           <div v-for="t in form.tools" :key="t.name" class="tool" :class="{ off: form.disabledTools.includes(t.name) }">
             <label class="trow">
               <span class="tinfo"><b>{{ t.name }}</b><span>{{ t.description }}</span></span>
               <input type="checkbox" :checked="!form.disabledTools.includes(t.name)" @change="toggleTool(t.name)" />
             </label>
-            <div class="trooms">
-              <label class="rchip" :class="{ on: toolEverywhere(roomsWho, form.id, t.name) }"><input type="checkbox" :checked="toolEverywhere(roomsWho, form.id, t.name)" @change="e => setToolRoom(roomsWho, form.id, t.name, EVERYWHERE, e.target.checked)" />哪里都能用</label>
-              <label v-for="r in ROOMS" :key="r.key" class="rchip" :class="{ on: toolInRoom(roomsWho, form.id, t.name, r.key), dim: toolEverywhere(roomsWho, form.id, t.name) }"><input type="checkbox" :checked="toolInRoom(roomsWho, form.id, t.name, r.key)" @change="e => setToolRoom(roomsWho, form.id, t.name, r.key, e.target.checked)" />{{ r.label }}</label>
-              <small v-if="!roomsOfTool(roomsWho, form.id, t.name).length">还没分房间（现在哪里都带）</small>
-            </div>
+
           </div>
         </div>
       </template>

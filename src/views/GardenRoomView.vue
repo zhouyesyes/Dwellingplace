@@ -1,213 +1,48 @@
 <script setup>
-// 小世界里花园的一间房（逛 / 玩 / 雾潮群岛）：/garden/<谁>/<stroll|play|nostos>。
-// 和共读讨论室一样的对话框：我的话有气泡，他的话占满一行；点一句可以删、他的可以重新说。
-// 右上角：这间房的心得本（和记忆页 Drawers 里是同一本）、「⋯」整理对话、调这间房带多少字
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
+// 小房间退出使用，旧链接仍可查看原来的对话和摘要。
+import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, roleById } from "../store/index.js";
-import { roomOf, roomConnected, roomIntro } from "../lib/rooms.js";
-import { loadGRoom, saveGRoom, roomSay, roomRunning, dropGMsg, regenGRoom, compressGRoom, clearGRoom, gSum, afterSum, roomTokens, roomScene, roomSystem } from "../lib/gardenTalk.js";
-import { INSIGHT_CATS, insightsOf, removeInsight, groupByGame } from "../lib/insights.js";
-import { wakeName } from "../lib/wake.js";
-import { describeError } from "../lib/chat.js";
+import { roleById } from "../store/index.js";
+import { roomOf } from "../lib/rooms.js";
+import { loadGRoom, gSum } from "../lib/gardenTalk.js";
 import { blockMd } from "../lib/inlineMd.js";
-import { vAutoGrow } from "../lib/autogrow.js";
-import { sumTokens, fmtTok } from "../lib/budget.js";
-import { toast } from "../lib/toast.js";
 import { goBack } from "../lib/nav.js";
 import Icon from "../components/Icon.vue";
-import Sheet from "../components/Sheet.vue";
-
-const route = useRoute();
-const router = useRouter();
+const route = useRoute(), router = useRouter();
 const role = computed(() => roleById(String(route.params.roleId)));
 const key = computed(() => String(route.params.room));
 const room = computed(() => roomOf(key.value));
-const intro = computed(() => (void store.roomIntros, role.value && room.value ? roomIntro(role.value, key.value) : ""));
-const who = computed(() => wakeName(role.value));
-const connected = computed(() => !!role.value && roomConnected(role.value, key.value));
-const owner = computed(() => (role.value ? gSum(role.value, key.value) : null));
-const msgs = ref([]);
-const draft = ref("");
-const busy = ref(false);
-const running = computed(() => !!role.value && roomRunning(role.value, key.value)); // 主聊天里发了卡片，他正在这间房里做
-const scroller = ref(null);
-const stick = () => { if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight; };
-const down = () => nextTick(() => { stick(); requestAnimationFrame(stick); });
-
-// 换了人、换了房（路由参数变了，页面是同一个）要重新载入这间房的对话
+const owner = computed(() => role.value ? gSum(role.value, key.value) : null);
+const msgs = ref([]), scroller = ref(null);
+const nt = n => typeof n === "string" ? n : n.text;
 async function load() {
   if (!role.value || !room.value) return router.replace("/");
-  msgs.value = [];
   msgs.value = await loadGRoom(role.value, key.value);
-  down();
+  await nextTick();
+  if (scroller.value) scroller.value.scrollTop = scroller.value.scrollHeight;
 }
 onMounted(load);
 watch(() => [route.params.roleId, route.params.room], load);
-
-async function send(text = draft.value) {
-  if (busy.value || !connected.value) return;
-  if (!text.trim() && msgs.value.at(-1)?.from !== "me") return;
-  draft.value = "";
-  busy.value = true;
-  down();
-  try {
-    await roomSay(role.value, key.value, text);
-  } catch (e) {
-    toast(describeError(e), 5000);
-  } finally {
-    busy.value = false;
-    down();
-  }
-}
-const onKey = e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(pointer: fine)").matches) { e.preventDefault(); send(); } };
-
-const nt = n => (typeof n === "string" ? { text: n } : n);
-const openNote = ref({});
-
-// 点一句：删掉 / 他的重新说
-const act = ref(null);
-async function del() {
-  const m = act.value; act.value = null;
-  await dropGMsg(role.value, key.value, m.id);
-}
-async function regen() {
-  const m = act.value; act.value = null;
-  busy.value = true;
-  try { await regenGRoom(role.value, key.value, m.id); } catch (e) { toast(describeError(e), 5000); } finally { busy.value = false; down(); }
-}
-function copy() {
-  navigator.clipboard?.writeText(act.value.text).then(() => toast("复制了")).catch(() => {});
-  act.value = null;
-}
-
-// 「⋯」：整理对话、看摘要、这间房带多少字
-const menu = ref(false);
-const sumOpen = ref(false);
-const rawTok = computed(() => sumTokens(afterSum(owner.value, msgs.value)));
-async function compress() {
-  menu.value = false;
-  busy.value = true;
-  try {
-    const n = await compressGRoom(role.value, key.value);
-    toast(n ? `整理了前面 ${n} 句，最近的留着原文` : "还没什么要整理的");
-    await saveGRoom(role.value, key.value);
-  } catch (e) { toast(describeError(e), 5000); } finally { busy.value = false; }
-}
-async function clearAll() {
-  menu.value = false;
-  if (!confirm("清空这间房的对话？摘要也一起清掉。心得本和此刻不动。")) return;
-  await clearGRoom(role.value, key.value);
-}
-const peek = ref(null);
-async function showPeek() {
-  menu.value = false;
-  peek.value = { system: roomSystem(role.value, key.value), scene: await roomScene(role.value, key.value, msgs.value) };
-}
-
-// 心得本：这间房那一栏（和 Drawers 里是同一份）
-const book = ref(false);
-const cat = computed(() => room.value?.cat);
-const insights = computed(() => (void store.memories.length, role.value ? insightsOf(role.value.id, cat.value) : []));
-const groups = computed(() => (cat.value === "game" ? groupByGame(insights.value) : [{ game: "", list: insights.value }])); // 玩这一栏按游戏分组
-const md = d => String(d || "").slice(5).replace("-", "/");
-function dropInsight(m) { if (confirm("把这条心得删掉？总本里也会没有。")) removeInsight(m); }
-
-const ideas = computed(() => ({
-  stroll: ["去看看有什么新帖子", "有人回你的帖子吗？", "今天想发点什么？"],
-  play: ["有没有能玩的局？", "上一局怎么样？", "想玩哪个游戏？"],
-  nostos: ["雾潮群岛现在怎么样了？", "上次玩到哪了？", "今天接着玩吗？"],
-}[key.value] || []));
-
-const dock = ref(null);
-const dockH = ref(80);
-let ro = null;
-onMounted(() => { ro = new ResizeObserver(() => { if (dock.value) dockH.value = dock.value.offsetHeight; }); if (dock.value) ro.observe(dock.value); });
-onBeforeUnmount(() => ro?.disconnect());
 </script>
-
 <template>
-  <div v-if="role && room" class="rt" :style="{ '--dock': dockH + 'px' }">
+  <div v-if="role && room" class="rt" style="--dock: 0px">
     <header class="bar">
       <button class="icon-btn" aria-label="返回" @click="goBack(router, `/chat/${role.id}`)"><Icon name="back" /></button>
-      <div class="ttl"><b>{{ who }} 的「{{ room.label }}」</b><small>{{ room.sub }}</small></div>
-      <button class="icon-btn" aria-label="心得本" @click="book = true"><Icon name="memory" /></button>
-      <button class="icon-btn" aria-label="更多" @click="menu = true"><Icon name="more" /></button>
+      <div class="ttl"><b>{{ room.label }} · 旧对话</b><small>房间已停用，记录仍保留</small></div>
+      <button class="btn small" @click="router.push(`/chat/${role.id}`)">去聊天</button>
     </header>
-
     <main ref="scroller" class="list">
-      <p v-if="!connected" class="off">{{ who }} 这边这间房还没接上工具，先空着。接好以后再来；心得本右上角还能翻。</p>
-      <div v-if="!msgs.length && !busy && !running" class="empty">
-        <p>坐下来，和{{ who }}在「{{ room.label }}」这间房里待一会儿。{{ intro }}——这间房的工具只在这里带着。</p>
-        <button v-for="q in connected ? ideas : []" :key="q" class="idea" @click="send(q)">{{ q }}</button>
-      </div>
-      <p v-if="owner?.talkSum?.text" class="sum-tip" @click="sumOpen = true">前面 {{ owner.talkSum.count }} 句已经整理成摘要了 · 点开看</p>
-      <template v-for="m in msgs" :key="m.id">
-        <div v-if="m.from === 'me'" class="m me" @click="act = m"><p>{{ m.text }}</p></div>
-        <div v-else class="m ai" @click="act = m">
+      <p class="off">工具已统一到主聊天和唤醒中，这里只保留以前的记录。</p>
+      <details v-if="owner?.talkSum?.text"><summary>对话摘要</summary><p class="sum">{{ owner.talkSum.text }}</p></details>
+      <p v-if="!msgs.length" class="empty">还没有旧对话</p>
+      <div v-for="m in msgs" :key="m.id" class="m" :class="m.from === 'me' ? 'me' : 'ai'">
+        <p v-if="m.from === 'me'">{{ m.text }}</p>
+        <template v-else>
           <div v-for="(para, i) in (m.text || '').split(/\n\s*\n/).filter(x => x.trim())" :key="i" class="mt" v-html="blockMd(para)" />
-          <template v-for="(n, i) in m.notes || []" :key="i">
-            <small class="note" :class="{ more: nt(n).detail }" @click.stop="nt(n).detail && (openNote[m.id + i] = !openNote[m.id + i])">{{ nt(n).text }}<template v-if="nt(n).detail"> {{ openNote[m.id + i] ? "▴" : "▾" }}</template></small>
-            <pre v-if="nt(n).detail && openNote[m.id + i]" class="detail" @click.stop>{{ nt(n).detail }}</pre>
-          </template>
-        </div>
-      </template>
-      <div v-if="busy || running" class="m ai"><span class="dots"><i /><i /><i /></span></div>
+          <small v-for="(n, i) in m.notes || []" :key="i" class="note">{{ nt(n) }}</small>
+        </template>
+      </div>
     </main>
-
-    <footer ref="dock" class="dock">
-      <textarea v-model="draft" v-auto-grow rows="1" class="input" :disabled="!connected" :placeholder="connected ? `和${who}说…` : '这间房还没接上工具'" @keydown="onKey" />
-      <button class="send" :class="{ on: draft.trim() && connected }" :disabled="busy || !connected" aria-label="发送" @click="send()"><Icon name="send" :size="20" /></button>
-    </footer>
-
-    <Sheet :open="!!act" @close="act = null">
-      <div class="acts">
-        <button @click="copy"><Icon name="copy" :size="17" />复制</button>
-        <button v-if="act?.from === 'ai'" :disabled="busy || !connected" @click="regen"><Icon name="refresh" :size="17" />重新说</button>
-        <button class="danger" @click="del"><Icon name="trash" :size="17" />删掉这句</button>
-      </div>
-    </Sheet>
-
-    <Sheet :open="menu" :title="`${who} 的「${room.label}」`" @close="menu = false">
-      <p class="info">没整理的对话约 {{ fmtTok(rawTok) }} token，到 {{ fmtTok(Math.round(roomTokens() * 0.8)) }} 会自动把前面的整理成摘要（接在旧摘要后面，旧的不改），最近一半留着原文。</p>
-      <div class="lim">
-        <b>这间房每次带多少字</b>
-        <div class="seg"><button v-for="n in [10000, 20000, 30000, 50000]" :key="n" :class="{ on: roomTokens() === n }" @click="store.settings.roomTokens = n">{{ fmtTok(n) }}</button></div>
-        <small>三间房、两个人共用这一个数。也在记忆页「记忆设置」里。</small>
-      </div>
-      <div class="acts">
-        <button v-if="owner?.talkSum?.text" @click="menu = false; sumOpen = true"><Icon name="file" :size="17" />看这间房的摘要</button>
-        <button :disabled="busy" @click="compress"><Icon name="refresh" :size="17" />现在整理</button>
-        <button @click="showPeek"><Icon name="search" :size="17" />看看带了什么</button>
-        <button class="danger" @click="clearAll"><Icon name="trash" :size="17" />清空这间房的对话</button>
-      </div>
-    </Sheet>
-
-    <Sheet :open="sumOpen" title="这间房的摘要" @close="sumOpen = false">
-      <pre class="sum">{{ owner?.talkSum?.text }}</pre>
-    </Sheet>
-
-    <Sheet :open="book" :title="`「${room.label}」的心得本`" @close="book = false">
-      <p class="info">{{ who }} 自己记的「{{ INSIGHT_CATS[cat] }}」，和记忆页 Drawers 里的心得本是同一本：这边删了，那边也没有。进这间房时他会先看最近几条。</p>
-      <template v-for="g in groups" :key="g.game">
-        <h4 v-if="g.game" class="sub">{{ g.game }}<small>{{ g.list.length }}</small></h4>
-        <article v-for="m in g.list" :key="m.id" class="ins">
-          <div class="meta"><span>{{ md(m.date) }}</span><button aria-label="删掉" @click="dropInsight(m)"><Icon name="close" :size="14" /></button></div>
-          <p>{{ m.content }}</p>
-        </article>
-      </template>
-      <p v-if="!insights.length" class="none">还没有心得</p>
-    </Sheet>
-
-    <Sheet :open="!!peek" title="这间房带给他的" @close="peek = null">
-      <template v-if="peek">
-        <p class="info">先是下面的「设定和规矩」，再是「场景」；你说的话接在最后。</p>
-        <h4 class="sub">设定和规矩</h4>
-        <pre class="sum">{{ peek.system }}</pre>
-        <h4 class="sub">场景</h4>
-        <pre class="sum">{{ peek.scene }}</pre>
-      </template>
-    </Sheet>
   </div>
 </template>
 

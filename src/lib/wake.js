@@ -242,22 +242,6 @@ async function roomsOf(role, thread, path, extra = []) {
     const T = await import("./meanwhile.js");
     rooms.push({ key: "tide", kind: "talk", room: "tide", id: "tide", label: "潮间带", status: T.tideRoomStatus(role), prompt: T.tideRoomPrompt(role) });
   }
-  // 花园的三间屋子（逛 / 玩 / 雾潮群岛）：醒来走进这间房的对话框（这间房的设定、记忆、房间对话、这间房的工具），不在主聊天里逛；按人勾，小章鱼默认勾、小螃蟹默认不勾
-  if (thread) {
-    const G = await import("./rooms.js");
-    const T = await import("./gardenTalk.js");
-    for (const g of G.roomsOf(role)) {
-      if (!G.roomOn(role, g.key)) continue;
-      try { // 一间房出错只跳过那间，不让整包同步失败
-        const w = await T.wakeRoom(role, g.key);
-        rooms.push({ key: `garden:${g.key}`, kind: "thread", label: g.label, threadId: thread.id,
-          status: w.last ? `上次${w.last.from === "me" ? "聊到" : "你在这儿说了"}「${String(w.last.text || "").replace(/\s+/g, " ").slice(0, 20)}」，${ago(w.last.ts)}` : visitText(role, `garden:${g.key}`),
-          system: w.system, history: w.history, servers: serverPack(w.servers) });
-      } catch (e) {
-        wakeStatus.skipped.push(`${wakeName(role)}的「${g.label}」房（${e.message}）`);
-      }
-    }
-  }
   return rooms;
 }
 
@@ -268,20 +252,13 @@ async function snapshotRole(role) {
   writingMod ??= await import("./writing.js");
   const events = eventsOf(role, path);
   const api = apiFor(thread, role);
-  // 小房间动静：中转醒来时要去看一眼的房间（只带服务地址和工具名，勾了「醒来能进」的那几间）
-  let roomPeek = [];
-  try {
-    const G = await import("./rooms.js");
-    roomPeek = G.roomsOf(role).filter(g => G.roomOn(role, g.key)).map(g => ({ key: g.key, label: g.label,
-      servers: g.servers.filter(s => !s.builtin && s.url?.trim()).map(s => ({ name: s.name, url: s.url.trim(), headers: headerObj(s), tools: enabledTools(s).map(t => t.name) })) }));
-  } catch { /* 取不到就不看 */ }
   return {
     id: role.id,
-    roomPeek,
-    freeLog: (role.freeLog || []).map(({ key, ts }) => ({ key, ts })),
+    roomPeek: [], // 清掉中转里旧的分房间配置
+    freeLog: (role.freeLog || []).filter(x => !String(x.key).startsWith("garden:")).map(({ key, ts }) => ({ key, ts })),
     name: role.name,
     meName: meName(role),
-    wake: role.wake,
+    wake: { ...role.wake, rooms: Object.fromEntries(Object.entries(role.wake?.rooms || {}).filter(([k]) => !["stroll", "play", "nostos"].includes(k))) },
     bridge: role.wake?.bridgeOn && hasXinchao(role) && role.xinchao?.bridgeToken?.trim()
       ? { url: xinchaoBase(role), token: role.xinchao.bridgeToken.trim() } : null,
     threadId: thread?.id || null,
@@ -290,9 +267,9 @@ async function snapshotRole(role) {
     history,
     style: (role.style || "").trim().slice(0, 1500), // 门厅里只带这个（他是谁）
     events,
-    rooms: role.wake?.freeTimes?.length || events.length || Object.keys(role.wake?.rooms || {}).some(k => role.wake.rooms[k] && ["stroll", "play", "nostos"].includes(k)) ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
+    rooms: role.wake?.freeTimes?.length || events.length ? await roomsOf(role, thread, path, events.map(e => e.room)) : [], // 开了自由时间、或者有事件才带
     api: api && { id: api.id, type: api.type, baseUrl: api.baseUrl, key: api.key, model: modelFor(thread, role), maxTokens: api.maxTokens, effort: api.effort, temperature: api.temperature },
-    servers: serverPack(serversForMode(role.id, "all")), // 醒来的工具里也不带花园的（只在三间小房间里带）
+    servers: serverPack(serversForMode(role.id, "all")), // 与主聊天共用已开启的工具
   };
 }
 
@@ -497,7 +474,6 @@ async function ingest(item) {
   const path = pathOf(thread, all);
   const last = path[path.length - 1];
   // 用工具、搜索的提示放在消息前面；定闹钟之类的放在后面
-  let wakeRoomCard = null; // 醒来时他写了房间卡片：存好以后马上在那间房里开工
   const before = item.notes.filter(n => n.detail || n.sources).map(n => ({ ...n, before: true }));
   const after = item.notes.filter(n => !(n.detail || n.sources));
   if (item.book && !item.book.ok) after.push({ text: `没能写进对话本：${item.book.error}` }); // 小螃蟹醒来的话写不进对话本时，说出原因
@@ -516,7 +492,6 @@ async function ingest(item) {
     msg.notes.push(...after, ...tagNotes);
     all.push(msg);
     thread.sel[parent] = msg.id;
-    wakeRoomCard = msg.rooms?.length ? msg : null;
   } else if (last) {
     const tmp = { text: item.text || "" };
     const xm = await applyXinchaoMemoryTags(role, tmp.text);
@@ -532,11 +507,7 @@ async function ingest(item) {
   if (item.apiId && (item.usage?.input || item.usage?.output)) recordUsage(item.apiId, item.model, item.usage.input, item.usage.output);
   if (!item.silent) touchThread(thread, all);
   saveMessages(thread.id);
-  if (wakeRoomCard) {
-    const him = role.name;
-    import("./gardenTalk.js").then(m => m.runRoomFromChat(role, thread, wakeRoomCard,
-      `（这是你醒来时（${item.reasons.join("；")}）自己想来的，请在这间房里照着做；${meName(role)}不在，不是她叫你来的）\n你在主聊天里写的：${String(wakeRoomCard.text || "（只发了房间卡片）").replace(/\s+/g, " ").slice(0, 300)}`)).catch(e => console.warn(`${him}醒来想去的房间没开成`, e));
-  }
+
 }
 
 // force：不管有没有新东西都去看一眼（打开栖所时）；否则只在中转说有新东西时才去取

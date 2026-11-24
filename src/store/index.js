@@ -7,7 +7,6 @@ import { get, set, del, setMany, editMany } from "../lib/kv.js";
 import { migrateFlat } from "../lib/tree.js";
 import { mergeBookMeta, applyBookMeta, sameMeta } from "../lib/bookMetaMerge.js";
 import { defaultMedia } from "../lib/media.js";
-import { PLATFORMS } from "../lib/roomCatalog.js";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -339,33 +338,14 @@ function migrate() {
   store.bookNotes ??= []; // 书里的便利贴
   store.moments ??= []; // 他自己记在【此刻】里的小事（24 小时后自动忘）；带 room 的是小世界某间房自己的此刻
   store.gardenTalk ??= {}; // 小世界花园三间房的对话摘要等（每人每间一份，见 lib/gardenTalk.js）
-  if (!store.toolRoomsPer) { // 工具分房间改成「人 + MCP + 工具」各记一份：原来按工具名记的，原样抄给两个人当起点（只迁一次）
-    const old = store.toolRooms || {};
-    if (!store.toolRooms) for (const p of PLATFORMS) for (const [room, names] of Object.entries(p.rooms)) for (const n of names) (old[n] ??= []).push(room);
-    store.toolRooms = {};
-    for (const s of store.mcpServers || []) {
-      if (s.builtin) continue;
-      for (const t of s.tools || []) {
-        const rooms = s.browser ? ["all"] : old[t.name]; // 浏览器的工具默认「哪里都能用」
-        if (rooms?.length) for (const r of [MAIN, CRAB]) store.toolRooms[`${r}|${s.id}|${t.name}`] = [...rooms];
-      }
-      if (s.browser) { // 浏览器不再只给 chatgpt：原来的开关 = 给不给 chatgpt，CC 一起接上
-        if (s.enabled === false) { s.enabled = true; s.roleIds = []; } else s.roleIds = [MAIN, CRAB];
-      }
+  // 旧分房间数据不再使用，也不再为新工具生成分配。保留原字段以兼容历史存档。
+  if (!store.toolRoomsPer) {
+    for (const s of store.mcpServers || []) if (s.browser) {
+      if (s.enabled === false) { s.enabled = true; s.roleIds = []; } else s.roleIds = [MAIN, CRAB];
     }
     store.toolRoomsPer = true;
     migratedDirty = true;
   }
-  if (!store.toolRoomsAll) { // 浏览器的工具原来默认勾进「逛」，改成「哪里都能用」（两个人都是，只迁一次；别的工具不动）
-    store.toolRooms ??= {};
-    for (const s of store.mcpServers || []) {
-      if (!s.browser) continue;
-      for (const t of s.tools || []) for (const r of [MAIN, CRAB]) store.toolRooms[`${r}|${s.id}|${t.name}`] = ["all"];
-    }
-    store.toolRoomsAll = true;
-    migratedDirty = true;
-  }
-  store.roomIntros ??= {}; // 小房间的介绍：每人每间一段，键是「人:房间」（见 lib/rooms.js）
   store.penpals ??= []; // 板块记忆：他记着的笔友，每人一句话
   store.readingLog ??= {}; // 每天读了多久（秒）
   store.writings ??= []; // 共写：书桌上的书

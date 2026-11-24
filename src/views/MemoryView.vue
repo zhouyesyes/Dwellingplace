@@ -18,9 +18,6 @@ import TryRecall from "../components/memory/TryRecall.vue";
 import MemoryHealth from "../components/memory/MemoryHealth.vue";
 import ReviewSheet from "../components/memory/ReviewSheet.vue";
 import { openItems } from "../lib/review.js";
-import { INSIGHT_CATS, insightsOf, removeInsight, groupByGame } from "../lib/insights.js";
-import { ROOMS, roomIntro, setRoomIntro, ROOM_INTRO_MAX } from "../lib/rooms.js";
-import { gSum } from "../lib/gardenTalk.js";
 import { snapshotSum } from "../lib/budget.js";
 import MemorySettings from "../components/memory/MemorySettings.vue";
 import { classifyMemories, CATS, lettersLog, isLive, accessOf, setAccess, confirmMemory, markObsolete, trashMemory, restoreMemory, purgeMemory, recallCount, PIN_MAX, ACCESS, SRC, BY } from "../lib/memoryTags.js";
@@ -127,36 +124,16 @@ const DRAWERS = [
   { key: "now", en: "NOW", title: "此刻", sub: "最近 24 小时" },
   { key: "board", en: "BOARD", title: "板块记忆", sub: "长期的进展" },
   { key: "letters", en: "LETTERS", title: "来往的信", sub: "他记得最近 5 封" },
-  { key: "insight", en: "NOTEBOOK", title: "心得本", sub: "游戏经验 · 社交感悟 · 雾潮群岛" },
   { key: "rw", en: "READ · WRITE", title: "共读和共写", sub: "整理来的笔记和总结" },
 ];
 // 共读共写还没给小螃蟹接：没有「共读和共写」抽屉，板块记忆里只有笔友；场景记忆也是共读共写里的，不给它看
 const drawers = computed(() => (solo(role.value) ? DRAWERS.filter(d => d.key !== "rw") : DRAWERS));
 watch(role, r => { if (solo(r) && view.value === "scene") view.value = "timeline"; });
 const openDrawer = ref(null);
-// 心得本：他自己记的，分两栏；点 × 删掉（同步时不会又冒出来）
-const insights = computed(() => (void store.memories.length, tab.value ? insightsOf(tab.value) : []));
-const insightCols = computed(() => Object.entries(INSIGHT_CATS).map(([k, label]) => {
-  const list = insights.value.filter(m => m.insight === k);
-  return { k, label, list, groups: k === "game" ? groupByGame(list) : [{ game: "", list }] }; // 游戏经验按游戏名分组
-}));
-// 板块记忆里的小房间：每间一段介绍（能改）、对话摘要、心得
-const roomBoard = computed(() => (void store.memories.length, void store.roomIntros, void store.gardenTalk, role.value ? ROOMS.map(r => ({
-  ...r, intro: roomIntro(role.value, r.key), sum: gSum(role.value, r.key)?.talkSum?.text || "", ins: insightsOf(role.value.id, r.cat),
-  groups: r.cat === "game" ? groupByGame(insightsOf(role.value.id, r.cat)) : null,
-})) : []));
-function editRoomIntro(r) {
-  const t = prompt(`「${r.label}」的介绍（${ROOM_INTRO_MAX} 字以内，清空就回到默认）`, r.intro);
-  if (t != null) setRoomIntro(role.value, r.key, t);
-}
-function dropInsight(m) {
-  if (confirm("把这条心得删掉？")) removeInsight(m);
-}
 function drawerCount(k) {
   if (k === "sum") return `${sums.value.length} 份`;
   if (k === "now") return `${moment.value.filter(x => x.text).length} 条`;
   if (k === "board") return `${boardWrite.value.length + boardRead.value.length + boardPals.value.length} 项`;
-  if (k === "insight") return `${insights.value.length} 条`;
   if (k === "letters") return `${letterLines.value ? letterLines.value.split("\n").length : 0} 封`;
   return `${derived.value.length} 条`;
 }
@@ -447,39 +424,7 @@ function remove() {
         <div v-for="x in boardPals" :key="x.id" class="brow pal" @click="editPal(x)"><b>{{ x.name || x.email }}</b><span>{{ x.note || "—" }}</span><button aria-label="删掉" @click.stop="removePal(x)"><Icon name="close" :size="14" /></button></div>
         <p v-if="!boardPals.length" class="none">还没记笔友。{{ role.name }}在邮箱里会自己记，邮箱页点开笔友也能写。</p>
       </article>
-      <article v-for="r in roomBoard" :key="r.key" class="sum tmp board room">
-        <div class="meta"><span>小房间：{{ r.label }}</span><button class="add" @click="editRoomIntro(r)">改介绍</button></div>
-        <p class="intro">{{ r.intro }}</p>
-        <details v-if="r.sum"><summary>对话摘要</summary><p class="pre">{{ r.sum }}</p></details>
-        <p v-else class="none">这间房还没有对话摘要</p>
-        <details>
-          <summary>心得（{{ r.ins.length }} 条）</summary>
-          <template v-if="r.groups">
-            <div v-for="g in r.groups" :key="g.game" class="gname"><b>{{ g.game }}</b>
-              <p v-for="m in g.list" :key="m.id" class="irow"><small>{{ md(m.date) }}</small>{{ m.content }}</p>
-            </div>
-          </template>
-          <p v-for="m in (r.groups ? [] : r.ins)" :key="m.id" class="irow"><small>{{ md(m.date) }}</small>{{ m.content }}</p>
-          <p v-if="!r.ins.length" class="none">还没有心得</p>
-        </details>
-      </article>
 
-          </template>
-          <template v-else-if="d.key === 'insight'">
-            <p class="ins-note">这是{{ role.name }}自己的一本，三栏对应小世界里的三间小房间：进哪间房，他就先看那一栏最近的几条（主聊天和别的房间只带每间最新的一两条）；看完通知、玩完一局、聊出想法后，他会自己往里记。房间里的心得本和这里是同一份，两边删都一样。</p>
-            <div class="ins-cols">
-              <section v-for="c in insightCols" :key="c.k" class="ins-col">
-                <h4>{{ c.label }}<small>{{ c.list.length }}</small></h4>
-                <template v-for="g in c.groups" :key="g.game">
-                  <h5 v-if="g.game" class="gh">{{ g.game }}<small>{{ g.list.length }}</small></h5>
-                  <article v-for="m in g.list" :key="m.id" class="sum tmp ins">
-                    <div class="meta"><span>{{ md(m.date) }}</span><button aria-label="删掉" @click="dropInsight(m)"><Icon name="close" :size="14" /></button></div>
-                    <p>{{ m.content }}</p>
-                  </article>
-                </template>
-                <p v-if="!c.list.length" class="none">还没有</p>
-              </section>
-            </div>
           </template>
           <template v-else-if="d.key === 'letters'">
             <article class="sum tmp"><p class="pre">{{ letterLines || "还没有来往的信。" }}</p></article>
@@ -658,7 +603,6 @@ function remove() {
 .drw.k-now { --c: #eed5d6; }
 .drw.k-board { --c: #e6d4cf; }
 .drw.k-letters { --c: #dce0d4; }
-.drw.k-insight { --c: #e3dcc8; }
 .drw.k-rw { --c: #ced9d1; }
 .drw:last-child, .drw.open { border-radius: 6px; padding-bottom: 6px; }
 .drw.open { margin-bottom: 22px; }
@@ -666,7 +610,6 @@ function remove() {
 :root[data-theme="dark"] .drw.k-now { --c: #3d2f33; }
 :root[data-theme="dark"] .drw.k-board { --c: #3b3230; }
 :root[data-theme="dark"] .drw.k-letters { --c: #33362f; }
-:root[data-theme="dark"] .drw.k-insight { --c: #38352b; }
 :root[data-theme="dark"] .drw.k-rw { --c: #2e3632; }
 .lab { position: absolute; top: -13px; height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 16px; color: var(--text-2); }
 .drw-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 16px 16px 38px; text-align: left; color: var(--text); border-radius: 0; }
@@ -682,15 +625,6 @@ function remove() {
 .sec { margin: 18px 4px 10px; font-size: .92rem; font-weight: 600; }
 .sec small { margin-left: 8px; font-weight: 400; font-size: .72rem; color: var(--text-3); }
 .sum { background: var(--card); border-radius: 18px; padding: 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow-soft); cursor: pointer; }
-.ins-note { margin: 0 4px 10px; font-size: .76rem; line-height: 1.6; color: var(--text-3); }
-.ins-cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
-@media (min-width: 640px) { .ins-cols { grid-template-columns: 1fr 1fr 1fr; align-items: start; } }
-.ins-col h4 { margin: 2px 4px 6px; font-size: .84rem; font-weight: 500; color: var(--text-2); }
-.ins-col h4 small { margin-left: 6px; color: var(--text-3); }
-.ins-col .none { margin: 0 4px; font-size: .78rem; color: var(--text-3); }
-.sum.ins { cursor: default; padding: 10px 14px; }
-.sum.ins .meta button { border: 0; background: none; padding: 0; color: var(--text-3); display: grid; place-items: center; }
-.sum.ins p { -webkit-line-clamp: unset; display: block; }
 .sum h3 { margin: 0 0 4px; font-size: .95rem; }
 .sum p { margin: 0; font-size: .85rem; line-height: 1.7; color: var(--text-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .empty-hint.small { font-size: .8rem; }
@@ -730,16 +664,6 @@ function remove() {
 .brow b { font-size: .86rem; color: var(--text); font-weight: 600; }
 .brow.pal { position: relative; padding-right: 34px; }
 .brow.pal button { position: absolute; right: 6px; top: 6px; border: 0; background: none; color: var(--text-3); padding: 4px; display: grid; place-items: center; }
-.board.room .intro { margin: 2px 0 6px; font-size: .84rem; line-height: 1.65; color: var(--text); }
-.board.room details { margin-top: 4px; font-size: .8rem; color: var(--text-2); }
-.board.room summary { cursor: pointer; padding: 3px 0; color: var(--text-2); }
-.board.room .pre { white-space: pre-wrap; margin: 2px 0 4px; line-height: 1.6; font-size: .8rem; color: var(--text-2); }
-.board.room .gname { margin: 4px 0 2px; }
-.board.room .gname b { font-size: .8rem; color: var(--text); font-weight: 600; }
-.board.room .irow { margin: 2px 0 2px 2px; font-size: .8rem; line-height: 1.6; color: var(--text-2); }
-.board.room .irow small { margin-right: 6px; color: var(--text-3); }
-.gh { margin: 8px 4px 4px; font-size: .78rem; font-weight: 600; color: var(--text-2); }
-.gh small { margin-left: 6px; font-weight: 400; color: var(--text-3); }
 .board .none { font-size: .8rem; color: var(--text-3); margin: 2px 0; }
 .board .add { border: 0; background: none; color: var(--text-2); font-size: .76rem; padding: 0; }
 .moms { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

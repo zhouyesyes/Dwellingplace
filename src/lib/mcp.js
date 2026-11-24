@@ -4,7 +4,6 @@
 //   { id, name, url, headers: [{ key, value }], viaRelay, roleIds: [], tools: [], toolsAt, enabled }
 import { store, uid } from "../store/index.js";
 import { relayFetch } from "./search.js";
-import { isRoomTool } from "./toolRooms.js";
 import { BUILTIN_BENCH, benchTool } from "./notes.js";
 
 const PROTOCOL = "2025-06-18";
@@ -38,20 +37,12 @@ export const serversFor = roleId => {
 export const isMailServer = s => ["send_email", "reply_email"].every(n => (s.tools || []).some(t => t.name === n));
 // 记忆库：心潮
 export const isMemoryServer = s => (s.tools || []).some(t => /^(xinchao_|breath$|hold$|trace$)/.test(t.name));
-// 分进了小房间的工具（她在工具页勾的，见 toolRooms.js）：只在对应的房间里带，主聊天里没有
-const withoutGarden = (roleId, list) => list.flatMap(s => {
-  if (s.builtin || !(s.tools || []).some(t => isRoomTool(roleId, s, t.name))) return [s];
-  const tools = s.tools.filter(t => !isRoomTool(roleId, s, t.name));
-  return tools.length ? [{ ...s, tools }] : []; // 只剩房间的工具：整条不带
-});
-// 不同地方能用哪些工具：平时聊天不碰邮箱、也没有花园的工具（花园在小世界的房间里）；邮箱页只有邮箱和记忆；醒来能用邮箱，但也没有花园的工具（花园叫醒只进小房间）
-// garden: true 是房间自己挑工具用的，先不去掉花园的（见 rooms.js 的 roomServers）
+// 工具按小机和开关统一管理，不再受旧的小房间分配限制。邮箱仍保留专用工具范围。
 export function serversForMode(roleId, mode = "chat", { garden = false } = {}) {
   const all = serversFor(roleId);
   if (mode === "mail") return all.filter(s => isMailServer(s) || isMemoryServer(s));
-  // 工作台（她的笔记本）：两边对称，只在主聊天里带，只能看和挂建议
-  if (mode === "chat") return [...(garden ? all : withoutGarden(roleId, all)).filter(s => !isMailServer(s)), ...(garden ? [] : [BUILTIN_BENCH])];
-  return garden ? all : withoutGarden(roleId, all); // 醒来（含读书、共写）也不带花园的工具
+  if (mode === "chat") return [...all.filter(s => !isMailServer(s)), ...(garden ? [] : [BUILTIN_BENCH])];
+  return all;
 }
 
 // 这个服务器里开着的工具
