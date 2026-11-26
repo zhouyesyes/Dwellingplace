@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { store, MAIN, CRAB, GROUP, GROUP_TID, solo, roleById, threadsOf, createThread, deleteThread, loadMessages, messageCache, saveMessages, flushStore, apiFor, modelFor, BUBBLE_COLORS, fmtTokens } from "../store/index.js";
-import { generating, following, generate, sendMessage, resumeCodexChat, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
+import { generating, following, generate, sendMessage, resumeCodexChat, regenerate, editAndResend, deleteMessage, deleteAllVersions, selectVersion, pathOf, splitBubbles, isCodeBubble, fileToAttachment, CODEX_FILE_EXT, CODEX_FILE_LIMIT, summarizeThread, describeError, afterSummary, visibleText } from "../lib/chat.js";
 import { chatRepoSelections, loadRepos, repoState } from "../lib/repos.js";
 import { codexBase } from "../lib/codexJobs.js";
 import { dshApi } from "../lib/dsh.js";
@@ -95,6 +95,7 @@ const repoChoices = computed(() => (repoState.list || []).filter(repo => repo.en
 const repoOptions = computed(() => repoChoices.value.length ? repoChoices.value : [{ full: "", isDefault: true }]);
 const repoKey = repo => repo.isDefault ? "" : repo.full;
 const selectedRepos = computed(() => chatRepoSelections(thread.value, repoChoices.value));
+const canAttachArchive = computed(() => !isGroup && thread.value?.replyBackend === "codex" && selectedRepos.value.length > 0);
 function toggleChatRepo(repo) {
   const key = repoKey(repo);
   const selected = selectedRepos.value;
@@ -364,6 +365,9 @@ async function send(reply = true) {
   const enqueue = busy.value && !following[threadId.value] && thread.value?.replyBackend === "codex" && !isGroup;
   if (busy.value && !following[threadId.value] && !enqueue) return; // 他在续发的时候可以插话
   const text = draft.value.trim();
+  if (attachments.value.some(a => a.kind === "binary") && !canAttachArchive.value) {
+    return toast("请在当前对话开启一个 Codex 仓库后再发送文件。");
+  }
   if (enqueue) {
     if (!text && !attachments.value.length) return;
     if ((thread.value.codexQueue?.length || 0) >= 8) return toast("这条聊天的 Codex 队列已满");
@@ -512,16 +516,33 @@ async function addMedia(accept) {
 }
 async function addFiles() {
   plusOpen.value = false;
-  const files = await pickFile(".pdf,.txt,.md,.json,.csv,.html,.js,.py,text/*,application/pdf", true);
+  const target = threadId.value;
+  const accept = ".pdf,.txt,.md,.json,.csv,.html,.js,.py,text/*,application/pdf";
+  // iOS 可能不认识 .bdi 的文件类型，放开系统选择，由 fileToAttachment 检查格式。
+  const files = await pickFile(canAttachArchive.value ? "" : accept, true);
   for (const f of files) {
-    try { attachments.value.push(await fileToAttachment(f)); }
-    catch (e) { toast(e.message, 3000); }
+    if (target !== threadId.value) break;
+    try {
+      if (CODEX_FILE_EXT.test(f.name)) {
+        const archives = attachments.value.filter(a => a.kind === "binary");
+        if (archives.length >= 10 || archives.reduce((size, a) => size + a.size, f.size) > CODEX_FILE_LIMIT) {
+          throw new Error("一次最多发送 10 个 BDI 或 ZIP 文件，合计最多 5 MB。");
+        }
+      }
+      const attachment = await fileToAttachment(f, { codexArchive: canAttachArchive.value });
+      if (target !== threadId.value) {
+        if (attachment.file) await del("file:" + attachment.file);
+        break;
+      }
+      attachments.value.push(attachment);
+    } catch (e) { toast(e.message, 3000); }
   }
 }
 function removeAttachment(i) {
   const [a] = attachments.value.splice(i, 1);
   if (a.kind === "image") deleteImage(a.img);
   else if (a.kind === "video") { deleteImage(a.img); (a.frames || []).forEach(deleteImage); del("file:" + a.file); }
+  else if (a.file) del("file:" + a.file);
 }
 
 // ---------- 对话切换 ----------

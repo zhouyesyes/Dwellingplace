@@ -350,6 +350,8 @@ async function partsOf(m, { pdfAsText = false } = {}) {
           parts.push({ type: "pdf", name: a.name, data: await blobToBase64(blob), text: a.text || "" });
         }
       }
+    } else if (a.kind === "binary") {
+      parts.push({ type: "text", text: `【文件：${a.name}】` });
     } else if (a.kind === "text") {
       parts.push({ type: "text", text: `【文件：${a.name}】\n${a.text}` });
     } else if (a.kind === "audio") {
@@ -536,13 +538,18 @@ const sleep = (ms, signal) => new Promise(r => {
 
 // 每条新回复都按栖所选好的聊天窗口重建上下文；同一条回复里的工具往返才续接服务器线程。
 // 这样 Chat 和 Codex 看见的原文都受「每次带多少聊天」控制，不会让 Codex 暗中越积越长。
-function codexTurnInput(system, convo, workspace, previous, refreshInstructions) {
+function codexTurnInput(system, convo, workspace, previous, refreshInstructions, files) {
   const latest = convo.at(-1)?.parts || [];
   const attachments = latest.filter(p => p.type === "image").map(p => `data:${p.mime};base64,${p.data}`);
   if (attachments.length > 30 || attachments.reduce((total, url) => total + url.length, 0) > 8_000_000) {
     throw new Error("这次的图片或视频截帧太多了，请分几次发。");
   }
   const current = latest.filter(p => p.type === "text").map(p => p.text).join("\n\n");
+  if (files.length && !workspace) throw new Error("请在当前对话开启一个 Codex 仓库后再发送文件。");
+  if (files.length && attachments.reduce((total, url) => total + url.length, 0)
+    + files.reduce((total, file) => total + file.data.length, 0) > 8_000_000) {
+    throw new Error("文件和图片合起来太大，请分次发。");
+  }
   if (current.length > 60000) throw new Error("附件和消息文字超过 6 万字，请分次发。");
   const context = convo.slice(0, -1).map(m => {
     const text = m.parts.filter(p => p.type === "text").map(p => p.text).join("\n");
@@ -552,7 +559,7 @@ function codexTurnInput(system, convo, workspace, previous, refreshInstructions)
   return {
     prompt: [instructions, system, context, "【本轮消息和附件文字见下一段】"].join("\n\n"),
     followup: refreshInstructions && previous ? system.slice(0, 80000) + "\n\n继续处理下面最新的聊天。" : "继续处理下面最新的聊天或栖所返回的工具结果。",
-    workspace, previous, attachments, fileText: current || "（本轮消息见图片附件）",
+    workspace, previous, attachments, ...(files.length ? { files } : {}), fileText: current || "（本轮消息见图片附件）",
   };
 }
 
@@ -645,6 +652,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     let usedTool = false, nudged = false; // 用过工具后只说不做：提醒一次
     let roundApi = api, lookedRepo = false, sentJob = false; // 小螃蟹说「看仓库」以后，后面几轮换成能看仓库的接口
     const recalled = new Set(), searched = new Set(); // 这次回复里翻过的词、搜过的词：同一个词不再来一遍（防止停不下来）
+    let files;
     for (let round = 0; ; round++) {
       const thinkingBefore = msg.thinking;
       const base = msg.text.length;
@@ -653,7 +661,10 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       try {
         if (codex) {
           const currentId = resume && !round ? msg.codexJobId || msg.id : round ? uid() : msg.id;
-          const input = resume && !round ? null : codexTurnInput([sum, system].filter(Boolean).join("\n\n"), convo, workspace, msg.codexReceipt, !round && !lastAi?.codexSharedReply);
+          const input = resume && !round ? null : codexTurnInput(
+            [sum, system].filter(Boolean).join("\n\n"), convo, workspace, msg.codexReceipt,
+            !round && !lastAi?.codexSharedReply, files ??= await codexFiles(history),
+          );
           msg.codexJobId = currentId;
           msg.codexPrefix = msg.text.slice(0, base);
           saveMessages(thread.id);
@@ -1339,9 +1350,34 @@ export async function deleteMessage(thread, msgId) {
 }
 
 // ---------- 附件 ----------
+export const CODEX_FILE_EXT = /\.(bdi|zip)$/i;
+export const CODEX_FILE_LIMIT = 5_000_000;
+
+async function codexFiles(history) {
+  const lastReply = history.findLastIndex(m => m.from === "ai" && !m.error && !m.pending && !m.groupLines);
+  const files = history.slice(lastReply + 1).flatMap(m => m.from === "user"
+    ? (m.attachments || []).filter(a => a.kind === "binary") : []);
+  if (files.length > 10 || files.reduce((size, a) => size + a.size, 0) > CODEX_FILE_LIMIT) {
+    throw new Error("一次最多发送 10 个 BDI 或 ZIP 文件，合计最多 5 MB。");
+  }
+  return Promise.all(files.map(async a => {
+    const blob = await get("file:" + a.file);
+    if (!blob) throw new Error(`找不到文件 ${a.name}，请重新选择。`);
+    return { name: a.name, data: await blobToBase64(blob) };
+  }));
+}
+
 const TEXT_EXT = /\.(txt|md|markdown|json|csv|tsv|js|ts|py|html|css|xml|yaml|yml|log|srt)$/i;
 
-export async function fileToAttachment(file) {
+export async function fileToAttachment(file, { codexArchive = false } = {}) {
+  if (CODEX_FILE_EXT.test(file.name)) {
+    if (!codexArchive) throw new Error("BDI 和 ZIP 需要在已开启仓库的 Codex 对话里发送。");
+    if (!file.size || file.size > CODEX_FILE_LIMIT) throw new Error("请选择 5 MB 以内的非空文件。");
+    if (file.name.length > 255) throw new Error("文件名太长，请缩短后再试。");
+    const id = uid();
+    await set("file:" + id, file);
+    return { kind: "binary", name: file.name, file: id, size: file.size };
+  }
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
     const id = uid();
     await set("file:" + id, file);

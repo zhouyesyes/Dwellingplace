@@ -67,7 +67,8 @@ export function gitBridge(cwd, socketPath, token, extraCwds = []) {
     else if (body.command === "commit") {
       const message = String(body.message || "").trim();
       if (!message || message.length > 200) return reply(false, "提交说明不能为空，最多 200 字");
-      const added = await run(target, ["add", "-A"]);
+      // 临时附件可能落在其他仓库里，那里的 .gitignore 不一定知道栖所的临时目录。
+      const added = await run(target, ["add", "-A", "--", ".", ":(top,glob,exclude)qisuo-shots-*/chat-files/**"]);
       if (added.code) return reply(false, added.text);
       args = ["-c", "user.name=栖所 Codex", "-c", "user.email=codex@qisuo.local", "commit", "-m", message];
     } else {

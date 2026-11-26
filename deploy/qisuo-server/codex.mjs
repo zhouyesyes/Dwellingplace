@@ -290,7 +290,7 @@ async function queueCodexChat(req) {
     if (size > 9_000_000) throw Object.assign(new Error("聊天内容太长了"), { status: 413 });
     chunks.push(chunk);
   }
-  const { id, prompt, workspace, thread, previous, followup, attachments = [], fileText = "" } = JSON.parse(Buffer.concat(chunks).toString());
+  const { id, prompt, workspace, thread, previous, followup, attachments = [], files = [], fileText = "" } = JSON.parse(Buffer.concat(chunks).toString());
   if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/.test(id)) throw new Error("任务编号不对");
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 80_000) throw new Error("聊天内容为空或太长了");
   if (typeof thread !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(thread) || workspace && workspace.thread !== thread) throw new Error("聊天编号不对");
@@ -305,6 +305,15 @@ async function queueCodexChat(req) {
     || attachments.reduce((size, url) => size + url.length, 0) > 8_000_000) {
     throw new Error("图片附件太多、太大或格式不支持");
   }
+  if (!Array.isArray(files) || files.length > 10 || files.some(file =>
+    typeof file?.name !== "string" || file.name.length > 255 || !/\.(bdi|zip)$/i.test(file.name)
+    || typeof file.data !== "string" || !/^[a-z0-9+/]+={0,2}$/i.test(file.data) || file.data.length % 4 !== 0
+  )) throw Object.assign(new Error("文件附件格式不对，只能发送 BDI 或 ZIP"), { status: 400 });
+  if (files.length && !workspace) throw Object.assign(new Error("请先在当前对话开启 Codex 仓库"), { status: 400 });
+  const fileBytes = files.reduce((size, { data }) => size + data.length * 3 / 4 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0), 0);
+  if (fileBytes > 5_000_000 || [...attachments, ...files.map(file => file.data)].reduce((size, data) => size + data.length, 0) > 8_000_000) {
+    throw Object.assign(new Error("文件附件太大，请分次发"), { status: 413 });
+  }
   if (workspace && !process.env.CODEX_WORKER_SOCKET) throw Object.assign(new Error("栖所服务器还没有启动仓库执行容器"), { status: 503 });
   if (chatTasks.has(id)) {
     if (chatTasks.get(id).thread !== thread) throw new Error("任务编号已被另一条聊天使用");
@@ -315,7 +324,7 @@ async function queueCodexChat(req) {
   for (const [key, t] of finished) {
     if (Date.now() - t.finished > 21600000 || chatTasks.size >= 24) chatTasks.delete(key);
   }
-  const task = { id, prompt, workspace, thread, previous, followup, attachments, fileText, ctrl: new AbortController(), status: "queued", events: [] };
+  const task = { id, prompt, workspace, thread, previous, followup, attachments, files, fileText, ctrl: new AbortController(), status: "queued", events: [] };
   chatTasks.set(id, task);
   chatQueue.push(task);
   startNextChat();
@@ -323,8 +332,9 @@ async function queueCodexChat(req) {
 }
 
 async function runCodexChat(task) {
-  const { prompt, workspace, thread, previous, followup, attachments, fileText, ctrl } = task;
+  const { prompt, workspace, thread, previous, followup, attachments, files, fileText, ctrl } = task;
   delete task.attachments;
+  delete task.files;
   delete task.fileText;
   const home = mkdtempSync(join(tmpdir(), "qisuo-chat-"));
   let screenshots;
@@ -347,6 +357,17 @@ async function runCodexChat(task) {
       screenshots = join(cwd, photoFolder);
       mkdirSync(screenshots, { mode: 0o700 });
     }
+    const fileList = [];
+    if (files.length) {
+      const folder = join(photoFolder, "chat-files");
+      mkdirSync(join(cwd, folder), { mode: 0o700 });
+      for (const [i, { name, data }] of files.entries()) {
+        // 原名只用于聊天中的显示。临时文件不解包，也不用上传者提供的名字作路径。
+        const path = join(folder, `附件-${i + 1}${name.toLowerCase().endsWith(".bdi") ? ".bdi" : ".zip"}`);
+        writeFileSync(join(cwd, path), Buffer.from(data, "base64"), { mode: 0o600, flag: "wx" });
+        fileList.push({ name, path });
+      }
+    }
     const env = { PATH: process.env.PATH, CODEX_HOME, HOME: checkout ? cwd : home, TMPDIR: checkout ? screenshots : home };
     const agentPrompt = checkout ? [
       `正在栖所聊天中，当前工作区是 ${checkout.name}。按对方本轮要求调查、修改或运行；普通闲聊直接回复。源码可直接修改，标准 git status、diff、log、add、commit -m、pull、push 已接到栖所的受控 Git 通道。对方说「合并」「推送」或明确同意推送，就完成检查、提交、pull、push，不要声称没有 Git 工具；部署仍由对方自己做。可以用 curl 查看公开 GitHub 链接；私有代码从当前授权的仓库副本读取。`,
@@ -363,7 +384,8 @@ async function runCodexChat(task) {
     if (threadId) rmSync(stateFile, { force: true });
     progress(checkout ? "Codex 已打开仓库…" : "Codex 正在回复…");
     const result = await runChatTurn({
-      cwd, env, attachments, fileText, signal: ctrl.signal, progress, threadId, onText: text => { task.text = text; },
+      cwd, env, attachments, signal: ctrl.signal, progress, threadId, onText: text => { task.text = text; },
+      fileText: fileList.length ? [fileText, "【本轮收到的原文件，可按对方要求读取以下临时路径】", JSON.stringify(fileList)].join("\n\n") : fileText,
       prompt: agentPrompt, followup: checkout ? agentPrompt.slice(0, -prompt.length) + followup : followup,
       timeout: checkout ? 600_000 : 120_000,
       worker: checkout ? {
