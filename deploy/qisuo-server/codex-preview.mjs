@@ -93,10 +93,14 @@ async function photograph(url, scratch, scheme) {
     env: { ...process.env, HOME: scratch, XDG_CONFIG_HOME: scratch, XDG_CACHE_HOME: scratch },
     stdio: ["ignore", "ignore", "pipe"],
   });
-  let stderr = "", exit;
-  const closed = new Promise(resolve => child.on("close", () => { exit = true; resolve(); }));
+  let stderr = "", exit, exitStatus;
+  const closed = new Promise(resolve => child.on("close", (code, signal) => {
+    exit = true;
+    exitStatus = signal || code;
+    resolve();
+  }));
   child.on("error", error => { stderr = error.message; exit = true; });
-  child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-400); });
+  child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-4000); });
   let ws;
   const stop = setTimeout(() => { ws?.close(); child.kill("SIGKILL"); }, 16000);
   try {
@@ -106,7 +110,10 @@ async function photograph(url, scratch, scheme) {
       if (port) break;
       await sleep(100);
     }
-    if (!port) throw new Error("Chromium 启动失败：" + stderr);
+    if (!port) {
+      const reason = exit ? `进程已退出（${exitStatus ?? "无法启动"}）` : "等待调试端口超时";
+      throw new Error(`Chromium 启动失败：${reason}\n${stderr}`);
+    }
     const targets = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) }).then(r => r.json());
     const target = targets.find(item => item.type === "page");
     if (!target) throw new Error("Chromium 没有打开页面");

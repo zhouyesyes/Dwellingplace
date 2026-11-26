@@ -329,17 +329,19 @@ mkdir -p "$DIR/codex-previews"
 chmod 700 "$DIR/codex-previews"
 $SUDO docker rm -f qisuo-codex-preview >/dev/null 2>&1 || true
 rm -f "$DIR/codex-previews/preview.sock"
-$SUDO docker run -d --name qisuo-codex-preview --restart unless-stopped --init --network none \
+if $SUDO docker run -d --name qisuo-codex-preview --restart unless-stopped --init --network none \
   --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,nosuid,nodev,size=256m \
   --pids-limit 256 --memory 768m --shm-size 128m -e HOME=/tmp -e QISUO_CODEX_PREVIEW=1 \
-  -v "$DIR/codex-previews:/codex-previews" qisuo-server node /app/codex-preview.mjs >/dev/null
-for _ in $(seq 1 15); do
-  [ ! -S "$DIR/codex-previews/preview.sock" ] || break
-  sleep 1
-done
-if ! $SUDO docker exec qisuo-codex-preview node /app/codex-preview.mjs --check; then
-  say "Chromium 截图自检没通过，现有栖所主容器还在运行。"
-  exit 1
+  -v "$DIR/codex-previews:/codex-previews" qisuo-server node /app/codex-preview.mjs >/dev/null; then
+  for _ in $(seq 1 15); do
+    [ ! -S "$DIR/codex-previews/preview.sock" ] || break
+    sleep 1
+  done
+  if ! $SUDO docker exec qisuo-codex-preview node /app/codex-preview.mjs --check; then
+    say "Chromium 截图自检没通过，继续更新栖所；截图功能可能暂时不可用。"
+  fi
+else
+  say "Chromium 截图服务没启动，继续更新栖所。"
 fi
 
 say "启动…"
