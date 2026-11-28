@@ -58,14 +58,25 @@ function artistText(value){
     if(Array.isArray(value))return value.map(artistText).filter(Boolean).join(' / ');
     return typeof value==='object'&&value?str(value.name??value.title):str(value);
 }
+function trackDuration(x) {
+    const raw = x.time ?? x.duration ?? x.interval ?? x.dt ?? 0;
+    const seconds = typeof raw === 'string' && raw.includes(':')
+        ? raw.split(':').reduce((total, part) => total * 60 + (+part || 0), 0)
+        : +raw || 0;
+    return (x.dt != null && raw === x.dt) || seconds > 3600 ? Math.round(seconds / 1000) : seconds;
+}
+function isPreview(duration, expected) {
+    if (!Number.isFinite(duration) || duration <= 0) return false;
+    return expected > 0
+        ? duration <= 65 && expected - duration > 20 && duration < expected * .7
+        : Math.abs(duration - 30) <= 1;
+}
 function trackOf(x, base) {
     const id = idOf(x); if (!id) return null;
     const artist = artistText(x.artist ?? x.artists ?? x.ar ?? x.author ?? x.singer);
     const raw = str(x.url || x.audio);
     const direct = /^https?:\/\//.test(raw) && !/[?&]type=(url|song)\b|\/api(\/|\?)|meting/i.test(raw) ? raw : '';
-    let dur = x.time ?? x.duration ?? x.interval ?? 0;
-    dur = typeof dur === 'string' && dur.includes(':') ? dur.split(':').reduce((a, n) => a * 60 + (+n || 0), 0) : +dur || 0;
-    if (dur > 3600) dur = Math.round(dur / 1000); // 有的接口给的是毫秒
+    const dur = trackDuration(x);
     const cover = str(x.pic || x.cover || x.album?.picUrl || x.al?.picUrl).replace(/^(?:http:)?\/\//, 'https://');
     return { id, title: str(x.name ?? x.title ?? x.songname ?? x.song) || '未命名', artist, cover: /^https?:/.test(cover) ? cover : '', picId: str(x.pic_id), lyricId: str(x.lyric_id), lrc: str(x.lrc ?? x.lyric), base, direct, dur };
 }
@@ -171,7 +182,7 @@ export async function searchQQ(q, page = 1, {signal}={}) {
         return rows.slice(0, 20).map(x => {
             const id = str(x.id ?? x.mid ?? x.songmid); if (!id) return null;
             const artist = artistText(x.singer ?? x.artist ?? x.artists ?? x.ar);
-            return { id, qqMid:str(x.mid??x.songmid),qqType:Number(x.type)||0,src: 'qq', title: str(x.song ?? x.songname ?? x.name ?? x.title) || '未命名', artist, cover: str(x.cover || x.pic || (x.album?.mid && 'https://y.gtimg.cn/music/photo_new/T002R300x300M000' + x.album.mid + '.jpg')), lrc: '' };
+            return { id, qqMid:str(x.mid??x.songmid),qqType:Number(x.type)||0,src: 'qq', dur: trackDuration(x), title: str(x.song ?? x.songname ?? x.name ?? x.title) || '未命名', artist, cover: str(x.cover || x.pic || (x.album?.mid && 'https://y.gtimg.cn/music/photo_new/T002R300x300M000' + x.album.mid + '.jpg')), lrc: '' };
         }).filter(Boolean);
     } catch { return []; }
 }
@@ -218,7 +229,14 @@ export async function qqAudioBlob(url, {signal}={}) {
     }else{const bytes=await response.arrayBuffer();if(bytes.byteLength>limit)throw new Error('QQ 音源过大');chunks.push(bytes);}
     const blob=new Blob(chunks),head=new Uint8Array(await blob.slice(0,16).arrayBuffer());
     const tag=(start,length)=>String.fromCharCode(...head.slice(start,start+length));
-    const type=tag(0,3)==='ID3'||(head[0]===255&&(head[1]&224)===224)?'audio/mpeg':tag(0,4)==='RIFF'&&tag(8,4)==='WAVE'?'audio/wav':tag(4,4)==='ftyp'?'audio/mp4':tag(0,4)==='OggS'?'audio/ogg':'';
+    const formats = [
+        [tag(0,3)==='ID3'||(head[0]===255&&(head[1]&224)===224),'audio/mpeg'],
+        [tag(0,4)==='RIFF'&&tag(8,4)==='WAVE','audio/wav'],
+        [tag(4,4)==='ftyp','audio/mp4'],
+        [tag(0,4)==='OggS','audio/ogg'],
+        [tag(0,4)==='fLaC','audio/flac'],
+    ];
+    const type = formats.find(([matches]) => matches)?.[1];
     if(!type)throw new Error('QQ 返回的内容不是可识别的音频');
     return new Blob([blob],{type});
 }
@@ -232,7 +250,7 @@ export function counterpartSong(list,title,artist='') {
 // 网易云放不出来：按歌名 + 歌手去 QQ 找同一首
 export async function qqTwin(t, {signal}={}) {
     const list = await searchQQ([t.title, t.artist].filter(Boolean).join(' '),1,{signal});
-    return bestSong((list||[]).filter(track=>norm(track.title)===norm(t.title)),t.title,t.artist);
+    return counterpartSong(list,t.title,t.artist);
 }
 async function gdUrl(t, {signal}={}) {
     const d = await getJson(GD_API + '?' + new URLSearchParams({ types: 'url', source: 'netease', id: t.id, br: 320 }), 2500, signal);
@@ -423,13 +441,12 @@ function parallelSourceRace(track,{signal,platform,cached}={}) {
     };
     const qq=async(t,emit,signal)=>{
         const identity=String(t.id),age=Date.now()-(t.okAt||0);
-        if(t.ok==='qq'&&t.okUrl&&age>=0&&age<SOURCE_CACHE_MS)emit({key:`qq:${identity}:saved`,k:'qq',cacheKey:'qq',platform:'qq',track:t,u:qqAudioUrl(t.okUrl),family:'qq',priority:0});
-        await Promise.all([8,4].map(async quality=>{
+        if(t.ok==='qq'&&!t.qqPreview&&t.okUrl&&age>=0&&age<SOURCE_CACHE_MS)emit({key:`qq:${identity}:saved`,k:'qq',cacheKey:'qq',platform:'qq',track:t,u:qqAudioUrl(t.okUrl),family:'qq',priority:0});
+        await Promise.all([4,8,'auto'].map(async quality=>{
             const copy={...t};try{const u=await qqUrl(copy,{qualityOnly:quality,signal});
-                emit({key:`qq:${identity}:${quality}`,k:'qq',cacheKey:'qq',platform:'qq',track:copy,u,family:'qq',priority:quality===8?0:1});
+                emit({key:`qq:${identity}:${quality}`,k:'qq',cacheKey:'qq',platform:'qq',track:copy,u,family:'qq',priority:quality===4?0:quality===8?1:2});
             }catch{/* The other quality and NetEase remain independent. */}
         }));
-        if(!signal.aborted){const copy={...t};try{const u=await qqUrl(copy,{qualityOnly:'auto',signal});emit({key:`qq:${identity}:auto`,k:'qq',cacheKey:'qq',platform:'qq',track:copy,u,family:'qq',priority:2});}catch{/* No available unencrypted format returned. */}}
     };
     const producers=[];
     if(platform!=='netease'){
@@ -444,20 +461,26 @@ function parallelSourceRace(track,{signal,platform,cached}={}) {
         if(exact)await net(exact,emit,signal);
     });
     const candidates = cached ? [emit => emit({
-        key: 'last-played', k: cached.kind, platform: cached.platform,
+        key: cached.key || 'last-played', k: cached.kind, platform: cached.platform,
         track: { ...track, ...cached.track, src: cached.platform },
         u: cached.url, family: cached.platform,
     })] : producers;
     return createSourceRace(candidates,async(entry,{signal})=>{
-        if(await probeAudioUrl(entry.u,{signal}))return entry;
-        if(signal.aborted||entry.platform!=='qq')return null;
+        if(entry.platform==='qq'&&entry.track.qqPreview)return null;
+        let preview=false;
+        const acceptDuration=duration=>{
+            preview=isPreview(duration,Math.max(entry.track.dur||0,track.dur||0));
+            return !preview;
+        };
+        if(await probeAudioUrl(entry.u,{signal,acceptDuration}))return entry;
+        if(signal.aborted||preview||entry.platform!=='qq')return null;
         const controller=new AbortController(),abort=()=>controller.abort();
         signal.addEventListener('abort',abort,{once:true});const timer=setTimeout(abort,12000);
         let url;
         try{
             const blob=await qqAudioBlob(entry.u,{signal:controller.signal});if(signal.aborted)return null;
             url=URL.createObjectURL(blob);
-            if(await probeAudioUrl(url,{signal}))return {...entry,u:url,remoteUrl:entry.u,dispose:()=>URL.revokeObjectURL(url)};
+            if(await probeAudioUrl(url,{signal,acceptDuration}))return {...entry,u:url,remoteUrl:entry.u,dispose:()=>URL.revokeObjectURL(url)};
         }catch{/* Native and typed-audio recovery both failed for this candidate. */}
         finally{clearTimeout(timer);signal.removeEventListener('abort',abort);}
         if(url)URL.revokeObjectURL(url);return null;
@@ -473,7 +496,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     let skipTimer=0;const failedTracks=new Set();
     const trackIdentity=t=>`${t.src||'netease'}:${t.id||t.title}`;
     let playRevision=0,fallbackJob=null,fallbackRevision=-1,recoveryFailed=false,resolving=false,sourceTrack=null;
-    let raceController,sourceRace,sourceDisposer;const excludedSources=new Set();
+    let raceController,sourceRace,sourceDisposer,manualSwitch=false;const excludedSources=new Set();
     let stopWait=null,cancelAudioAttempt=null;
     const waitStep=async(promise,cancel=()=>{})=>{
         let interrupt;
@@ -520,8 +543,9 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
         const last = t.lastSource;
         preferredPlatform = platform === undefined && ['qq', 'netease'].includes(last?.platform) ? last.platform : '';
         const age = Date.now() - last?.at;
-        cachedSource = last && (preferredPlatform || selectedPlatform === last.platform)
+        cachedSource = last && !last.track?.qqPreview && (preferredPlatform || selectedPlatform === last.platform)
             && /^https?:/.test(last.url) && age >= 0 && age < SOURCE_CACHE_MS ? last : null;
+        manualSwitch=false;
         const revision=++playRevision;stopWait?.();clearTimeout(dog);raceController?.abort();sourceRace=null;releaseSource();excludedSources.clear();
         delete audio.dataset.tried;delete audio.dataset.src;recoveryFailed=false;resolving=true;sources=[];srcIdx=0;sourceTrack=t;
         media.prepare();
@@ -549,11 +573,8 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     };
     const prev = () => { const s = st(); if (!s.list.length) return; s.idx = (s.idx - 1 + s.list.length) % s.list.length; save(); play(); };
     audio.addEventListener('ended', () => next(true));
-    // 只有 30 秒左右、整首明明更长：多半是会员歌的试听片段，换下一个来源
     audio.addEventListener('loadedmetadata', () => {
-        const t = playing || cur();
         if (startAt && Number.isFinite(audio.duration) && startAt < audio.duration) audio.currentTime = startAt;
-        if (t && sourcePlatform !== 'qq' && (sourceTrack?.dur||t.dur) > 60 && audio.duration > 0 && audio.duration < 45) { onStatus('这个来源只有试听片段，换一个…');if(cancelAudioAttempt)cancelAudioAttempt();else fallback(); }
     });
     // 现在在干嘛：给界面那一行小字
     const where = (platform = sourcePlatform) => (platform==='qq'?'QQ 音乐':'网易云');
@@ -602,6 +623,11 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
                         raceController?.abort();sourceRace=null;
                         continue;
                     }
+                    if(manualSwitch){
+                        manualSwitch=false;
+                        onStatus('这首歌没有其他可用音源');
+                        return;
+                    }
                     finishFailure();return;
                 }
                 excludedSources.add(winner.key);excludedSources.add(winner.remoteUrl||winner.u);releaseSource();sourceDisposer=winner.dispose;
@@ -610,6 +636,8 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
                 if(!swapped)for(const key of ['qqQuality','qqPreview','qqRequestedQuality'])if(sourceTrack[key]!==undefined)t[key]=sourceTrack[key];
                 sources=[{...winner,k:winner.cacheKey||winner.k}];srcIdx=0;
                 refreshPresentation(sourceTrack);onStatus('音源已就绪 · '+where());
+                if(manualSwitch && audio.readyState)startAt=audio.currentTime;
+                manualSwitch=false;
                 audio.src=winner.u;audio.dataset.src=winner.remoteUrl||winner.u;audio.dataset.id=sourceTrack.id;
                 if(await startAudio()){
                     if(!current())return;
@@ -638,7 +666,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
         if (sourceKey === confirmedSource && t.lastSource?.url === url) return;
         confirmedSource = sourceKey;
         // 收录平台和实际播放平台可以不同，记下这次真正播出的来源。
-        t.lastSource = { platform: sourcePlatform, kind: k, url, at, track: { id, dur, lrc, qqPreview } };
+        t.lastSource = { platform: sourcePlatform, kind: k, key: sources[srcIdx].key, url, at, track: { id, dur, lrc, qqPreview } };
         if (!swapped) { t.ok = k; t.okUrl = url; t.okAt = at; }
         save();
     });
@@ -646,7 +674,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     audio.addEventListener('error', () => { clearTimeout(dog); if (audio.src&&!recoveryFailed&&!resolving&&!cancelAudioAttempt) fallback(); });
     audio.addEventListener('play', () => onChange?.('state'));
     audio.addEventListener('pause', () => onChange?.('state'));
-    const pausePlayback=()=>{clearTimeout(skipTimer);playRevision++;stopWait?.();resolving=false;clearTimeout(dog);audio.pause();};
+    const pausePlayback=()=>{manualSwitch=false;clearTimeout(skipTimer);playRevision++;stopWait?.();resolving=false;clearTimeout(dog);audio.pause();};
     const resume = async () => {
         if (recoveryFailed || audio.error || !audio.src || !playing) return play(undefined, { position: resumePosition?.(playing || cur()), platform: selectedPlatform || undefined });
         media.prepare();
@@ -659,6 +687,7 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     });
     function stop() {
         startAt = 0;
+        manualSwitch=false;
         selectedPlatform = ''; preferredPlatform = ''; cachedSource = null;
         clearTimeout(skipTimer);failedTracks.clear();playRevision++;presentationRevision++;stopWait?.();raceController?.abort();sourceRace=null;releaseSource();resolving=false;recoveryFailed=false;sourceTrack=null;playing=null;confirmedSource='';sourcePlatform='';sourcePreview=false;sources=[];srcIdx=0;lrc=[];lrcFor='';clearTimeout(dog);
         audio.pause();audio.removeAttribute('src');delete audio.dataset.src;delete audio.dataset.id;delete audio.dataset.tried;audio.load();
@@ -668,14 +697,28 @@ export function createPlayer({ load, save, onChange, onStart, resumePosition, on
     return {
         audio, play, next, prev, stop,
         source:()=>({platform:sourcePlatform,preview:sourcePreview}),
-        selectSource(platform) {
-            const track = playing || cur(), playlist = st();
-            const index = playlist.list.indexOf(track);
-            if (index < 0 || !['', 'qq', 'netease'].includes(platform)) return;
-            const position = audio.readyState ? audio.currentTime : resumePosition?.(track);
-            return play(index, { playlist, position, platform });
+        skipSource() {
+            if(!playing || recoveryFailed){
+                const track=playing || cur();
+                if(track)return play(undefined,{position:resumePosition?.(track),platform:''});
+                return;
+            }
+            if(resolving || manualSwitch)return;
+            clearTimeout(skipTimer);
+            clearTimeout(dog);
+            selectedPlatform='';preferredPlatform='';cachedSource=null;
+            raceController?.abort();sourceRace=null;
+            // 旧收藏可能只有缓存地址，仍需避开它对应的接口。
+            const active=sources[srcIdx];
+            if(active && active.key==='last-played'){
+                const id=sourceTrack.id;
+                if(active.platform==='qq')excludedSources.add('qq:'+id+':saved');
+                else for(const kind of [active.k,'saved:'+active.k])excludedSources.add('netease:'+id+':'+kind);
+            }
+            manualSwitch=true;
+            onStatus('正在找下一个音源…');
+            return fallback();
         },
-        skipSource: () => { clearTimeout(dog);onStatus('正在跳过当前来源…');if(recoveryFailed)return play();const t = playing || cur(); if (t) { delete t.ok; delete t.okUrl; delete t.okAt; delete t.lastSource; } if(stopWait){stopWait();return;}fallback(); }, // 她手动点「换个来源」：这首记的来源作废，换下一个
         toggle: () => (audio.paused ? resume() : pausePlayback()),
         seek: frac => { if (audio.duration) audio.currentTime = audio.duration * frac; },
         current: () => playing || cur(), playing: () => !recoveryFailed&&!audio.paused,

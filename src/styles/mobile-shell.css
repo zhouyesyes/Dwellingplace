@@ -110,7 +110,7 @@
 .music-queue { margin-top: 20px; }
 .music-source { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 10px; }
 .music-source .music-status { margin: 0; }
-.music-source select { max-width: 100%; padding: 4px 6px; border: 1px solid var(--shell-line); border-radius: 8px; background: var(--card); color: var(--shell-muted); font: inherit; font-size: 11px; }
+.music-source button { max-width: 100%; padding: 4px 6px; border: 1px solid var(--shell-line); border-radius: 8px; background: var(--card); color: var(--shell-muted); font: inherit; font-size: 11px; }
 .queue-tracks { max-height: 147px; overflow-y: auto; overscroll-behavior: contain; }
 .queue-tracks p, .music-status, .music-queue > p { font-size: 12px; line-height: 1.6; color: var(--shell-muted); }
 .queue-track { display: flex; min-height: 48px; border-radius: 9px; }

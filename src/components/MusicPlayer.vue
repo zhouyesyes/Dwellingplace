@@ -138,12 +138,7 @@ function copySong(song, event) {
     </div>
     <div v-if="current" class="music-source">
       <p v-if="musicStatus" class="music-status" role="status">{{ musicStatus }}</p>
-      <select aria-label="切换当前歌曲的播放音源" @change="player.selectSource($event.target.value); $event.target.selectedIndex = 0">
-        <option value="" disabled selected>切换音源</option>
-        <option value="netease">网易云</option>
-        <option value="qq">QQ 音乐</option>
-        <option value="">自动选源</option>
-      </select>
+      <button type="button" @click="player.skipSource()">切换音源</button>
     </div>
     <div v-if="queueOpen" class="music-queue">
       <div class="queue-tracks">

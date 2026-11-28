@@ -18,7 +18,7 @@ export function beginAudioAttempt(audio, timeout=12000) {
 }
 
 // Muted preloads test decodability without starting several audible players.
-export function probeAudioUrl(url,{signal,timeout=12000,maxTimeout=30000}={}) {
+export function probeAudioUrl(url,{signal,timeout=12000,maxTimeout=30000,acceptDuration=()=>true}={}) {
     return new Promise(resolve=>{
         const audio=new Audio();audio.muted=true;audio.preload='auto';audio.hidden=true;
         audio.setAttribute('playsinline','');
@@ -31,7 +31,7 @@ export function probeAudioUrl(url,{signal,timeout=12000,maxTimeout=30000}={}) {
         const abort=()=>finish(false),failed=()=>finish(false);
         const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>finish(false),Math.max(0,Math.min(timeout,started+maxTimeout-Date.now())));};
         const progress=()=>{
-            if(audio.readyState>=3){finish(true);return;}
+            if(audio.readyState>=3){finish(acceptDuration(audio.duration));return;}
             let end=0;try{if(audio.buffered.length)end=audio.buffered.end(audio.buffered.length-1);}catch{}
             if(audio.readyState>lastReady||end>lastEnd){lastReady=audio.readyState;lastEnd=end;arm();}
         };
