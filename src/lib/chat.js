@@ -610,6 +610,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     : planLow(api) ? "额度快用完了"
     : lastAi?.error ? "上一次出错了" : "";
   let cancelled = false; // 续发的时候她发了新消息
+  const replyChecks = [];
   try {
     // 接了心潮：取一下「此刻」（第一次最多等 3 秒，之后 30 秒内用缓存）
     if (hasXinchao(role) && dashToken(role)) {
@@ -668,6 +669,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       const base = msg.text.length;
       const pace = pacer(msg, ctrl.signal);
       let received = "";
+      let lastTextAt, streamEndedAt, finish, actualModel, outputTokens, streamFailed;
       let res;
       try {
         if (codex) {
@@ -729,12 +731,15 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
           // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
           webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
-          onText: d => { received += d; pace.push(d); },
+          onText: d => { received += d; lastTextAt = Date.now(); pace.push(d); },
+          onFinish: (reason, name, tokens) => { finish = reason; actualModel = name; outputTokens = tokens; },
           onThinking: d => { msg.thinking += d; },
         });
+        streamEndedAt = Date.now();
         await pace.drain();
         if (ctrl.signal.aborted && !msg.sends) throw ctrl.signal.reason;
       } catch (e) {
+        streamFailed = true;
         pace.stop();
         if (privateChat && ctrl.signal.aborted && !msg.sends && received) {
           msg.text = visibleText(msg.text.slice(0, base) + received).trim();
@@ -758,6 +763,15 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           break;
         }
         throw e;
+      } finally {
+        if (privateChat && !codex && !dsh && (received || finish || streamFailed)) {
+          replyChecks.push([
+            `第 ${round + 1} 轮 · ${actualModel || model}`,
+            `接口结束信号 ${finish || "未收到"}${streamFailed ? " · 请求中断" : ""}`,
+            `收到正文 ${received.length} 字符${outputTokens > 0 ? " · 输出 " + outputTokens + " token" : ""}`,
+            lastTextAt ? `末段正文到接口返回 ${(((streamEndedAt ?? Date.now()) - lastTextAt) / 1000).toFixed(1)} 秒` : "",
+          ].filter(Boolean).join("\n"));
+        }
       }
       msg.rounds++;
       text = res.text || msg.text.slice(base);
@@ -1021,6 +1035,12 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     }
     if (!all.includes(msg)) { all.push(msg); thread.sel[parent] = msg.id; }
   } finally {
+    if (replyChecks.length) {
+      msg.notes.push({
+        text: "回复诊断",
+        detail: [...replyChecks, `最终保存 ${msg.error ? 0 : msg.text.length} 字符 · 气泡正文 ${msg.error ? 0 : splitBubbles(msg.text).join("").length} 字符`].join("\n\n"),
+      });
+    }
     delete msg.pending;
     delete msg.codexJob;
     delete msg.codexJobId;

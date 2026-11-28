@@ -69,7 +69,7 @@ const searchTool = model => ({
   max_uses: 3,
 });
 
-async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch, requireComplete, forceStream }) {
+async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, onFinish, webSearch, requireComplete, forceStream }) {
   const client = anthropicClient(api);
   const msgs = messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) }));
   // 提示缓存：系统提示一个断点，最后两条消息各一个断点。
@@ -101,6 +101,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
       const msg = fb
         ? await client.beta.messages.create({ ...params, fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] }, { signal, timeout: 600_000 })
         : await client.messages.create(params, { signal, timeout: 600_000 });
+      onFinish?.(msg.stop_reason, msg.model, msg.usage?.output_tokens);
       if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
       const th = msg.content.filter(b => b.type === "thinking").map(b => b.thinking).join("");
       if (th) { thinking += th; onThinking?.(th); }
@@ -128,6 +129,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
     stream.on("text", d => onText(d));
     stream.on("thinking", d => { thinking += d; onThinking?.(d); });
     const msg = await stream.finalMessage();
+    onFinish?.(msg.stop_reason, msg.model, msg.usage?.output_tokens);
     if (msg.stop_reason === "refusal") throw new Error("这条消息被模型拒绝回答了，换个说法试试？");
     text += msg.content.filter(b => b.type === "text").map(b => b.text).join("");
     // input_tokens 只算没命中缓存的部分；加上缓存读写，才是这次一共喂进去多少
@@ -189,7 +191,7 @@ const isOpenAI = api => /api\.openai\.com|\/openai\/v1\/?$/i.test(api?.baseUrl |
 // 某个接口不认这个参数，就记下来，以后不再给它发
 const noCacheKey = new Set();
 
-async function openaiStream({ api, model, system, messages, signal, onText, onThinking, cacheKey, requireComplete, forceStream }) {
+async function openaiStream({ api, model, system, messages, signal, onText, onThinking, onFinish, cacheKey, requireComplete, forceStream }) {
   const stream = forceStream || streaming();
   const body = {
     model,
@@ -249,6 +251,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     if (thinking) onThinking?.(thinking);
     if (parts.text) onText(parts.text);
     const u = j.usage || {};
+    onFinish?.(j.choices?.[0]?.finish_reason, j.model, u.completion_tokens);
     checkFinish(j.choices?.[0]?.finish_reason, j.model, u.completion_tokens);
     return { text: parts.text, thinking, usage: { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0 } };
   }
@@ -294,8 +297,10 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
         if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0, cached: j.usage.prompt_tokens_details?.cached_tokens ?? j.usage.prompt_cache_hit_tokens ?? j.usage.cached_tokens ?? 0 };
       }
     }
-    if (done) break;
+    if (done || sawDone) break;
   }
+  if (sawDone) void reader.cancel().catch(() => {});
+  onFinish?.(finishReason || (sawDone ? "[DONE]" : null), responseModel, usage.output);
   checkFinish(finishReason, responseModel, usage.output);
   if (requireComplete && !sawDone && !finishReason) throw new Error("连接在回复结束前断开了。");
   return { text, thinking, usage };

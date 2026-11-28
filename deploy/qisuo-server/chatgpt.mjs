@@ -340,15 +340,20 @@ async function chat(body, res, CORS) {
         else if (ev.type === "response.failed") failed = ev.response?.error || { message: "回复失败" };
         else if (ev.type === "error") failed = ev.error || ev;
         else noteEvent(ev);
+        if (finishReason || failed) return;
       }
     };
     for await (const piece of up.body) {
       buf += dec.decode(piece, { stream: true });
       readEvents();
+      // 上游已明确结束，后面的连接存活时间不属于这条回复。
+      if (finishReason || failed) break;
     }
-    buf += dec.decode() + "\n\n";
-    readEvents();
-  } catch (e) { if (!failed && !ctrl.signal.aborted) failed = { message: `连接断了：${e.message}` }; }
+    if (!finishReason && !failed) {
+      buf += dec.decode() + "\n\n";
+      readEvents();
+    }
+  } catch (e) { if (!failed && !finishReason && !ctrl.signal.aborted) failed = { message: `连接断了：${e.message}` }; }
   if (!failed && !finishReason) failed = { message: "连接在回复结束前断开了" };
   const u = usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: usage.total_tokens || 0, prompt_tokens_details: { cached_tokens: usage.input_tokens_details?.cached_tokens || 0 } } : undefined;
   if (stream) {
