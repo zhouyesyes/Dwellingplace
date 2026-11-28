@@ -318,6 +318,12 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
           回复未完 · {{ m.interrupted }}
           <button v-if="m.id === msgs.at(-1)?.id && !sending" type="button" @click="retryReply(m)">重新回答</button>
         </div>
+        <details v-if="m.diagnostics" class="edited">
+          <summary>回复诊断</summary>
+          <div>模型 {{ m.diagnostics.model || '接口未提供' }} · 结束信号 {{ m.diagnostics.finish || '无' }}</div>
+          <div>收到 {{ m.diagnostics.received }} · 预览 {{ m.diagnostics.preview }} · 接口正文 {{ m.diagnostics.returned ?? '无' }} · 保存 {{ m.diagnostics.saved }}</div>
+          <div>末段后等待 {{ m.diagnostics.waitMs == null ? '无正文' : (m.diagnostics.waitMs / 1000).toFixed(1) + ' 秒' }} · 输出 token {{ m.diagnostics.outputTokens ?? '未知' }}</div>
+        </details>
         <small v-if="m.edited" class="edited">改过</small>
         <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
       </div>

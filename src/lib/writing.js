@@ -378,12 +378,19 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
   const prompt = await writingPrompt(role, p, atts);
   await saveTalk(p.id); // 回复中断时也要保留她刚发的内容
   let received = "", preview = "", raw;
+  let lastTextAt, finish, model, outputTokens;
+  const diagnostics = saved => ({
+    model, finish, outputTokens, waitMs: lastTextAt == null ? null : Date.now() - lastTextAt,
+    received: received.length, preview: preview.length, returned: raw?.length, saved: saved.length,
+  });
   try {
     raw = await oneShot(role, prompt, {
       raw: true, attachments: atts, requireComplete: true, forceStream: true, onThinking,
+      onFinish: (reason, name, tokens) => { finish = reason; model = name; outputTokens = tokens; },
       // 先显示正文，回复完整后再处理便签、卡片和进度。
       onText: delta => {
         received += delta;
+        lastTextAt = Date.now();
         const visible = received.replace(NOTE_TAG, "").replace(CARD_TAG, "")
           .replace(/\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]]*)?$/, "");
         preview = visibleText(visible).trim();
@@ -391,7 +398,8 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
       },
     });
   } catch (e) {
-    list.push({ id: uid(), from: "ai", text: preview, interrupted: describeError(e), ts: Date.now() });
+    list.push({ id: uid(), from: "ai", text: preview, interrupted: describeError(e), diagnostics: diagnostics(preview), ts: Date.now() });
+    onPreview?.("");
     await saveTalk(p.id);
     return { interrupted: true };
   }
@@ -399,8 +407,8 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
   const t1 = applyBoardTags(role, t0.text, { project: p });
   const rest = t1.text, notes = [...t0.notes, ...t1.notes];
   const reply = visibleText(rest).trim();
+  list.push({ id: uid(), from: "ai", text: reply, notes, diagnostics: diagnostics(reply), ts: Date.now() });
   onPreview?.("");
-  if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });
   await saveTalk(p.id);
   touch(p.id);
   if (sumTokens(talkAfterSum(p, list)) >= talkAutoAt()) compressTalk(role, p, { why: "limit" }).catch(e => console.warn("讨论摘要没整理成", e));
