@@ -376,7 +376,8 @@ export async function talk(role, p, text, atts = []) {
   if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
   else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
   const prompt = await writingPrompt(role, p, atts);
-  const raw = await oneShot(role, prompt, { raw: true, attachments: atts });
+  await saveTalk(p.id); // 回复中断时也要保留她刚发的内容
+  const raw = await oneShot(role, prompt, { raw: true, attachments: atts, requireComplete: true });
   const t0 = applyTags(p, raw);
   const t1 = applyBoardTags(role, t0.text, { project: p });
   const rest = t1.text, notes = [...t0.notes, ...t1.notes];

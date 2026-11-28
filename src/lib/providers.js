@@ -182,7 +182,7 @@ const isOpenAI = api => /api\.openai\.com|\/openai\/v1\/?$/i.test(api?.baseUrl |
 // 某个接口不认这个参数，就记下来，以后不再给它发
 const noCacheKey = new Set();
 
-async function openaiStream({ api, model, system, messages, signal, onText, onThinking, cacheKey }) {
+async function openaiStream({ api, model, system, messages, signal, onText, onThinking, cacheKey, requireComplete }) {
   const stream = streaming();
   const body = {
     model,
@@ -222,12 +222,19 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     throw new Error(withModel(httpError(res.status, raw)));
   }
 
+  const checkFinish = reason => {
+    if (!requireComplete) return;
+    if (reason === "length") throw new Error("回复达到输出长度上限，提前结束了。");
+    if (reason === "content_filter") throw new Error("模型停止了这条回复。");
+  };
+
   // 关了流式：整条一次拿回来
   if (!stream) {
     const raw = await res.text();
     let j;
     try { j = JSON.parse(raw); } catch { throw new Error(`接口返回的不是 JSON：${raw.slice(0, 200)}`); }
     if (j.error) throw new Error(withModel(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`));
+    checkFinish(j.choices?.[0]?.finish_reason);
     const m = j.choices?.[0]?.message || {};
     const c = typeof m.content === "string" ? m.content : (m.content || []).map(x => x.text || "").join("");
     const parts = splitThink(c);
@@ -241,6 +248,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  let finishReason = null, sawDone = false;
   let buf = "", content = "", text = "", thinking = "", reasoning = "", usage = { input: 0, output: 0, cached: 0 };
   // 把新的正文 / 思考按增量交出去
   const emit = () => {
@@ -261,12 +269,13 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       const line = raw.trim();
       if (!line.startsWith("data:")) continue;
       const data = line.slice(5).trim();
-      if (data === "[DONE]") continue;
+      if (data === "[DONE]") { sawDone = true; continue; }
       let j;
       try { j = JSON.parse(data); } catch { continue; } // 不完整的行，忽略
       // 流到一半出错（比如会员额度用完了）
       if (j.error && !j.choices) throw new Error(withModel(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`));
       {
+        finishReason = j.choices?.[0]?.finish_reason ?? finishReason;
         const delta = j.choices?.[0]?.delta || {};
         // OpenRouter 还会把思考放在 reasoning_details 里（GPT 给的是摘要；加密的那种看不了）
         const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text
@@ -279,6 +288,8 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       }
     }
   }
+  checkFinish(finishReason);
+  if (requireComplete && !sawDone && !finishReason) throw new Error("连接在回复结束前断开了。");
   return { text, thinking, usage };
 }
 

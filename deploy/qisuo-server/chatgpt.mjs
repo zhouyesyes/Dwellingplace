@@ -303,7 +303,7 @@ async function chat(body, res, CORS) {
   const id = `chatcmpl-${randomUUID()}`;
   const chunk = delta => `data: ${JSON.stringify({ id, object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`;
   if (stream) res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
-  let text = "", reasoning = "", usage = null, failed = null, done = false;
+  let text = "", reasoning = "", usage = null, failed = null, finishReason = null;
   const dec = new TextDecoder();
   let buf = "";
   try {
@@ -317,26 +317,33 @@ async function chat(body, res, CORS) {
         let ev; try { ev = JSON.parse(data); } catch { continue; }
         if (ev.type === "response.output_text.delta") { text += ev.delta; if (stream) res.write(chunk({ content: ev.delta })); }
         else if (ev.type === "response.reasoning_summary_text.delta" || ev.type === "response.reasoning_text.delta") { reasoning += ev.delta; if (stream) res.write(chunk({ reasoning: ev.delta })); }
-        else if (ev.type === "response.completed") { done = true; usage = ev.response?.usage; }
-        else if (ev.type === "response.incomplete") { done = true; usage = ev.response?.usage; }
+        else if (ev.type === "response.completed") { finishReason = "stop"; usage = ev.response?.usage; }
+        else if (ev.type === "response.incomplete") {
+          usage = ev.response?.usage;
+          const reason = ev.response?.incomplete_details?.reason;
+          if (reason === "max_output_tokens") finishReason = "length";
+          else if (reason === "content_filter") finishReason = "content_filter";
+          else failed = { message: "模型提前结束了回复" };
+        }
         else if (ev.type === "response.failed") failed = ev.response?.error || { message: "回复失败" };
         else if (ev.type === "error") failed = ev.error || ev;
         else noteEvent(ev);
       }
     }
   } catch (e) { if (!failed && !ctrl.signal.aborted) failed = { message: `连接断了：${e.message}` }; }
+  if (!failed && !finishReason) failed = { message: "连接在回复结束前断开了" };
   const u = usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: usage.total_tokens || 0, prompt_tokens_details: { cached_tokens: usage.input_tokens_details?.cached_tokens || 0 } } : undefined;
   if (stream) {
     if (failed) res.write(`data: ${JSON.stringify({ error: { message: errMsg(failed) } })}\n\n`);
     else {
-      res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: {}, finish_reason: done ? "stop" : "length" }], ...(u ? { usage: u } : {}) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta: {}, finish_reason: finishReason }], ...(u ? { usage: u } : {}) })}\n\n`);
     }
     res.write("data: [DONE]\n\n");
     return res.end();
   }
   if (failed) { res.writeHead(502, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: errMsg(failed) } })); }
   res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
-  res.end(JSON.stringify({ id, object: "chat.completion", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: text, ...(reasoning ? { reasoning } : {}) }, finish_reason: "stop" }], ...(u ? { usage: u } : {}) }));
+  res.end(JSON.stringify({ id, object: "chat.completion", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: text, ...(reasoning ? { reasoning } : {}) }, finish_reason: finishReason }], ...(u ? { usage: u } : {}) }));
 }
 
 // ---------- 路由 ----------
