@@ -234,7 +234,6 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     let j;
     try { j = JSON.parse(raw); } catch { throw new Error(`接口返回的不是 JSON：${raw.slice(0, 200)}`); }
     if (j.error) throw new Error(withModel(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`));
-    checkFinish(j.choices?.[0]?.finish_reason);
     const m = j.choices?.[0]?.message || {};
     const c = typeof m.content === "string" ? m.content : (m.content || []).map(x => x.text || "").join("");
     const parts = splitThink(c);
@@ -242,6 +241,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     const thinking = reasoning + parts.thinking;
     if (thinking) onThinking?.(thinking);
     if (parts.text) onText(parts.text);
+    checkFinish(j.choices?.[0]?.finish_reason);
     const u = j.usage || {};
     return { text: parts.text, thinking, usage: { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0 } };
   }

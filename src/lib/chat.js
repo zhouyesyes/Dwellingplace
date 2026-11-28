@@ -657,6 +657,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
       const thinkingBefore = msg.thinking;
       const base = msg.text.length;
       const pace = pacer(msg, ctrl.signal);
+      let received = "";
       let res;
       try {
         if (codex) {
@@ -710,15 +711,20 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           msg.text = msg.text.slice(0, base) + res.text;
         } else res = await streamChat({
           api: roundApi, model, system, messages: convo, signal: ctrl.signal,
+          requireComplete: true,
           cacheKey: `qisuo-${role.id}`, // 同一个 AI 的请求放一组，设定那段更容易命中缓存
           // 开了「通过中转搜索」就用它；否则官方 Claude 可以用自带搜索
           webSearch: !useRelaySearch && !!store.tools?.webSearch && api?.type === "anthropic",
-          onText: d => pace.push(d),
+          onText: d => { received += d; pace.push(d); },
           onThinking: d => { msg.thinking += d; },
         });
         await pace.drain();
       } catch (e) {
         pace.stop();
+        if (!ctrl.signal.aborted && received) {
+          const partial = visibleText(received).trim();
+          if (partial) msg.notes.push({ text: "这轮收到的部分回复", detail: partial });
+        }
         // 续发的那几条：被她打断、或者出错了，前面发出去的留着，就停在这里（不算整条出错）
         if (msg.sends && (cancelled || !ctrl.signal.aborted)) {
           msg.text = said;
