@@ -56,40 +56,41 @@ const padX = ref(48); // 左右留白加起来：也是两栏字之间的空，�
 const pageNo = ref(0);
 const pageCount = ref(1);
 let ro = null;
+let ready = false;
+let readingAnchor = null;
 function measure() {
   const el = scroller.value;
-  if (!el) return;
+  if (!el || !el.clientWidth) return;
   el.style.setProperty("--image-height", Math.max(80, el.clientHeight - parseFloat(getComputedStyle(el).paddingTop) - parseFloat(getComputedStyle(el).paddingBottom) - 40) + "px");
   pageW.value = el.clientWidth;
   const cs = getComputedStyle(el);
   padX.value = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
   el.style.setProperty("--colh", el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) + "px");
   pageCount.value = paged.value ? Math.max(1, pageOf(el.querySelector(".ch-nav")?.getBoundingClientRect().left) + 1) : 1;
-  pageNo.value = paged.value ? Math.round(el.scrollLeft / el.clientWidth) : 0;
 }
 // 屏幕上横坐标 x 在这一章的第几页
 function pageOf(x) {
   const el = scroller.value;
-  if (!el || x == null) return 0;
+  if (!el?.clientWidth || x == null) return 0;
   return Math.floor((x - el.getBoundingClientRect().left + el.scrollLeft + 2) / el.clientWidth);
 }
 function toPage(n, smooth = true) {
   const el = scroller.value;
-  if (!el) return;
+  if (!el?.clientWidth) return;
   measure();
   n = Math.max(0, Math.min(n, pageCount.value - 1));
   flipUntil = Date.now() + (smooth ? 800 : 80);
   el.scrollTo({ left: n * el.clientWidth, behavior: smooth ? "smooth" : "auto" });
   pageNo.value = n;
+  readingAnchor = anchorAt(n);
 }
-// 浏览器自己挪了书页（点图片时对焦、拖选文字时跟着滚）：停在半页上、或者挪进章末垫的那栏，就挪回整页
+// 对焦或选择文字可能触发浏览器横滚，收回到读者选中的页。
 let flipUntil = 0;
 function guardScroll() {
   const el = scroller.value;
-  if (!paged.value || !el || Date.now() < flipUntil) return;
-  const w = el.clientWidth, at = el.scrollLeft / w;
-  const n = Math.abs(at - Math.round(at)) * w > 1 ? pageNo.value : Math.min(Math.round(at), pageCount.value - 1);
-  if (Math.abs(el.scrollLeft - n * w) > 1) el.scrollLeft = n * w;
+  if (!paged.value || !el || !ready || relaying || Date.now() < flipUntil) return;
+  const left = pageNo.value * el.clientWidth;
+  if (Math.abs(el.scrollLeft - left) > 1) el.scrollLeft = left;
 }
 // 往后 / 往前翻一页；翻过这一章的头尾就去上一章 / 下一章
 function flip(d) {
@@ -131,20 +132,84 @@ function visibleParas(back = 0) {
   return out;
 }
 
+// 记住页首的文字位置。长段跨页时，只记段号会跳回段首。
+function anchorAt(page) {
+  const el = scroller.value;
+  const top = el.getBoundingClientRect().top;
+  const line = rect => paged.value ? pageOf(rect.left) : rect.bottom;
+  const start = paged.value ? page : top + 1;
+  for (const item of el.querySelectorAll("[data-p], [data-media], .author-note, .ch-nav")) {
+    if (![...item.getClientRects()].some(r => paged.value ? line(r) === page : line(r) >= start)) continue;
+    if (item.dataset.p == null) {
+      const selector = item.dataset.media != null ? '[data-media="' + item.dataset.media + '"]'
+        : item.matches(".author-note") ? ".author-note" : ".ch-nav";
+      return { selector };
+    }
+    const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let offset = Number(item.dataset.a || 0);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      range.setStart(node, 0);
+      const reaches = end => {
+        range.setEnd(node, end);
+        const rect = [...range.getClientRects()].at(-1);
+        return rect && line(rect) >= start;
+      };
+      if (node.length && reaches(node.length)) {
+        let lo = 1, hi = node.length;
+        while (lo < hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (reaches(mid)) hi = mid;
+          else lo = mid + 1;
+        }
+        return { p: Number(item.dataset.p), offset: offset + lo - 1 };
+      }
+      offset += node.length;
+    }
+  }
+  return null;
+}
+function anchorRect(el, anchor) {
+  if (anchor.selector) return el.querySelector(anchor.selector)?.getClientRects()[0];
+  const para = [...el.querySelectorAll('[data-p="' + anchor.p + '"]')]
+    .filter(x => Number(x.dataset.a || 0) <= anchor.offset).at(-1);
+  if (!para) return;
+  let offset = anchor.offset - Number(para.dataset.a || 0);
+  const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (offset < node.length) {
+      const range = document.createRange();
+      range.setStart(node, offset);
+      range.setEnd(node, offset + 1);
+      return range.getClientRects()[0];
+    }
+    offset -= node.length;
+  }
+  return para.getClientRects()[0];
+}
+
 onMounted(async () => {
   if (!b.value) return router.replace("/books");
   content.value = await loadBook(b.value.id);
   ch.value = Math.min(b.value.pos?.ch || 0, content.value.chapters.length - 1);
   await nextTick();
-  ro = new ResizeObserver(() => relayout());
-  ro.observe(scroller.value);
   await settleImages();
   await fixStickies();
   jumpTo(b.value.pos?.p || 0);
+  ready = true;
+  let width = scroller.value.clientWidth, height = scroller.value.clientHeight;
+  ro = new ResizeObserver(() => {
+    const el = scroller.value;
+    if (!el || (width === el.clientWidth && height === el.clientHeight)) return;
+    width = el.clientWidth;
+    height = el.clientHeight;
+    relayout();
+  });
+  ro.observe(scroller.value);
   pagePs.value = visibleParas();
   markSeen();
 });
-onBeforeUnmount(() => ro?.disconnect());
+onBeforeUnmount(() => { ready = false; ro?.disconnect(); });
 
 async function settleImages() {
   measure();
@@ -161,11 +226,16 @@ function jumpTo(p) {
     if (!x) return toPage(0, false);
     const r = x.getClientRects()[0], box = el.getBoundingClientRect();
     toPage(Math.floor((r.left - box.left + el.scrollLeft + 2) / el.clientWidth), false);
-  } else if (x) el.scrollTop = x.offsetTop - 70;
-  else el.scrollTop = 0;
+  } else {
+    el.scrollTop = x ? x.offsetTop - 70 : 0;
+    readingAnchor = anchorAt(0);
+  }
 }
 async function goChapter(i, toEnd = false) {
   if (!content.value || i < 0 || i >= content.value.chapters.length) return;
+  ready = false;
+  clearTimeout(posTimer);
+  readingAnchor = null;
   ch.value = i;
   sel.value = null;
   tocOpen.value = false;
@@ -176,6 +246,8 @@ async function goChapter(i, toEnd = false) {
   await fixStickies();
   if (toEnd && paged.value) { measure(); toPage(pageCount.value - 1, false); }
   else { scroller.value.scrollLeft = 0; jumpTo(0); }
+  ready = true;
+  onScroll();
   measure();
   pagePs.value = visibleParas();
   markSeen();
@@ -183,9 +255,11 @@ async function goChapter(i, toEnd = false) {
 // 读到哪：屏幕上第一段（停下来半秒再记）
 let posTimer = 0;
 function onScroll() {
+  if (!ready || relaying) return;
+  if (!paged.value) readingAnchor = anchorAt(0);
   clearTimeout(posTimer);
   posTimer = setTimeout(() => {
-    if (!scroller.value || !b.value) return;
+    if (!ready || relaying || !scroller.value || !b.value) return;
     measure();
     const seen = visibleParas();
     pagePs.value = seen;
@@ -274,25 +348,35 @@ async function fixStickies() {
 // 排版变了（屏幕尺寸、字号、字体、展开叠着的便利贴）：重新排，回到刚才读的那一段
 let relaying = false, again = false;
 async function relayout() {
+  if (!ready) return;
   if (relaying) return (again = true); // 正在排：排完再来一遍
   relaying = true;
+  const chapter = ch.value;
+  const anchor = readingAnchor;
+  const page = pageNo.value;
   try {
     do {
       again = false;
-      const p = b.value?.pos?.p || 0;
       keeps.clear();
       await nextTick();
       measure();
+      await nextTick(); // 栏宽跟着页面宽度更新后，再测文字落在哪一页。
       await fixStickies();
-      jumpTo(p);
+      const el = scroller.value;
+      if (!ready || !el || ch.value !== chapter) return;
+      const rect = anchor && anchorRect(el, anchor);
+      if (paged.value) toPage(rect ? pageOf(rect.left) : page, false);
+      else if (rect) el.scrollTop += rect.top - el.getBoundingClientRect().top;
+      if (anchor) readingAnchor = anchor;
     } while (again);
   } finally {
     relaying = false;
   }
+  onScroll();
 }
 function toggleStack(g) {
   if (opened.has(g.key)) opened.delete(g.key); else opened.add(g.key);
-  nextTick(async () => { await fixStickies(); markSeen(); });
+  relayout();
 }
 // 便利贴上回的是哪张：「回 他：……」
 const replyOf = n => n.replyTo && store.bookNotes.find(x => x.id === n.replyTo);
@@ -303,7 +387,7 @@ function openGroup(i, g) {
   for (const m of g.list) m.n.seen = true;
 }
 // 书里有了新便利贴、删了一张：重新看看哪组要挪页
-watch(() => notesOf(b.value?.id, ch.value).filter(n => n.text).length, () => nextTick(fixStickies));
+watch(() => notesOf(b.value?.id, ch.value).filter(n => n.text).length, relayout);
 
 // ---------- 划线和批注 ----------
 // 一条划线在这段里是哪几个字
@@ -563,10 +647,7 @@ const pageStyle = computed(() => {
   return { "--rbg": bg, "--rink": ink, "--rsize": `${prefs.value.size || 18}px`, ...(fontFamily.value ? { "--rfont": `"${fontFamily.value}", var(--font)` } : {}) };
 });
 // 换了字号、字体、翻页方式：排版变了，回到刚才读的那一段
-watch(() => [store.readerPrefs.size, store.readerPrefs.font, store.readerPrefs.mode, fontFamily.value], async () => {
-  await nextTick();
-  setTimeout(relayout, 60);
-});
+watch([() => prefs.value.size || 18, () => prefs.value.mode || "page", fontFamily], relayout);
 
 const prefsOpen = ref(false);
 async function importFont() {
@@ -671,6 +752,7 @@ async function chaptersChanged() {
   sel.value = null;
   await nextTick();
   await settleImages();
+  readingAnchor = { p: b.value.pos?.p || 0, offset: 0 };
   await relayout();
   markSeen();
 }
@@ -905,7 +987,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .bar .t span { min-width: 0; font-size: .74rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page { flex: 1; overflow-y: auto; padding: 18px 24px calc(var(--safe-bottom) + 130px); max-width: 720px; width: 100%; margin: 0 auto; -webkit-overflow-scrolling: touch; }
 /* 一屏一页：字排成一栏一栏往右排，一栏正好一屏宽，翻页就是往右挪一屏 */
-.page.paged { min-height: 0; max-width: none; overflow: hidden; column-width: var(--colw, 300px); column-gap: var(--colgap, 48px); column-fill: auto; padding-bottom: calc(var(--safe-bottom) + 84px); touch-action: pan-y pinch-zoom; }
+.page.paged { overflow-anchor: none; min-height: 0; max-width: none; overflow: hidden; column-width: var(--colw, 300px); column-gap: var(--colgap, 48px); column-fill: auto; padding-bottom: calc(var(--safe-bottom) + 84px); touch-action: pan-y pinch-zoom; }
 @media (min-width: 768px) { .page.paged { padding-left: max(24px, calc((100% - 720px) / 2)); padding-right: max(24px, calc((100% - 720px) / 2)); } }
 .page.paged .ch-nav { break-inside: avoid; position: relative; }
 /* 章末后面垫一整栏空白：Safari 的多栏滚动末尾不计右留白，最后一页会少滚一段、字偏右。
