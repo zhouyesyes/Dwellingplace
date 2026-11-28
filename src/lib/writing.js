@@ -203,18 +203,18 @@ async function cutTalkAfter(pid, id, keep) {
   if (i >= 0) list.splice(keep ? i + 1 : i);
 }
 // 他这条重新说一遍
-export async function regenTalk(role, p, id) {
+export async function regenTalk(role, p, id, onPreview) {
   await cutTalkAfter(p.id, id, false);
-  return talk(role, p, "");
+  return talk(role, p, "", [], onPreview);
 }
 // 改了自己那句，从那里重新聊
-export async function editTalkAndResend(role, p, id, text) {
+export async function editTalkAndResend(role, p, id, text, onPreview) {
   const m = (await loadTalk(p.id)).find(x => x.id === id);
   if (!m) return;
   m.text = text.trim();
   m.edited = true;
   await cutTalkAfter(p.id, id, true);
-  return talk(role, p, "");
+  return talk(role, p, "", [], onPreview);
 }
 
 // 这本书给他看的样子：标题 + 每张卡片（太长的截断）
@@ -370,18 +370,29 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
 }
 
 // 在书桌前和他讨论：说一句，他回一句
-export async function talk(role, p, text, atts = []) {
+export async function talk(role, p, text, atts = [], onPreview) {
   const { oneShot, visibleText } = await import("./chat.js");
   const list = await loadTalk(p.id);
   if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
   else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
   const prompt = await writingPrompt(role, p, atts);
   await saveTalk(p.id); // 回复中断时也要保留她刚发的内容
-  const raw = await oneShot(role, prompt, { raw: true, attachments: atts, requireComplete: true });
+  let received = "";
+  const raw = await oneShot(role, prompt, {
+    raw: true, attachments: atts, requireComplete: true,
+    // 先显示正文，回复完整后再处理便签、卡片和进度。
+    onText: onPreview && (delta => {
+      received += delta;
+      const preview = received.replace(NOTE_TAG, "").replace(CARD_TAG, "")
+        .replace(/\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]]*)?$/, "");
+      onPreview(visibleText(preview).trim());
+    }),
+  });
   const t0 = applyTags(p, raw);
   const t1 = applyBoardTags(role, t0.text, { project: p });
   const rest = t1.text, notes = [...t0.notes, ...t1.notes];
   const reply = visibleText(rest).trim();
+  onPreview?.("");
   if (reply || notes.length) list.push({ id: uid(), from: "ai", text: reply, notes, ts: Date.now() });
   await saveTalk(p.id);
   touch(p.id);

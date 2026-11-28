@@ -151,6 +151,7 @@ const talkRestTok = computed(() => (p.value ? sumTokens(talkAfterSum(p.value, ms
 const draft = ref("");
 const draftAtts = ref([]);
 const sending = ref(false);
+const replyPreview = ref("");
 async function attachToTalk() {
   const files = await pickFile(ACCEPT, true);
   for (const f of files) {
@@ -166,7 +167,7 @@ async function send() {
   draft.value = "";
   draftAtts.value = [];
   petHears(t);
-  await run(() => talk(role.value, p.value, t, atts));
+  await run(preview => talk(role.value, p.value, t, atts, preview));
 }
 
 // 讨论里的一句：点一下，手指旁边弹出复制、收藏、修改、重新回答、删除（都只在这本书里）
@@ -194,9 +195,9 @@ async function saveEdit(resend) {
   const { msg, text } = fixing.value;
   fixing.value = null;
   if (!resend) { msg.text = text.trim(); msg.edited = true; await saveTalk(p.value.id); return; }
-  await run(() => editTalkAndResend(role.value, p.value, msg.id, text));
+  await run(preview => editTalkAndResend(role.value, p.value, msg.id, text, preview));
 }
-async function regen() { const m = take(); await run(() => regenTalk(role.value, p.value, m.id)); }
+async function regen() { const m = take(); await run(preview => regenTalk(role.value, p.value, m.id, preview)); }
 async function removeMsg() {
   const m = take();
   if (!confirm("删除这一句？")) return;
@@ -209,13 +210,21 @@ async function run(fn) {
   sending.value = true;
   down();
   try {
-    const r = await fn();
+    const r = await fn(text => {
+      const el = box.value;
+      const atBottom = el && el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+      replyPreview.value = text;
+      if (atBottom) down();
+    });
     if (r?.notes?.length) petOnce("success");
   } catch (e) {
     toast(describeError(e), 4000);
     petErr.value = true;
     setTimeout(() => (petErr.value = false), 5000);
-  } finally { sending.value = false; down(); }
+  } finally {
+    replyPreview.value = "";
+    sending.value = false;
+  }
 }
 // 搜索 / 收藏（右边半边）
 const finder = ref(false);
@@ -303,7 +312,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <small v-if="m.edited" class="edited">改过</small>
         <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
       </div>
-      <div v-if="sending" class="m ai"><p class="typing">在想……</p></div>
+      <div v-if="sending" class="m ai">
+        <div v-if="replyPreview" class="mt"><span v-html="blockMd(replyPreview)" /></div>
+        <p v-else class="typing">在想……</p>
+      </div>
     </div>
     <div ref="dock" class="dock">
       <AttList v-if="draftAtts.length" :atts="draftAtts" removable small class="draft-atts" @remove="a => draftAtts.splice(draftAtts.indexOf(a), 1)" />
