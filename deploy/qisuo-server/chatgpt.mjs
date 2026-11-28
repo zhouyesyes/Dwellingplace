@@ -309,9 +309,10 @@ async function chat(body, res, CORS) {
   try {
     for await (const piece of up.body) {
       buf += dec.decode(piece, { stream: true });
-      let i;
-      while ((i = buf.indexOf("\n\n")) >= 0) {
-        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+      let separator;
+      while ((separator = /\r?\n\r?\n/.exec(buf))) {
+        const block = buf.slice(0, separator.index);
+        buf = buf.slice(separator.index + separator[0].length);
         const data = block.split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim()).join("");
         if (!data || data === "[DONE]") continue;
         let ev; try { ev = JSON.parse(data); } catch { continue; }

@@ -32,6 +32,11 @@ const trimUrl = u => (u || "").trim().replace(/\/+$/, "");
 // 流式开关（工具页里，所有 API 通用）
 const streaming = () => store.tools?.stream !== false;
 
+function outputLimitError(model, limit, used) {
+  const details = [model, limit && "请求上限 " + limit + " tokens", used && "接口报告输出 " + used + " tokens"].filter(Boolean);
+  return new Error("回复达到输出长度上限（" + details.join("，") + "）。");
+}
+
 // ---------------- Anthropic ----------------
 
 const clients = new Map();
@@ -64,7 +69,7 @@ const searchTool = model => ({
   max_uses: 3,
 });
 
-async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch }) {
+async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch, requireComplete }) {
   const client = anthropicClient(api);
   const msgs = messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) }));
   // 提示缓存：系统提示一个断点，最后两条消息各一个断点。
@@ -106,6 +111,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
       usage.input += (msg.usage?.input_tokens ?? 0) + read + (msg.usage?.cache_creation_input_tokens ?? 0);
       usage.cached += read;
       usage.output += msg.usage?.output_tokens ?? 0;
+      if (requireComplete && msg.stop_reason === "max_tokens") throw outputLimitError(msg.model || model, params.max_tokens, msg.usage?.output_tokens);
       if (msg.stop_reason !== "pause_turn") break;
       params.messages = [...params.messages, { role: "assistant", content: msg.content }];
       continue;
@@ -129,6 +135,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
     usage.input += (msg.usage?.input_tokens ?? 0) + read + (msg.usage?.cache_creation_input_tokens ?? 0);
     usage.cached += read;
     usage.output += msg.usage?.output_tokens ?? 0;
+    if (requireComplete && msg.stop_reason === "max_tokens") throw outputLimitError(msg.model || model, params.max_tokens, msg.usage?.output_tokens);
     if (msg.stop_reason !== "pause_turn") break;
     params.messages = [...params.messages, { role: "assistant", content: msg.content }];
   }
@@ -222,9 +229,9 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     throw new Error(withModel(httpError(res.status, raw)));
   }
 
-  const checkFinish = reason => {
+  const checkFinish = (reason, resolvedModel, used) => {
     if (!requireComplete) return;
-    if (reason === "length") throw new Error("回复达到输出长度上限，提前结束了。");
+    if (reason === "length") throw outputLimitError(resolvedModel || model, body.max_tokens, used);
     if (reason === "content_filter") throw Object.assign(new Error("模型停止了这条回复。"), { contentFiltered: true });
   };
 
@@ -241,14 +248,14 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
     const thinking = reasoning + parts.thinking;
     if (thinking) onThinking?.(thinking);
     if (parts.text) onText(parts.text);
-    checkFinish(j.choices?.[0]?.finish_reason);
     const u = j.usage || {};
+    checkFinish(j.choices?.[0]?.finish_reason, j.model, u.completion_tokens);
     return { text: parts.text, thinking, usage: { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, cached: u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0 } };
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let finishReason = null, sawDone = false;
+  let finishReason = null, responseModel = null, sawDone = false;
   let buf = "", content = "", text = "", thinking = "", reasoning = "", usage = { input: 0, output: 0, cached: 0 };
   // 把新的正文 / 思考按增量交出去
   const emit = () => {
@@ -261,8 +268,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
   };
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    buf += done ? decoder.decode() + "\n" : decoder.decode(value, { stream: true });
     const lines = buf.split("\n");
     buf = lines.pop();
     for (const raw of lines) {
@@ -275,6 +281,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
       // 流到一半出错（比如会员额度用完了）
       if (j.error && !j.choices) throw new Error(withModel(`接口报错：${j.error.message || JSON.stringify(j.error).slice(0, 200)}`));
       {
+        responseModel = j.model || responseModel;
         finishReason = j.choices?.[0]?.finish_reason ?? finishReason;
         const delta = j.choices?.[0]?.delta || {};
         // OpenRouter 还会把思考放在 reasoning_details 里（GPT 给的是摘要；加密的那种看不了）
@@ -287,8 +294,9 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
         if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0, cached: j.usage.prompt_tokens_details?.cached_tokens ?? j.usage.prompt_cache_hit_tokens ?? j.usage.cached_tokens ?? 0 };
       }
     }
+    if (done) break;
   }
-  checkFinish(finishReason);
+  checkFinish(finishReason, responseModel, usage.output);
   if (requireComplete && !sawDone && !finishReason) throw new Error("连接在回复结束前断开了。");
   return { text, thinking, usage };
 }
