@@ -71,7 +71,7 @@ document.addEventListener("touchend", e => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) resetSoon(); });
 
 // 字号：小 / 标准 / 大
-const FONT = { small: "13px", standard: "14px", large: "15.5px" };
+const FONT = { small: "81.25%", standard: "87.5%", large: "96.875%" };
 watchEffect(() => {
   document.documentElement.style.fontSize = FONT[store.settings.fontSize] || FONT.standard;
 });

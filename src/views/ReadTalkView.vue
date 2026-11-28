@@ -192,7 +192,7 @@ onBeforeUnmount(() => ro?.disconnect());
 .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes hop { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 .dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; align-items: flex-end; gap: 8px; max-width: 760px; margin: 0 auto; padding: 10px 14px var(--dock-bottom); }
-.dock .input { flex: 1; resize: none; min-height: 44px; height: 44px; max-height: 40vh; line-height: 1.5; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .92); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
+.dock .input { flex: 1; resize: none; min-height: 44px; height: calc(1lh + 24px); max-height: 40vh; line-height: 1.5; border-radius: 22px; padding: 11px 16px; background: rgba(var(--glass-rgb), .92); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: var(--shadow-soft); }
 .send { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--card); color: var(--text-3); box-shadow: var(--shadow-soft); flex: none; }
 .send.on { background: var(--ink); color: var(--on-ink); }
 .acts { display: flex; flex-direction: column; gap: 4px; }

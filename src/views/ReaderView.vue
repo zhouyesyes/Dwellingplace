@@ -983,7 +983,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .selcard .acts { display: flex; border-top: 1px solid rgba(60, 45, 30, .08); padding-top: 6px; }
 .selcard .acts button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; padding: 6px 2px; font-size: .72rem; color: var(--text-2); }
 .selcard .acts .x { flex: none; width: 40px; color: #9a8f84; justify-content: center; }
-.selcard .ul { font-size: 1.05rem; line-height: 19px; text-decoration: underline 2px rgba(214, 160, 60, .9); text-underline-offset: 3px; font-weight: 600; }
+.selcard .ul { font-size: 1.05rem; line-height: 1.45; text-decoration: underline 2px rgba(214, 160, 60, .9); text-underline-offset: 3px; font-weight: 600; }
 .mlist { display: flex; flex-direction: column; gap: 10px; }
 .mnote { padding: 12px 14px 8px; border-radius: 14px; }
 .mnote.mine { background: color-mix(in srgb, #fff4c9 var(--pastel), var(--card)); }

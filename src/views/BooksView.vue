@@ -172,7 +172,7 @@ const finished = computed(() => books.value.filter(b => b.mine).length);
 .head { display: flex; justify-content: space-between; align-items: center; }
 .acts { display: flex; gap: 8px; }
 .title { display: flex; align-items: flex-end; gap: 14px; margin: 22px 0 0; }
-.title h1 { margin: 0; font-size: clamp(3rem, 16vw, 4.2rem); font-weight: 200; letter-spacing: .18em; line-height: 1; color: var(--text); }
+.title h1 { margin: 0; font-size: clamp(3rem, 16vw, 4.2rem); font-weight: 200; letter-spacing: .18em; line-height: 1.2; color: var(--text); }
 .side { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--text-3); line-height: 1.6; padding-bottom: 6px; }
 .lead { display: flex; align-items: center; gap: 10px; margin: 14px 0 24px; color: var(--text-2); font-size: .85rem; letter-spacing: .04em; }
 .lead i { width: 28px; height: 1px; background: var(--text-3); flex: none; }

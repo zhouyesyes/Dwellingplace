@@ -121,16 +121,17 @@ function del() {
   flex: 1; max-width: 560px; margin: 0 auto; min-height: 0; overflow-y: auto;
   background: var(--paper);
   /* 横线：像笔记本的纸 */
-  background-image: repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px);
+  --paper-line: max(32px, 1.8rem);
+  background-image: repeating-linear-gradient(to bottom, transparent 0 calc(var(--paper-line) - 1px), var(--rule) calc(var(--paper-line) - 1px) var(--paper-line));
   background-position: 0 14px;
   border-radius: 6px 18px 18px 6px;
   box-shadow: inset 10px 0 12px -10px rgba(0, 0, 0, .14), var(--shadow);
   padding: 22px 22px 28px 30px;
-  line-height: 32px;
+  line-height: var(--paper-line);
   transform-origin: left center;
 }
 .date { font-size: .8rem; color: var(--text-3); letter-spacing: .5px; }
-.title { margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--text); line-height: 32px; }
+.title { margin: 0; font-size: 1.2rem; font-weight: 600; color: var(--text); line-height: var(--paper-line); }
 .body { white-space: pre-wrap; word-break: break-word; color: var(--text); font-size: 1rem; }
 .sign { text-align: right; margin-top: 10px; color: var(--c); font-size: .93rem; }
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; color: var(--text-2); line-height: 1.7; background-image: none; }

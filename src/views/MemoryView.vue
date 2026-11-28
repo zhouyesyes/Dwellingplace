@@ -611,7 +611,7 @@ function remove() {
 :root[data-theme="dark"] .drw.k-board { --c: #3b3230; }
 :root[data-theme="dark"] .drw.k-letters { --c: #33362f; }
 :root[data-theme="dark"] .drw.k-rw { --c: #2e3632; }
-.lab { position: absolute; top: -13px; height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 16px; color: var(--text-2); }
+.lab { position: absolute; bottom: calc(100% - 1px); min-height: 14px; padding: 0 12px; border-radius: 6px 6px 0 0; background: var(--c); font-family: var(--font); font-size: .6rem; letter-spacing: 1.8px; line-height: 1.6; color: var(--text-2); }
 .drw-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 16px 16px 38px; text-align: left; color: var(--text); border-radius: 0; }
 .drw.open .drw-head, .drw:last-child .drw-head { padding-bottom: 12px; }
 .drw-head b { font-size: .95rem; font-weight: 500; }

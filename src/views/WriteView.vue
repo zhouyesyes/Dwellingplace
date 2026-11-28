@@ -59,7 +59,7 @@ const when = ts => new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", 
 .head { display: flex; align-items: center; gap: 10px; }
 .grow { flex: 1; min-width: 0; }
 .title { display: flex; align-items: flex-end; gap: 14px; margin: 22px 4px 26px; }
-.title h1 { margin: 0; font-size: clamp(3rem, 16vw, 4.2rem); font-weight: 200; letter-spacing: .18em; line-height: 1; }
+.title h1 { margin: 0; font-size: clamp(3rem, 16vw, 4.2rem); font-weight: 200; letter-spacing: .18em; line-height: 1.2; }
 .side { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--text-3); line-height: 1.6; padding-bottom: 6px; }
 .list { display: flex; flex-direction: column; gap: 10px; }
 .book { display: flex; align-items: center; gap: 14px; text-align: left; border: 0; background: var(--card); border-radius: 18px; padding: 14px 16px; box-shadow: var(--shadow-soft); }
