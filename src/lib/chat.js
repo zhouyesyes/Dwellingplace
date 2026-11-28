@@ -1280,11 +1280,11 @@ export function helperApi(role) {
   const api = h && store.apis.find(a => a.id === h.apiId);
   return api ? { api, model: h.model || api.model } : { api: apiFor(null, role), model: modelFor(null, role) };
 }
-export async function oneShot(role, prompt, { raw = false, attachments = [], parts = [], helper = false, requireComplete = false, forceStream, onText, onThinking, onFinish } = {}) {
+export async function oneShot(role, prompt, { raw = false, attachments = [], parts = [], helper = false, requireComplete = false, forceStream, signal, onText, onThinking, onFinish } = {}) {
   const { api, model } = helper ? helperApi(role) : { api: apiFor(null, role), model: modelFor(null, role) };
   const system = `你是「${role.name}」。`;
   const { text, usage } = await streamChat({
-    api, model, system, requireComplete, forceStream, cacheKey: `qisuo-${role.id}`,
+    api, model, system, requireComplete, forceStream, signal, cacheKey: `qisuo-${role.id}`,
     messages: [{ role: "user", parts: [...(await partsOf({ attachments })), ...parts, { type: "text", text: prompt }] }],
     onText, onThinking, onFinish,
   });

@@ -379,29 +379,44 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
   await saveTalk(p.id); // 回复中断时也要保留她刚发的内容
   let received = "", preview = "", raw;
   let lastTextAt, finish, model, outputTokens;
+  const controller = new AbortController();
+  let idleTimer;
+  // 首字之前允许模型思考。开始输出正文后，连续一分钟没收到正文或思考就保留现有回复。
+  const watchReply = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => controller.abort(), 60_000);
+  };
+  const showReply = text => visibleText(text.replace(NOTE_TAG, "").replace(CARD_TAG, "")).trim();
   const diagnostics = saved => ({
     model, finish, outputTokens, waitMs: lastTextAt == null ? null : Date.now() - lastTextAt,
     received: received.length, preview: preview.length, returned: raw?.length, saved: saved.length,
   });
   try {
     raw = await oneShot(role, prompt, {
-      raw: true, attachments: atts, requireComplete: true, forceStream: true, onThinking,
+      raw: true, attachments: atts, requireComplete: true, forceStream: true, signal: controller.signal,
+      onThinking: delta => {
+        if (lastTextAt != null) watchReply();
+        onThinking?.(delta);
+      },
       onFinish: (reason, name, tokens) => { finish = reason; model = name; outputTokens = tokens; },
       // 先显示正文，回复完整后再处理便签、卡片和进度。
       onText: delta => {
         received += delta;
         lastTextAt = Date.now();
-        const visible = received.replace(NOTE_TAG, "").replace(CARD_TAG, "")
-          .replace(/\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]]*)?$/, "");
-        preview = visibleText(visible).trim();
+        watchReply();
+        // 只隐藏独立行上的指令前缀，正文里的「[」和普通括注照常显示。
+        preview = showReply(received.replace(/(?:^|\n)[ \t]*\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]\n]*)?$|(?:^|\n)[ \t]*\[$/, ""));
         onPreview?.(preview);
       },
     });
   } catch (e) {
-    list.push({ id: uid(), from: "ai", text: preview, interrupted: describeError(e), diagnostics: diagnostics(preview), ts: Date.now() });
+    const interrupted = controller.signal.aborted ? "模型已开始回复，但连续 60 秒没有发来新内容。" : describeError(e);
+    list.push({ id: uid(), from: "ai", text: preview, interrupted, diagnostics: diagnostics(preview), ts: Date.now() });
     onPreview?.("");
     await saveTalk(p.id);
     return { interrupted: true };
+  } finally {
+    clearTimeout(idleTimer);
   }
   const t0 = applyTags(p, raw);
   const t1 = applyBoardTags(role, t0.text, { project: p });

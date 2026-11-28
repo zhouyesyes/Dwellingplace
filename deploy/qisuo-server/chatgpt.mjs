@@ -304,6 +304,11 @@ async function chat(body, res, CORS) {
   const chunk = delta => `data: ${JSON.stringify({ id, object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`;
   if (stream) res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
   let text = "", reasoning = "", usage = null, failed = null, finishReason = null;
+  const textParts = new Map();
+  const appendText = delta => {
+    text += delta;
+    if (stream) res.write(chunk({ content: delta }));
+  };
   const dec = new TextDecoder();
   let buf = "";
   try {
@@ -315,7 +320,19 @@ async function chat(body, res, CORS) {
         const data = block.split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim()).join("");
         if (!data || data === "[DONE]") continue;
         let ev; try { ev = JSON.parse(data); } catch { continue; }
-        if (ev.type === "response.output_text.delta") { text += ev.delta; if (stream) res.write(chunk({ content: ev.delta })); }
+        if (ev.type === "response.output_text.delta" || ev.type === "response.output_text.done") {
+          const key = `${ev.output_index ?? 0}:${ev.content_index ?? 0}`;
+          const previous = textParts.get(key) || "";
+          if (ev.type === "response.output_text.delta" && typeof ev.delta === "string") {
+            textParts.set(key, previous + ev.delta);
+            if (ev.delta) appendText(ev.delta);
+          }
+          // 正文先于整轮结束。结束事件迟到或丢失时，已经确认的尾段也要先交给页面。
+          if (ev.type === "response.output_text.done" && typeof ev.text === "string" && ev.text.startsWith(previous) && ev.text.length > previous.length) {
+            textParts.set(key, ev.text);
+            appendText(ev.text.slice(previous.length));
+          }
+        }
         else if (ev.type === "response.reasoning_summary_text.delta" || ev.type === "response.reasoning_text.delta") { reasoning += ev.delta; if (stream) res.write(chunk({ reasoning: ev.delta })); }
         else if (ev.type === "response.completed" || ev.type === "response.incomplete") {
           // 结束事件带完整正文。流里缺了末尾时，把能确定的差额补回去。
