@@ -23,8 +23,8 @@
 .public-drawer-button.bench-menu { left: auto; right: max(16px, calc(50% - 410px + 16px)); }
 .shell-actions .icon-btn { width: 36px; height: 36px; color: var(--shell-orange); background: var(--card); border-radius: 50%; }
 .shell-heading { position: relative; padding: calc(var(--safe-top) + 100px) 23px 52px; }
-.shell-heading h1 { font-family: var(--shell-font); font-size: clamp(25px, 7.2vw, 32px); font-weight: 400; line-height: 1.4; letter-spacing: -.045em; margin: 0; }
-.star { color: var(--shell-orange); font-family: var(--shell-font); font-weight: 700; line-height: 1; }
+.shell-heading h1 { font-family: var(--display-font); font-size: clamp(25px, 7.2vw, 32px); font-weight: 400; line-height: 1.4; letter-spacing: -.045em; margin: 0; }
+.star { color: var(--shell-orange); font-family: var(--display-font); font-weight: 700; line-height: 1; }
 .shell-heading .star { position: absolute; }
 .shell-heading .large { top: calc(var(--safe-top) + 77px); right: 28%; font-size: 30px; }
 .shell-heading .little { top: calc(var(--safe-top) + 99px); right: 20%; font-size: 17px; }
@@ -84,7 +84,7 @@
 .record-cover img, .track-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .record.playing .record-cover { animation: record-turn 18s linear infinite; }
 @keyframes record-turn { to { transform: rotate(360deg); } }
-.song-info { min-width: 0; display: grid; gap: 2px; line-height: 1.25; }
+.song-info { min-width: 0; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; line-height: 1.5; }
 .song-info strong { font-size: 15px; overflow-wrap: anywhere; }
 .song-info small { font-size: 12px; color: var(--shell-muted); overflow-wrap: anywhere; }
 .music-lyrics { position: relative; height: 90px; overflow-y: auto; overscroll-behavior-y: contain; margin: 17px 0 19px; text-align: center; }
@@ -110,7 +110,7 @@
 .music-queue { margin-top: 20px; }
 .music-source { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 10px; }
 .music-source .music-status { margin: 0; }
-.music-source button { max-width: 100%; padding: 4px 6px; border: 1px solid var(--shell-line); border-radius: 8px; background: var(--card); color: var(--shell-muted); font: inherit; font-size: 11px; }
+.music-source button { max-width: 100%; padding: 4px 6px; border: 1px solid var(--shell-line); border-radius: 8px; background: var(--card); color: var(--shell-ink); font: inherit; font-size: 12px; line-height: 1.5; }
 .queue-tracks { max-height: 147px; overflow-y: auto; overscroll-behavior: contain; }
 .queue-tracks p, .music-status, .music-queue > p { font-size: 12px; line-height: 1.6; color: var(--shell-muted); }
 .queue-track { display: flex; min-height: 48px; border-radius: 9px; }
@@ -160,7 +160,7 @@
 .mode-panel small { color: var(--text-2); overflow-wrap: anywhere; }
 .mode-panel select { border: 1px solid var(--line); border-radius: 8px; }
 .chat .mode-panel .cli-product { width: auto; }
-.chat .bubble { font: 400 13px/1.7 var(--chat-text-font); padding: 10px 14px; box-shadow: 0 2px 5px rgb(67 46 34 / 5%); }
+.chat .bubble { font: 400 13px/1.7 var(--font); padding: 10px 14px; box-shadow: 0 2px 5px rgb(67 46 34 / 5%); }
 .chat .group { gap: 10px; }
 .chat .group .avatar { width: 34px !important; height: 34px !important; }
 .chat .group .col { max-width: min(calc(100% - 64px), 560px); }
@@ -177,9 +177,8 @@
 .mode-panel .ctx .bar { display: inline-block; }
 @media (max-width: 360px) { .music-heading { gap: 15px; } .record { width: 110px; height: 110px; } .home-drawer-panel { min-width: 190px; } .shell-heading h1 { font-size: 26px; } }
 .compact .shell-actions .icon-btn { width: 28px; height: 28px; }
-/* 英文使用设计稿同款打印体；中文回退到黑体。 */
+/* 聊天界面和正文共用全局字体。 */
 .chat .mode-panel, .chat .stamp { font-family: var(--shell-font); }
-.home-shell, .chat .mode-toggle, .chat .mode-panel, .chat .stamp { letter-spacing: -.025em; }
 .chat .mode-panel button, .chat .mode-panel input, .chat .mode-panel select { font-family: var(--shell-font); }
 
 /* 模式文字与独立箭头在同一条中线上，避免字符箭头的基线落差。 */
@@ -196,7 +195,6 @@
 }
 .chat .mode-toggle .mode-label { display: block; font-style: normal; line-height: 18px; transform: translateY(1px); }
 .chat .mode-toggle svg { flex: none; display: block; }
-.home-shell, .chat .top, .chat .mode-panel, .chat .composer { font-style: normal; font-synthesis: none; }
 
 /* 输入文字独占第一行，工具和两种发送方式放在下一行。 */
 .chat .composer > .row {

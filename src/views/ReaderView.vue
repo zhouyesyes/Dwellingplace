@@ -560,7 +560,7 @@ const fontFamily = ref("");
 watch(() => prefs.value.font, async id => { try { fontFamily.value = await useFont(id); } catch { fontFamily.value = ""; } }, { immediate: true });
 const pageStyle = computed(() => {
   const [bg, ink] = (dark.value ? BGS_DARK : BGS)[prefs.value.bg] || (dark.value ? BGS_DARK : BGS).paper;
-  return { "--rbg": bg, "--rink": ink, "--rsize": `${prefs.value.size || 18}px`, ...(fontFamily.value ? { "--rfont": `"${fontFamily.value}"` } : {}) };
+  return { "--rbg": bg, "--rink": ink, "--rsize": `${prefs.value.size || 18}px`, ...(fontFamily.value ? { "--rfont": `"${fontFamily.value}", var(--font)` } : {}) };
 });
 // 换了字号、字体、翻页方式：排版变了，回到刚才读的那一段
 watch(() => [store.readerPrefs.size, store.readerPrefs.font, store.readerPrefs.mode, fontFamily.value], async () => {
@@ -917,7 +917,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
 .author-note button i { font-style: normal; font-size: .72rem; font-weight: 400; opacity: .6; }
 .author-note p { margin: 8px 0 2px; font-size: .88rem; line-height: 1.8; white-space: pre-wrap; text-indent: 0; }
 .ch-title { font-weight: 600; font-size: calc(var(--rsize) * 1.2); text-align: center; margin: 10px 0 26px; color: var(--rink); font-family: var(--rfont, inherit); }
-.page .para { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 300; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
+.page .para { margin: 0 0 .9em; text-indent: 2em; font-size: var(--rsize); line-height: 1.95; color: var(--rink); font-weight: 400; font-family: var(--rfont, inherit); border-radius: 6px; transition: background .2s; cursor: pointer; }
 /* 划线：你的暖黄、他的淡蓝；两个人都划了就叠在一起。写了想法的线尾，有个小小的数字 */
 .mk { border-radius: 2px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .mk.me { text-decoration: underline 2px rgba(214, 160, 60, .75); text-underline-offset: 5px; }

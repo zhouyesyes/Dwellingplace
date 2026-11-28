@@ -28,7 +28,7 @@ const initial = computed(() => Array.from(props.name?.trim() || "?")[0]);
   overflow: hidden;
   background: color-mix(in srgb, var(--c) 45%, var(--avatar-mix));
   color: color-mix(in srgb, var(--c) 55%, var(--avatar-ink, #2e2e34));
-  font-family: var(--font);
+  font-family: var(--display-font);
   font-weight: 600;
   box-shadow: 0 0 0 2px var(--card), 0 2px 8px rgba(40, 40, 60, .12);
 }

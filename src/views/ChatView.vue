@@ -1354,7 +1354,6 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 .event { overflow-wrap: anywhere; }
 
 .chat {
-  --chat-text-font: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   position: fixed;
   inset: 0;
   display: flex;

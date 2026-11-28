@@ -24,8 +24,9 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   /* 输入框离屏幕底边多远：贴着 iPhone 底下那条横线上面一点（没有横线的设备留 8px） */
   --dock-bottom: max(calc(var(--safe-bottom) - 4px), 8px);
-  /* 全局统一打字机英文，中文使用系统中文字体。 */
-  --font: "Qisuo Typewriter", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 界面和正文共用系统字体，打字机体留给题字和字母头像。 */
+  --font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  --display-font: "Qisuo Typewriter", var(--font);
   /* 跟着主题变的几样：按钮（--ink 底）上的字、半透明的「玻璃」面、很淡的一层蒙色、浅彩色底留多少颜色 */
   --on-ink: #ffffff;
   --glass-rgb: 255, 255, 255;
@@ -108,6 +109,7 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
   font-style: normal;
   font-weight: 400;
   font-display: swap;
+  unicode-range: U+0020-007E, U+00A0-024F;
   ascent-override: 86%;
   descent-override: 18%;
   line-gap-override: 0%;
@@ -118,6 +120,7 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
   font-style: normal;
   font-weight: 600 900;
   font-display: swap;
+  unicode-range: U+0020-007E, U+00A0-024F;
   ascent-override: 86%;
   descent-override: 18%;
   line-gap-override: 0%;
@@ -129,8 +132,7 @@ html, body {
   min-height: 100lvh; /* iPhone 主屏幕打开时页面会短一截：画布按最大的视口高度铺，底下不露白 */
   background: var(--bg);
   color: var(--text);
-  font: 300 1rem/1.6 var(--font);
-  -webkit-font-smoothing: antialiased;
+  font: 400 1rem/1.6 var(--font);
   overscroll-behavior: none;
 }
 
@@ -145,7 +147,7 @@ button { transition: transform .08s, opacity .08s, background-color .15s; }
 button:active:not(:disabled) { transform: scale(.96); opacity: .75; }
 .list-row:active { transform: none; opacity: 1; background: var(--bg) !important; }
 /* 字号跟着「设置 → 外观」走：html 的 font-size 是基准（标准 = 14px） */
-html { font-size: 0.933rem; }
+html { font-size: 0.933rem; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 .page {
   min-height: 100%;
