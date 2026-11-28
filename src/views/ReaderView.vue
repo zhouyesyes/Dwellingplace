@@ -79,16 +79,21 @@ function toPage(n, smooth = true) {
   if (!el?.clientWidth) return;
   measure();
   n = Math.max(0, Math.min(n, pageCount.value - 1));
-  flipUntil = Date.now() + (smooth ? 800 : 80);
+  clearTimeout(flipTimer);
+  flipTimer = smooth ? setTimeout(finishFlip, 800) : 0;
   el.scrollTo({ left: n * el.clientWidth, behavior: smooth ? "smooth" : "auto" });
   pageNo.value = n;
   readingAnchor = anchorAt(n);
 }
 // 对焦或选择文字可能触发浏览器横滚，收回到读者选中的页。
-let flipUntil = 0;
+let flipTimer = 0;
+function finishFlip() {
+  flipTimer = 0;
+  guardScroll();
+}
 function guardScroll() {
   const el = scroller.value;
-  if (!paged.value || !el || !ready || relaying || Date.now() < flipUntil) return;
+  if (!paged.value || !el || !ready || relaying || flipTimer) return;
   const left = pageNo.value * el.clientWidth;
   if (Math.abs(el.scrollLeft - left) > 1) el.scrollLeft = left;
 }
@@ -209,7 +214,7 @@ onMounted(async () => {
   pagePs.value = visibleParas();
   markSeen();
 });
-onBeforeUnmount(() => { ready = false; ro?.disconnect(); });
+onBeforeUnmount(() => { ready = false; ro?.disconnect(); clearTimeout(flipTimer); });
 
 async function settleImages() {
   measure();
@@ -774,7 +779,8 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
     </header>
 
     <main ref="scroller" class="page" :class="{ paged }" :style="paged && pageW ? { '--colw': pageW - padX + 'px', '--colgap': padX + 'px' } : null"
-      @scroll.passive="guardScroll(); onScroll(); act()" @pointerdown="onDown" @pointerup="onUp" @click.capture="onTapCapture">
+      @scroll.passive="guardScroll(); onScroll(); act()"
+      @pointerdown="onDown" @pointerup="onUp" @pointercancel="down0 = null" @click.capture="onTapCapture">
       <h2 class="ch-title">{{ chapterTitle }}</h2>
       <template v-for="(t, i) in paras" :key="ch + ':' + i">
         <BookImage v-for="(m, j) in imagesAt(i)" :key="'image:' + j" :data-media="media.indexOf(m)" :source="content.resources?.[m.resource]" @settled="measure" @click="viewImage(m)" />

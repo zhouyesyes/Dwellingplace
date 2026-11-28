@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, watchEffect } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import WorldDrawer from "./components/WorldDrawer.vue";
 import Icon from "./components/Icon.vue";
@@ -72,9 +72,9 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) rese
 
 // 字号：小 / 标准 / 大
 const FONT = { small: "81.25%", standard: "87.5%", large: "96.875%" };
-watchEffect(() => {
-  document.documentElement.style.fontSize = FONT[store.settings.fontSize] || FONT.standard;
-});
+watch(() => store.settings.fontSize, size => {
+  document.documentElement.style.fontSize = FONT[size] || FONT.standard;
+}, { immediate: true });
 </script>
 
 <template>

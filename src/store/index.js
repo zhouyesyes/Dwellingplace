@@ -229,10 +229,12 @@ export async function loadStore() {
   });
 }
 
-// 别的设备同步过来的 meta：整份换上（再补上新字段）
+// 同步拿到的是整份 meta，只更新有变化的字段。播放器记进度时别重建书架、批注和阅读设置。
 export function applyRemoteMeta(val) {
   persistedMeta = metaCopy(val);
-  Object.assign(store, defaults(), val);
+  for (const [key, value] of Object.entries({ ...defaults(), ...val })) {
+    if (!sameMeta(store[key], value)) store[key] = value;
+  }
   migrate();
 }
 
