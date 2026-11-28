@@ -564,7 +564,7 @@ function codexTurnInput(system, convo, workspace, previous, refreshInstructions,
 }
 
 // speaker：群聊里这一条由谁来说（群聊的 generate 不带 speaker 就是开一整轮，见 groupChat.js）。返回这一条回复
-export async function generate(thread, parentId, { speaker = null, resume = null } = {}) {
+export async function generate(thread, parentId, { speaker = null, resume = null, continueFrom = null } = {}) {
   if (thread.group && !speaker) return runGroupRound(thread, parentId);
   if (generating[thread.id]) return;
   const group = !!thread.group;
@@ -578,6 +578,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     const i = history.findIndex(m => m.id === parentId);
     history = i >= 0 ? history.slice(0, i + 1) : parentId === ROOT ? [] : history;
   }
+  if (continueFrom && (thread.group || pathOf(thread, all).at(-1)?.id !== continueFrom || !history.at(-1)?.incomplete)) return;
   const parent = history.length ? history[history.length - 1].id : ROOT;
   const summaryMatches = !thread.summary?.upTo || history.some(m => m.id === thread.summary.upTo);
   const summary = thread.summary;
@@ -612,6 +613,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     // 粗略记一下系统提示里各块有多大，用量页里「都花在哪」要用
     msg.est = { system: estTokens(system), tools: estTokens(toolsForAI(serversForMode(role.id, mode).filter(s => s.tools?.length))) };
     const messages = await buildMessages(history, group ? role.id : null, role, codex || dsh);
+    if (continueFrom) messages.push({ role: "user", parts: [{ type: "text", text: "请从上一条回复断掉的地方接着写，补完剩下的内容。直接接下去，避免重述已经写过的部分。" }] });
     const note = contextNote(role, history);
     messages[messages.length - 1].parts.unshift({ type: "text", text: note.text });
     const tideImgs = await tideImageParts(role).catch(() => []);
@@ -678,6 +680,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
             else if (detail) msg.notes.push({ codexProgress: true, text: "Codex 执行记录", detail, before: true });
           };
           res = await codexReply(role, thread, currentId, input, ctrl.signal, progress, streamed => {
+            received = streamed;
             if (store.tools?.stream !== false) msg.text = msg.text.slice(0, base) + streamed;
           });
           msg.codexReceipt = res.receipt;
@@ -698,7 +701,10 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           if (!res.text && msg.attachments?.length) res.text = "截图在这里。";
         } else if (dsh) {
           res = await dshReply(role, thread, harnessApi, system, convo, ctrl.signal, (event, streamed) => {
-            if (event.type === "text" && store.tools?.stream !== false) msg.text = msg.text.slice(0, base) + streamed;
+            if (event.type === "text") {
+              received = streamed;
+              if (store.tools?.stream !== false) msg.text = msg.text.slice(0, base) + streamed;
+            }
             if (event.type === "tool") {
               let note = msg.notes.find(n => n.dshProgress);
               if (!note) {
@@ -723,6 +729,11 @@ export async function generate(thread, parentId, { speaker = null, resume = null
         pace.stop();
         if (!ctrl.signal.aborted && received) {
           const partial = visibleText(received).trim();
+          if (privateChat && partial && !msg.sends && !e.contentFiltered) {
+            msg.text = [visibleText(msg.text.slice(0, base)).trim(), partial].filter(Boolean).join("\n\n");
+            msg.incomplete = describeError(e);
+            return;
+          }
           if (partial) msg.notes.push({ text: "这轮收到的部分回复", detail: partial });
         }
         // 续发的那几条：被她打断、或者出错了，前面发出去的留着，就停在这里（不算整条出错）

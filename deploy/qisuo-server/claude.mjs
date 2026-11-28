@@ -310,11 +310,12 @@ async function chat(body, res, CORS, studio = false) {
   if (stream) res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
   let text = "", thinking = "", usage = null, failed = null, streamed = false, stderr = "";
   child.stderr.on("data", d => { stderr = (stderr + d).slice(-2000); });
-  let buf = "";
+  let buf = "", stopReason = null, gotResult = false;
   const onLine = line => {
     let ev; try { ev = JSON.parse(line); } catch { return; }
     if (ev.type === "stream_event") {
       const d = ev.event?.delta;
+      if (ev.event?.type === "message_delta" && d?.stop_reason) stopReason = d.stop_reason;
       if (ev.event?.type === "content_block_delta" && d?.type === "text_delta") { text += d.text; streamed = true; if (stream) res.write(chunk({ content: d.text })); }
       else if (ev.event?.type === "content_block_delta" && d?.type === "thinking_delta") { thinking += d.thinking; if (stream) { if (d.thinking) res.write(chunk({ reasoning: d.thinking })); } }
     } else if (ev.type === "assistant" && stream) {
@@ -327,6 +328,8 @@ async function chat(body, res, CORS, studio = false) {
     } else if (ev.type === "rate_limit_event") {
       saveLimits(ev.rate_limit_info);
     } else if (ev.type === "result") {
+      gotResult = true;
+      stopReason = ev.stop_reason || stopReason;
       usage = ev.usage || null;
       if (ev.is_error || ev.subtype !== "success") failed = errMsg(ev.result || ev.subtype);
     }
@@ -339,7 +342,9 @@ async function chat(body, res, CORS, studio = false) {
   const code = await new Promise(resolve => { child.on("close", resolve); child.on("error", e => { failed = e.code === "ENOENT" ? "服务器上还没装 Claude Code：再运行一次安装那一行" : e.message; resolve(-1); }); });
   if (buf.trim()) onLine(buf.trim());
   cleanup();
-  if (!failed && code !== 0 && !text) failed = errMsg(stderr.trim().split("\n").pop());
+  if (!failed && code !== 0) failed = errMsg(stderr.trim().split("\n").pop()) || "Claude Code 提前退出了";
+  if (!failed && !gotResult) failed = "Claude Code 在回复结束前断开了";
+  const finishReason = stopReason === "max_tokens" ? "length" : stopReason === "refusal" ? "content_filter" : "stop";
   const u = usage ? {
     prompt_tokens: (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
     completion_tokens: usage.output_tokens || 0,
@@ -347,14 +352,14 @@ async function chat(body, res, CORS, studio = false) {
     prompt_tokens_details: { cached_tokens: usage.cache_read_input_tokens || 0 },
   } : undefined;
   if (stream) {
-    if (failed && !text) res.write(`data: ${JSON.stringify({ error: { message: failed } })}\n\n`);
-    else res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", model, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], ...(u ? { usage: u } : {}) })}\n\n`);
+    if (failed) res.write(`data: ${JSON.stringify({ error: { message: failed } })}\n\n`);
+    else res.write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", model, choices: [{ index: 0, delta: {}, finish_reason: finishReason }], ...(u ? { usage: u } : {}) })}\n\n`);
     res.write("data: [DONE]\n\n");
     return res.end();
   }
-  if (failed && !text) { res.writeHead(502, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: failed } })); }
+  if (failed) { res.writeHead(502, { ...CORS, "Content-Type": "application/json" }); return res.end(JSON.stringify({ error: { message: failed } })); }
   res.writeHead(200, { ...CORS, "Content-Type": "application/json" });
-  res.end(JSON.stringify({ id, object: "chat.completion", model, choices: [{ index: 0, message: { role: "assistant", content: text, ...(thinking ? { reasoning: thinking } : {}) }, finish_reason: "stop" }], ...(u ? { usage: u } : {}) }));
+  res.end(JSON.stringify({ id, object: "chat.completion", model, choices: [{ index: 0, message: { role: "assistant", content: text, ...(thinking ? { reasoning: thinking } : {}) }, finish_reason: finishReason }], ...(u ? { usage: u } : {}) }));
 }
 
 // ---------- 路由 ----------

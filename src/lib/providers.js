@@ -225,7 +225,7 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
   const checkFinish = reason => {
     if (!requireComplete) return;
     if (reason === "length") throw new Error("回复达到输出长度上限，提前结束了。");
-    if (reason === "content_filter") throw new Error("模型停止了这条回复。");
+    if (reason === "content_filter") throw Object.assign(new Error("模型停止了这条回复。"), { contentFiltered: true });
   };
 
   // 关了流式：整条一次拿回来

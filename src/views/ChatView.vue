@@ -1135,6 +1135,10 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                   <template v-for="(b, i) in splitBubbles(m.text)" v-else :key="i"><HtmlBlock v-if="isCodeBubble(b)" :block="b" @click="openActions(src(m))" /><img v-else-if="onlySticker(b)" :src="stickerUrl(onlySticker(b))" :alt="onlySticker(b).name" class="sticker" @click="openActions(src(m))" /><VoiceBubble v-else-if="voiceText(b)" :text="voiceText(b)" /><LinkCard v-else-if="cardOf(b)" v-bind="cardOf(b)" /><template v-else><div v-if="!onlyUrl(b)" class="bubble" :data-mid="src(m).id" @click="openActions(src(m), b)" v-html="withStickers(blockMd(b))" /><LinkCard v-for="u in urlsIn(b)" :key="u" :url="u" /></template></template>
                   <template v-if="!m._src || m._last">
                     <div v-if="src(m).pending && (src(m).paused || src(m).typing) && splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
+                    <div v-if="src(m).incomplete" class="reply-incomplete">
+                      <span>回复未完 · {{ src(m).incomplete }}</span>
+                      <button v-if="messages.at(-1)?.id === src(m).id" type="button" :disabled="busy" @click="generate(thread, src(m).id, { continueFrom: src(m).id })">接着写</button>
+                    </div>
                     <AskCard v-if="src(m).ask && !src(m).pending" :ask="src(m).ask" :disabled="busy" @submit="a => answerAsk(src(m), a)" />
                     <GardenRoomCard v-if="src(m).rooms?.length && !src(m).pending" :rooms="src(m).rooms" :run="src(m).roomRun" :role="speakerOf(src(m).who)" />
                     <div v-if="src(m).drawing" class="bubble drawing">正在画：{{ src(m).drawing.slice(0, 40) }}…</div>
@@ -1512,6 +1516,8 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
 }
 .theirs .bubble::after { left: -11px; }
 .mine .bubble::after { right: -11px; transform: scaleX(-1); }
+.reply-incomplete { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; color: var(--danger); font-size: 0.85rem; }
+.reply-incomplete button { background: var(--card); color: var(--ink); padding: 0.35em 0.7em; border-radius: 0.6em; }
 .theirs .bubble.error { background: color-mix(in srgb, #fdecee var(--pastel), var(--card)); color: var(--danger); font-size: 0.9rem; }
 
 .typing { display: flex; gap: 5px; padding: 15px 16px; }

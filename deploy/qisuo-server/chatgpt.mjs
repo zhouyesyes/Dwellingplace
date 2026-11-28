@@ -317,13 +317,25 @@ async function chat(body, res, CORS) {
         let ev; try { ev = JSON.parse(data); } catch { continue; }
         if (ev.type === "response.output_text.delta") { text += ev.delta; if (stream) res.write(chunk({ content: ev.delta })); }
         else if (ev.type === "response.reasoning_summary_text.delta" || ev.type === "response.reasoning_text.delta") { reasoning += ev.delta; if (stream) res.write(chunk({ reasoning: ev.delta })); }
-        else if (ev.type === "response.completed") { finishReason = "stop"; usage = ev.response?.usage; }
-        else if (ev.type === "response.incomplete") {
-          usage = ev.response?.usage;
-          const reason = ev.response?.incomplete_details?.reason;
-          if (reason === "max_output_tokens") finishReason = "length";
-          else if (reason === "content_filter") finishReason = "content_filter";
-          else failed = { message: "模型提前结束了回复" };
+        else if (ev.type === "response.completed" || ev.type === "response.incomplete") {
+          // 结束事件带完整正文。流里缺了末尾时，把能确定的差额补回去。
+          const finalText = (ev.response?.output || []).filter(item => item.type === "message")
+            .flatMap(item => item.content || []).filter(part => part.type === "output_text")
+            .map(part => part.text || "").join("");
+          if (finalText.length > text.length && finalText.startsWith(text)) {
+            if (stream) res.write(chunk({ content: finalText.slice(text.length) }));
+            text = finalText;
+          }
+          if (ev.type === "response.completed") {
+            finishReason = "stop";
+            usage = ev.response?.usage;
+          } else {
+            usage = ev.response?.usage;
+            const reason = ev.response?.incomplete_details?.reason;
+            if (reason === "max_output_tokens") finishReason = "length";
+            else if (reason === "content_filter") finishReason = "content_filter";
+            else failed = { message: "模型提前结束了回复" };
+          }
         }
         else if (ev.type === "response.failed") failed = ev.response?.error || { message: "回复失败" };
         else if (ev.type === "error") failed = ev.error || ev;
