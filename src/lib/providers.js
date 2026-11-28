@@ -69,7 +69,7 @@ const searchTool = model => ({
   max_uses: 3,
 });
 
-async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch, requireComplete }) {
+async function anthropicStream({ api, model, system, messages, signal, onText, onThinking, webSearch, requireComplete, forceStream }) {
   const client = anthropicClient(api);
   const msgs = messages.map(m => ({ role: m.role, content: toAnthropicContent(m.parts) }));
   // 提示缓存：系统提示一个断点，最后两条消息各一个断点。
@@ -96,7 +96,7 @@ async function anthropicStream({ api, model, system, messages, signal, onText, o
   // 联网搜索时服务端可能会暂停（pause_turn），把已有内容带上继续
   for (let round = 0; round < 4; round++) {
     // 关了流式：一次请求拿回整条，再交给页面（思考先、正文后）
-    if (!streaming()) {
+    if (!forceStream && !streaming()) {
       const fb = isOfficialAnthropic(api) && FALLBACK_MODELS.test(model);
       const msg = fb
         ? await client.beta.messages.create({ ...params, fallbacks: "default", betas: ["server-side-fallback-2026-07-01"] }, { signal, timeout: 600_000 })
@@ -189,8 +189,8 @@ const isOpenAI = api => /api\.openai\.com|\/openai\/v1\/?$/i.test(api?.baseUrl |
 // 某个接口不认这个参数，就记下来，以后不再给它发
 const noCacheKey = new Set();
 
-async function openaiStream({ api, model, system, messages, signal, onText, onThinking, cacheKey, requireComplete }) {
-  const stream = streaming();
+async function openaiStream({ api, model, system, messages, signal, onText, onThinking, cacheKey, requireComplete, forceStream }) {
+  const stream = forceStream || streaming();
   const body = {
     model,
     stream,

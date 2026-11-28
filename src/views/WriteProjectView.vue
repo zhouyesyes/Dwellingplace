@@ -4,7 +4,7 @@
 // 卡片上可以贴便利贴：你的黄色，他的蓝色；他的可以「采纳」（接到卡片里）或撕掉。讨论页的背景、气泡颜色可以自己换
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { store, MAIN, roleById, BUBBLE_COLORS } from "../store/index.js";
+import { store, MAIN, roleById, modelFor, BUBBLE_COLORS } from "../store/index.js";
 import { projectById, cardsOf, notesOfCard, addCard, removeCard, addNote, removeNote, adoptNote, loadTalk, talk, saveTalk, dropTalkMsg, regenTalk, editTalkAndResend, reviewCard, removeProject, summarize, compressTalk, talkLimit, talkAutoAt, talkAfterSum, toAtt, importFiles, tagsOf, CARD_TYPES, SPINES, TINTS } from "../lib/writing.js";
 import { pickFile, pickAndCrop, deleteImage, useImage } from "../lib/images.js";
 import AttList from "../components/write/AttList.vue";
@@ -152,6 +152,8 @@ const draft = ref("");
 const draftAtts = ref([]);
 const sending = ref(false);
 const replyPreview = ref("");
+const replyStatus = ref("");
+const writingModel = computed(() => role.value ? modelFor(null, role.value) : "");
 async function attachToTalk() {
   const files = await pickFile(ACCEPT, true);
   for (const f of files) {
@@ -167,7 +169,7 @@ async function send() {
   draft.value = "";
   draftAtts.value = [];
   petHears(t);
-  await run(preview => talk(role.value, p.value, t, atts, preview));
+  await run((preview, thinking) => talk(role.value, p.value, t, atts, preview, thinking));
 }
 
 // 讨论里的一句：点一下，手指旁边弹出复制、收藏、修改、重新回答、删除（都只在这本书里）
@@ -195,9 +197,10 @@ async function saveEdit(resend) {
   const { msg, text } = fixing.value;
   fixing.value = null;
   if (!resend) { msg.text = text.trim(); msg.edited = true; await saveTalk(p.value.id); return; }
-  await run(preview => editTalkAndResend(role.value, p.value, msg.id, text, preview));
+  await run((preview, thinking) => editTalkAndResend(role.value, p.value, msg.id, text, preview, thinking));
 }
-async function regen() { const m = take(); await run(preview => regenTalk(role.value, p.value, m.id, preview)); }
+async function retryReply(m) { await run((preview, thinking) => regenTalk(role.value, p.value, m.id, preview, thinking)); }
+async function regen() { await retryReply(take()); }
 async function removeMsg() {
   const m = take();
   if (!confirm("删除这一句？")) return;
@@ -208,14 +211,16 @@ const petErr = ref(false);
 async function run(fn) {
   if (sending.value || !role.value) return;
   sending.value = true;
+  replyStatus.value = "等待模型回复…";
   down();
   try {
     const r = await fn(text => {
       const el = box.value;
       const atBottom = el && el.scrollHeight - el.scrollTop - el.clientHeight < 48;
       replyPreview.value = text;
+      if (text) replyStatus.value = "正在回复…";
       if (atBottom) down();
-    });
+    }, () => { if (!replyPreview.value) replyStatus.value = "正在思考…"; });
     if (r?.notes?.length) petOnce("success");
   } catch (e) {
     toast(describeError(e), 4000);
@@ -309,12 +314,16 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
       <div v-for="m in msgs" :id="'wm-' + m.id" :key="m.id" class="m" :class="[m.from, { flash: flash === m.id }]">
         <AttList v-if="m.atts?.length" :atts="m.atts" small />
         <div v-if="m.text" class="mt" role="button" @click="openActions(m, $event)"><span v-if="m.from === 'ai'" v-html="blockMd(m.text)" /><template v-else>{{ m.text }}</template><i v-if="m.fav" class="fav">★</i></div>
+        <div v-if="m.interrupted" class="edited">
+          回复未完 · {{ m.interrupted }}
+          <button v-if="m.id === msgs.at(-1)?.id && !sending" type="button" @click="retryReply(m)">重新回答</button>
+        </div>
         <small v-if="m.edited" class="edited">改过</small>
         <span v-for="(n, i) in m.notes || []" :key="i" class="act">📌 {{ n }}</span>
       </div>
       <div v-if="sending" class="m ai">
         <div v-if="replyPreview" class="mt"><span v-html="blockMd(replyPreview)" /></div>
-        <p v-else class="typing">在想……</p>
+        <p class="typing">{{ replyStatus }}<span v-if="writingModel"> · {{ writingModel }}</span></p>
       </div>
     </div>
     <div ref="dock" class="dock">

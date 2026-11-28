@@ -203,18 +203,18 @@ async function cutTalkAfter(pid, id, keep) {
   if (i >= 0) list.splice(keep ? i + 1 : i);
 }
 // 他这条重新说一遍
-export async function regenTalk(role, p, id, onPreview) {
+export async function regenTalk(role, p, id, onPreview, onThinking) {
   await cutTalkAfter(p.id, id, false);
-  return talk(role, p, "", [], onPreview);
+  return talk(role, p, "", [], onPreview, onThinking);
 }
 // 改了自己那句，从那里重新聊
-export async function editTalkAndResend(role, p, id, text, onPreview) {
+export async function editTalkAndResend(role, p, id, text, onPreview, onThinking) {
   const m = (await loadTalk(p.id)).find(x => x.id === id);
   if (!m) return;
   m.text = text.trim();
   m.edited = true;
   await cutTalkAfter(p.id, id, true);
-  return talk(role, p, "", [], onPreview);
+  return talk(role, p, "", [], onPreview, onThinking);
 }
 
 // 这本书给他看的样子：标题 + 每张卡片（太长的截断）
@@ -329,7 +329,7 @@ export const talkLimit = writeTokens;
 export const talkAutoAt = () => Math.round(writeTokens() * AUTO);
 export function talkAfterSum(p, list) {
   const i = p.talkSum?.upTo ? list.findIndex(m => m.id === p.talkSum.upTo) : -1;
-  return i >= 0 ? list.slice(i + 1) : list;
+  return list.slice(i + 1).filter(m => !m.interrupted);
 }
 const talkSumming = {};
 export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
@@ -370,24 +370,31 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
 }
 
 // 在书桌前和他讨论：说一句，他回一句
-export async function talk(role, p, text, atts = [], onPreview) {
-  const { oneShot, visibleText } = await import("./chat.js");
+export async function talk(role, p, text, atts = [], onPreview, onThinking) {
+  const { oneShot, visibleText, describeError } = await import("./chat.js");
   const list = await loadTalk(p.id);
   if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
   else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
   const prompt = await writingPrompt(role, p, atts);
   await saveTalk(p.id); // 回复中断时也要保留她刚发的内容
-  let received = "";
-  const raw = await oneShot(role, prompt, {
-    raw: true, attachments: atts, requireComplete: true,
-    // 先显示正文，回复完整后再处理便签、卡片和进度。
-    onText: onPreview && (delta => {
-      received += delta;
-      const preview = received.replace(NOTE_TAG, "").replace(CARD_TAG, "")
-        .replace(/\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]]*)?$/, "");
-      onPreview(visibleText(preview).trim());
-    }),
-  });
+  let received = "", preview = "", raw;
+  try {
+    raw = await oneShot(role, prompt, {
+      raw: true, attachments: atts, requireComplete: true, forceStream: true, onThinking,
+      // 先显示正文，回复完整后再处理便签、卡片和进度。
+      onText: delta => {
+        received += delta;
+        const visible = received.replace(NOTE_TAG, "").replace(CARD_TAG, "")
+          .replace(/\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]]*)?$/, "");
+        preview = visibleText(visible).trim();
+        onPreview?.(preview);
+      },
+    });
+  } catch (e) {
+    list.push({ id: uid(), from: "ai", text: preview, interrupted: describeError(e), ts: Date.now() });
+    await saveTalk(p.id);
+    return { interrupted: true };
+  }
   const t0 = applyTags(p, raw);
   const t1 = applyBoardTags(role, t0.text, { project: p });
   const rest = t1.text, notes = [...t0.notes, ...t1.notes];
@@ -428,7 +435,7 @@ export async function summarize(role, p) {
   const prompt = [
     `你和${me}一起在琢磨${me}写的小说《${p.title}》。`,
     prev ? `你之前记下的：${prev.content}` : "",
-    `最近的讨论：\n${list.slice(-24).map(m => `${m.from === "me" ? me : "你"}：${m.text.slice(0, 300)}`).join("\n")}`,
+    `最近的讨论：\n${list.filter(m => !m.interrupted).slice(-24).map(m => `${m.from === "me" ? me : "你"}：${m.text.slice(0, 300)}`).join("\n")}`,
     `用两三句话写一张给自己的记忆卡：这本书现在写到哪、${me}最近在琢磨什么、卡在哪、你们定下了什么。不要细节，120 字以内。只写内容。`,
   ].filter(Boolean).join("\n");
   const text = (await oneShot(role, prompt, { helper: true })).trim();

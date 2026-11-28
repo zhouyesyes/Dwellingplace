@@ -307,8 +307,7 @@ async function chat(body, res, CORS) {
   const dec = new TextDecoder();
   let buf = "";
   try {
-    for await (const piece of up.body) {
-      buf += dec.decode(piece, { stream: true });
+    const readEvents = () => {
       let separator;
       while ((separator = /\r?\n\r?\n/.exec(buf))) {
         const block = buf.slice(0, separator.index);
@@ -342,7 +341,13 @@ async function chat(body, res, CORS) {
         else if (ev.type === "error") failed = ev.error || ev;
         else noteEvent(ev);
       }
+    };
+    for await (const piece of up.body) {
+      buf += dec.decode(piece, { stream: true });
+      readEvents();
     }
+    buf += dec.decode() + "\n\n";
+    readEvents();
   } catch (e) { if (!failed && !ctrl.signal.aborted) failed = { message: `连接断了：${e.message}` }; }
   if (!failed && !finishReason) failed = { message: "连接在回复结束前断开了" };
   const u = usage ? { prompt_tokens: usage.input_tokens || 0, completion_tokens: usage.output_tokens || 0, total_tokens: usage.total_tokens || 0, prompt_tokens_details: { cached_tokens: usage.input_tokens_details?.cached_tokens || 0 } } : undefined;
