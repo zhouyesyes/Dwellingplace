@@ -191,7 +191,7 @@ const isOpenAI = api => /api\.openai\.com|\/openai\/v1\/?$/i.test(api?.baseUrl |
 // 某个接口不认这个参数，就记下来，以后不再给它发
 const noCacheKey = new Set();
 
-async function openaiStream({ api, model, system, messages, signal, onText, onThinking, onFinish, cacheKey, requireComplete, forceStream }) {
+async function openaiStream({ api, model, system, messages, signal, onText, onTextReplace, onThinking, onFinish, cacheKey, requireComplete, forceStream }) {
   const stream = forceStream || streaming();
   const body = {
     model,
@@ -264,7 +264,8 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
   const emit = () => {
     const parts = splitThink(content);
     const fullThinking = reasoning + parts.thinking;
-    if (parts.text.startsWith(text) && parts.text.length > text.length) onText(parts.text.slice(text.length));
+    if (!parts.text.startsWith(text)) onTextReplace?.(parts.text);
+    else if (parts.text.length > text.length) onText(parts.text.slice(text.length));
     if (fullThinking.startsWith(thinking) && fullThinking.length > thinking.length) onThinking?.(fullThinking.slice(thinking.length));
     text = parts.text;
     thinking = fullThinking;
@@ -291,15 +292,17 @@ async function openaiStream({ api, model, system, messages, signal, onText, onTh
         const r = delta.reasoning_content ?? delta.reasoning ?? delta.reasoning_text
           ?? (Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map(d => d.summary ?? d.text ?? "").join("") || undefined : undefined);
         if (typeof r === "string" && r) reasoning += r;
-        if (delta.content) content += delta.content;
-        if (r || delta.content) emit();
+        const replacement = isPlan(api) && typeof delta.qisuo_full_text === "string";
+        if (replacement) content = delta.qisuo_full_text;
+        else if (delta.content) content += delta.content;
+        if (r || delta.content || replacement) emit();
         // 命中缓存的输入：OpenAI / Gemini 写在 prompt_tokens_details 里，DeepSeek 叫 prompt_cache_hit_tokens
         if (j.usage) usage = { input: j.usage.prompt_tokens ?? 0, output: j.usage.completion_tokens ?? 0, cached: j.usage.prompt_tokens_details?.cached_tokens ?? j.usage.prompt_cache_hit_tokens ?? j.usage.cached_tokens ?? 0 };
       }
     }
-    if (done || sawDone) break;
+    if (done || sawDone || (requireComplete && isPlan(api) && finishReason)) break;
   }
-  if (sawDone) void reader.cancel().catch(() => {});
+  if (sawDone || (requireComplete && isPlan(api) && finishReason)) void reader.cancel().catch(() => {});
   onFinish?.(finishReason || (sawDone ? "[DONE]" : null), responseModel, usage.output);
   checkFinish(finishReason, responseModel, usage.output);
   if (requireComplete && !sawDone && !finishReason) throw new Error("连接在回复结束前断开了。");
@@ -317,7 +320,12 @@ export async function streamChat(opts) {
   const fn = api.type === "openai" ? openaiStream : anthropicStream;
   // 网络断了（手机信号、切到后台、中转平台掐断……）或者平台太忙：还没收到任何内容的话，自动再试两次
   let got = false;
-  const o = { ...opts, model, onText: d => { got = true; opts.onText?.(d); }, onThinking: d => { got = true; opts.onThinking?.(d); } };
+  const o = {
+    ...opts, model,
+    onText: d => { got = true; opts.onText?.(d); },
+    onTextReplace: t => { got = true; opts.onTextReplace?.(t); },
+    onThinking: d => { got = true; opts.onThinking?.(d); },
+  };
   for (let i = 0; ; i++) {
     try {
       return await fn(o);

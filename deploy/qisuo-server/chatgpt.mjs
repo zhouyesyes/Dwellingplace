@@ -342,6 +342,10 @@ async function chat(body, res, CORS) {
           if (finalText.length > text.length && finalText.startsWith(text)) {
             if (stream) res.write(chunk({ content: finalText.slice(text.length) }));
             text = finalText;
+          } else if (finalText && !text.startsWith(finalText)) {
+            // 丢的是中间一段时，不能靠追加尾巴修好，交给前端整条替换。
+            text = finalText;
+            if (stream) res.write(chunk({ qisuo_full_text: text }));
           }
           if (ev.type === "response.completed") {
             finishReason = "stop";

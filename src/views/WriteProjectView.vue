@@ -200,6 +200,7 @@ async function saveEdit(resend) {
   await run((preview, thinking) => editTalkAndResend(role.value, p.value, msg.id, text, preview, thinking));
 }
 async function retryReply(m) { await run((preview, thinking) => regenTalk(role.value, p.value, m.id, preview, thinking)); }
+async function continueReply(m) { await run((preview, thinking) => talk(role.value, p.value, "", [], preview, thinking, m.id)); }
 async function regen() { await retryReply(take()); }
 async function removeMsg() {
   const m = take();
@@ -316,7 +317,10 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
         <div v-if="m.text" class="mt" role="button" @click="openActions(m, $event)"><span v-if="m.from === 'ai'" v-html="blockMd(m.text)" /><template v-else>{{ m.text }}</template><i v-if="m.fav" class="fav">★</i></div>
         <div v-if="m.interrupted" class="edited">
           回复未完 · {{ m.interrupted }}
-          <button v-if="m.id === msgs.at(-1)?.id && !sending" type="button" @click="retryReply(m)">重新回答</button>
+        </div>
+        <div v-if="m.from === 'ai' && m.id === msgs.at(-1)?.id && !sending && m.interrupted" class="edited">
+          <button v-if="m.text" type="button" @click="continueReply(m)">接着写</button>
+          <button v-else type="button" @click="retryReply(m)">重新回答</button>
         </div>
         <details v-if="m.diagnostics" class="edited">
           <summary>回复诊断</summary>
@@ -392,6 +396,7 @@ const when = ts => new Date(ts).toLocaleString("zh-CN", { month: "numeric", day:
           <button @click="copyMsg"><Icon name="copy" :size="17" />复制</button>
           <button @click="favMsg()"><Icon name="star" :size="17" />{{ actionMsg.fav ? "取消收藏" : "收藏" }}</button>
           <button @click="startEdit"><Icon name="edit" :size="17" />修改</button>
+          <button v-if="actionMsg.from === 'ai' && actionMsg.text && actionMsg.id === msgs.at(-1)?.id" :disabled="sending" @click="continueReply(take())"><Icon name="edit" :size="17" />接着写</button>
           <button v-if="actionMsg.from === 'ai'" :disabled="sending" @click="regen"><Icon name="refresh" :size="17" />重新回答</button>
           <button class="danger" @click="removeMsg"><Icon name="trash" :size="17" />删除</button>
         </div>

@@ -370,12 +370,18 @@ export async function compressTalk(role, p, { keep, why = "manual" } = {}) {
 }
 
 // 在书桌前和他讨论：说一句，他回一句
-export async function talk(role, p, text, atts = [], onPreview, onThinking) {
+export async function talk(role, p, text, atts = [], onPreview, onThinking, continueId) {
   const { oneShot, visibleText, describeError } = await import("./chat.js");
   const list = await loadTalk(p.id);
+  const previous = continueId && list.at(-1);
+  if (continueId && (previous?.id !== continueId || previous.from !== "ai" || !previous.text)) return;
   if (text.trim() || atts.length) list.push({ id: uid(), from: "me", text: text.trim(), atts, ts: Date.now() });
   else if (list.at(-1)?.from === "me") atts = list.at(-1).atts || []; // 重新回答：带上那句里的图片、文件
-  const prompt = await writingPrompt(role, p, atts);
+  else if (previous) atts = list.slice(0, -1).findLast(m => m.from === "me")?.atts || [];
+  const context = await writingPrompt(role, p, atts);
+  const prompt = previous
+    ? `${context}\n\n# 接着回答上一条\n以下是已经显示的正文：\n${previous.text}\n\n接着把没说完的话说完。从下一段开始，直接给后续内容，避免重复前半段。`
+    : context;
   await saveTalk(p.id); // 回复中断时也要保留她刚发的内容
   let received = "", preview = "", raw;
   let lastTextAt, finish, model, outputTokens;
@@ -387,6 +393,29 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
     idleTimer = setTimeout(() => controller.abort(), 60_000);
   };
   const showReply = text => visibleText(text.replace(NOTE_TAG, "").replace(CARD_TAG, "")).trim();
+  const updatePreview = text => {
+    received = text;
+    lastTextAt = Date.now();
+    watchReply();
+    // 只隐藏独立行上的指令前缀，正文里的「[」和普通括注照常显示。
+    preview = showReply(received.replace(/(?:^|\n)[ \t]*\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]\n]*)?$|(?:^|\n)[ \t]*\[$/, ""));
+    onPreview?.(preview);
+  };
+  const saveReply = async (text, notes = [], interrupted) => {
+    // 续写成功或收到后续正文才接回原气泡。空续写失败时仍保留原来的正文。
+    const target = previous && list.at(-1)?.id === previous.id ? list.at(-1) : null;
+    if (target) {
+      if (text) target.text += "\n\n" + text;
+      if (notes.length) target.notes = [...(target.notes || []), ...notes];
+      if (interrupted) target.interrupted = interrupted;
+      else delete target.interrupted;
+      target.diagnostics = diagnostics(text);
+    } else {
+      list.push({ id: uid(), from: "ai", text, notes, interrupted, diagnostics: diagnostics(text), ts: Date.now() });
+    }
+    onPreview?.("");
+    await saveTalk(p.id);
+  };
   const diagnostics = saved => ({
     model, finish, outputTokens, waitMs: lastTextAt == null ? null : Date.now() - lastTextAt,
     received: received.length, preview: preview.length, returned: raw?.length, saved: saved.length,
@@ -400,20 +429,12 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
       },
       onFinish: (reason, name, tokens) => { finish = reason; model = name; outputTokens = tokens; },
       // 先显示正文，回复完整后再处理便签、卡片和进度。
-      onText: delta => {
-        received += delta;
-        lastTextAt = Date.now();
-        watchReply();
-        // 只隐藏独立行上的指令前缀，正文里的「[」和普通括注照常显示。
-        preview = showReply(received.replace(/(?:^|\n)[ \t]*\[(?:便(?:签)?|新(?:卡(?:片)?)?)(?:[:：][^\]\n]*)?$|(?:^|\n)[ \t]*\[$/, ""));
-        onPreview?.(preview);
-      },
+      onText: delta => updatePreview(received + delta),
+      onTextReplace: updatePreview,
     });
   } catch (e) {
     const interrupted = controller.signal.aborted ? "模型已开始回复，但连续 60 秒没有发来新内容。" : describeError(e);
-    list.push({ id: uid(), from: "ai", text: preview, interrupted, diagnostics: diagnostics(preview), ts: Date.now() });
-    onPreview?.("");
-    await saveTalk(p.id);
+    await saveReply(preview, [], interrupted);
     return { interrupted: true };
   } finally {
     clearTimeout(idleTimer);
@@ -422,9 +443,11 @@ export async function talk(role, p, text, atts = [], onPreview, onThinking) {
   const t1 = applyBoardTags(role, t0.text, { project: p });
   const rest = t1.text, notes = [...t0.notes, ...t1.notes];
   const reply = visibleText(rest).trim();
-  list.push({ id: uid(), from: "ai", text: reply, notes, diagnostics: diagnostics(reply), ts: Date.now() });
-  onPreview?.("");
-  await saveTalk(p.id);
+  if (previous && !reply) {
+    await saveReply("", notes, "接口没有返回续写正文。");
+    return { interrupted: true };
+  }
+  await saveReply(reply, notes);
   touch(p.id);
   if (sumTokens(talkAfterSum(p, list)) >= talkAutoAt()) compressTalk(role, p, { why: "limit" }).catch(e => console.warn("讨论摘要没整理成", e));
   return { reply, notes };
