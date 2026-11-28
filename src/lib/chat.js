@@ -117,7 +117,8 @@ export function visibleText(text) {
     .replace(new RegExp(TOOL_CALL_RE.source, "g"), "")
     .replace(/<tool_call[\s\S]*$/, "")
     .replace(/<[^>]{0,20}(invoke|function_calls)[\s\S]*$/, "")
-    .replace(/\n?\s*\[(签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续|戳|潮|水|提|心|房)[^\]]*$/, "")
+    // 正文里的普通方括号不能把后面几段一起藏掉。只隐藏末行未写完的指令。
+    .replace(/(?:^|\n)[ \t]*\[(?:签|记|改|删|搜|定|取|画|头|写|此|过|归|常|笔|引|停|续|戳|潮|水|提|心|房)[^\]\s:：]{0,12}(?:[:：][^\]\r\n]*)?$/, "")
     .trimEnd();
 }
 
@@ -578,12 +579,19 @@ export async function generate(thread, parentId, { speaker = null, resume = null
     const i = history.findIndex(m => m.id === parentId);
     history = i >= 0 ? history.slice(0, i + 1) : parentId === ROOT ? [] : history;
   }
-  if (continueFrom && (thread.group || pathOf(thread, all).at(-1)?.id !== continueFrom || !history.at(-1)?.incomplete)) return;
+  if (continueFrom) {
+    const previous = history.at(-1);
+    if (thread.group || thread.mail || thread.studio || previous?.id !== continueFrom
+      || pathOf(thread, all).at(-1)?.id !== continueFrom || previous.from !== "ai"
+      || previous.pending || previous.error || !visibleText(previous.text || "").trim()) return;
+  }
   const parent = history.length ? history[history.length - 1].id : ROOT;
   const summaryMatches = !thread.summary?.upTo || history.some(m => m.id === thread.summary.upTo);
   const summary = thread.summary;
   const summaryKey = summaryMatches && summary?.text ? JSON.stringify([summary.upTo ?? null, summary.at ?? null]) : null;
+  const continuation = continueFrom ? history.at(-1) : null;
   history = afterSummary(thread, history); // 整理成摘要的那段不再一条条带上
+  if (continuation && !history.length) history = [continuation];
   if (!group && !thread.mail && !thread.studio) history = await withGroupLines(role, thread, history); // 群里说的话按时间排进来（标「群聊」）
   const privateChat = !group && !thread.mail && !thread.studio;
   const codex = !!resume || privateChat && thread.replyBackend === "codex";
@@ -725,8 +733,14 @@ export async function generate(thread, parentId, { speaker = null, resume = null
           onThinking: d => { msg.thinking += d; },
         });
         await pace.drain();
+        if (ctrl.signal.aborted && !msg.sends) throw ctrl.signal.reason;
       } catch (e) {
         pace.stop();
+        if (privateChat && ctrl.signal.aborted && !msg.sends && received) {
+          msg.text = visibleText(msg.text.slice(0, base) + received).trim();
+          if (msg.text) msg.incomplete = "生成已停止";
+          return;
+        }
         if (!ctrl.signal.aborted && received) {
           const partial = visibleText(received).trim();
           if (privateChat && partial && !msg.sends && !e.contentFiltered) {
@@ -1000,6 +1014,7 @@ export async function generate(thread, parentId, { speaker = null, resume = null
   } catch (err) {
     if (ctrl.signal.aborted || err?.name === "AbortError" || err?.constructor?.name === "APIUserAbortError") {
       msg.text = visibleText(msg.text);
+      if (privateChat && msg.text && !msg.sends) msg.incomplete = "生成已停止";
     } else {
       msg.error = true;
       msg.text = describeError(err);

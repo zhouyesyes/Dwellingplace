@@ -838,6 +838,15 @@ async function regen() {
   if (busy.value) return;
   await regenerate(thread.value, m.id);
 }
+function canContinue(m) {
+  return !isGroup && !thread.value?.mail && !thread.value?.studio && m.from === "ai"
+    && !m.pending && !m.error && messages.value.at(-1)?.id === m.id && !!visibleText(m.text || "").trim();
+}
+function continueReply(m) {
+  if (busy.value || !canContinue(m)) return;
+  actionMsg.value = null;
+  return generate(thread.value, m.id, { continueFrom: m.id });
+}
 async function removeAll() {
   const m = actionMsg.value;
   actionMsg.value = null;
@@ -1137,7 +1146,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
                     <div v-if="src(m).pending && (src(m).paused || src(m).typing) && splitBubbles(m.text).length" class="bubble typing"><i /><i /><i /></div>
                     <div v-if="src(m).incomplete" class="reply-incomplete">
                       <span>回复未完 · {{ src(m).incomplete }}</span>
-                      <button v-if="messages.at(-1)?.id === src(m).id" type="button" :disabled="busy" @click="generate(thread, src(m).id, { continueFrom: src(m).id })">接着写</button>
+                      <button v-if="canContinue(src(m))" type="button" :disabled="busy" @click="continueReply(src(m))">接着写</button>
                     </div>
                     <AskCard v-if="src(m).ask && !src(m).pending" :ask="src(m).ask" :disabled="busy" @submit="a => answerAsk(src(m), a)" />
                     <GardenRoomCard v-if="src(m).rooms?.length && !src(m).pending" :rooms="src(m).rooms" :run="src(m).roomRun" :role="speakerOf(src(m).who)" />
@@ -1308,6 +1317,7 @@ onBeforeUnmount(() => clearTimeout(pokeTimer));
           <button v-if="!actionMsg.error && !actionMsg.share" @click="favMsg"><Icon name="star" :size="17" />{{ isFav(actionMsg) ? "取消收藏" : "收藏" }}</button>
           <button v-if="!actionMsg.error && !actionMsg.share" @click="startEdit"><Icon name="edit" :size="17" />修改</button>
           <button v-if="actionMsg.from === 'ai'" :disabled="busy" @click="regen"><Icon name="refresh" :size="17" />重新生成</button>
+          <button v-if="canContinue(actionMsg)" :disabled="busy" @click="continueReply(actionMsg)"><Icon name="chat" :size="17" />接着写</button>
           <button class="danger" @click="removeMsg"><Icon name="trash" :size="17" />{{ vers(actionMsg).list.length > 1 ? "删除这个版本" : "删除" }}</button>
           <button v-if="vers(actionMsg).list.length > 1" class="danger" @click="removeAll"><Icon name="trash" :size="17" />删除全部 {{ vers(actionMsg).list.length }} 个</button>
         </div>
