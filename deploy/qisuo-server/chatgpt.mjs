@@ -266,6 +266,34 @@ function errMsg(err) {
 
 let noCacheKey = false; // prompt_cache_key 被拒过一次就不再发
 
+// 正文可能在三种结束事件里补全；按输出和段落编号收集，避免漏掉中间段或重复追加。
+export function responseTextCollector() {
+  const parts = new Map();
+  const put = (oi, ci, value, append = false) => {
+    if (typeof value !== "string") return;
+    const key = `${oi ?? 0}:${ci ?? 0}`;
+    parts.set(key, append ? (parts.get(key) || "") + value : value);
+  };
+  const itemText = (item, oi) => {
+    if (item?.type !== "message") return;
+    (item.content || []).forEach((part, ci) => {
+      if (part.type === "output_text") put(oi, ci, part.text);
+    });
+  };
+  return ev => {
+    if (ev.type === "response.output_text.delta") put(ev.output_index, ev.content_index, ev.delta, true);
+    else if (ev.type === "response.output_text.done") put(ev.output_index, ev.content_index, ev.text);
+    else if (ev.type === "response.content_part.done" && ev.part?.type === "output_text") put(ev.output_index, ev.content_index, ev.part.text);
+    else if (ev.type === "response.output_item.done") itemText(ev.item, ev.output_index);
+    else if (ev.type === "response.completed" || ev.type === "response.incomplete") (ev.response?.output || []).forEach(itemText);
+    else return null;
+    return [...parts].sort(([a], [b]) => {
+      const [ao, ac] = a.split(":").map(Number), [bo, bc] = b.split(":").map(Number);
+      return ao - bo || ac - bc;
+    }).map(([, value]) => value).join("");
+  };
+}
+
 async function chat(body, res, CORS) {
   const { instructions, input } = toInput(body.messages);
   const req = {
@@ -304,10 +332,12 @@ async function chat(body, res, CORS) {
   const chunk = delta => `data: ${JSON.stringify({ id, object: "chat.completion.chunk", model: body.model, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`;
   if (stream) res.writeHead(200, { ...CORS, "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
   let text = "", reasoning = "", usage = null, failed = null, finishReason = null;
-  const textParts = new Map();
-  const appendText = delta => {
-    text += delta;
-    if (stream) res.write(chunk({ content: delta }));
+  const collectText = responseTextCollector();
+  const reconcileText = ev => {
+    const next = collectText(ev);
+    if (next == null || next === text) return;
+    if (stream) res.write(chunk(next.startsWith(text) ? { content: next.slice(text.length) } : { qisuo_full_text: next }));
+    text = next;
   };
   const dec = new TextDecoder();
   let buf = "";
@@ -320,33 +350,9 @@ async function chat(body, res, CORS) {
         const data = block.split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim()).join("");
         if (!data || data === "[DONE]") continue;
         let ev; try { ev = JSON.parse(data); } catch { continue; }
-        if (ev.type === "response.output_text.delta" || ev.type === "response.output_text.done") {
-          const key = `${ev.output_index ?? 0}:${ev.content_index ?? 0}`;
-          const previous = textParts.get(key) || "";
-          if (ev.type === "response.output_text.delta" && typeof ev.delta === "string") {
-            textParts.set(key, previous + ev.delta);
-            if (ev.delta) appendText(ev.delta);
-          }
-          // 正文先于整轮结束。结束事件迟到或丢失时，已经确认的尾段也要先交给页面。
-          if (ev.type === "response.output_text.done" && typeof ev.text === "string" && ev.text.startsWith(previous) && ev.text.length > previous.length) {
-            textParts.set(key, ev.text);
-            appendText(ev.text.slice(previous.length));
-          }
-        }
-        else if (ev.type === "response.reasoning_summary_text.delta" || ev.type === "response.reasoning_text.delta") { reasoning += ev.delta; if (stream) res.write(chunk({ reasoning: ev.delta })); }
+        reconcileText(ev);
+        if (ev.type === "response.reasoning_summary_text.delta" || ev.type === "response.reasoning_text.delta") { reasoning += ev.delta; if (stream) res.write(chunk({ reasoning: ev.delta })); }
         else if (ev.type === "response.completed" || ev.type === "response.incomplete") {
-          // 结束事件带完整正文。流里缺了末尾时，把能确定的差额补回去。
-          const finalText = (ev.response?.output || []).filter(item => item.type === "message")
-            .flatMap(item => item.content || []).filter(part => part.type === "output_text")
-            .map(part => part.text || "").join("");
-          if (finalText.length > text.length && finalText.startsWith(text)) {
-            if (stream) res.write(chunk({ content: finalText.slice(text.length) }));
-            text = finalText;
-          } else if (finalText && !text.startsWith(finalText)) {
-            // 丢的是中间一段时，不能靠追加尾巴修好，交给前端整条替换。
-            text = finalText;
-            if (stream) res.write(chunk({ qisuo_full_text: text }));
-          }
           if (ev.type === "response.completed") {
             finishReason = "stop";
             usage = ev.response?.usage;
